@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFrameworks>net10.0;netstandard2.0</TargetFrameworks>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -20,8 +20,12 @@
   </ItemGroup>
 
   <Import Project="..\..\DNN_Platform.build" />
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="XCOPY &quot;$(ProjectDir)bin\$(ConfigurationName)\netstandard2.0\DotNetNuke.Abstractions*&quot; &quot;$(WebsitePath)\bin&quot; /S /Y /I" />
+  <!-- The .NET Framework website consumes the netstandard2.0 build (cross-platform copy instead of XCOPY). -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <ItemGroup>
+      <AbstractionsOutput Include="$(ProjectDir)bin\$(Configuration)\netstandard2.0\DotNetNuke.Abstractions*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(AbstractionsOutput)" DestinationFolder="$(WebsitePath)\bin" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

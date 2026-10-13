@@ -1,109 +1,42 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="14.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
-    <Deterministic>true</Deterministic>
-    <TargetFrameworkProfile />
-  </PropertyGroup>
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{3B2FA1D9-EC7D-4CEC-8FF5-A7700CF5CB40}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <TargetFramework>net48</TargetFramework>
     <RootNamespace>Dnn.AuthServices.Jwt</RootNamespace>
     <AssemblyName>Dnn.AuthServices.Jwt</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.AuthServices.Jwt.XML</DocumentationFile>
+    <OutputPath>bin</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <EnableDefaultContentItems>false</EnableDefaultContentItems>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.AuthServices.Jwt.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-  </PropertyGroup>
+
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Data" />
     <Reference Include="System.IdentityModel" />
-    <Reference Include="System.Numerics" />
-    <Reference Include="System.Numerics" />
+    <Reference Include="System.Net.Http" />
     <Reference Include="System.Security" />
     <Reference Include="System.Web" />
-    <Reference Include="System.Net.Http" />
-    <Reference Include="System.XML" />
   </ItemGroup>
-  <ItemGroup>
-    <Compile Include="Auth\JwtAuthMessageHandler.cs" />
-    <Compile Include="Components\Common\Controllers\IJwtController.cs" />
-    <Compile Include="Components\Common\Controllers\JwtController.cs" />
-    <Compile Include="Components\Entity\LoginData.cs" />
-    <Compile Include="Components\Entity\PersistedToken.cs" />
-    <Compile Include="Components\Entity\RenewalDto.cs" />
-    <Compile Include="Components\Schedule\PurgeExpiredTokensTask.cs" />
-    <Compile Include="Data\IDataService.cs" />
-    <Compile Include="Data\DataService.cs" />
-    <Compile Include="Components\Entity\LoginResultData.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Services\MobileController.cs" />
-    <Compile Include="Services\ServiceRouteMapper.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <AdditionalFiles Include="..\..\stylecop.json">
-      <Link>stylecop.json</Link>
-    </AdditionalFiles>
-    <Content Include="Data\Scripts\09.08.00.SqlDataProvider" />
-    <None Include="Dnn.Jwt.dnn">
-      <SubType>Designer</SubType>
-    </None>
-    <None Include="Library.build" />
-    <Content Include="Data\Scripts\01.00.00.SqlDataProvider" />
-    <None Include="Data\Scripts\Uninstall.SqlDataProvider" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="license.txt" />
-    <Content Include="releaseNotes.txt" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj">
-      <Project>{6928A9B1-F88A-4581-A132-D3EB38669BB0}</Project>
-      <Name>DotNetNuke.Abstractions</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj">
-      <Project>{3cd5f6b8-8360-4862-80b6-f402892db7dd}</Project>
-      <Name>DotNetNuke.Instrumentation</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\DotNetNuke.Web\DotNetNuke.Web.csproj">
-      <Project>{ee1329fe-fd88-4e1a-968c-345e394ef080}</Project>
-      <Name>DotNetNuke.Web</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\Library\DotNetNuke.Library.csproj">
-      <Project>{6b29aded-7b56-4484-bea5-c0e09079535b}</Project>
-      <Name>DotNetNuke.Library</Name>
-    </ProjectReference>
-  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
   </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
+    <ProjectReference Include="..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
+    <ProjectReference Include="..\DotNetNuke.Web\DotNetNuke.Web.csproj" />
+    <ProjectReference Include="..\Library\DotNetNuke.Library.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="..\..\stylecop.json" Link="stylecop.json" />
+  </ItemGroup>
+
   <Import Project="Library.build" />
 </Project>

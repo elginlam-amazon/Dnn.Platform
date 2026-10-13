@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    Libraries that multi-target a modern .NET TFM together with netstandard2.0 / net48 share one code base.
+    On the modern leg the .NET analyzers suggest APIs that do not exist on netstandard2.0 / .NET Framework
+    (ArgumentNullException.ThrowIfNull, string.Contains(char), Dictionary.TryAdd, span based overloads,
+    StringBuilder.Append(IFormatProvider, interpolated handler), ...). Applying them would require duplicating
+    the code behind #if blocks, so they are only silenced for the modern leg; the netstandard2.0 / net48 legs
+    keep running the full analyzer set (including CA1305) on the very same code.
+  -->
+  <PropertyGroup Condition="'$(TargetFrameworks)' != '' And ($(TargetFrameworks.Contains('netstandard2.0')) Or $(TargetFrameworks.Contains('net48'))) And $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net5.0'))">
+    <NoWarn>$(NoWarn);CA1305;CA1510;CA1511;CA1512;CA1513;CA1845;CA1846;CA1847;CA1864;CA1865;CA1866;CA1867;CA1868;CA2249</NoWarn>
+  </PropertyGroup>
+</Project>

@@ -12,7 +12,7 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\DDRMenu</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="CopyBin;GetFiles;DebugProject;Package" />
   <Target Name="GetFiles">
     <ItemGroup>

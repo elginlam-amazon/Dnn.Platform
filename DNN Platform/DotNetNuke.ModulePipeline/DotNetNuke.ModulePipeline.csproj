@@ -38,7 +38,10 @@
 
   <Import Project="..\..\DNN_Platform.build" />
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="XCOPY &quot;$(ProjectDir)bin\$(ConfigurationName)\net48\DotNetNuke.ModulePipeline.*&quot; &quot;$(WebsitePath)\bin&quot; /S /Y /I" />
+    <ItemGroup>
+      <PostBuildCopyFiles Include="$(ProjectDir)bin\$(Configuration)\net48\DotNetNuke.ModulePipeline.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PostBuildCopyFiles)" DestinationFolder="$(WebsitePath)\bin" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

@@ -4,7 +4,7 @@
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
-    <TargetFrameworks>netstandard2.0;net48</TargetFrameworks>
+    <TargetFrameworks>net10.0;netstandard2.0;net48</TargetFrameworks>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -29,14 +29,14 @@
     <PackageReference Include="Serilog.Settings.Configuration" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
     <Reference Include="System.Web" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
     <ProjectReference Include="..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
-    <ProjectReference Include="..\DotNetNuke.Log4Net\DotNetNuke.Log4Net.csproj" />
+    <ProjectReference Include="..\DotNetNuke.Log4net\DotNetNuke.Log4Net.csproj" />
   </ItemGroup>
 
   <ItemGroup>

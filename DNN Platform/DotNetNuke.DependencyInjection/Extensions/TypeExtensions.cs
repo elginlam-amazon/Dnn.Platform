@@ -137,8 +137,8 @@ namespace DotNetNuke.DependencyInjection.Extensions
             var loaderMessages = loadException.LoaderExceptions.Select(e => e.Message).Distinct();
 
             return loaderMessages.Aggregate(
-                builder.AppendLine($"- Found {foundTypes} of {allTypes} types from {assembly.FullName}"),
-                (theBuilder, message) => theBuilder.AppendLine($"    - {message}"));
+                builder.AppendLine(FormattableString.Invariant($"- Found {foundTypes} of {allTypes} types from {assembly.FullName}")),
+                (theBuilder, message) => theBuilder.AppendLine(FormattableString.Invariant($"    - {message}")));
         }
 
         private static IEnumerable<Type> SafeGetTypes(this IEnumerable<Assembly> assemblies, Dictionary<Assembly, ReflectionTypeLoadException> loadExceptions, Dictionary<Assembly, Exception> otherExceptions)
