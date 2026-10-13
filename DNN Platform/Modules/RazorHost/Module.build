@@ -12,8 +12,8 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\RazorModules\RazorHost</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
-  <Import Project="$(BuildScriptsPath)\Module.Build"/>
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
+  <Import Project="$(BuildScriptsPath)\Module.build"/>
   <Target Name="UpdateFiles">
     <ItemGroup>
       <Resources Remove="web.config" />

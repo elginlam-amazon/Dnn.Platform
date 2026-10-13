@@ -4,5 +4,5 @@
     <UseResourceZipWorkingDirectory>True</UseResourceZipWorkingDirectory>
   </PropertyGroup>
 
-  <Import Project="Package.Targets" />
+  <Import Project="Package.targets" />
 </Project>

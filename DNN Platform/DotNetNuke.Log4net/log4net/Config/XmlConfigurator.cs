@@ -629,10 +629,10 @@ namespace log4net.Config
                         try
                         {
 #if NETSTANDARD
-                            using(var response = configRequest.GetResponseAsync().GetAwaiter().GetResult())
-                            {
+                            using (var response = configRequest.GetResponseAsync().GetAwaiter().GetResult())
 #else
                             using (var response = configRequest.GetResponse())
+#endif
                             {
                                 if (response != null)
                                 {
@@ -642,7 +642,6 @@ namespace log4net.Config
                                     }
                                 }
                             }
-#endif
                         }
                         catch(Exception ex)
                         {

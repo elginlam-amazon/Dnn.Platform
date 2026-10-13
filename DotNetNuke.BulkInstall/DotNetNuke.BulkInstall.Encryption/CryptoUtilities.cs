@@ -17,7 +17,7 @@ public static class CryptoUtilities
         // Create a new byte array of the size required.
         var bytes = new byte[length];
 
-        using var rngCsp = new RNGCryptoServiceProvider();
+        using var rngCsp = RandomNumberGenerator.Create();
 
         // Fill it with random bytes.
         rngCsp.GetBytes(bytes);
@@ -43,7 +43,7 @@ public static class CryptoUtilities
         // Convert string to byte array.
         var bytes = Encoding.UTF8.GetBytes(value);
 
-        using SHA256 sha = new SHA256Managed();
+        using SHA256 sha = SHA256.Create();
 
         // Hash bytes.
         return sha.ComputeHash(bytes);

@@ -13,8 +13,8 @@
         <ModuleFolderName>$(WebsitePath)\DesktopModules\ResourceManager</ModuleFolderName>
         <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
     </PropertyGroup>
-    <Import Project="$(BuildScriptsPath)\Package.Targets" />
-    <Import Project="$(BuildScriptsPath)\Module.Build"/>
+    <Import Project="$(BuildScriptsPath)\Package.targets" />
+    <Import Project="$(BuildScriptsPath)\Module.build"/>
     <Target Name="CopyScripts" BeforeTargets="UpdateFiles">
         <PropertyGroup>
             <ComponentsDestinationFolder>$(MSBuildProjectDirectory)\Scripts\dnn-resource-manager</ComponentsDestinationFolder>
