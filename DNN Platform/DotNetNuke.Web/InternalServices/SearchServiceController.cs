@@ -14,7 +14,6 @@ using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Web;
 using System.Web.Caching;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Common;
@@ -30,7 +29,11 @@ using DotNetNuke.Services.Search.Internals;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.InternalServices.Views.Search;
 
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for searching.</summary>
 [DnnAuthorize(StaticRoles = "Administrators")]

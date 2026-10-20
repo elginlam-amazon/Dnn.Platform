@@ -3,11 +3,9 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.UI.WebControls
 {
-    using System.Security.Permissions;
     using System.Web;
     using System.Web.UI;
 
-    [AspNetHostingPermission(SecurityAction.Demand, Level = AspNetHostingPermissionLevel.Minimal)]
     public class NavDataSource : HierarchicalDataSourceControl
     {
         // Return a strongly typed view for the current data source control.

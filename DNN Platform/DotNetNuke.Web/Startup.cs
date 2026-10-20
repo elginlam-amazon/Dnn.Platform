@@ -3,8 +3,6 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Web
 {
-    using System.Web.Http.Filters;
-
     using DotNetNuke.Common.Internal;
     using DotNetNuke.DependencyInjection;
     using DotNetNuke.Web.Api.Auth.ApiTokens;
@@ -24,7 +22,6 @@ namespace DotNetNuke.Web
         /// <inheritdoc />
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddTransient<IFilterProvider, DnnActionFilterProvider>();
             services.TryAddEnumerable(new ServiceDescriptor(typeof(IRoutingManager), typeof(ServicesRoutingManager), ServiceLifetime.Singleton));
             services.AddWebApi();
 

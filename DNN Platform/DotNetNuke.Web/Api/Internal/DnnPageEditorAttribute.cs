@@ -20,7 +20,7 @@ namespace DotNetNuke.Web.Api.Internal
         {
             Requires.NotNull("context", context);
 
-            return PagePermissionsAttributesHelper.HasTabPermission("EDIT,CONTENT,MANAGE") || IsModuleAdmin(((DnnApiController)context.ActionContext.ControllerContext.Controller).PortalSettings);
+            return PagePermissionsAttributesHelper.HasTabPermission("EDIT,CONTENT,MANAGE") || IsModuleAdmin(PortalSettings.Current);
         }
 
         private static bool IsModuleAdmin(PortalSettings portalSettings)

@@ -7,17 +7,18 @@ namespace DotNetNuke.Data.PetaPoco
     using System;
     using System.Collections.Generic;
     using System.Data;
-    using System.Data.SqlClient;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Instrumentation;
+
     using global::PetaPoco;
 
+    using Microsoft.Data.SqlClient;
     using Microsoft.Extensions.Logging;
 
     public static class PetaPocoHelper
     {
-        private const string SqlProviderName = "System.Data.SqlClient";
+        private const string SqlProviderName = "Microsoft.Data.SqlClient";
 
         private static readonly ILogger Logger = DnnLoggingController.GetLogger(typeof(PetaPocoHelper));
 

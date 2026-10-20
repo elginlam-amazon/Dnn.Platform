@@ -17,7 +17,7 @@ namespace DotNetNuke.UI.WebControls
     [ToolboxData("<{0}:TrueFalseEditControl runat=server></{0}:TrueFalseEditControl>")]
     public class TrueFalseEditControl : EditControl
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<TrueFalseEditControl>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<TrueFalseEditControl>();
 
         /// <summary>
         /// Initializes a new instance of the <see cref="TrueFalseEditControl"/> class.

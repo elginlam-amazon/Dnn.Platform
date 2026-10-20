@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 /// <summary>
 /// A contract specifying the ability to take actions on files.
 /// A wrapper around functionality from <see cref="File"/>.
-/// Also provides async overloads via <see cref="SchwabenCode.QuickIO.QuickIOFile"/>.
+/// Also provides async overloads which run the <see cref="File"/> operations on the thread pool.
 /// </summary>
 public interface IFile
 {
@@ -21,37 +21,37 @@ public interface IFile
     /// <inheritdoc cref="File.Delete(string)" />
     void Delete(string path);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIOFile.DeleteAsync(string)" />
+    /// <inheritdoc cref="File.Delete(string)" />
     Task DeleteAsync(string path);
 
     /// <inheritdoc cref="File.Exists(string)" />
     bool Exists(string path);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIOFile.ExistsAsync(string)" />
+    /// <inheritdoc cref="File.Exists(string)" />
     Task<bool> ExistsAsync(string path);
 
     /// <inheritdoc cref="File.GetAttributes(string)" />
     FileAttributes GetAttributes(string path);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIOFile.GetAttributesAsync(string)" />
+    /// <inheritdoc cref="File.GetAttributes(string)" />
     Task<FileAttributes> GetAttributesAsync(string path);
 
     /// <inheritdoc cref="File.GetLastWriteTime(string)" />
     DateTime GetLastWriteTime(string path);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIOFile.GetLastWriteTimeAsync(string)" />
+    /// <inheritdoc cref="File.GetLastWriteTime(string)" />
     Task<DateTime> GetLastWriteTimeAsync(string path);
 
     /// <inheritdoc cref="File.Move(string, string)" />
     void Move(string sourceFileName, string destFileName);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIOFile.MoveAsync(string, string)" />
+    /// <inheritdoc cref="File.Move(string, string)" />
     Task MoveAsync(string sourceFileName, string destFileName);
 
     /// <inheritdoc cref="File.Copy(string, string, bool)" />
     void Copy(string sourceFileName, string destinationFileName, bool overwrite);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIOFile.CopyAsync(string, string, bool)" />
+    /// <inheritdoc cref="File.Copy(string, string, bool)" />
     Task CopyAsync(string sourceFileName, string destinationFileName, bool overwrite);
 
     /// <inheritdoc cref="File.OpenRead(string)" />
@@ -68,7 +68,7 @@ public interface IFile
     /// <inheritdoc cref="File.SetAttributes(string, FileAttributes)" />
     void SetAttributes(string path, FileAttributes fileAttributes);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIOFile.SetAttributesAsync(string, FileAttributes)" />
+    /// <inheritdoc cref="File.SetAttributes(string, FileAttributes)" />
     Task SetAttributesAsync(string path, FileAttributes fileAttributes);
 
     /// <inheritdoc cref="File.WriteAllText(string,string)" />

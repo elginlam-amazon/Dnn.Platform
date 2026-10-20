@@ -174,7 +174,7 @@ namespace Dnn.PersonaBar.Security.Components
 
         public static string GetFileCheckSum(string fileName)
         {
-            using (var cryptographyProvider = SHA256.Create(CryptoConfig.AllowOnlyFipsAlgorithms ? "System.Security.Cryptography.SHA256CryptoServiceProvider" : "System.Security.Cryptography.SHA256Cng"))
+            using (var cryptographyProvider = SHA256.Create())
             {
                 using (var stream = File.OpenRead(fileName))
                 {

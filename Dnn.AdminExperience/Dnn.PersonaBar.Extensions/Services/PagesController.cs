@@ -9,7 +9,6 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Web.Http;
 
 using Dnn.PersonaBar.Library;
 using Dnn.PersonaBar.Library.Attributes;
@@ -21,6 +20,7 @@ using Dnn.PersonaBar.Pages.Components.Security;
 using Dnn.PersonaBar.Pages.Services.Dto;
 using Dnn.PersonaBar.Themes.Components;
 using Dnn.PersonaBar.Themes.Components.DTO;
+
 using DotNetNuke.Abstractions;
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Security;
@@ -40,10 +40,12 @@ using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.UI.WebControls;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using Localization = Dnn.PersonaBar.Pages.Components.Localization;
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>API controller for the Pages persona bar module.</summary>
 [MenuPermission(MenuName = "Dnn.Pages")]
@@ -320,7 +322,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage DeletePage(PageItem page, [FromUri] bool hardDelete = false)
+    public HttpResponseMessage DeletePage(PageItem page, [FromQuery] bool hardDelete = false)
     {
         if (!this.securityService.CanDeletePage(page.Id))
         {
@@ -411,7 +413,7 @@ public class PagesController(
     /// <param name="id">the page (tab) ID.</param>
     /// <returns>Sets a cookie for edit mode on the specified page then returns a success message.</returns>
     [HttpPost]
-    public HttpResponseMessage EditModeForPage([FromUri] int id)
+    public HttpResponseMessage EditModeForPage([FromQuery] int id)
     {
         if (!TabPermissionController.CanAddContentToPage(TabController.Instance.GetTab(id, this.PortalId)))
         {
@@ -623,7 +625,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage MakePageNeutral([FromUri] int pageId)
+    public HttpResponseMessage MakePageNeutral([FromQuery] int pageId)
     {
         try
         {
@@ -655,7 +657,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage MakePageTranslatable([FromUri] int pageId)
+    public HttpResponseMessage MakePageTranslatable([FromQuery] int pageId)
     {
         try
         {
@@ -690,7 +692,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage AddMissingLanguages([FromUri] int pageId)
+    public HttpResponseMessage AddMissingLanguages([FromQuery] int pageId)
     {
         try
         {
@@ -935,7 +937,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage ClearCache([FromUri] string cacheProvider, [FromUri] int pageId)
+    public HttpResponseMessage ClearCache([FromQuery] string cacheProvider, [FromQuery] int pageId)
     {
         try
         {

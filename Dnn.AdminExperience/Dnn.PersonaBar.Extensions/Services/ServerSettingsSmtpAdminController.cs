@@ -11,11 +11,11 @@ namespace Dnn.PersonaBar.Servers.Services
     using System.Net;
     using System.Net.Http;
     using System.Text;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Servers.Services.Dto;
+
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Collections;
     using DotNetNuke.Common.Utilities;
@@ -28,7 +28,10 @@ namespace Dnn.PersonaBar.Servers.Services
     using DotNetNuke.Services.Mail.OAuth;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>Provides the APIs for SMTP settings management.</summary>
     [MenuPermission(Scope = ServiceScope.Admin)]

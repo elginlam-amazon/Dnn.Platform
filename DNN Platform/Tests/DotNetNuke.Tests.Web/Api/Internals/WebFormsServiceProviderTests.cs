@@ -3,8 +3,6 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Tests.Web.Api.Internals
 {
-    using System.Web.UI;
-
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -74,11 +72,15 @@ namespace DotNetNuke.Tests.Web.Api.Internals
             var provider = new WebFormsServiceProvider();
 
             // Act
-            var instance = provider.GetService(typeof(PageHandlerFactory));
+            // On .NET Framework this test used System.Web.UI.PageHandlerFactory (which has a
+            // non-public constructor) to exercise the WebFormsServiceProvider fallback that activates
+            // types with no public constructor. PageHandlerFactory no longer exists on CoreWebForms,
+            // so a local type with a protected constructor stands in for it (same code path).
+            var instance = provider.GetService(typeof(ProtectedConstructorService));
 
             // Assert
             Assert.That(instance, Is.Not.Null);
-            Assert.That(instance, Is.InstanceOf<PageHandlerFactory>());
+            Assert.That(instance, Is.InstanceOf<ProtectedConstructorService>());
         }
 
         [Test]
@@ -125,6 +127,14 @@ namespace DotNetNuke.Tests.Web.Api.Internals
                 Assert.That(module.DependencyService, Is.EqualTo(module.ConstructorService));
                 Assert.That(serviceFromRequestScope, Is.EqualTo(module.ConstructorService));
                 Assert.That(serviceFromGlobalScope, Is.Not.EqualTo(module.ConstructorService));
+            }
+        }
+
+        // Stands in for the former System.Web.UI.PageHandlerFactory (non-public constructor).
+        public class ProtectedConstructorService
+        {
+            protected ProtectedConstructorService()
+            {
             }
         }
 

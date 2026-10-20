@@ -9,7 +9,6 @@ namespace Dnn.PersonaBar.Prompt.Services
     using System.Net;
     using System.Net.Http;
     using System.Text;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Library.Prompt.Models;
@@ -26,6 +25,7 @@ namespace Dnn.PersonaBar.Prompt.Services
     using DotNetNuke.Services.Log.EventLog;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -33,10 +33,11 @@ namespace Dnn.PersonaBar.Prompt.Services
 #pragma warning disable CS0618
     using IOldConsoleCommand = Dnn.PersonaBar.Library.Prompt.IConsoleCommand;
 #pragma warning restore CS0618
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = "Dnn.Prompt")]
     [RequireHost]
-    public class CommandController : ControllerBase, IServiceRouteMapper
+    public class CommandController : Dnn.PersonaBar.Prompt.Common.ControllerBase, IServiceRouteMapper
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<CommandController>();
         private static readonly string[] DenyList = ["smtppassword", "password", "pwd", "pass", "apikey",];

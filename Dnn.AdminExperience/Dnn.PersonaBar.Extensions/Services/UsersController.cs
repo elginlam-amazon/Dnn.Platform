@@ -5,17 +5,16 @@ namespace Dnn.PersonaBar.Users.Services
 {
     using System;
     using System.Collections.Generic;
-    using System.Data.SqlClient;
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Users.Components;
     using Dnn.PersonaBar.Users.Components.Contracts;
     using Dnn.PersonaBar.Users.Components.Dto;
+
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Host;
@@ -29,7 +28,11 @@ namespace Dnn.PersonaBar.Users.Services
     using DotNetNuke.Services.Mail;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.Data.SqlClient;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = "Dnn.Users")]
     public class UsersController : PersonaBarApiController
@@ -215,7 +218,7 @@ namespace Dnn.PersonaBar.Users.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.ManagePassword)]
-        public HttpResponseMessage ForceChangePassword([FromUri] int userId)
+        public HttpResponseMessage ForceChangePassword([FromQuery] int userId)
         {
             try
             {
@@ -246,7 +249,7 @@ namespace Dnn.PersonaBar.Users.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.ManagePassword)]
-        public HttpResponseMessage SendPasswordResetLink([FromUri] int userId)
+        public HttpResponseMessage SendPasswordResetLink([FromQuery] int userId)
         {
             try
             {
@@ -303,7 +306,7 @@ namespace Dnn.PersonaBar.Users.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.AuthorizeUnAuthorizeUser)]
-        public HttpResponseMessage UpdateAuthorizeStatus([FromUri] int userId, [FromUri] bool authorized)
+        public HttpResponseMessage UpdateAuthorizeStatus([FromQuery] int userId, [FromQuery] bool authorized)
         {
             try
             {
@@ -337,7 +340,7 @@ namespace Dnn.PersonaBar.Users.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.DeleteUser)]
-        public HttpResponseMessage SoftDeleteUser([FromUri] int userId)
+        public HttpResponseMessage SoftDeleteUser([FromQuery] int userId)
         {
             try
             {
@@ -366,7 +369,7 @@ namespace Dnn.PersonaBar.Users.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.DeleteUser)]
-        public HttpResponseMessage HardDeleteUser([FromUri] int userId)
+        public HttpResponseMessage HardDeleteUser([FromQuery] int userId)
         {
             try
             {
@@ -415,7 +418,7 @@ namespace Dnn.PersonaBar.Users.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.DeleteUser)]
-        public HttpResponseMessage RestoreDeletedUser([FromUri] int userId)
+        public HttpResponseMessage RestoreDeletedUser([FromQuery] int userId)
         {
             try
             {
@@ -442,7 +445,7 @@ namespace Dnn.PersonaBar.Users.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage UpdateSuperUserStatus([FromUri] int userId, [FromUri] bool setSuperUser)
+        public HttpResponseMessage UpdateSuperUserStatus([FromQuery] int userId, [FromQuery] bool setSuperUser)
         {
             try
             {
@@ -502,7 +505,7 @@ namespace Dnn.PersonaBar.Users.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.AuthorizeUnAuthorizeUser)]
-        public HttpResponseMessage UnlockUser([FromUri] int userId)
+        public HttpResponseMessage UnlockUser([FromQuery] int userId)
         {
             try
             {
@@ -597,7 +600,7 @@ namespace Dnn.PersonaBar.Users.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.ManageRoles)]
-        public HttpResponseMessage SaveUserRole(UserRoleDto userRoleDto, [FromUri] bool notifyUser, [FromUri] bool isOwner)
+        public HttpResponseMessage SaveUserRole(UserRoleDto userRoleDto, [FromQuery] bool notifyUser, [FromQuery] bool isOwner)
         {
             try
             {

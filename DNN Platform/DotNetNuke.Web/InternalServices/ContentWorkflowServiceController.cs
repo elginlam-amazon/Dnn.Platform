@@ -9,7 +9,6 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Common;
 using DotNetNuke.Entities.Content;
@@ -23,7 +22,10 @@ using DotNetNuke.Services.Exceptions;
 using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>An API controller for managing content moving through its workflow.</summary>
 /// <param name="contentController">The content controller.</param>

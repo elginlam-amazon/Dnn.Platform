@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Web.Mvc
@@ -6,14 +6,9 @@ namespace DotNetNuke.Web.Mvc
     using System;
     using System.Globalization;
     using System.IO;
-    using System.Web;
-    using System.Web.Mvc;
-    using System.Web.Routing;
     using System.Web.UI;
 
     using DotNetNuke.Abstractions.Modules;
-    using DotNetNuke.Collections;
-    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Entities.Modules;
@@ -24,6 +19,8 @@ namespace DotNetNuke.Web.Mvc
     using DotNetNuke.Web.Mvc.Framework.Modules;
     using DotNetNuke.Web.Mvc.Routing;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>WebForms control for hosting an MVC module control.</summary>
@@ -45,13 +42,17 @@ namespace DotNetNuke.Web.Mvc
         /// <inheritdoc />
         public ModuleActionCollection ModuleActions { get; protected set; }
 
+        /// <summary>Gets or sets the module request result.</summary>
         protected ModuleRequestResult Result { get; set; }
 
+        /// <summary>Gets or sets the module control key.</summary>
         protected string ControlKey { get; set; }
 
-        /// <summary>Gets or sets a value indicating whether the module controller should execute immediately (i.e. during <see cref="Control.OnInit"/> rather than <see cref="ISettingsControl.LoadSettings"/>).</summary>
+        /// <summary>Gets or sets a value indicating whether the module controller should execute immediately.</summary>
         protected bool ExecuteModuleImmediately { get; set; } = true;
 
+        /// <summary>Gets the module execution engine.</summary>
+        /// <returns>The module execution engine.</returns>
         protected static IModuleExecutionEngine GetModuleExecutionEngine()
         {
             var moduleExecutionEngine = ComponentFactory.GetComponent<IModuleExecutionEngine>();
@@ -65,14 +66,22 @@ namespace DotNetNuke.Web.Mvc
             return moduleExecutionEngine;
         }
 
-        protected static MvcHtmlString RenderModule(ModuleRequestResult moduleResult)
+        /// <summary>Renders the module result to an HTML string.</summary>
+        /// <param name="moduleResult">The module result.</param>
+        /// <returns>The rendered HTML.</returns>
+        protected static string RenderModule(ModuleRequestResult moduleResult)
         {
             using var writer = new StringWriter(CultureInfo.CurrentCulture);
-            var moduleExecutionEngine = ComponentFactory.GetComponent<IModuleExecutionEngine>();
-
+            var moduleExecutionEngine = GetModuleExecutionEngine();
             moduleExecutionEngine.ExecuteModuleResult(moduleResult, writer);
+            return writer.ToString();
+        }
 
-            return MvcHtmlString.Create(writer.ToString());
+        /// <summary>Gets the current ASP.NET Core HTTP context.</summary>
+        /// <returns>The current HTTP context.</returns>
+        protected static HttpContext GetHttpContext()
+        {
+            return System.Web.HttpContext.Current;
         }
 
         /// <summary>Runs and renders the MVC action.</summary>
@@ -80,7 +89,7 @@ namespace DotNetNuke.Web.Mvc
         {
             try
             {
-                HttpContextBase httpContext = new HttpContextWrapper(HttpContext.Current);
+                var httpContext = GetHttpContext();
 
                 var moduleExecutionEngine = GetModuleExecutionEngine();
 
@@ -103,6 +112,8 @@ namespace DotNetNuke.Web.Mvc
             this.OnInitInternal(e);
         }
 
+        /// <summary>Internal OnInit handler.</summary>
+        /// <param name="e">The event args.</param>
         protected virtual void OnInitInternal(EventArgs e)
         {
             if (this.ExecuteModuleImmediately)
@@ -118,6 +129,8 @@ namespace DotNetNuke.Web.Mvc
             this.OnPreRenderInternal(e);
         }
 
+        /// <summary>Internal OnPreRender handler.</summary>
+        /// <param name="e">The event args.</param>
         protected virtual void OnPreRenderInternal(EventArgs e)
         {
             try
@@ -128,9 +141,9 @@ namespace DotNetNuke.Web.Mvc
                 }
 
                 var mvcString = RenderModule(this.Result);
-                if (!string.IsNullOrEmpty(Convert.ToString(mvcString, CultureInfo.InvariantCulture)))
+                if (!string.IsNullOrEmpty(mvcString))
                 {
-                    this.Controls.Add(new LiteralControl(Convert.ToString(mvcString, CultureInfo.InvariantCulture)));
+                    this.Controls.Add(new LiteralControl(mvcString));
                 }
             }
             catch (Exception exc)
@@ -139,34 +152,36 @@ namespace DotNetNuke.Web.Mvc
             }
         }
 
-        protected ModuleRequestContext GetModuleRequestContext(HttpContextBase httpContext)
+        /// <summary>Builds the module request context.</summary>
+        /// <param name="httpContext">The HTTP context.</param>
+        /// <returns>The module request context.</returns>
+        protected ModuleRequestContext GetModuleRequestContext(HttpContext httpContext)
         {
             var module = this.ModuleContext.Configuration;
 
-            // TODO DesktopModuleControllerAdapter usage is temporary in order to make method testable
             var desktopModule = DesktopModuleControllerAdapter.Instance.GetDesktopModule(module.DesktopModuleID, module.PortalID);
             var defaultControl = ModuleControlControllerAdapter.Instance.GetModuleControlByControlKey(string.Empty, module.ModuleDefID);
 
             var defaultRouteData = ModuleRoutingProvider.Instance().GetRouteData(null, defaultControl);
 
             var moduleApplication = GetModuleApplication(
-                httpContext.GetScope().ServiceProvider.GetRequiredService<IBusinessControllerProvider>(),
+                httpContext.RequestServices.GetRequiredService<IBusinessControllerProvider>(),
                 desktopModule,
                 defaultRouteData);
 
             RouteData routeData;
 
-            var queryString = httpContext.Request.QueryString;
+            var queryString = httpContext.Request.Query;
 
             if (string.IsNullOrEmpty(this.ControlKey))
             {
-                this.ControlKey = queryString.GetValueOrDefault("ctl", string.Empty);
+                this.ControlKey = queryString.TryGetValue("ctl", out var ctl) ? ctl.ToString() : string.Empty;
             }
 
             var moduleId = Null.NullInteger;
-            if (queryString["moduleid"] != null)
+            if (queryString.TryGetValue("moduleid", out var moduleIdValue))
             {
-                if (!int.TryParse(queryString["moduleid"], out moduleId))
+                if (!int.TryParse(moduleIdValue, out moduleId))
                 {
                     moduleId = Null.NullInteger;
                 }
@@ -174,7 +189,6 @@ namespace DotNetNuke.Web.Mvc
 
             if (moduleId != this.ModuleContext.ModuleId && string.IsNullOrEmpty(this.ControlKey))
             {
-                // Set default routeData for module that is not the "selected" module
                 routeData = defaultRouteData;
             }
             else
@@ -183,7 +197,7 @@ namespace DotNetNuke.Web.Mvc
                 routeData = ModuleRoutingProvider.Instance().GetRouteData(httpContext, control);
             }
 
-            var moduleRequestContext = new ModuleRequestContext
+            return new ModuleRequestContext
             {
                 DnnPage = this.Page,
                 HttpContext = httpContext,
@@ -191,15 +205,16 @@ namespace DotNetNuke.Web.Mvc
                 ModuleApplication = moduleApplication,
                 RouteData = routeData,
             };
-
-            return moduleRequestContext;
         }
 
+        /// <summary>Loads the module actions produced by the module result.</summary>
+        /// <param name="requestResult">The module request result.</param>
+        /// <returns>The module action collection.</returns>
         protected ModuleActionCollection LoadActions(ModuleRequestResult requestResult)
         {
             var actions = new ModuleActionCollection();
 
-            if (requestResult.ModuleActions != null)
+            if (requestResult?.ModuleActions != null)
             {
                 foreach (ModuleAction action in requestResult.ModuleActions)
                 {
@@ -216,7 +231,6 @@ namespace DotNetNuke.Web.Mvc
             DesktopModuleInfo desktopModule,
             RouteData defaultRouteData)
         {
-            // Check if the MVC Module overrides the base ModuleApplication class.
             var moduleApplication = businessControllerProvider.GetInstance<ModuleApplication>(desktopModule);
             if (moduleApplication != null)
             {
@@ -228,12 +242,12 @@ namespace DotNetNuke.Web.Mvc
 
             var defaultControllerName = (string)defaultRouteData.Values["controller"];
             var defaultActionName = (string)defaultRouteData.Values["action"];
-            var defaultNamespaces = (string[])defaultRouteData.DataTokens["namespaces"];
+            var defaultNamespaces = defaultRouteData.DataTokens.TryGetValue("namespaces", out var ns) ? (string[])ns : null;
 
             return new ModuleApplication
             {
-                DefaultActionName = defaultControllerName,
-                DefaultControllerName = defaultActionName,
+                DefaultActionName = defaultActionName,
+                DefaultControllerName = defaultControllerName,
                 DefaultNamespaces = defaultNamespaces,
                 ModuleName = desktopModule.ModuleName,
                 FolderPath = desktopModule.FolderName,

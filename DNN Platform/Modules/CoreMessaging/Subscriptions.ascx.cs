@@ -10,7 +10,6 @@ namespace DotNetNuke.Modules.CoreMessaging
     using System.Globalization;
     using System.Linq;
     using System.Web;
-    using System.Web.Configuration;
     using System.Web.UI;
 
     using DotNetNuke.Abstractions.Application;
@@ -188,11 +187,16 @@ namespace DotNetNuke.Modules.CoreMessaging
 
         private static TimeSpan GetSessionTimeout()
         {
+            const int DefaultTimeoutMinutes = 25;
             try
             {
-                if (WebConfigurationManager.GetSection("system.web/sessionState") is SessionStateSection sessionSection)
+                var appStatus = Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
+                var configNav = Config.Load(appStatus).CreateNavigator();
+                var sessionNav = configNav?.SelectSingleNode("configuration/system.web/sessionState")
+                    ?? configNav?.SelectSingleNode("configuration/location/system.web/sessionState");
+                if (sessionNav != null)
                 {
-                    return sessionSection.Timeout;
+                    return TimeSpan.FromMinutes(XmlUtils.GetAttributeValueAsInteger(sessionNav, "timeout", DefaultTimeoutMinutes));
                 }
             }
             catch
@@ -202,7 +206,7 @@ namespace DotNetNuke.Modules.CoreMessaging
                 ////Exceptions.LogException(ex);
             }
 
-            return TimeSpan.FromMinutes(25);
+            return TimeSpan.FromMinutes(DefaultTimeoutMinutes);
         }
 
         private static IDictionary<string, string> GetSharedResources()

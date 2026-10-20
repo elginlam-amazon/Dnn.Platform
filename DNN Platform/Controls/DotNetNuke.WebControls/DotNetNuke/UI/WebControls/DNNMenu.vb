@@ -19,8 +19,7 @@ Imports System.Web.UI
 Imports System.Web.UI.WebControls
 
 Namespace DotNetNuke.UI.WebControls
-    <Designer(GetType(DNNMenuDesigner))> _
-    Public Class DNNMenu
+        Public Class DNNMenu
         Inherits WebControl
         Implements IPostBackEventHandler, IPostBackDataHandler, IClientAPICallbackEventHandler
         ' Events

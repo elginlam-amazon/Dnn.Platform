@@ -10,7 +10,6 @@ using System.Dynamic;
 using System.Net;
 using System.Net.Http;
 using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Common;
@@ -29,8 +28,11 @@ using DotNetNuke.Services.Social.Messaging.Internal;
 using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>Provides messaging web services.</summary>
 /// <param name="portalController">The portal controller.</param>

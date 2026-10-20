@@ -30,7 +30,7 @@ namespace DotNetNuke.UI.Skins.Controls
     {
         private const string MyFileName = "Toast.ascx";
 
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<Toast>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<Toast>();
         private static readonly string ToastCacheKey = "DNN_Toast_Config";
         private readonly INavigationManager navigationManager;
         private readonly IJavaScriptLibraryHelper javaScript;

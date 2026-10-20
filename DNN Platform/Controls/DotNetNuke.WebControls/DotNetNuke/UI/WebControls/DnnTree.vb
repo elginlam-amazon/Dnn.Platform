@@ -18,7 +18,7 @@ Imports System.Web.UI
 Imports System.Web.UI.WebControls
 
 Namespace DotNetNuke.UI.WebControls
-    <Designer(GetType(DNNTreeDesigner)), ControlBuilder(GetType(DNNTreeBuilder)), ToolboxData("<{0}:DNNTree runat=server></{0}:DNNTree>"), DefaultProperty("Nodes")> _
+    <ControlBuilder(GetType(DNNTreeBuilder)), ToolboxData("<{0}:DNNTree runat=server></{0}:DNNTree>"), DefaultProperty("Nodes")> _
     Public Class DnnTree
         Inherits WebControl
         Implements IPostBackEventHandler, IPostBackDataHandler, IClientAPICallbackEventHandler

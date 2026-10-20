@@ -108,7 +108,9 @@ namespace DotNetNuke.Web.Api.Auth
         {
             if (this.MustEnforceSslInRequest(request))
             {
-                return !Thread.CurrentPrincipal.Identity.IsAuthenticated;
+                // Thread.CurrentPrincipal is not set by ASP.NET Core, fall back to the user of the HTTP context
+                var principal = Thread.CurrentPrincipal ?? request.GetHttpContext()?.User;
+                return principal?.Identity?.IsAuthenticated != true;
             }
 
             Logger.AuthMessageHandlerBaseValidatingRequestVsSslModeFailed(this.AuthScheme, this.ForceSsl);

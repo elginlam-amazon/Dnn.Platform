@@ -7,7 +7,6 @@ namespace DotNetNuke.Modules.Journal
     using System;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -17,7 +16,10 @@ namespace DotNetNuke.Modules.Journal
     using DotNetNuke.Services.Social.Notifications;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.View)]
     [ValidateAntiForgeryToken]

@@ -114,11 +114,11 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
                 for (int col = 0; col < width; col++)
                 {
                     this.InitialQuantizePixel(new Color32(pSourcePixel));
-                    pSourcePixel = (IntPtr)((long)pSourcePixel + this.pixelSize);
+                    pSourcePixel = IntPtr.Add(pSourcePixel, this.pixelSize);
                 } // Now I have the pixel, call the FirstPassQuantize function...
 
                 // Add the stride to the source row
-                pSourceRow = (IntPtr)((long)pSourceRow + sourceData.Stride);
+                pSourceRow = IntPtr.Add(pSourceRow, sourceData.Stride);
             }
         }
 
@@ -179,15 +179,15 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
                         // And set the pixel in the output
                         Marshal.WriteByte(pDestinationPixel, pixelValue);
 
-                        pSourcePixel = (IntPtr)((long)pSourcePixel + this.pixelSize);
-                        pDestinationPixel = (IntPtr)((long)pDestinationPixel + 1);
+                        pSourcePixel = IntPtr.Add(pSourcePixel, this.pixelSize);
+                        pDestinationPixel = IntPtr.Add(pDestinationPixel, 1);
                     }
 
                     // Add the stride to the source row
-                    pSourceRow = (IntPtr)((long)pSourceRow + sourceData.Stride);
+                    pSourceRow = IntPtr.Add(pSourceRow, sourceData.Stride);
 
                     // And to the destination row
-                    pDestinationRow = (IntPtr)((long)pDestinationRow + outputData.Stride);
+                    pDestinationRow = IntPtr.Add(pDestinationRow, outputData.Stride);
                 }
             }
             finally

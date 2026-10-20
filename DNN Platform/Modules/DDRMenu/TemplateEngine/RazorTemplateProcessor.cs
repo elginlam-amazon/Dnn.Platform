@@ -9,9 +9,7 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
     using System.Dynamic;
     using System.IO;
     using System.Text;
-    using System.Web;
     using System.Web.UI;
-    using System.Web.WebPages;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -107,23 +105,12 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
 
         private StringWriter RenderTemplate(string virtualPath, dynamic model)
         {
-            var page = WebPageBase.CreateInstanceFromVirtualPath(virtualPath);
-            var httpContext = new HttpContextWrapper(HttpContext.Current);
-            var pageContext = new WebPageContext(httpContext, page, model);
-
             var writer = new StringWriter();
 
-            if (page is WebPage)
-            {
-                page.ExecutePageHierarchy(pageContext, writer);
-            }
-            else
-            {
 #pragma warning disable CS0618 // Type or member is obsolete
-                var razorEngine = new RazorEngine(virtualPath, null, null);
+            var razorEngine = new RazorEngine(virtualPath, null, null);
 #pragma warning restore CS0618 // Type or member is obsolete
-                razorEngine.Render<dynamic>(writer, model);
-            }
+            razorEngine.Render<dynamic>(writer, model);
 
             return writer;
         }

@@ -6,7 +6,7 @@ namespace DotNetNuke.Services.Syndication
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Net;
+    using System.Net.Http;
     using System.Web;
     using System.Xml;
 
@@ -19,6 +19,7 @@ namespace DotNetNuke.Services.Syndication
     {
         private const string OPMLDir = "/OPML/";
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<OpmlDownloadManager>();
+        private static readonly HttpClient HttpClient = new HttpClient();
         private static readonly OpmlDownloadManager TheManager = new OpmlDownloadManager();
 
         private readonly Dictionary<string, Opml> cache;
@@ -124,7 +125,7 @@ namespace DotNetNuke.Services.Syndication
             // May fail under partial trust
             try
             {
-                byte[] feed = new WebClient().DownloadData(uri.AbsoluteUri);
+                byte[] feed = HttpClient.GetByteArrayAsync(uri.AbsoluteUri).GetAwaiter().GetResult();
 
                 var opmlDoc = new XmlDocument { XmlResolver = null };
                 using (var opmlReader = XmlReader.Create(new MemoryStream(feed), new XmlReaderSettings { XmlResolver = null, }))

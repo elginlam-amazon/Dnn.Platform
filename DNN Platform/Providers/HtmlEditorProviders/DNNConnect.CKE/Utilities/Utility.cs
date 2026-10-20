@@ -12,18 +12,21 @@ namespace DNNConnect.CKEditorProvider.Utilities
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Web;
-    using System.Web.Configuration;
     using System.Web.UI;
 
     using DNNConnect.CKEditorProvider.Constants;
 
+    using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Security.Permissions;
     using DotNetNuke.Services.FileSystem;
+
+    using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>Utility Class for various helper Functions.</summary>
     public static class Utility
@@ -59,6 +62,42 @@ namespace DNNConnect.CKEditorProvider.Utilities
 
         /// <summary>FileName Cleaner Regex.</summary>
         private static readonly Regex FileNameCleaner = new Regex(FileNameCleanerExpression, RegexOptions.Compiled);
+
+        /// <summary>Encodes a string the same way the legacy JScript <c>escape()</c> function did.</summary>
+        /// <param name="value">The string to encode.</param>
+        /// <returns>The encoded string.</returns>
+        public static string JavaScriptEscape(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            // JScript escape() leaves these characters unescaped: A-Z a-z 0-9 @ * _ + - . /
+            const string unreserved = "@*_+-./";
+            var builder = new StringBuilder(value.Length * 2);
+            foreach (var character in value)
+            {
+                if (char.IsLetterOrDigit(character) && character < 128)
+                {
+                    builder.Append(character);
+                }
+                else if (unreserved.IndexOf(character) >= 0)
+                {
+                    builder.Append(character);
+                }
+                else if (character < 256)
+                {
+                    builder.AppendFormat(CultureInfo.InvariantCulture, "%{0:X2}", (int)character);
+                }
+                else
+                {
+                    builder.AppendFormat(CultureInfo.InvariantCulture, "%u{0:X4}", (int)character);
+                }
+            }
+
+            return builder.ToString();
+        }
 
         /// <summary>Check if Object is a Unit.</summary>
         /// <param name="valueToCheck">
@@ -453,17 +492,18 @@ namespace DNNConnect.CKEditorProvider.Utilities
 
             try
             {
-                var section =
-                    HttpContext.Current.GetSection("system.web/httpRuntime") as
-                    HttpRuntimeSection;
-                result = section.MaxRequestLength;
+                var appStatus = HttpContextSource.Current.GetScope().ServiceProvider.GetService<IApplicationStatusInfo>();
+
+                // Config.GetMaxUploadSize returns the httpRuntime maxRequestLength in bytes.
+                var maxUploadSizeInBytes = Config.GetMaxUploadSize(appStatus);
+                result = inkilobytes ? maxUploadSizeInBytes / 1024 : maxUploadSizeInBytes;
             }
             catch (Exception)
             {
                 result = 0;
             }
 
-            return inkilobytes ? result : (result * 1024);
+            return result;
         }
 
         /// <summary>Converts the enum value for Link Protocol to the string value used for CKE config.</summary>

@@ -42,7 +42,7 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider
         private static readonly Regex TabletRegex = new Regex("ipad|xoom|sch-i800|playbook|tablet|kindle|nexus", RegexOptions.Compiled, TimeSpan.FromSeconds(2));
         private static readonly char[] Separators = { ';', ')' };
 
-        private readonly IDictionary<string, string> properties;
+        private IDictionary<string, string> properties;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="AspNetClientCapability"/> class.
@@ -52,37 +52,17 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider
         /// <param name="browserCaps">The browser capabilities.</param>
         public AspNetClientCapability(string userAgent, HttpCapabilitiesBase browserCaps)
         {
-            this.UserAgent = userAgent;
+            this.InitializeFromUserAgent(userAgent, browserCaps != null && browserCaps.IsMobileDevice, browserCaps?.Browser);
+        }
 
-            if (browserCaps != null)
-            {
-                this.ID = browserCaps.Id;
-                this.ScreenResolutionWidthInPixels = browserCaps.ScreenPixelsWidth;
-                this.ScreenResolutionHeightInPixels = browserCaps.ScreenPixelsHeight;
-                this.IsTouchScreen = false;
-                this.BrowserName = browserCaps.Browser;
-                this.properties = browserCaps.Capabilities?.Cast<DictionaryEntry>().ToDictionary(kvp => Convert.ToString(kvp.Key, CultureInfo.InvariantCulture), kvp => Convert.ToString(kvp.Value, CultureInfo.InvariantCulture)) ?? new Dictionary<string, string>(0);
-                this.SupportsFlash = false;
-                this.HtmlPreferedDTD = null;
-
-                if (this.UserAgent.Length < 4)
-                {
-                    return;
-                }
-
-                var lowerAgent = this.UserAgent.ToLowerInvariant();
-                this.IsMobile = browserCaps.IsMobileDevice || GetIfMobile(lowerAgent);
-                this.IsTablet = GetIfTablet(lowerAgent);
-
-                try
-                {
-                    DetectOperatingSystem(lowerAgent, this.properties);
-                }
-                catch (Exception ex)
-                {
-                    Logger.AspNetClientCapabilityDetectOperatingSystemException(ex);
-                }
-            }
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AspNetClientCapability"/> class.
+        /// Constructs a new instance of ClientCapability using only the user agent string.
+        /// </summary>
+        /// <param name="userAgent">The user agent.</param>
+        public AspNetClientCapability(string userAgent)
+        {
+            this.InitializeFromUserAgent(userAgent, false, null);
         }
 
         /// <summary>
@@ -324,6 +304,42 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider
             }
 
             return true;
+        }
+
+        private void InitializeFromUserAgent(string userAgent, bool isMobileDevice, string browserName)
+        {
+            this.UserAgent = userAgent;
+
+            // On .NET (Microsoft.AspNetCore.SystemWebAdapters) the legacy .browser capabilities engine is
+            // no longer available, so the detailed Id/ScreenPixels*/Capabilities members do not exist.
+            // Rely on the user-agent based detection below (IsMobile/IsTablet/operating system) and the
+            // browser name/mobile flag the adapter still resolves from the request.
+            this.ID = browserName;
+            this.ScreenResolutionWidthInPixels = 0;
+            this.ScreenResolutionHeightInPixels = 0;
+            this.IsTouchScreen = false;
+            this.BrowserName = browserName;
+            this.properties = new Dictionary<string, string>(0);
+            this.SupportsFlash = false;
+            this.HtmlPreferedDTD = null;
+
+            if (string.IsNullOrEmpty(this.UserAgent) || this.UserAgent.Length < 4)
+            {
+                return;
+            }
+
+            var lowerAgent = this.UserAgent.ToLowerInvariant();
+            this.IsMobile = isMobileDevice || GetIfMobile(lowerAgent);
+            this.IsTablet = GetIfTablet(lowerAgent);
+
+            try
+            {
+                DetectOperatingSystem(lowerAgent, this.properties);
+            }
+            catch (Exception ex)
+            {
+                Logger.AspNetClientCapabilityDetectOperatingSystemException(ex);
+            }
         }
     }
 }

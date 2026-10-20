@@ -28,8 +28,7 @@ namespace DotNetNuke.HttpModules.DependencyInjection
         {
             context.BeginRequest += Context_BeginRequest;
 
-            var asyncHandler = new EventHandlerTaskAsyncHelper(Context_EndRequest);
-            context.AddOnEndRequestAsync(asyncHandler.BeginEventHandler, asyncHandler.EndEventHandler);
+            context.EndRequest += Context_EndRequest;
         }
 
         /// <summary>
@@ -59,20 +58,21 @@ namespace DotNetNuke.HttpModules.DependencyInjection
             context.SetScope(serviceProvider.CreateScope());
         }
 
-        private static async Task Context_EndRequest(object sender, EventArgs e)
+        private static void Context_EndRequest(object sender, EventArgs e)
         {
             var context = ((HttpApplication)sender).Context;
-            switch (context.GetScope())
+            var scope = context.GetScope();
+            context.ClearScope();
+            switch (scope)
             {
                 case IAsyncDisposable asyncDisposable:
-                    await asyncDisposable.DisposeAsync();
+                    // the System.Web adapters only provide a synchronous EndRequest event, let ASP.NET Core dispose the scope asynchronously at the end of the request
+                    ((Microsoft.AspNetCore.Http.HttpContext)context).Response.RegisterForDisposeAsync(asyncDisposable);
                     break;
                 case IDisposable disposable:
                     disposable.Dispose();
                     break;
             }
-
-            context.ClearScope();
         }
     }
 }

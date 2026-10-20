@@ -29,7 +29,7 @@ namespace DotNetNuke.Modules.Admin.Authentication.DNN
     /// <summary>The Login AuthenticationLoginBase is used to provide a login for a registered user portal.</summary>
     public partial class Login : AuthenticationLoginBase
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<Login>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<Login>();
         private readonly INavigationManager navigationManager;
         private readonly IPortalController portalController;
         private readonly IHostSettings hostSettings;

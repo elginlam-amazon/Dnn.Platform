@@ -38,7 +38,9 @@ namespace DotNetNuke.Tests.Integration.PersonaBar.Pages
         {
             await base.TestFixtureSetUp();
 
+#pragma warning disable SYSLIB0014 // ServicePointManager is obsolete; retained for the integration SSL test setup.
             ServicePointManager.ServerCertificateValidationCallback += (sender, cert, chain, sslPolicyErrors) => true;
+#pragma warning restore SYSLIB0014
 
             this.UpdateSslSettings(true);
 

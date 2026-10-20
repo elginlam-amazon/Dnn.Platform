@@ -18,7 +18,9 @@ namespace DNN.Integration.Test.Framework
         // public static string DatabaseName { get; }
         static IntegrationTestBase()
         {
+#pragma warning disable SYSLIB0014 // ServicePointManager is obsolete; retained for legacy test HTTP behavior (no-op on modern .NET).
             ServicePointManager.Expect100Continue = false;
+#pragma warning restore SYSLIB0014
 
             // setup of the whole system: take a snapshot and keep using it for all tests
             Thread.CurrentThread.CurrentCulture =

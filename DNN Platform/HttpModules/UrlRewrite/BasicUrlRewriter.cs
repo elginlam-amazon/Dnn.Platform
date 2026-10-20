@@ -253,7 +253,10 @@ namespace DotNetNuke.HttpModules.UrlRewrite
 
                 strUrl = "~/ErrorPage.aspx?status=500&error=" + server.UrlEncode(ex.Message);
                 HttpContext.Current.Response.Clear();
-                HttpContext.Current.Server.Transfer(strUrl);
+
+                // Server.Transfer is not supported on ASP.NET Core, rewrite the request to the error page instead
+                HttpContext.Current.RewritePath(strUrl, false);
+                return;
             }
 
             // Add PortalId to the log context for use in any logging that occurs during the request
@@ -389,7 +392,10 @@ namespace DotNetNuke.HttpModules.UrlRewrite
                 // 404 Error - Redirect to ErrorPage
                 strUrl = "~/ErrorPage.aspx?status=404&error=" + domainName;
                 HttpContext.Current.Response.Clear();
-                HttpContext.Current.Server.Transfer(strUrl);
+
+                // Server.Transfer is not supported on ASP.NET Core, rewrite the request to the error page instead
+                HttpContext.Current.RewritePath(strUrl, false);
+                return;
             }
 
             if (app.Context.Items["FirstRequest"] != null)

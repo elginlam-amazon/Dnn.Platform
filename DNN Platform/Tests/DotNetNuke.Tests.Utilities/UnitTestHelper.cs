@@ -4,31 +4,35 @@
 
 namespace DotNetNuke.Tests.Instance.Utilities
 {
-    using System;
-    using System.IO;
-    using System.Web;
+    using Microsoft.AspNetCore.Http;
+
+    using SystemWeb = System.Web;
 
     public static class UnitTestHelper
     {
         /// <summary>Sets the HTTP context with a valid simulated request.</summary>
         /// <param name="host">Host.</param>
         /// <param name="application">Application.</param>
-        /// <param name="appPhysicalDir"></param>
-        /// <param name="pageName"></param>
+        /// <param name="appPhysicalDir">The physical directory of the application.</param>
+        /// <param name="pageName">The page name.</param>
         public static void SetHttpContextWithSimulatedRequest(string host, string application, string appPhysicalDir, string pageName)
         {
-            const string appVirtualDir = "/";
             var page = application.Replace("/", string.Empty) + "/" + pageName;
-            var query = string.Empty;
-            TextWriter output = null;
 
-            var workerRequest = new SimulatedHttpRequest(appVirtualDir, appPhysicalDir, page, query, output, host);
-            HttpContext.Current = new HttpContext(workerRequest);
+            var coreContext = new DefaultHttpContext();
+            var request = coreContext.Request;
+            request.Method = "GET";
+            request.Scheme = "http";
+            request.Host = new HostString(host);
+            request.PathBase = "/";
+            request.Path = "/" + page;
+
+            SystemWeb.HttpContext.Current = coreContext;
         }
 
         public static void ClearHttpContext()
         {
-            HttpContext.Current = null;
+            SystemWeb.HttpContext.Current = null;
         }
     }
 }

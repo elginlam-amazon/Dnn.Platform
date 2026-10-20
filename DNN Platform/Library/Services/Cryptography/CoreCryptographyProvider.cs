@@ -22,10 +22,10 @@ internal partial class CoreCryptographyProvider : CryptographyProvider, DotNetNu
     string DotNetNuke.Abstractions.Security.ICryptographyProvider.EncryptStringAlgorithmName => $"{InterfaceEncryptStringHashAlgorithmName}|{InterfaceEncryptStringSymmetricAlgorithmName}";
 
     /// <inheritdoc />
-    protected override string EncryptStringHashAlgorithmName => nameof(MD5CryptoServiceProvider);
+    protected override string EncryptStringHashAlgorithmName => "MD5CryptoServiceProvider";
 
     /// <inheritdoc />
-    protected override string EncryptStringSymmetricAlgorithmName => nameof(TripleDESCryptoServiceProvider);
+    protected override string EncryptStringSymmetricAlgorithmName => "TripleDESCryptoServiceProvider";
 
     /// <inheritdoc />
     [DnnDeprecated(10, 2, 2, "Use DotNetNuke.Abstractions.Security.ICryptographyProvider")]

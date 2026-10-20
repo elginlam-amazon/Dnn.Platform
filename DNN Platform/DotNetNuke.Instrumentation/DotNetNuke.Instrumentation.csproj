@@ -4,7 +4,7 @@
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
-    <TargetFrameworks>netstandard2.0;net48</TargetFrameworks>
+    <TargetFrameworks>net10.0;netstandard2.0</TargetFrameworks>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -15,8 +15,15 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <!-- net10.0 is the build the (still .NET Framework) Website consumes via the CopyBin target below.
+         Pull the full runtime dependency closure into bin so those third-party assemblies can be copied
+         to the Website bin, mirroring what the former net48 build produced. In-box assemblies that ship
+         with the shared framework are not emitted here and are skipped by the Exists() guarded copies. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Configuration" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.FileProviders.Abstractions" />
@@ -30,13 +37,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.Web" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
     <ProjectReference Include="..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
-    <ProjectReference Include="..\DotNetNuke.Log4Net\DotNetNuke.Log4Net.csproj" />
+    <ProjectReference Include="..\DotNetNuke.Log4net\DotNetNuke.Log4Net.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -45,30 +48,30 @@
   </ItemGroup>
 
   <Import Project="..\..\DNN_Platform.build" />
-  <Target Name="CopyBin" BeforeTargets="Build" Condition="'$(TargetFramework)' == 'net48'">
-    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Log4Net.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Instrumentation.dll" DestinationFolder="$(WebsitePath)\bin" />
-    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Instrumentation.pdb" DestinationFolder="$(WebsitePath)\bin" />
-    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Instrumentation.xml" DestinationFolder="$(WebsitePath)\bin" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Abstractions.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Binder.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.FileExtensions.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Json.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.DependencyModel.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.FileProviders.Abstractions.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.FileProviders.Physical.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Logging.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Logging.Abstractions.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Options.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Primitives.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.Extensions.Logging.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.Settings.Configuration.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.Sinks.File.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\System.Diagnostics.DiagnosticSource.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\System.Text.Encodings.Web.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\System.Text.Json.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\System.Threading.Channels.dll" DestinationFolder="$(WebsitePath)\bin\" />
+  <Target Name="CopyBin" AfterTargets="Build" Condition="'$(TargetFramework)' == 'net10.0'">
+    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Log4Net.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\DotNetNuke.Log4Net.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Instrumentation.dll" DestinationFolder="$(WebsitePath)\bin" Condition="Exists('bin\$(TargetFramework)\DotNetNuke.Instrumentation.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Instrumentation.pdb" DestinationFolder="$(WebsitePath)\bin" Condition="Exists('bin\$(TargetFramework)\DotNetNuke.Instrumentation.pdb')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Instrumentation.xml" DestinationFolder="$(WebsitePath)\bin" Condition="Exists('bin\$(TargetFramework)\DotNetNuke.Instrumentation.xml')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.Configuration.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Abstractions.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Abstractions.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Binder.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Binder.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.FileExtensions.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.Configuration.FileExtensions.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Json.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Json.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.DependencyModel.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.DependencyModel.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.FileProviders.Abstractions.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.FileProviders.Abstractions.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.FileProviders.Physical.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.FileProviders.Physical.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Logging.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.Logging.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Logging.Abstractions.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.Logging.Abstractions.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Options.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.Options.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Primitives.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Microsoft.Extensions.Primitives.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Serilog.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.Extensions.Logging.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Serilog.Extensions.Logging.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.Settings.Configuration.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Serilog.Settings.Configuration.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.Sinks.File.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\Serilog.Sinks.File.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\System.Diagnostics.DiagnosticSource.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\System.Diagnostics.DiagnosticSource.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\System.Text.Encodings.Web.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\System.Text.Encodings.Web.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\System.Text.Json.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\System.Text.Json.dll')" />
+    <Copy SourceFiles="bin\$(TargetFramework)\System.Threading.Channels.dll" DestinationFolder="$(WebsitePath)\bin\" Condition="Exists('bin\$(TargetFramework)\System.Threading.Channels.dll')" />
   </Target>
 </Project>

@@ -11,6 +11,7 @@ namespace DotNetNuke.Data.PetaPoco
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Utilities;
     using global::PetaPoco;
 
     using Microsoft.Extensions.DependencyInjection;
@@ -91,7 +92,8 @@ namespace DotNetNuke.Data.PetaPoco
 
             this.hostSettings = hostSettings ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
 
-            this.database = new Database(connectionStringName);
+            // the .NET build of PetaPoco does not resolve connection string names from the configuration
+            this.database = new Database(Config.GetConnectionString(connectionStringName), "Microsoft.Data.SqlClient");
             this.mapper = new PetaPocoMapper(tablePrefix);
             this.TablePrefix = tablePrefix;
             this.FluentMappers = mappers;

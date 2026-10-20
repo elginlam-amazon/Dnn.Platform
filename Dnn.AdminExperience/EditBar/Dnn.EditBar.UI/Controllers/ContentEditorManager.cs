@@ -232,9 +232,9 @@ namespace Dnn.EditBar.UI.Controllers
                     return;
                 }
 
-                updatePanel.Attributes.Add("class", $"DnnAjaxPanel {pane.Attributes["class"]}");
-                pane.Attributes["class"] = string.Empty;
-
+                // On .NET 10 there is no Microsoft AJAX partial rendering, so the UpdatePanel renders as a
+                // regular container without the client-side "DnnAjaxPanel" wrapper. Keep the pane's own CSS
+                // class on the pane itself instead of moving it onto the (no longer ajax) panel.
                 var scriptManager = ScriptManager.GetCurrent(this.Page);
                 if (scriptManager is { IsInAsyncPostBack: true }
                     && updatePanel.ClientID == this.Request.Form["__EVENTTARGET"]
@@ -273,13 +273,8 @@ namespace Dnn.EditBar.UI.Controllers
         /// <inheritdoc />
         protected override void Render(HtmlTextWriter writer)
         {
-            var scripts = ScriptManager.GetCurrent(this.Page).GetRegisteredStartupScripts()
-                .Where(s => s.Control is ProxyPage).ToList();
-            foreach (var script in scripts)
-            {
-                ScriptManager.RegisterStartupScript(this.Page, script.Type, script.Key, script.Script, script.AddScriptTags);
-            }
-
+            // Microsoft AJAX partial rendering (async postbacks) is not available on .NET 10, so there are no
+            // separately registered startup scripts to re-emit for the ProxyPage controls; render normally.
             base.Render(writer);
         }
 

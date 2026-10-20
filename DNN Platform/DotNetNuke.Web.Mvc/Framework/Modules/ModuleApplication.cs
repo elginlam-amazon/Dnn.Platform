@@ -1,262 +1,149 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Web.Mvc.Framework.Modules
 {
     using System;
-    using System.Globalization;
-    using System.Reflection;
+    using System.IO;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web;
-    using System.Web.Mvc;
-    using System.Web.Mvc.Async;
-    using System.Web.Routing;
 
-    using DotNetNuke.Common;
     using DotNetNuke.Services.Localization;
-    using DotNetNuke.Web.Mvc.Common;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
-    using Microsoft.Extensions.DependencyInjection;
-    using Microsoft.Web.Infrastructure.DynamicValidationHelper;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Abstractions;
+    using Microsoft.AspNetCore.Mvc.Controllers;
+    using Microsoft.AspNetCore.Mvc.Infrastructure;
+    using Microsoft.AspNetCore.Routing;
+    using Microsoft.Extensions.DependencyInjection;
+
+    /// <summary>Executes an MVC module action in-process against the current ASP.NET Core request.</summary>
     public class ModuleApplication
     {
-        internal static readonly string MvcVersion = GetMvcVersionString();
-        protected const string ControllerMasterFormat = "~/DesktopModules/MVC/{0}/Views/{{1}}/{{0}}.cshtml";
-        protected const string SharedMasterFormat = "~/DesktopModules/MVC/{0}/Views/Shared/{{0}}.cshtml";
-        protected const string ControllerViewFormat = "~/DesktopModules/MVC/{0}/Views/{{1}}/{{0}}.cshtml";
-        protected const string SharedViewFormat = "~/DesktopModules/MVC/{0}/Views/Shared/{{0}}.cshtml";
-        protected const string ControllerPartialFormat = "~/DesktopModules/MVC/{0}/Views/{{1}}/{{0}}.cshtml";
-        protected const string SharedPartialFormat = "~/DesktopModules/MVC/{0}/Views/Shared/{{0}}.cshtml";
-        private const string MvcVersionHeaderName = "X-AspNetMvc-Version";
         private readonly object @lock = new object();
-
         private bool initialized;
 
+        /// <summary>Initializes a new instance of the <see cref="ModuleApplication"/> class.</summary>
         public ModuleApplication()
-            : this(null)
         {
         }
 
+        /// <summary>Initializes a new instance of the <see cref="ModuleApplication"/> class.</summary>
+        /// <param name="disableMvcResponseHeader">Unused, kept for API compatibility.</param>
         public ModuleApplication(bool disableMvcResponseHeader)
-            : this(null)
         {
         }
 
-        public ModuleApplication(RequestContext requestContext, bool disableMvcResponseHeader)
-            : this(requestContext)
-        {
-        }
-
-        public ModuleApplication(RequestContext requestContext)
-        {
-            this.RequestContext = requestContext;
-
-            // ReSharper disable once DoNotCallOverridableMethodsInConstructor
-            this.ControllerFactory = Globals.GetCurrentServiceProvider().GetRequiredService<IControllerFactory>();
-            this.ViewEngines = new ViewEngineCollection();
-
-            ////ViewEngines.Add(new ModuleDelegatingViewEngine());
-        }
-
-        public RequestContext RequestContext { get; private set; }
-
-        public virtual IControllerFactory ControllerFactory { get; set; }
-
+        /// <summary>Gets or sets the default action name.</summary>
         public string DefaultActionName { get; set; }
 
+        /// <summary>Gets or sets the default controller name.</summary>
         public string DefaultControllerName { get; set; }
 
+        /// <summary>Gets or sets the default namespaces used to disambiguate controllers.</summary>
         public string[] DefaultNamespaces { get; set; }
 
+        /// <summary>Gets or sets the module folder path (under DesktopModules/MVC).</summary>
         public string FolderPath { get; set; }
 
+        /// <summary>Gets or sets the module name.</summary>
         public string ModuleName { get; set; }
 
-        public ViewEngineCollection ViewEngines { get; set; }
-
+        /// <summary>Executes the module synchronously.</summary>
+        /// <param name="context">The module request context.</param>
+        /// <returns>The module request result.</returns>
         public virtual ModuleRequestResult ExecuteRequest(ModuleRequestContext context)
         {
-            this.EnsureInitialized();
-            this.RequestContext = this.RequestContext ?? new RequestContext(context.HttpContext, context.RouteData);
-            var currentContext = HttpContext.Current;
-            if (currentContext != null)
-            {
-                var isRequestValidationEnabled = ValidationUtility.IsValidationEnabled(currentContext);
-                if (isRequestValidationEnabled == true)
-                {
-                    ValidationUtility.EnableDynamicValidation(currentContext);
-                }
-            }
-
-            this.AddVersionHeader(this.RequestContext.HttpContext);
-            this.RemoveOptionalRoutingParameters();
-
-            var controllerName = this.RequestContext.RouteData.GetRequiredString("controller");
-
-            // Construct the controller using the ControllerFactory
-            var controller = this.ControllerFactory.CreateController(this.RequestContext, controllerName);
-            try
-            {
-                // Check if the controller supports IDnnController
-                var moduleController = controller as IDnnController;
-
-                // If we couldn't adapt it, we fail.  We can't support IController implementations directly :(
-                // Because we need to retrieve the ActionResult without executing it, IController won't cut it
-                if (moduleController == null)
-                {
-                    throw new InvalidOperationException("Could Not Construct Controller");
-                }
-
-                moduleController.ValidateRequest = false;
-
-                moduleController.DnnPage = context.DnnPage;
-
-                moduleController.ModuleContext = context.ModuleContext;
-
-                moduleController.LocalResourceFile =
-                    $"~/DesktopModules/MVC/{context.ModuleContext.Configuration.DesktopModule.FolderName}/{Localization.LocalResourceDirectory}/{controllerName}.resx";
-
-                moduleController.ViewEngineCollectionEx = this.ViewEngines;
-
-                // Execute the controller and capture the result
-                // if our ActionFilter is executed after the ActionResult has triggered an Exception the filter
-                // MUST explicitly flip the ExceptionHandled bit otherwise the view will not render
-                moduleController.Execute(this.RequestContext);
-                var result = moduleController.ResultOfLastExecute;
-
-                // Return the final result
-                return new ModuleRequestResult
-                {
-                    ActionResult = result,
-                    ControllerContext = moduleController.ControllerContext,
-                    ModuleActions = moduleController.ModuleActions,
-                    ModuleContext = context.ModuleContext,
-                    ModuleApplication = this,
-                };
-            }
-            finally
-            {
-                this.ControllerFactory.ReleaseController(controller);
-            }
+            return this.ExecuteRequestAsync(context, CancellationToken.None).GetAwaiter().GetResult();
         }
 
+        /// <summary>Executes the module asynchronously.</summary>
+        /// <param name="context">The module request context.</param>
+        /// <param name="cancellationToken">A cancellation token.</param>
+        /// <returns>The module request result.</returns>
         public virtual async Task<ModuleRequestResult> ExecuteRequestAsync(ModuleRequestContext context, CancellationToken cancellationToken)
         {
             this.EnsureInitialized();
-            this.RequestContext = this.RequestContext ?? new RequestContext(context.HttpContext, context.RouteData);
-            var currentContext = HttpContext.Current;
-            if (currentContext != null)
+
+            var httpContext = context.HttpContext;
+            var routeData = context.RouteData ?? new RouteData();
+
+            var controllerName = GetRouteValue(routeData, "controller") ?? this.DefaultControllerName;
+            var actionName = GetRouteValue(routeData, "action") ?? this.DefaultActionName;
+
+            var descriptor = this.FindActionDescriptor(httpContext, controllerName, actionName);
+            if (descriptor == null)
             {
-                var isRequestValidationEnabled = ValidationUtility.IsValidationEnabled(currentContext);
-                if (isRequestValidationEnabled == true)
-                {
-                    ValidationUtility.EnableDynamicValidation(currentContext);
-                }
+                throw new InvalidOperationException($"Could not find an action '{actionName}' on controller '{controllerName}'.");
             }
 
-            this.AddVersionHeader(this.RequestContext.HttpContext);
-            this.RemoveOptionalRoutingParameters();
+            // Ensure the route values carry controller/action/module context for the invoker.
+            routeData.Values["controller"] = controllerName;
+            routeData.Values["action"] = actionName;
 
-            var controllerName = this.RequestContext.RouteData.GetRequiredString("controller");
+            var actionContext = new ActionContext(httpContext, routeData, descriptor);
 
-            // Construct the controller using the ControllerFactory
-            var controller = this.ControllerFactory.CreateController(this.RequestContext, controllerName);
+            // Flow the module state to the controller through HttpContext.Items.
+            httpContext.Items[ModuleRequestItemKeys.ModuleRequestContext] = context;
+
+            var localResourceFile =
+                $"~/DesktopModules/MVC/{context.ModuleContext.Configuration.DesktopModule.FolderName}/{Localization.LocalResourceDirectory}/{controllerName}.resx";
+
+            var moduleState = new DnnModuleState
+            {
+                DnnPage = context.DnnPage,
+                ModuleContext = context.ModuleContext,
+                LocalResourceFile = localResourceFile,
+                ModuleApplication = this,
+            };
+            httpContext.Items[typeof(DnnModuleState)] = moduleState;
+
+            var invokerFactory = httpContext.RequestServices.GetRequiredService<IActionInvokerFactory>();
+
+            var originalBody = httpContext.Response.Body;
+            using var buffer = new MemoryStream();
+            httpContext.Response.Body = buffer;
             try
             {
-                // Check if the controller supports IDnnController
-                var moduleController = controller as IDnnController;
-
-                // If we couldn't adapt it, we fail.  We can't support IController implementations directly :(
-                // Because we need to retrieve the ActionResult without executing it, IController won't cut it
-                if (moduleController == null)
+                var invoker = invokerFactory.CreateInvoker(actionContext);
+                if (invoker == null)
                 {
-                    throw new InvalidOperationException("Could Not Construct Controller");
+                    throw new InvalidOperationException("Could not create an action invoker for the module action.");
                 }
 
-                moduleController.ValidateRequest = false;
-
-                moduleController.DnnPage = context.DnnPage;
-
-                moduleController.ModuleContext = context.ModuleContext;
-
-                moduleController.LocalResourceFile =
-                    $"~/DesktopModules/MVC/{context.ModuleContext.Configuration.DesktopModule.FolderName}/{Localization.LocalResourceDirectory}/{controllerName}.resx";
-
-                moduleController.ViewEngineCollectionEx = this.ViewEngines;
-
-                if (controller is not IAsyncController asyncController)
-                {
-                    // the base System.Web.Mvc.Controller class implements IAsyncController so this should normally never happen.
-                    throw new NotSupportedException("Synchronous only Controller implementation is not supported.");
-                }
-
-                // Execute the controller and capture the result
-                // if our ActionFilter is executed after the ActionResult has triggered an Exception the filter
-                // MUST explicitly flip the ExceptionHandled bit otherwise the view will not render
-                await Task.Factory.FromAsync(asyncController.BeginExecute, asyncController.EndExecute, this.RequestContext, null);
-
-                var result = moduleController.ResultOfLastExecute;
-
-                // Return the final result
-                return new ModuleRequestResult
-                {
-                    ActionResult = result,
-                    ControllerContext = moduleController.ControllerContext,
-                    ModuleActions = moduleController.ModuleActions,
-                    ModuleContext = context.ModuleContext,
-                    ModuleApplication = this,
-                };
+                await invoker.InvokeAsync();
             }
             finally
             {
-                this.ControllerFactory.ReleaseController(controller);
+                httpContext.Response.Body = originalBody;
             }
+
+            buffer.Position = 0;
+            using var reader = new StreamReader(buffer);
+            var renderedOutput = reader.ReadToEnd();
+
+            return new ModuleRequestResult
+            {
+                ActionContext = actionContext,
+                ActionResult = moduleState.ResultOfLastExecute,
+                RenderedOutput = renderedOutput,
+                ModuleActions = moduleState.ModuleActions,
+                ModuleContext = context.ModuleContext,
+                ModuleApplication = this,
+            };
         }
 
+        /// <summary>Allows subclasses to initialize before execution.</summary>
         protected internal virtual void Init()
         {
-            var prefix = NormalizeFolderPath(this.FolderPath);
-            string[] masterFormats =
-            {
-                string.Format(CultureInfo.InvariantCulture, ControllerMasterFormat, prefix),
-                string.Format(CultureInfo.InvariantCulture, SharedMasterFormat, prefix),
-            };
-            string[] viewFormats =
-            {
-                string.Format(CultureInfo.InvariantCulture, ControllerViewFormat, prefix),
-                string.Format(CultureInfo.InvariantCulture, SharedViewFormat, prefix),
-                string.Format(CultureInfo.InvariantCulture, ControllerPartialFormat, prefix),
-                string.Format(CultureInfo.InvariantCulture, SharedPartialFormat, prefix),
-            };
-
-            this.ViewEngines.Add(new RazorViewEngine
-            {
-                MasterLocationFormats = masterFormats,
-                ViewLocationFormats = viewFormats,
-                PartialViewLocationFormats = viewFormats,
-            });
         }
 
-        protected internal virtual void AddVersionHeader(HttpContextBase httpContext)
-        {
-            if (!DnnMvcHandler.DisableMvcResponseHeader)
-            {
-                httpContext.Response.AppendHeader(MvcVersionHeaderName, MvcVersion);
-            }
-        }
-
-        protected static string NormalizeFolderPath(string path)
-        {
-            // Remove leading and trailing slashes
-            return !string.IsNullOrEmpty(path) ? path.Trim('/') : path;
-        }
-
+        /// <summary>Ensures <see cref="Init"/> has been called exactly once.</summary>
         protected void EnsureInitialized()
         {
-            // Double-check lock to wait for initialization
-            // TODO: Is there a better (preferably using events and waits) way to do this?
             if (this.initialized)
             {
                 return;
@@ -274,20 +161,41 @@ namespace DotNetNuke.Web.Mvc.Framework.Modules
             }
         }
 
-        private static string GetMvcVersionString()
+        private static string GetRouteValue(RouteData routeData, string key)
         {
-            // DevDiv 216459:
-            // This code originally used Assembly.GetName(), but that requires FileIOPermission, which isn't granted in
-            // medium trust. However, Assembly.FullName *is* accessible in medium trust.
-            return new AssemblyName(typeof(MvcHandler).Assembly.FullName).Version.ToString(2);
+            return routeData.Values.TryGetValue(key, out var value) ? value?.ToString() : null;
         }
 
-        private void RemoveOptionalRoutingParameters()
+        private ControllerActionDescriptor FindActionDescriptor(HttpContext httpContext, string controllerName, string actionName)
         {
-            var rvd = this.RequestContext.RouteData.Values;
+            var provider = httpContext.RequestServices.GetRequiredService<IActionDescriptorCollectionProvider>();
 
-            // Ensure delegate is stateless
-            rvd.RemoveFromDictionary((entry) => entry.Value == UrlParameter.Optional);
+            var candidates = provider.ActionDescriptors.Items
+                .OfType<ControllerActionDescriptor>()
+                .Where(d =>
+                    string.Equals(d.ControllerName, controllerName, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(d.ActionName, actionName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (candidates.Count == 0)
+            {
+                return null;
+            }
+
+            if (candidates.Count > 1 && this.DefaultNamespaces is { Length: > 0 })
+            {
+                var preferred = candidates
+                    .Where(d => this.DefaultNamespaces.Any(ns =>
+                        d.ControllerTypeInfo.Namespace != null &&
+                        d.ControllerTypeInfo.Namespace.StartsWith(ns, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+                if (preferred.Count > 0)
+                {
+                    return preferred[0];
+                }
+            }
+
+            return candidates[0];
         }
     }
 }

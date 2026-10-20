@@ -3,14 +3,18 @@
 // See the LICENSE file in the project root for more information
 
 using System.Linq;
+using System.Net;
 using System.Net.Http;
-using System.Web.Http;
+
 using Dnn.ContactList.Api;
 using Dnn.ContactList.Spa.Components;
 using Dnn.ContactList.Spa.Services.ViewModels;
+
 using DotNetNuke.Common;
 using DotNetNuke.Security;
 using DotNetNuke.Web.Api;
+
+using Microsoft.AspNetCore.Mvc;
 
 namespace Dnn.ContactList.Spa.Services
 {
@@ -57,7 +61,7 @@ namespace Dnn.ContactList.Spa.Services
                 success = true
             };
 
-            return Request.CreateResponse(response);
+            return Request.CreateResponse(HttpStatusCode.OK, response);
         }
 
         /// <summary>
@@ -78,7 +82,7 @@ namespace Dnn.ContactList.Spa.Services
                 }
             };
 
-            return Request.CreateResponse(response);
+            return Request.CreateResponse(HttpStatusCode.OK, response);
         }
 
         /// <summary>
@@ -103,7 +107,7 @@ namespace Dnn.ContactList.Spa.Services
                 }
             };
 
-            return Request.CreateResponse(response);
+            return Request.CreateResponse(HttpStatusCode.OK, response);
         }
 
         /// <summary>
@@ -153,7 +157,7 @@ namespace Dnn.ContactList.Spa.Services
                 }
             };
 
-            return Request.CreateResponse(response);
+            return Request.CreateResponse(HttpStatusCode.OK, response);
 
         }
     }

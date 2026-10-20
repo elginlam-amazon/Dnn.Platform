@@ -10,18 +10,20 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using System.Net.Http;
     using System.Threading.Tasks;
     using System.Web;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Extensions.Components.BulkInstall;
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.DataAccess.Models;
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.Logging;
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI.ActionFilters;
+
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.BulkInstall.Encryption;
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Auth.ApiTokens;
     using DotNetNuke.Web.Api.Auth.ApiTokens.Models;
+
+    using Microsoft.AspNetCore.Mvc;
 
     /// <summary>A web API controller for use by the Deploy Client.</summary>
     /// <param name="sessionManager">The session manager.</param>
@@ -89,7 +91,11 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
                 var apiKey = this.apiTokenController.GetCurrentThreadApiToken();
 
                 // Get the api user.
-                APIUser apiUser = this.apiUserManager.FindAndPrepare(apiKey.ApiTokenId, this.Request.Headers.Authorization.Parameter);
+                var authorizationHeader = this.Request.Headers.Authorization.ToString();
+                var authorizationParameter = System.Net.Http.Headers.AuthenticationHeaderValue.TryParse(authorizationHeader, out var parsedHeader)
+                    ? parsedHeader.Parameter
+                    : null;
+                APIUser apiUser = this.apiUserManager.FindAndPrepare(apiKey.ApiTokenId, authorizationParameter);
 
                 // Receive files.
                 MultipartMemoryStreamProvider provider = await this.Request.Content.ReadAsMultipartAsync();
@@ -128,7 +134,7 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
             try
             {
                 // Get the users ip address.
-                string ipAddress = HttpContext.Current.Request.UserHostAddress;
+                string ipAddress = System.Web.HttpContext.Current.Request.UserHostAddress;
 
                 // Get the api key from the header.
                 var apiKey = this.apiTokenController.GetCurrentThreadApiToken();

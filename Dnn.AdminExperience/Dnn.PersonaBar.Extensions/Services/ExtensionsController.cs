@@ -17,7 +17,6 @@ namespace Dnn.PersonaBar.Extensions.Services
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web.Http;
     using System.Xml;
     using System.Xml.XPath;
 
@@ -26,6 +25,7 @@ namespace Dnn.PersonaBar.Extensions.Services
     using Dnn.PersonaBar.Extensions.Components.Editors;
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
+
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
@@ -43,10 +43,12 @@ namespace Dnn.PersonaBar.Extensions.Services
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     using Constants = Dnn.PersonaBar.Extensions.Components.Constants;
     using Util = DotNetNuke.Entities.Content.Common.Util;
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Admin)]
     public class ExtensionsController : PersonaBarApiController
@@ -466,7 +468,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         [HttpPost]
         [IFrameSupportedValidateAntiForgeryToken]
         [RequireHost]
-        public Task<HttpResponseMessage> InstallPackage([FromUri] string legacySkin = null, [FromUri] bool isPortalPackage = false)
+        public Task<HttpResponseMessage> InstallPackage([FromQuery] string legacySkin = null, [FromQuery] bool isPortalPackage = false)
         {
             try
             {
@@ -513,7 +515,7 @@ namespace Dnn.PersonaBar.Extensions.Services
                 }
 
                 var packagePath = Path.Combine(Globals.ApplicationMapPath, "Install", installFolder, package.FileName);
-                if (!File.Exists(packagePath))
+                if (!System.IO.File.Exists(packagePath))
                 {
                     return this.Request.CreateResponse(HttpStatusCode.NotFound);
                 }
@@ -531,7 +533,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage ParseLanguagePackage([FromUri] string cultureCode)
+        public HttpResponseMessage ParseLanguagePackage([FromQuery] string cultureCode)
         {
             try
             {
@@ -565,7 +567,7 @@ namespace Dnn.PersonaBar.Extensions.Services
                 }
 
                 var packagePath = Path.Combine(Globals.ApplicationMapPath, "Install", installFolder, package.FileName);
-                if (!File.Exists(packagePath))
+                if (!System.IO.File.Exists(packagePath))
                 {
                     return this.Request.CreateResponse(HttpStatusCode.NotFound);
                 }
@@ -597,7 +599,7 @@ namespace Dnn.PersonaBar.Extensions.Services
                 }
 
                 var packagePath = Path.Combine(Globals.ApplicationMapPath, "Install", installFolder, fileName);
-                if (!File.Exists(packagePath))
+                if (!System.IO.File.Exists(packagePath))
                 {
                     return this.Request.CreateResponse(HttpStatusCode.NotFound);
                 }
@@ -624,7 +626,7 @@ namespace Dnn.PersonaBar.Extensions.Services
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage DownloadLanguagePackage([FromUri] string cultureCode)
+        public HttpResponseMessage DownloadLanguagePackage([FromQuery] string cultureCode)
         {
             try
             {
@@ -955,7 +957,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage CreateFolder([FromUri] string ownerFolder, [FromUri] string moduleFolder)
+        public HttpResponseMessage CreateFolder([FromQuery] string ownerFolder, [FromQuery] string moduleFolder)
         {
             if ((!string.IsNullOrEmpty(ownerFolder) && (ownerFolder.Replace(@"\", "/").Contains("/", StringComparison.Ordinal) || ownerFolder.StartsWith(".", StringComparison.Ordinal)))
                 || (!string.IsNullOrEmpty(moduleFolder) && (moduleFolder.Replace(@"\", "/").Contains("/", StringComparison.Ordinal) || moduleFolder.StartsWith(".", StringComparison.Ordinal))))
@@ -1461,7 +1463,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         private static string GetFileContent(string basePath, string fileName)
         {
             var filename = Path.Combine(Globals.ApplicationMapPath, basePath, fileName);
-            using var objStreamReader = File.OpenText(filename);
+            using var objStreamReader = System.IO.File.OpenText(filename);
             return objStreamReader.ReadToEnd();
         }
 
@@ -1574,7 +1576,7 @@ namespace Dnn.PersonaBar.Extensions.Services
 
         private ParseResultDto ParsePackageFile(string filePath)
         {
-            if (!File.Exists(filePath))
+            if (!System.IO.File.Exists(filePath))
             {
                 return new ParseResultDto() { Success = false, Message = "FileNotFound" };
             }
@@ -1585,7 +1587,7 @@ namespace Dnn.PersonaBar.Extensions.Services
 
         private InstallResultDto InstallPackageFile(string filePath)
         {
-            if (!File.Exists(filePath))
+            if (!System.IO.File.Exists(filePath))
             {
                 return new InstallResultDto() { Success = false, Message = "FileNotFound" };
             }
@@ -1596,7 +1598,7 @@ namespace Dnn.PersonaBar.Extensions.Services
 
         private HttpResponseMessage DownLoadFile(string packagePath)
         {
-            if (!File.Exists(packagePath))
+            if (!System.IO.File.Exists(packagePath))
             {
                 return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "FileNotFound");
             }

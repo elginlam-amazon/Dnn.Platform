@@ -1,15 +1,9 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Web.Mvc.Framework.Controllers
 {
-    using System;
-    using System.Diagnostics.CodeAnalysis;
-    using System.Text;
-    using System.Threading.Tasks;
-    using System.Web.Mvc;
-    using System.Web.Routing;
     using System.Web.UI;
 
     using DotNetNuke.Entities.Modules;
@@ -23,43 +17,27 @@ namespace DotNetNuke.Web.Mvc.Framework.Controllers
     using DotNetNuke.Web.Mvc.Framework.Modules;
     using DotNetNuke.Web.Mvc.Helpers;
 
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Filters;
+    using Microsoft.AspNetCore.Routing;
+
+    /// <summary>Base class for DNN MVC module controllers.</summary>
     public abstract class DnnController : Controller, IDnnController
     {
-        /// <summary>Initializes a new instance of the <see cref="DnnController"/> class.</summary>
-        protected DnnController()
-        {
-            this.ActionInvoker = new ResultCapturingActionInvoker();
-        }
+        /// <summary>Gets the active module for the current request.</summary>
+        public ModuleInfo ActiveModule => this.ModuleContext?.Configuration;
 
-        public ModuleInfo ActiveModule
-        {
-            get { return (this.ModuleContext == null) ? null : this.ModuleContext.Configuration; }
-        }
+        /// <summary>Gets the active page (tab) for the current request.</summary>
+        public TabInfo ActivePage => this.PortalSettings?.ActiveTab;
 
-        public TabInfo ActivePage
-        {
-            get { return (this.PortalSettings == null) ? null : this.PortalSettings.ActiveTab; }
-        }
-
-        public PortalSettings PortalSettings
-        {
-            get { return (this.ModuleContext == null) ? null : this.ModuleContext.PortalSettings; }
-        }
+        /// <summary>Gets the current portal settings.</summary>
+        public PortalSettings PortalSettings => this.ModuleContext?.PortalSettings;
 
         /// <inheritdoc />
-        public ActionResult ResultOfLastExecute
-        {
-            get
-            {
-                var actionInvoker = this.ActionInvoker as ResultCapturingActionInvoker;
-                return (actionInvoker != null) ? actionInvoker.ResultOfLastInvoke : null;
-            }
-        }
+        public IActionResult ResultOfLastExecute { get; private set; }
 
-        public new UserInfo User
-        {
-            get { return (this.PortalSettings == null) ? null : this.PortalSettings.UserInfo; }
-        }
+        /// <summary>Gets the current user.</summary>
+        public new UserInfo User => this.PortalSettings?.UserInfo;
 
         /// <inheritdoc />
         public Page DnnPage { get; set; }
@@ -77,7 +55,7 @@ namespace DotNetNuke.Web.Mvc.Framework.Controllers
         public ModuleInstanceContext ModuleContext { get; set; }
 
         /// <inheritdoc />
-        public ViewEngineCollection ViewEngineCollectionEx { get; set; }
+        public bool ValidateRequest { get; set; }
 
         /// <inheritdoc />
         public string LocalizeString(string key)
@@ -85,74 +63,105 @@ namespace DotNetNuke.Web.Mvc.Framework.Controllers
             return Localization.GetString(key, this.LocalResourceFile);
         }
 
-        [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
+        /// <inheritdoc />
+        public override void OnActionExecuting(ActionExecutingContext context)
+        {
+            base.OnActionExecuting(context);
+
+            if (context.HttpContext.Items.TryGetValue(typeof(DnnModuleState), out var stateObj) && stateObj is DnnModuleState state)
+            {
+                this.DnnPage = state.DnnPage;
+                this.ModuleContext = state.ModuleContext;
+                this.LocalResourceFile = state.LocalResourceFile;
+                this.ModuleActions ??= state.ModuleActions;
+            }
+
+            this.Url ??= new DnnUrlHelper(this);
+            context.HttpContext.Items[typeof(IDnnController)] = this;
+        }
+
+        /// <inheritdoc />
+        public override void OnActionExecuted(ActionExecutedContext context)
+        {
+            base.OnActionExecuted(context);
+            if (context.Result != null)
+            {
+                this.ResultOfLastExecute = context.Result;
+            }
+
+            if (context.HttpContext.Items.TryGetValue(typeof(DnnModuleState), out var stateObj) && stateObj is DnnModuleState state)
+            {
+                state.ModuleActions = this.ModuleActions;
+                state.ResultOfLastExecute = this.ResultOfLastExecute;
+            }
+        }
+
+        /// <inheritdoc />
+        public override RedirectToActionResult RedirectToAction(string actionName, string controllerName, object routeValues)
+        {
+            var values = routeValues as RouteValueDictionary ?? new RouteValueDictionary(routeValues);
+            this.ResultOfLastExecute = new DnnRedirecttoRouteResult(actionName, controllerName, string.Empty, values, false, this.Url);
+            return base.RedirectToAction(actionName, controllerName, routeValues);
+        }
+
+        /// <inheritdoc />
+        public override ViewResult View()
+        {
+            return this.CaptureView(base.View());
+        }
+
+        /// <inheritdoc />
+        public override ViewResult View(object model)
+        {
+            return this.CaptureView(base.View(model));
+        }
+
+        /// <inheritdoc />
+        public override ViewResult View(string viewName, object model)
+        {
+            return this.CaptureView(base.View(viewName, model));
+        }
+
+        /// <inheritdoc />
+        public override PartialViewResult PartialView(string viewName, object model)
+        {
+            var result = new DnnPartialViewResult
+            {
+                ViewName = viewName,
+                ViewData = this.ViewData,
+                TempData = this.TempData,
+            };
+            if (model != null)
+            {
+                this.ViewData.Model = model;
+            }
+
+            this.ResultOfLastExecute = result;
+            return result;
+        }
+
+        /// <summary>Redirects to the module's default route.</summary>
+        /// <returns>A redirect result.</returns>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Breaking change")]
         protected internal RedirectToRouteResult RedirectToDefaultRoute()
         {
-            return new DnnRedirecttoRouteResult(string.Empty, string.Empty, string.Empty, null, false);
+            return new RedirectToRouteResult(string.Empty, new RouteValueDictionary());
         }
 
-        /// <inheritdoc />
-        protected override RedirectToRouteResult RedirectToAction(string actionName, string controllerName, RouteValueDictionary routeValues)
+        private ViewResult CaptureView(ViewResult source)
         {
-            return new DnnRedirecttoRouteResult(actionName, controllerName, string.Empty, routeValues, false, this.Url);
-        }
-
-        /// <inheritdoc />
-        protected override ViewResult View(IView view, object model)
-        {
-            if (model != null)
+            var result = new DnnViewResult
             {
-                this.ViewData.Model = model;
-            }
-
-            return new DnnViewResult
-            {
-                View = view,
-                ViewData = this.ViewData,
-                TempData = this.TempData,
+                ViewName = source.ViewName,
+                ViewData = source.ViewData,
+                TempData = source.TempData,
+                ViewEngine = source.ViewEngine,
+                ContentType = source.ContentType,
+                StatusCode = source.StatusCode,
             };
-        }
 
-        /// <inheritdoc />
-        protected override ViewResult View(string viewName, string masterName, object model)
-        {
-            if (model != null)
-            {
-                this.ViewData.Model = model;
-            }
-
-            return new DnnViewResult
-            {
-                ViewName = viewName,
-                MasterName = masterName,
-                ViewData = this.ViewData,
-                TempData = this.TempData,
-                ViewEngineCollection = this.ViewEngineCollection,
-            };
-        }
-
-        /// <inheritdoc />
-        protected override PartialViewResult PartialView(string viewName, object model)
-        {
-            if (model != null)
-            {
-                this.ViewData.Model = model;
-            }
-
-            return new DnnPartialViewResult
-            {
-                ViewName = viewName,
-                ViewData = this.ViewData,
-                TempData = this.TempData,
-                ViewEngineCollection = this.ViewEngineCollection,
-            };
-        }
-
-        /// <inheritdoc />
-        protected override void Initialize(RequestContext requestContext)
-        {
-            base.Initialize(requestContext);
-            this.Url = new DnnUrlHelper(requestContext, this);
+            this.ResultOfLastExecute = result;
+            return result;
         }
     }
 }

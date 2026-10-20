@@ -580,7 +580,7 @@ Namespace DotNetNuke.UI.Utilities
                             strClientID = arrIDs(1)
                         End If
 
-                        Dim strParam As String = objPage.Server.UrlDecode(objPage.Request(SCRIPT_CALLBACKPARAM))
+                        Dim strParam As String = HttpUtility.UrlDecode(objPage.Request(SCRIPT_CALLBACKPARAM))
                         Dim objControl As Control
                         Dim objInterface As IClientAPICallbackEventHandler
                         Dim objResponse As ClientAPICallBackResponse = New ClientAPICallBackResponse(objPage, ClientAPICallBackResponse.CallBackTypeCode.Simple)
@@ -1106,7 +1106,7 @@ Namespace DotNetNuke.UI.Utilities
 #End Region
 
         Friend Shared Function GetClientResourcesController(ByVal page As Page) As IClientResourceController
-            Dim serviceProvider As IServiceProvider = GetCurrentServiceProvider(page.Request.RequestContext.HttpContext)
+            Dim serviceProvider As IServiceProvider = GetCurrentServiceProvider(New HttpContextWrapper(HttpContext.Current))
             Return serviceProvider.GetRequiredService(Of IClientResourceController)()
         End Function
 

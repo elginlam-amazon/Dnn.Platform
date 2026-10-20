@@ -44,7 +44,7 @@ namespace DotNetNuke.UI.Modules
         private const string DefaultCssProvider = "DnnPageHeaderProvider";
         private const string DefaultJsProvider = "DnnBodyProvider";
 
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<ModuleHost>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<ModuleHost>();
 
         private static readonly Regex CdfMatchRegex = new Regex(
             @"<\!--CDF\((?<type>JAVASCRIPT|CSS|JS-LIBRARY)\|(?<path>.+?)(\|(?<provider>.+?)\|(?<priority>\d+?))?\)-->",
@@ -283,9 +283,8 @@ namespace DotNetNuke.UI.Modules
             }
             catch (ThreadAbortException exc)
             {
+                // thread aborts (and Thread.ResetAbort) do not exist on .NET
                 Logger.ModuleHostThreadAbortException(exc);
-
-                Thread.ResetAbort();
             }
             catch (Exception exc)
             {

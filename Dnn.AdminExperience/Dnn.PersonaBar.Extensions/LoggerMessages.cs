@@ -5,7 +5,6 @@
 namespace Dnn.PersonaBar;
 
 using System;
-using System.Data.SqlClient;
 using System.IO;
 using System.Web.Security;
 
@@ -14,6 +13,7 @@ using Dnn.PersonaBar.Roles.Components.Prompt.Exceptions;
 using DotNetNuke.Entities.Users;
 using DotNetNuke.Services.Connections;
 
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
 /// <summary>Extension methods for <see cref="ILogger"/> for pre-defined logging messages.</summary>

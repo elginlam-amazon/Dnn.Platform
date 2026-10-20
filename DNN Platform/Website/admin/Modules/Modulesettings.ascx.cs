@@ -42,7 +42,7 @@ namespace DotNetNuke.Modules.Admin.Modules
     /// <summary>The ModuleSettingsPage PortalModuleBase is used to edit the settings for a module.</summary>
     public partial class ModuleSettingsPage : PortalModuleBase
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<ModuleSettingsPage>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<ModuleSettingsPage>();
         private readonly INavigationManager navigationManager;
         private readonly IPortalAliasService portalAliasService;
         private readonly IModuleControlPipeline moduleControlPipeline;
@@ -557,9 +557,8 @@ namespace DotNetNuke.Modules.Admin.Modules
                         }
                         catch (ThreadAbortException exc)
                         {
+                            // thread aborts (and Thread.ResetAbort) do not exist on .NET
                             Logger.ModuleSettingsThreadAbortException(exc);
-
-                            Thread.ResetAbort(); // necessary
                         }
                         catch (Exception ex)
                         {

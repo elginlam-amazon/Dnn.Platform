@@ -104,7 +104,7 @@ namespace DotNetNuke.Tests.Core.Services.Sitemap
 
         private static XDocument WriteSitemap(SitemapUrl sitemapUrl)
         {
-            var builder = (SitemapBuilder)FormatterServices.GetUninitializedObject(typeof(SitemapBuilder));
+            var builder = (SitemapBuilder)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(SitemapBuilder));
             var writeSitemap = typeof(SitemapBuilder).GetMethod("WriteSitemap", BindingFlags.Instance | BindingFlags.NonPublic);
             using var output = new StringWriter(CultureInfo.InvariantCulture);
 

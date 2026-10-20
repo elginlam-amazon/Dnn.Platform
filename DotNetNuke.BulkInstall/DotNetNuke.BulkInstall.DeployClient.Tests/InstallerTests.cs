@@ -153,7 +153,7 @@ public class InstallerTests
             null);
         var installer = CreateInstaller(handler);
 
-        var result = installer.UploadPackage(options, sessionId, new MemoryStream("XYZ"u8.ToArray()), @"modules\Jamestown_install_5.5.7.zip");
+        var result = installer.UploadPackage(options, sessionId, new MemoryStream("XYZ"u8.ToArray()), $"modules{Path.DirectorySeparatorChar}Jamestown_install_5.5.7.zip");
         await result.UploadTask;
 
         var formContent = handler.Request.ShouldNotBeNull().Content.ShouldBeOfType<MultipartFormDataContent>();

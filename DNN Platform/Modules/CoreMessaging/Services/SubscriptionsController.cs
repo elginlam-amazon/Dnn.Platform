@@ -10,7 +10,6 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Application;
@@ -25,7 +24,11 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
     using DotNetNuke.Services.Social.Subscriptions.Entities;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>Provides a web service to manage subscriptions.</summary>
     /// <param name="hostSettings">The host settings.</param>

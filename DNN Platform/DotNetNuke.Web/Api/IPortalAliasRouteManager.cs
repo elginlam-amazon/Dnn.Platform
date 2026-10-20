@@ -5,9 +5,10 @@
 namespace DotNetNuke.Web.Api
 {
     using System.Collections.Generic;
-    using System.Web.Http.Routing;
 
     using DotNetNuke.Entities.Portals;
+
+    using Microsoft.AspNetCore.Routing;
 
     /// <summary>A contract specifying the ability to manage routes for a portal alias.</summary>
     internal interface IPortalAliasRouteManager
@@ -33,8 +34,8 @@ namespace DotNetNuke.Web.Api
         /// <summary>Adds prefix route values to the <paramref name="routeValues"/>.</summary>
         /// <param name="portalAliasInfo">The portal alias.</param>
         /// <param name="routeValues">The route values.</param>
-        /// <returns>A new <see cref="HttpRouteValueDictionary"/> with prefixes added.</returns>
-        HttpRouteValueDictionary GetAllRouteValues(PortalAliasInfo portalAliasInfo, object routeValues);
+        /// <returns>A new <see cref="RouteValueDictionary"/> with prefixes added.</returns>
+        RouteValueDictionary GetAllRouteValues(PortalAliasInfo portalAliasInfo, object routeValues);
 
         /// <summary>Get the route URL.</summary>
         /// <param name="moduleFolderName">The module folder name.</param>

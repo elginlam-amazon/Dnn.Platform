@@ -7,7 +7,6 @@ namespace DotNetNuke.Web.Api
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web.Http.Routing;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
@@ -15,6 +14,7 @@ namespace DotNetNuke.Web.Api
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Internal.SourceGenerators;
 
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>The default <see cref="IPortalAliasRouteManager"/> implementation.</summary>
@@ -54,10 +54,10 @@ namespace DotNetNuke.Web.Api
         /// <summary>Adds prefix route values to the <paramref name="routeValues"/>.</summary>
         /// <param name="portalAliasInfo">The portal alias.</param>
         /// <param name="routeValues">The route values.</param>
-        /// <returns>A new <see cref="HttpRouteValueDictionary"/> with prefixes added.</returns>
-        public static HttpRouteValueDictionary GetAllRouteValues(IPortalAliasInfo portalAliasInfo, object routeValues)
+        /// <returns>A new <see cref="RouteValueDictionary"/> with prefixes added.</returns>
+        public static RouteValueDictionary GetAllRouteValues(IPortalAliasInfo portalAliasInfo, object routeValues)
         {
-            var allRouteValues = new HttpRouteValueDictionary(routeValues);
+            var allRouteValues = new RouteValueDictionary(routeValues);
 
             var segments = portalAliasInfo.HttpAlias.Split('/');
             if (segments.Length > 1)
@@ -108,7 +108,7 @@ namespace DotNetNuke.Web.Api
         }
 
         /// <inheritdoc />
-        public HttpRouteValueDictionary GetAllRouteValues(PortalAliasInfo portalAliasInfo, object routeValues)
+        public RouteValueDictionary GetAllRouteValues(PortalAliasInfo portalAliasInfo, object routeValues)
             => GetAllRouteValues((IPortalAliasInfo)portalAliasInfo, routeValues);
 
         /// <inheritdoc />

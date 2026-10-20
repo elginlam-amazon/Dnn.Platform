@@ -129,59 +129,12 @@ namespace DotNetNuke.Framework
         {
             if (!initialized)
             {
-                // test RelectionPermission
-                CodeAccessPermission securityTest;
-                try
-                {
-                    securityTest = new ReflectionPermission(PermissionState.Unrestricted);
-                    securityTest.Demand();
-                    reflectionPermission = true;
-                }
-                catch
-                {
-                    // code access security error
-                    reflectionPermission = false;
-                }
-
-                // test WebPermission
-                try
-                {
-                    securityTest = new WebPermission(PermissionState.Unrestricted);
-                    securityTest.Demand();
-                    webPermission = true;
-                }
-                catch
-                {
-                    // code access security error
-                    webPermission = false;
-                }
-
-                // test WebHosting Permission (Full Trust)
-                try
-                {
-                    securityTest = new AspNetHostingPermission(AspNetHostingPermissionLevel.Unrestricted);
-                    securityTest.Demand();
-                    aspNetHostingPermission = true;
-                }
-                catch
-                {
-                    // code access security error
-                    aspNetHostingPermission = false;
-                }
-
+                // Code access security (partial trust) does not exist on .NET, all code runs with full trust.
+                reflectionPermission = true;
+                webPermission = true;
+                aspNetHostingPermission = true;
+                unManagedCodePermission = true;
                 initialized = true;
-
-                // Test for Unmanaged Code permission
-                try
-                {
-                    securityTest = new SecurityPermission(SecurityPermissionFlag.UnmanagedCode);
-                    securityTest.Demand();
-                    unManagedCodePermission = true;
-                }
-                catch (Exception)
-                {
-                    unManagedCodePermission = false;
-                }
             }
         }
     }

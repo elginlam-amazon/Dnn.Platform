@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Fills the gaps of the System.Web API surface that DNN uses and that neither Microsoft.AspNetCore.SystemWebAdapters
+    (HttpContext, HttpRequest, HttpResponse, Cache, HostingEnvironment, ...) nor CoreWebForms (System.Web.UI.*) provide
+    on .NET 10, e.g. the System.Web.Extensions (MS AJAX) controls and the JavaScriptSerializer.
+    The types intentionally keep their System.Web namespaces so that the existing Web Forms based code base, skins and
+    extensions keep compiling unchanged.
+  -->
+  <PropertyGroup>
+    <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
+    <OutputPath>bin</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>System.Web</RootNamespace>
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- CA1822/CA1711: the types and members mirror the API of System.Web / System.Web.Extensions. -->
+    <NoWarn>$(NoWarn);CA1822;CA1711;CA1010</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CoreWebForms" />
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="System.Configuration.ConfigurationManager" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="..\..\stylecop.json" Link="stylecop.json" />
+    <Compile Include="..\..\SolutionInfo.cs" Link="SolutionInfo.cs" />
+  </ItemGroup>
+
+  <Import Project="..\..\DNN_Platform.build" />
+  <Target Name="CopyBin" AfterTargets="Build">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.SystemWebCompat.dll" DestinationFolder="$(WebsitePath)\bin\" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.SystemWebCompat.pdb" DestinationFolder="$(WebsitePath)\bin\" />
+  </Target>
+</Project>

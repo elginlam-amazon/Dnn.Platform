@@ -282,7 +282,13 @@ WHERE tm.TabID = {tabId} AND md.FriendlyName = '{moduleName}'");
 
         private static string GenerateHash(this string str, string hashType)
         {
-            var hasher = HashAlgorithm.Create(hashType);
+            HashAlgorithm hasher = hashType switch
+            {
+                "SHA256" => SHA256.Create(),
+                "MD5" => MD5.Create(),
+                _ => null,
+            };
+
             if (hasher == null)
             {
                 throw new InvalidOperationException("No hashing type found by name " + hashType);

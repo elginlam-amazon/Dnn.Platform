@@ -1,17 +1,13 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
+
 namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
 {
     using System;
     using System.IO;
-    using System.Web.Mvc;
 
-    using DotNetNuke.Tests.Utilities.Fakes;
-    using DotNetNuke.Web.Mvc.Framework.ActionResults;
     using DotNetNuke.Web.Mvc.Framework.Modules;
-
-    using Microsoft.Extensions.DependencyInjection;
 
     using Moq;
     using NUnit.Framework;
@@ -19,24 +15,6 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
     [TestFixture]
     public class ModuleExecutionEngineTests
     {
-        private FakeServiceProvider serviceProvider;
-
-        [SetUp]
-        public void Setup()
-        {
-            this.serviceProvider = FakeServiceProvider.Setup(
-                services =>
-                {
-                    services.AddSingleton<IControllerFactory, DefaultControllerFactory>();
-                });
-        }
-
-        [TearDown]
-        public void TearDown()
-        {
-            this.serviceProvider.Dispose();
-        }
-
         [Test]
         public void ExecuteModule_Requires_NonNull_ModuleRequestContext()
         {
@@ -94,51 +72,33 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
         }
 
         [Test]
-        public void ExecuteModuleResult_Calls_IDnnViewResult_ExecuteResult()
+        public void ExecuteModuleResult_Requires_NonNull_Arguments()
         {
             // Arrange
             var engine = new ModuleExecutionEngine();
 
-            var actionResultMock = new Mock<ActionResult>();
-
-            var viewResultMock = actionResultMock.As<IDnnViewResult>();
-
-            var controllerContext = MockHelper.CreateMockControllerContext();
-            var moduleRequestResult = new ModuleRequestResult
+            // Act, Assert
+            using (Assert.EnterMultipleScope())
             {
-                ActionResult = actionResultMock.Object,
-                ControllerContext = controllerContext,
-            };
-
-            // Act
-            engine.ExecuteModuleResult(moduleRequestResult, new StringWriter());
-
-            // Arrange
-            viewResultMock.Verify(v => v.ExecuteResult(It.IsAny<ControllerContext>(), It.IsAny<TextWriter>()));
+                Assert.Throws<ArgumentNullException>(() => engine.ExecuteModuleResult(null, new StringWriter()));
+                Assert.Throws<ArgumentNullException>(() => engine.ExecuteModuleResult(new ModuleRequestResult(), null));
+            }
         }
 
         [Test]
-        public void ExecuteModuleResult_Calls_IDnnViewResult_ExecuteResult_With_ModuleRequestResult_ControllerContext()
+        public void ExecuteModuleResult_Writes_RenderedOutput_To_Writer()
         {
             // Arrange
             var engine = new ModuleExecutionEngine();
-
-            var actionResultMock = new Mock<ActionResult>();
-
-            var viewResultMock = actionResultMock.As<IDnnViewResult>();
-
-            var controllerContext = MockHelper.CreateMockControllerContext();
-            var moduleRequestResult = new ModuleRequestResult
-            {
-                ActionResult = actionResultMock.Object,
-                ControllerContext = controllerContext,
-            };
+            const string expectedOutput = "<p>Hello from the module.</p>";
+            var moduleRequestResult = new ModuleRequestResult { RenderedOutput = expectedOutput };
+            var writer = new StringWriter();
 
             // Act
-            engine.ExecuteModuleResult(moduleRequestResult, new StringWriter());
+            engine.ExecuteModuleResult(moduleRequestResult, writer);
 
-            // Arrange
-            viewResultMock.Verify(v => v.ExecuteResult(controllerContext, It.IsAny<TextWriter>()));
+            // Assert
+            Assert.That(writer.ToString(), Is.EqualTo(expectedOutput));
         }
     }
 }

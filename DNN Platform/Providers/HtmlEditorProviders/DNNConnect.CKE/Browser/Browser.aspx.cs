@@ -13,10 +13,9 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
-using System.Web.Script.Services;
-using System.Web.Services;
 using System.Web.UI;
 using System.Web.UI.HtmlControls;
 using System.Web.UI.WebControls;
@@ -51,7 +50,6 @@ using DotNetNuke.Services.Localization;
 using DotNetNuke.UI.Utilities;
 
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.JScript;
 
 using Convert = System.Convert;
 using Encoder = System.Drawing.Imaging.Encoder;
@@ -59,7 +57,6 @@ using Globals = DotNetNuke.Common.Globals;
 using Image = System.Drawing.Image;
 
 /// <summary>The browser.</summary>
-[ScriptService]
 public partial class Browser : PageBase
 {
     /// <summary>The allowed flash extensions.</summary>
@@ -311,7 +308,6 @@ public partial class Browser : PageBase
 
     /// <summary>Set the file url from JavaScript to code.</summary>
     /// <param name="fileUrl">The file url.</param>
-    [WebMethod]
     public static void SetFile(string fileUrl)
     {
         ckFileUrl = fileUrl;
@@ -590,7 +586,7 @@ public partial class Browser : PageBase
 
         if (!fileUrl.Contains("?") && !isPageLink)
         {
-            fileUrl = GlobalObject.escape(fileUrl);
+            fileUrl = Utility.JavaScriptEscape(fileUrl);
 
             if (fileUrl.Contains("%3A"))
             {
@@ -755,6 +751,33 @@ public partial class Browser : PageBase
     /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
     protected void Page_Load(object sender, EventArgs e)
     {
+        // The legacy ASP.NET AJAX page method "SetFile" (previously exposed via [ScriptService]/[WebMethod])
+        // is invoked by the client as a JSON POST to "Browser.aspx/SetFile". CoreWebForms does not support
+        // ScriptService page methods, so the request is handled here to preserve the original behavior.
+        if (string.Equals(this.request.PathInfo, "/SetFile", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(this.request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase))
+        {
+            string body;
+            using (var reader = new StreamReader(this.request.InputStream, Encoding.UTF8))
+            {
+                body = reader.ReadToEnd();
+            }
+
+            if (!string.IsNullOrEmpty(body))
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(body);
+                if (document.RootElement.TryGetProperty("fileUrl", out var fileUrlElement))
+                {
+                    SetFile(fileUrlElement.GetString());
+                }
+            }
+
+            this.Response.ContentType = "application/json";
+            this.Response.Write("{}");
+            this.Response.End();
+            return;
+        }
+
         JavaScript.RequestRegistration(this.AppStatus, this.eventLogger, this.portalSettings, CommonJs.jQuery);
 
         this.SetSortButtonClasses();
@@ -2806,7 +2829,7 @@ public partial class Browser : PageBase
 
         try
         {
-            var wc = new WebClient();
+            using var wc = new System.Net.Http.HttpClient();
 
             var tabUrl = selectedTab.FullUrl;
 
@@ -2816,7 +2839,7 @@ public partial class Browser : PageBase
                 tabUrl = $"{requestUrl.Scheme}://{requestUrl.Authority}{tabUrl}";
             }
 
-            var page = wc.DownloadString(tabUrl);
+            var page = wc.GetStringAsync(tabUrl).GetAwaiter().GetResult();
 
             foreach (LinkItem i in AnchorFinder.ListAll(page).Where(i => !string.IsNullOrEmpty(i.Anchor)))
             {

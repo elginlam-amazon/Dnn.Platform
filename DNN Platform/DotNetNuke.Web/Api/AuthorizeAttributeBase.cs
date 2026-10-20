@@ -1,57 +1,68 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Web.Api
 {
+    using System;
     using System.Linq;
-    using System.Web.Http;
-    using System.Web.Http.Controllers;
-    using System.Web.Http.Filters;
+    using System.Reflection;
 
     using DotNetNuke.Common;
 
-    /// <summary>Provides Dnn specific details for authorization filter.</summary>
-    public abstract class AuthorizeAttributeBase : AuthorizationFilterAttribute
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc.Controllers;
+    using Microsoft.AspNetCore.Mvc.Filters;
+
+    /// <summary>The base class of the authorization attributes of the services framework.</summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1710:Identifiers should have correct suffix", Justification = "Breaking change")]
+    public abstract class AuthorizeAttributeBase : Attribute, IAuthorizationFilter
     {
-        /// <summary>Checks if the <see cref="AllowAnonymousAttribute"/> is present.</summary>
-        /// <param name="actionContext">The HTTP action context.</param>
-        /// <returns>A value indicating whether the <see cref="AllowAnonymousAttribute"/> is present.</returns>
-        public static bool IsAnonymousAttributePresent(HttpActionContext actionContext)
-        {
-            return actionContext.ActionDescriptor.GetCustomAttributes<AllowAnonymousAttribute>().Count != 0
-                   || (actionContext.ControllerContext.ControllerDescriptor.GetCustomAttributes<AllowAnonymousAttribute>().Count != 0
-                         && actionContext.ActionDescriptor.GetCustomAttributes<AuthorizeAttributeBase>().All(t => t is SupportedModulesAttribute));
-        }
-
-        /// <summary>Tests if the request passes the authorization requirements.</summary>
-        /// <param name="context">The auth filter context.</param>
-        /// <returns>True when authorization is successful.</returns>
-        public abstract bool IsAuthorized(AuthFilterContext context);
-
-        /// <summary>Called by framework at start of Auth process, check if auth should be skipped and handles auth failure.  Should rarely need to be overridden.</summary>
-        /// <param name="actionContext">The HTTP action context.</param>
-        public override void OnAuthorization(HttpActionContext actionContext)
+        /// <summary>Gets a value indicating whether the action (or its controller, when the action has no other authorization attributes than <see cref="SupportedModulesAttribute"/>) allows anonymous access.</summary>
+        /// <param name="actionContext">The authorization filter context.</param>
+        /// <returns><see langword="true"/> if anonymous access is allowed.</returns>
+        public static bool IsAnonymousAttributePresent(AuthorizationFilterContext actionContext)
         {
             Requires.NotNull("actionContext", actionContext);
 
-            if (this.SkipAuthorization(actionContext))
+            if (actionContext.ActionDescriptor is not ControllerActionDescriptor descriptor)
+            {
+                return actionContext.ActionDescriptor.EndpointMetadata.OfType<IAllowAnonymous>().Any();
+            }
+
+            return descriptor.MethodInfo.GetCustomAttributes<AllowAnonymousAttribute>(true).Any()
+                   || (descriptor.ControllerTypeInfo.GetCustomAttributes<AllowAnonymousAttribute>(true).Any()
+                       && descriptor.MethodInfo.GetCustomAttributes<AuthorizeAttributeBase>(true).All(t => t is SupportedModulesAttribute));
+        }
+
+        /// <summary>Tests whether the request passes the authorization requirements.</summary>
+        /// <param name="context">The auth filter context.</param>
+        /// <returns><see langword="true"/> if the request is authorized.</returns>
+        public abstract bool IsAuthorized(AuthFilterContext context);
+
+        /// <inheritdoc />
+        public virtual void OnAuthorization(AuthorizationFilterContext context)
+        {
+            Requires.NotNull("context", context);
+
+            if (context.Result != null || this.SkipAuthorization(context))
             {
                 return;
             }
 
             const string failureMessage = "Authorization has been denied for this request.";
-            var authFilterContext = new AuthFilterContext(actionContext, failureMessage);
+            var authFilterContext = new AuthFilterContext(context, failureMessage);
             if (!this.IsAuthorized(authFilterContext))
             {
                 authFilterContext.HandleUnauthorizedRequest();
             }
         }
 
-        /// <summary>Skips this authorization step if anonymous attribute is applied, override if auth should never be skipped, or other conditions are required.</summary>
-        /// <param name="actionContext">The HTTP Action Context.</param>
-        /// <returns>A value indicating whether to skip the authorization.</returns>
-        protected virtual bool SkipAuthorization(HttpActionContext actionContext)
+        /// <summary>Gets a value indicating whether the authorization is skipped for this request.</summary>
+        /// <param name="actionContext">The authorization filter context.</param>
+        /// <returns><see langword="true"/> to skip the authorization.</returns>
+        protected virtual bool SkipAuthorization(AuthorizationFilterContext actionContext)
         {
             return IsAnonymousAttributePresent(actionContext);
         }

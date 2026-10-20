@@ -11,10 +11,10 @@ namespace Dnn.EditBar.UI.Services
     using System.Net.Http;
     using System.Text;
     using System.Threading.Tasks;
-    using System.Web.Http;
 
     using Dnn.EditBar.UI.Helpers;
     using Dnn.EditBar.UI.Services.DTO;
+
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Portals;
@@ -24,6 +24,11 @@ namespace Dnn.EditBar.UI.Services
     using DotNetNuke.Services.Personalization;
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
+
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [DnnPageEditor]
     public class CommonController : DnnApiController

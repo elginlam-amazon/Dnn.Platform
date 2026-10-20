@@ -26,7 +26,7 @@ namespace DotNetNuke.UI.WebControls
     [ToolboxData("<{0}:DNNListEditControl runat=server></{0}:DNNListEditControl>")]
     public class DNNListEditControl : EditControl, IPostBackEventHandler
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<DNNListEditControl>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<DNNListEditControl>();
         private readonly ListController listController;
         private readonly IPortalController portalController;
         private readonly IApplicationStatusInfo appStatus;

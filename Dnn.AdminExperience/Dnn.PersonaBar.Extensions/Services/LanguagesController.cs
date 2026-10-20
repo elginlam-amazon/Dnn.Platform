@@ -13,7 +13,6 @@ namespace Dnn.PersonaBar.SiteSettings.Services
     using System.Net.Http;
     using System.Text.RegularExpressions;
     using System.Web;
-    using System.Web.Http;
     using System.Web.UI;
     using System.Xml;
     using System.Xml.XPath;
@@ -24,6 +23,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
     using Dnn.PersonaBar.SiteSettings.Components;
     using Dnn.PersonaBar.SiteSettings.Components.Constants;
     using Dnn.PersonaBar.SiteSettings.Services.Dto;
+
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
@@ -36,7 +36,10 @@ namespace Dnn.PersonaBar.SiteSettings.Services
     using DotNetNuke.Services.Log.EventLog;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Admin)]
     public class LanguagesController : PersonaBarApiController
@@ -115,7 +118,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             try
             {
                 var folders = new List<KeyValuePair<string, string>>();
-                var server = HttpContext.Current.Server;
+                var server = System.Web.HttpContext.Current.Server;
 
                 folders.Add(new KeyValuePair<string, string>(LocalizeString("LocalResources"), "_"));
                 folders.Add(new KeyValuePair<string, string>(LocalizeString("GlobalResources"), server.MapPath("~/App_GlobalResources")));
@@ -143,7 +146,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             {
                 var folders = new List<KeyValuePair<string, string>>();
                 var files = new List<KeyValuePair<string, string>>();
-                var server = HttpContext.Current.Server;
+                var server = System.Web.HttpContext.Current.Server;
 
                 if (string.IsNullOrEmpty(currentFolder))
                 {
@@ -248,8 +251,8 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 }
 
                 this.selectedResourceFile = !string.IsNullOrEmpty(resourceFile)
-                    ? HttpContext.Current.Server.MapPath("~/" + resourceFile)
-                    : HttpContext.Current.Server.MapPath(Localization.GlobalResourceFile);
+                    ? System.Web.HttpContext.Current.Server.MapPath("~/" + resourceFile)
+                    : System.Web.HttpContext.Current.Server.MapPath(Localization.GlobalResourceFile);
 
                 var editTable = this.LoadFile(pid, resourceMode, "Edit", locale);
                 var defaultTable = this.LoadFile(pid, resourceMode, "Default", locale);
@@ -361,7 +364,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         string.Format(CultureInfo.InvariantCulture, LocalizeString("MissingResourceFileName"), request.Locale));
                 }
 
-                this.selectedResourceFile = HttpContext.Current.Server.MapPath("~/" + request.ResourceFile);
+                this.selectedResourceFile = System.Web.HttpContext.Current.Server.MapPath("~/" + request.ResourceFile);
                 var message = this.SaveResourceFileFile(pid, resourceMode, request.Locale, request.Entries);
                 return this.Request.CreateResponse(HttpStatusCode.OK, new { Message = message, });
             }
@@ -375,7 +378,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         // POST /api/personabar/languages/EnableLocalizedContent?portalId=&translatePages=true
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage EnableLocalizedContent([FromUri] int? portalId, [FromUri] bool translatePages)
+        public HttpResponseMessage EnableLocalizedContent([FromQuery] int? portalId, [FromQuery] bool translatePages)
         {
             try
             {
@@ -402,7 +405,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         // POST /api/personabar/languages/LocalizedContent?portalId=&cultureCode=de-DE
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage LocalizedContent([FromUri] int? portalId, [FromUri] string cultureCode)
+        public HttpResponseMessage LocalizedContent([FromQuery] int? portalId, [FromQuery] string cultureCode)
         {
             try
             {
@@ -445,7 +448,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         // POST /api/personabar/languages/DisableLocalizedContent
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage DisableLocalizedContent([FromUri] int? portalId)
+        public HttpResponseMessage DisableLocalizedContent([FromQuery] int? portalId)
         {
             try
             {
@@ -482,7 +485,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         // POST /api/personabar/languages/MarkAllPagesTranslated?portalId=&cultureCode=de-DE
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage MarkAllPagesTranslated([FromUri] int? portalId, [FromUri] string cultureCode)
+        public HttpResponseMessage MarkAllPagesTranslated([FromQuery] int? portalId, [FromQuery] string cultureCode)
         {
             try
             {
@@ -526,7 +529,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         // POST /api/personabar/languages/ActivateLanguage?portalId=&cultureCode=de-DE&enable=true
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage ActivateLanguage([FromUri] int? portalId, [FromUri] string cultureCode, [FromUri] bool enable)
+        public HttpResponseMessage ActivateLanguage([FromQuery] int? portalId, [FromQuery] string cultureCode, [FromQuery] bool enable)
         {
             try
             {
@@ -560,7 +563,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         // POST /api/personabar/languages/PublishAllPages?portalId=&cultureCode=de-DE&enable=true
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage PublishAllPages([FromUri] int? portalId, [FromUri] string cultureCode, [FromUri] bool enable)
+        public HttpResponseMessage PublishAllPages([FromQuery] int? portalId, [FromQuery] string cultureCode, [FromQuery] bool enable)
         {
             try
             {
@@ -672,7 +675,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             var hasResources = false;
             foreach (var folder in Directory.GetDirectories(path))
             {
-                if ((File.GetAttributes(folder) & FileAttributes.ReparsePoint) != FileAttributes.ReparsePoint)
+                if ((System.IO.File.GetAttributes(folder) & FileAttributes.ReparsePoint) != FileAttributes.ReparsePoint)
                 {
                     folderInfo = new DirectoryInfo(folder);
                     hasResources = hasResources || HasLocalResources(folderInfo.FullName);
@@ -862,7 +865,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             var defDoc = new XmlDocument { XmlResolver = null };
 
             var filename = this.ResourceFile(portalId, locale, mode);
-            var resourceFile = File.Exists(filename) ? filename : this.ResourceFile(portalId, Localization.SystemLocale, LanguageResourceMode.System);
+            var resourceFile = System.IO.File.Exists(filename) ? filename : this.ResourceFile(portalId, Localization.SystemLocale, LanguageResourceMode.System);
             using (var resourceReader = XmlReader.Create(resourceFile, new XmlReaderSettings { XmlResolver = null, }))
             {
                 resDoc.Load(resourceReader);
@@ -969,10 +972,10 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         // there's something to save
                         resDoc.Save(filename);
                     }
-                    else if (File.Exists(filename))
+                    else if (System.IO.File.Exists(filename))
                     {
                         // nothing to be saved, if file exists delete
-                        File.Delete(filename);
+                        System.IO.File.Delete(filename);
                     }
 
                     break;

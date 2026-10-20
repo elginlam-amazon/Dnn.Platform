@@ -13,12 +13,12 @@ namespace Dnn.PersonaBar.Seo.Services
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Web;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Seo.Components;
     using Dnn.PersonaBar.Seo.Services.Dto;
+
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -33,7 +33,10 @@ namespace Dnn.PersonaBar.Seo.Services
     using DotNetNuke.Services.Url.FriendlyUrl;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = "Dnn.Seo")]
     public class SeoController : PersonaBarApiController
@@ -587,6 +590,21 @@ namespace Dnn.PersonaBar.Seo.Services
             return false;
         }
 
+        private static System.Web.HttpContext CreateTestHttpContext(Uri uri)
+        {
+            // Build a throwaway ASP.NET Core context that mirrors the tested URL so that the
+            // URL rewriter can be exercised without mutating the live request/response.
+            var features = new Microsoft.AspNetCore.Http.Features.FeatureCollection();
+            var coreContext = new Microsoft.AspNetCore.Http.DefaultHttpContext(features);
+            var request = coreContext.Request;
+            request.Scheme = uri.Scheme;
+            request.Host = new Microsoft.AspNetCore.Http.HostString(uri.Authority);
+            request.Path = uri.AbsolutePath;
+            request.QueryString = new Microsoft.AspNetCore.Http.QueryString(uri.Query);
+
+            return coreContext;
+        }
+
         private void UpdateRegexSettingsInternal(UpdateRegexSettingsRequest request)
         {
             var settings = new Dictionary<string, string>
@@ -653,7 +671,7 @@ namespace Dnn.PersonaBar.Seo.Services
                 {
                     RawUrl = uriString,
                 };
-                var httpContext = new HttpContext(HttpContext.Current.Request, new HttpResponse(new StringWriter()));
+                var httpContext = CreateTestHttpContext(uri);
                 provider.ProcessTestRequestWithContext(httpContext, uri, true, result, new FriendlyUrlSettings(this.PortalId));
                 rewritingResult.RewritingResult = string.IsNullOrEmpty(result.RewritePath) ? noneText : result.RewritePath;
                 rewritingResult.Culture = string.IsNullOrEmpty(result.CultureCode) ? noneText : result.CultureCode;

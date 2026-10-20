@@ -606,7 +606,7 @@ namespace DotNetNuke.Web.Client.ClientResourceManagement
 
         private static IClientResourceController GetClientResourcesController(Page page)
         {
-            var serviceProvider = GetCurrentServiceProvider(page.Request.RequestContext.HttpContext);
+            var serviceProvider = GetCurrentServiceProvider(new HttpContextWrapper(HttpContext.Current));
             return serviceProvider.GetRequiredService<IClientResourceController>();
         }
 

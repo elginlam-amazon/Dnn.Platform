@@ -8,7 +8,6 @@ namespace DotNetNuke.Web.Api.Internal
     using System.Net;
     using System.Net.Http;
     using System.Threading;
-    using System.Web.Http;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common.Internal;
@@ -19,11 +18,19 @@ namespace DotNetNuke.Web.Api.Internal
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Localization.Internal;
+
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>Sets up DNN context information upon a request.</summary>
     public class DnnContextMessageHandler : MessageProcessingHandler
     {
+        /// <summary>Processes the request (called by the services framework endpoints, before the authentication message handlers).</summary>
+        /// <param name="request">The request message.</param>
+        internal void Process(HttpRequestMessage request)
+        {
+            this.ProcessRequest(request, CancellationToken.None);
+        }
+
         /// <inheritdoc />
         protected override HttpRequestMessage ProcessRequest(HttpRequestMessage request, CancellationToken cancellationToken)
         {

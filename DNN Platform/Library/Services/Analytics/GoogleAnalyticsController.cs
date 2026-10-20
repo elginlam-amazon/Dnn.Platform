@@ -41,7 +41,7 @@ namespace DotNetNuke.Services.Analytics
                         {
                             var fileEncoding = new ASCIIEncoding();
 #pragma warning disable CA5351 // Do not use broken cryptographic algorithms
-                            using var md5 = new MD5CryptoServiceProvider();
+                            using var md5 = MD5.Create();
 #pragma warning restore CA5351
                             string currFileHashValue = string.Empty;
 

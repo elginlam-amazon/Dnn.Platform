@@ -6,11 +6,7 @@ namespace Dnn.PersonaBar.Security.Components.Checks
 {
     using System;
     using System.IO;
-    using System.Net.Http;
-    using System.Web;
-    using System.Web.Compilation;
-    using System.Web.Configuration;
-    using System.Web.UI;
+    using System.Xml;
 
     using DotNetNuke.Common;
 
@@ -59,13 +55,30 @@ namespace Dnn.PersonaBar.Security.Components.Checks
 
         private static bool AppLevelTraceEnabled()
         {
-            const string outputCacheSettingsKey = "system.web/trace";
-            if (WebConfigurationManager.GetSection(outputCacheSettingsKey) is TraceSection section)
+            try
             {
-                return section.Enabled;
-            }
+                var configPath = Path.Combine(Globals.ApplicationMapPath, "web.config");
+                if (!File.Exists(configPath))
+                {
+                    return false;
+                }
 
-            return false;
+                var document = new XmlDocument { XmlResolver = null };
+                using (var reader = XmlReader.Create(configPath, new XmlReaderSettings { XmlResolver = null }))
+                {
+                    document.Load(reader);
+                }
+
+                var traceNode = document.SelectSingleNode("/configuration/system.web/trace");
+                var enabledAttribute = traceNode?.Attributes?["enabled"];
+                return enabledAttribute != null
+                    && bool.TryParse(enabledAttribute.Value, out var enabled)
+                    && enabled;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
     }
 }

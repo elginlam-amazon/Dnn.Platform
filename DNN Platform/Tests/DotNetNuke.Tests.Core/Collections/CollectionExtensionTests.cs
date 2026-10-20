@@ -180,7 +180,7 @@ namespace DotNetNuke.Tests.Core.Collections
         {
             var collection = new Dictionary<string, string> { { "app id", null } };
 
-            var value = collection.GetValueOrDefault("app id", "a default value");
+            var value = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(collection, "app id", "a default value");
 
             Assert.That(value, Is.Null);
         }

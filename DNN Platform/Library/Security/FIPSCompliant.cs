@@ -60,10 +60,10 @@ namespace DotNetNuke.Security
             VerifyAesSettings(passPhrase, salt);
 
             byte[] saltBytes = Encoding.ASCII.GetBytes(salt);
-            using var aesProvider = new AesCryptoServiceProvider();
-            using var derivedBytes = new Rfc2898DeriveBytes(passPhrase, saltBytes, iterations, hashAlgorithm);
-            byte[] derivedKey = derivedBytes.GetBytes(32); // 256 bits
-            byte[] derivedInitVector = derivedBytes.GetBytes(16); // 128 bits
+            using var aesProvider = Aes.Create();
+            byte[] derivedBytes = Rfc2898DeriveBytes.Pbkdf2(passPhrase, saltBytes, iterations, hashAlgorithm, 48);
+            byte[] derivedKey = derivedBytes.AsSpan(0, 32).ToArray(); // 256 bits
+            byte[] derivedInitVector = derivedBytes.AsSpan(32, 16).ToArray(); // 128 bits
             byte[] plainTextBytes = Encoding.UTF8.GetBytes(plainText);
 
             aesProvider.KeySize = 256;
@@ -106,10 +106,10 @@ namespace DotNetNuke.Security
             VerifyAesSettings(passPhrase, salt);
 
             byte[] saltBytes = Encoding.ASCII.GetBytes(salt);
-            using var aesProvider = new AesCryptoServiceProvider();
-            using var derivedBytes = new Rfc2898DeriveBytes(passPhrase, saltBytes, iterations, hashAlgorithm);
-            byte[] derivedKey = derivedBytes.GetBytes(32); // 256 bits
-            byte[] derivedInitVector = derivedBytes.GetBytes(16); // 128 bits
+            using var aesProvider = Aes.Create();
+            byte[] derivedBytes = Rfc2898DeriveBytes.Pbkdf2(passPhrase, saltBytes, iterations, hashAlgorithm, 48);
+            byte[] derivedKey = derivedBytes.AsSpan(0, 32).ToArray(); // 256 bits
+            byte[] derivedInitVector = derivedBytes.AsSpan(32, 16).ToArray(); // 128 bits
             byte[] cipherTextBytes = Convert.FromBase64String(encryptedText);
 
             aesProvider.KeySize = 256;
@@ -120,7 +120,9 @@ namespace DotNetNuke.Security
             using var memStream = new MemoryStream(cipherTextBytes);
             using var cryptoStream = new CryptoStream(memStream, decryptor, CryptoStreamMode.Read);
             var plainTextBytes = new byte[cipherTextBytes.Length];
-            int byteCount = cryptoStream.Read(plainTextBytes, 0, plainTextBytes.Length);
+
+            // CryptoStream.Read can return fewer bytes than requested on .NET, read until the end of the stream
+            int byteCount = cryptoStream.ReadAtLeast(plainTextBytes, plainTextBytes.Length, throwOnEndOfStream: false);
 
             memStream.Close();
             cryptoStream.Close();

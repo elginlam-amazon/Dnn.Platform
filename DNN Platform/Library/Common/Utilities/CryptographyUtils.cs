@@ -14,29 +14,13 @@ namespace DotNetNuke.Common.Utilities
     /// <summary>CryptographyUtils is a Utility class that provides Cryptography Utility constants.</summary>
     public static partial class CryptographyUtils
     {
-        private const string SHA1Cng = "System.Security.Cryptography.SHA1Cng";
-
-        private const string SHA1CryptoServiceProvider = "System.Security.Cryptography.SHA1CryptoServiceProvider";
-
-        private const string SHA256Cng = "System.Security.Cryptography.SHA256Cng";
-
-        private const string SHA256CryptoServiceProvider = "System.Security.Cryptography.SHA256CryptoServiceProvider";
-
-        private const string SHA384Cng = "System.Security.Cryptography.SHA384Cng";
-
-        private const string SHA384CryptoServiceProvider = "System.Security.Cryptography.SHA384CryptoServiceProvider";
-
-        private const string SHA512Cng = "System.Security.Cryptography.SHA512Cng";
-
-        private const string SHA512CryptoServiceProvider = "System.Security.Cryptography.SHA512CryptoServiceProvider";
-
         /// <summary>Creates a <see cref="SHA1"/> implementation.</summary>
         /// <returns>A <see cref="SHA1"/> instance.</returns>
         [DnnDeprecated(10, 2, 2, "Use SHA2526 or higher")]
         public static partial SHA1 CreateSHA1()
         {
 #pragma warning disable CA5350
-            return SHA1.Create(CryptoConfig.AllowOnlyFipsAlgorithms ? SHA1CryptoServiceProvider : SHA1Cng);
+            return SHA1.Create(); // the .NET implementation uses the FIPS validated OS provider
 #pragma warning restore CA5350
         }
 
@@ -44,21 +28,21 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>A <see cref="SHA256"/> instance.</returns>
         public static SHA256 CreateSHA256()
         {
-            return SHA256.Create(CryptoConfig.AllowOnlyFipsAlgorithms ? SHA256CryptoServiceProvider : SHA256Cng);
+            return SHA256.Create(); // the .NET implementation uses the FIPS validated OS provider
         }
 
         /// <summary>Creates a <see cref="SHA384"/> implementation.</summary>
         /// <returns>A <see cref="SHA384"/> instance.</returns>
         public static SHA384 CreateSHA384()
         {
-            return SHA384.Create(CryptoConfig.AllowOnlyFipsAlgorithms ? SHA384CryptoServiceProvider : SHA384Cng);
+            return SHA384.Create(); // the .NET implementation uses the FIPS validated OS provider
         }
 
         /// <summary>Creates a <see cref="SHA512"/> implementation.</summary>
         /// <returns>A <see cref="SHA512"/> instance.</returns>
         public static SHA512 CreateSHA512()
         {
-            return SHA512.Create(CryptoConfig.AllowOnlyFipsAlgorithms ? SHA512CryptoServiceProvider : SHA512Cng);
+            return SHA512.Create(); // the .NET implementation uses the FIPS validated OS provider
         }
 
         public static string GenerateHash(this string str)
@@ -87,7 +71,7 @@ namespace DotNetNuke.Common.Utilities
 
         public static string GenerateHash(this string str, string hashType)
         {
-            var hasher = HashAlgorithm.Create(hashType);
+            var hasher = CryptoConfig.CreateFromName(hashType) as HashAlgorithm;
             if (hasher == null)
             {
                 throw new InvalidOperationException("No hashing type found by name " + hashType);

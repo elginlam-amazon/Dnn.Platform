@@ -1,43 +1,29 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Web.Mvc.Framework.ActionResults
 {
-    using System;
     using System.IO;
-    using System.Web.Mvc;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Common;
 
+    using Microsoft.AspNetCore.Mvc;
+
+    /// <summary>A <see cref="ViewResult"/> that can also render itself into an arbitrary <see cref="TextWriter"/>.</summary>
     public class DnnViewResult : ViewResult, IDnnViewResult
     {
+        /// <summary>Gets or sets the (optional) master/layout name. Kept for API compatibility.</summary>
+        public string MasterName { get; set; }
+
         /// <inheritdoc />
-        public void ExecuteResult(ControllerContext context, TextWriter writer)
+        public Task ExecuteResultAsync(ActionContext context, TextWriter writer)
         {
             Requires.NotNull("context", context);
             Requires.NotNull("writer", writer);
 
-            if (string.IsNullOrEmpty(this.ViewName))
-            {
-                this.ViewName = context.RouteData.GetRequiredString("action");
-            }
-
-            ViewEngineResult result = null;
-
-            if (this.View == null)
-            {
-                result = this.FindView(context);
-                this.View = result.View;
-            }
-
-            var viewContext = new ViewContext(context, this.View, this.ViewData, this.TempData, writer);
-            this.View.Render(viewContext, writer);
-
-            if (result != null)
-            {
-                result.ViewEngine.ReleaseView(context, this.View);
-            }
+            return DnnViewRenderer.RenderAsync(context, writer, this.ViewName, this.ViewData, this.TempData, isPartial: false);
         }
     }
 }

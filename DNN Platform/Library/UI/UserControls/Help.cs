@@ -8,6 +8,7 @@ namespace DotNetNuke.UI.UserControls
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.IO;
+    using System.Web;
     using System.Web.UI.WebControls;
 
     using DotNetNuke.Common.Utilities;

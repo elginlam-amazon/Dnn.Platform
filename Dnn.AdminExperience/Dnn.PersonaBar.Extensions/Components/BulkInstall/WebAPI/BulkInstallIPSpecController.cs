@@ -9,7 +9,6 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Extensions.Components.BulkInstall;
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.DataAccess.Models;
@@ -17,7 +16,12 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI.ActionFilters;
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
+
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Mvc;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for <see cref="IPSpec"/>.</summary>
     /// <param name="ipSpecManager">The IP spec manager.</param>

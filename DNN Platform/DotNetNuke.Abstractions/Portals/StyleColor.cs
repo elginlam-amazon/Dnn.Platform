@@ -31,9 +31,15 @@ namespace DotNetNuke.Abstractions.Portals
             AssertIsValidCssColor(hexValue);
 
             this.HexValue = hexValue;
+#if NET
+            this.red = byte.Parse(this.HexValue.AsSpan(0, 2), System.Globalization.NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            this.green = byte.Parse(this.HexValue.AsSpan(2, 2), System.Globalization.NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            this.blue = byte.Parse(this.HexValue.AsSpan(4, 2), System.Globalization.NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+#else
             this.red = byte.Parse(this.HexValue.Substring(0, 2), System.Globalization.NumberStyles.HexNumber, CultureInfo.InvariantCulture);
             this.green = byte.Parse(this.HexValue.Substring(2, 2), System.Globalization.NumberStyles.HexNumber, CultureInfo.InvariantCulture);
             this.blue = byte.Parse(this.HexValue.Substring(4, 2), System.Globalization.NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+#endif
         }
 
         private enum Component

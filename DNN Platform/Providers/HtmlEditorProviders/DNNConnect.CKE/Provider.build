@@ -11,7 +11,7 @@
     <Providers></Providers>
     <ProviderFolderName>$(WebsitePath)\Providers\HtmlEditorProviders\DNNConnect.CKE</ProviderFolderName>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="GetFiles;DebugProject;Package" />
   <Target Name="GetFiles">
     <ItemGroup>

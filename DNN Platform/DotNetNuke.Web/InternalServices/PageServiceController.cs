@@ -9,7 +9,6 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Common;
@@ -22,7 +21,10 @@ using DotNetNuke.Services.Localization;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.Api.Internal;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for pages.</summary>
 [DnnAuthorize]

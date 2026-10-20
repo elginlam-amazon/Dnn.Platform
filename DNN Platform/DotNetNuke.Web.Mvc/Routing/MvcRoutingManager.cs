@@ -1,30 +1,30 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Web.Mvc.Routing
 {
     using System;
     using System.Collections.Generic;
-    using System.Globalization;
-    using System.Web.Http;
-    using System.Web.Routing;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Internal;
-    using DotNetNuke.Common.Utilities;
     using DotNetNuke.Framework.Reflections;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Web.Mvc.Common;
 
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.Logging;
 
-    /// <summary>An <see cref="IRoutingManager"/> for MVC extensions.</summary>
+    /// <summary>An <see cref="IRoutingManager"/> for MVC extensions. Collects the routes registered by <see cref="IMvcRouteMapper"/> implementations so they can be mapped as ASP.NET Core endpoints.</summary>
     public sealed partial class MvcRoutingManager : IMapRoute, IRoutingManager
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<MvcRoutingManager>();
-        private readonly RouteCollection routes;
+        private static readonly List<DnnMvcRoute> CollectedRoutes = new List<DnnMvcRoute>();
+        private static readonly object CollectedRoutesLock = new object();
+
+        private readonly List<DnnMvcRoute> routes = new List<DnnMvcRoute>();
         private readonly PortalAliasMvcRouteManager portalAliasMvcRouteManager;
 
         /// <summary>Initializes a new instance of the <see cref="MvcRoutingManager"/> class.</summary>
@@ -37,36 +37,37 @@ namespace DotNetNuke.Web.Mvc.Routing
         /// <summary>Initializes a new instance of the <see cref="MvcRoutingManager"/> class.</summary>
         /// <param name="portalAliasService">The portal alias service.</param>
         public MvcRoutingManager(IPortalAliasService portalAliasService)
-            : this(portalAliasService, RouteTable.Routes)
         {
-        }
-
-        /// <summary>Initializes a new instance of the <see cref="MvcRoutingManager"/> class.</summary>
-        /// <param name="portalAliasService">The portal alias service.</param>
-        /// <param name="routes">The routes.</param>
-        internal MvcRoutingManager(IPortalAliasService portalAliasService, RouteCollection routes)
-        {
-            this.routes = routes;
             this.portalAliasMvcRouteManager = new PortalAliasMvcRouteManager(portalAliasService);
             this.TypeLocator = new TypeLocator();
         }
 
         internal ITypeLocator TypeLocator { get; set; }
 
-        /// <inheritdoc />
-        public Route MapRoute(string moduleFolderName, string routeName, string url, string[] namespaces)
+        /// <summary>Gets a snapshot of all routes collected by any <see cref="MvcRoutingManager"/>.</summary>
+        /// <returns>The collected routes.</returns>
+        public static IReadOnlyList<DnnMvcRoute> GetCollectedRoutes()
         {
-            return this.MapRoute(moduleFolderName, routeName, url, null /* defaults */, null /* constraints */, namespaces);
+            lock (CollectedRoutesLock)
+            {
+                return CollectedRoutes.ToArray();
+            }
         }
 
         /// <inheritdoc />
-        public Route MapRoute(string moduleFolderName, string routeName, string url, object defaults, string[] namespaces)
+        public DnnMvcRoute MapRoute(string moduleFolderName, string routeName, string url, string[] namespaces)
         {
-            return this.MapRoute(moduleFolderName, routeName, url, defaults, null /* constraints */, namespaces);
+            return this.MapRoute(moduleFolderName, routeName, url, null, null, namespaces);
         }
 
         /// <inheritdoc />
-        public Route MapRoute(string moduleFolderName, string routeName, string url, object defaults, object constraints, string[] namespaces)
+        public DnnMvcRoute MapRoute(string moduleFolderName, string routeName, string url, object defaults, string[] namespaces)
+        {
+            return this.MapRoute(moduleFolderName, routeName, url, defaults, null, namespaces);
+        }
+
+        /// <inheritdoc />
+        public DnnMvcRoute MapRoute(string moduleFolderName, string routeName, string url, object defaults, object constraints, string[] namespaces)
         {
             if (namespaces == null || namespaces.Length == 0 || string.IsNullOrEmpty(namespaces[0]))
             {
@@ -78,38 +79,38 @@ namespace DotNetNuke.Web.Mvc.Routing
 
             Requires.NotNullOrEmpty("moduleFolderName", moduleFolderName);
 
-            url = url.Trim('/', '\\');
-
-            var prefixCounts = this.portalAliasMvcRouteManager.GetRoutePrefixCounts();
-            Route route = null;
-
             if (url == null)
             {
                 throw new ArgumentNullException(nameof(url));
             }
 
+            url = url.Trim('/', '\\');
+
+            var prefixCounts = this.portalAliasMvcRouteManager.GetRoutePrefixCounts();
+            DnnMvcRoute route = null;
+
             foreach (var count in prefixCounts)
             {
                 var fullRouteName = this.portalAliasMvcRouteManager.GetRouteName(moduleFolderName, routeName, count);
                 var routeUrl = this.portalAliasMvcRouteManager.GetRouteUrl(moduleFolderName, url, count);
-                route = MapRouteWithNamespace(fullRouteName, routeUrl, defaults, constraints, namespaces);
+                route = CreateRoute(fullRouteName, routeUrl, defaults, constraints, namespaces);
                 this.routes.Add(route);
+                lock (CollectedRoutesLock)
+                {
+                    CollectedRoutes.Add(route);
+                }
+
                 Logger.MvcRoutingManagerMappingRoute(fullRouteName, routeUrl);
             }
 
             return route;
         }
 
+        /// <inheritdoc />
         public void RegisterRoutes()
         {
-            // add standard tab and module id provider
-            GlobalConfiguration.Configuration.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
-            using (this.routes.GetWriteLock())
-            {
-                ////routes.Clear(); -- don't use; it will remove original WEP API maps
-                this.LocateServicesAndMapRoutes();
-            }
-
+            TabAndModuleInfoProviderRegistry.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
+            this.LocateServicesAndMapRoutes();
             Logger.MvcRoutingManagerRegisteredRoutes(this.routes.Count);
         }
 
@@ -118,32 +119,18 @@ namespace DotNetNuke.Web.Mvc.Routing
             return t is { IsClass: true, IsAbstract: false, IsVisible: true, } && typeof(IMvcRouteMapper).IsAssignableFrom(t);
         }
 
-        private static bool IsTracingEnabled()
+        private static DnnMvcRoute CreateRoute(string name, string url, object defaults, object constraints, string[] namespaces)
         {
-            var configValue = Config.GetSetting("EnableServicesFrameworkTracing");
-
-            return !string.IsNullOrEmpty(configValue) && Convert.ToBoolean(configValue);
-        }
-
-        private static void RegisterSystemRoutes()
-        {
-            ////routes.IgnoreRoute("{resource}.axd/{*pathInfo}");
-        }
-
-        private static Route MapRouteWithNamespace(string name, string url, object defaults, object constraints, string[] namespaces)
-        {
-            var route = new Route(url, new DnnMvcRouteHandler())
+            var route = new DnnMvcRoute
             {
-                Defaults = CreateRouteValueDictionaryUncached(defaults),
-                Constraints = CreateRouteValueDictionaryUncached(constraints),
+                Url = url,
+                Defaults = CreateRouteValueDictionary(defaults),
+                Constraints = CreateRouteValueDictionary(constraints),
             };
-            if (route.DataTokens == null)
-            {
-                route.DataTokens = new RouteValueDictionary();
-            }
 
             ConstraintValidation.Validate(route);
-            if ((namespaces != null) && (namespaces.Length > 0))
+
+            if (namespaces is { Length: > 0 })
             {
                 route.SetNameSpaces(namespaces);
             }
@@ -152,15 +139,21 @@ namespace DotNetNuke.Web.Mvc.Routing
             return route;
         }
 
-        private static RouteValueDictionary CreateRouteValueDictionaryUncached(object values)
+        private static RouteValueDictionary CreateRouteValueDictionary(object values)
         {
-            return values is IDictionary<string, object> dictionary ? new RouteValueDictionary(dictionary) : TypeHelper.ObjectToDictionary(values);
+            if (values == null)
+            {
+                return new RouteValueDictionary();
+            }
+
+            return values is IDictionary<string, object> dictionary
+                ? new RouteValueDictionary(dictionary)
+                : new RouteValueDictionary(values);
         }
 
         private void LocateServicesAndMapRoutes()
         {
-            RegisterSystemRoutes();
-            this.ClearCachedRouteData();
+            this.portalAliasMvcRouteManager.ClearCachedData();
 
             foreach (var routeMapper in this.GetServiceRouteMappers())
             {
@@ -175,14 +168,9 @@ namespace DotNetNuke.Web.Mvc.Routing
             }
         }
 
-        private void ClearCachedRouteData()
-        {
-            this.portalAliasMvcRouteManager.ClearCachedData();
-        }
-
         private IEnumerable<IMvcRouteMapper> GetServiceRouteMappers()
         {
-            IEnumerable<Type> types = this.GetAllServiceRouteMapperTypes();
+            var types = this.TypeLocator.GetAllMatchingTypes(IsValidServiceRouteMapper);
 
             foreach (var routeMapperType in types)
             {
@@ -202,11 +190,6 @@ namespace DotNetNuke.Web.Mvc.Routing
                     yield return routeMapper;
                 }
             }
-        }
-
-        private IEnumerable<Type> GetAllServiceRouteMapperTypes()
-        {
-            return this.TypeLocator.GetAllMatchingTypes(IsValidServiceRouteMapper);
         }
     }
 }

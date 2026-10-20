@@ -6,10 +6,11 @@ namespace Dnn.PersonaBar.Library
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Net.Http;
-    using System.Net.Http.Headers;
 
-    /// <summary>Extends the HttpRequestMessage collection.</summary>
+    using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Http;
+
+    /// <summary>Extends the HttpRequest collection.</summary>
     public static class HttpRequestMessageExtensions
     {
         /// <summary>
@@ -20,7 +21,7 @@ namespace Dnn.PersonaBar.Library
         /// </summary>
         /// <param name="request">The HTTP request.</param>
         /// <returns>A <see cref="Dictionary{TKey,TValue}"/> of query string keys to values.</returns>
-        public static Dictionary<string, string> GetQueryStrings(this HttpRequestMessage request)
+        public static Dictionary<string, string> GetQueryStrings(this HttpRequest request)
         {
             return request.GetQueryNameValuePairs()
                           .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
@@ -30,7 +31,7 @@ namespace Dnn.PersonaBar.Library
         /// <param name="request">The HTTP request.</param>
         /// <param name="key">The query string key.</param>
         /// <returns>The query string value or <see langword="null"/>.</returns>
-        public static string GetQueryString(this HttpRequestMessage request, string key)
+        public static string GetQueryString(this HttpRequest request, string key)
         {
             ////IEnumerable<KeyValuePair<string,string>> - right!
             var queryStrings = request.GetQueryNameValuePairs();
@@ -52,7 +53,7 @@ namespace Dnn.PersonaBar.Library
         /// <param name="request">The HTTP request.</param>
         /// <param name="key">The query string key.</param>
         /// <returns>The query string value or <c>-1</c>.</returns>
-        public static int GetQueryStringAsInteger(this HttpRequestMessage request, string key)
+        public static int GetQueryStringAsInteger(this HttpRequest request, string key)
         {
             ////IEnumerable<KeyValuePair<string,string>> - right!
             var value = request.GetQueryString(key);
@@ -69,27 +70,25 @@ namespace Dnn.PersonaBar.Library
         /// <param name="request">The HTTP request.</param>
         /// <param name="key">The header name.</param>
         /// <returns>The header value or <see langword="null"/>.</returns>
-        public static string GetHeader(this HttpRequestMessage request, string key)
+        public static string GetHeader(this HttpRequest request, string key)
         {
-            IEnumerable<string> keys = null;
-            if (!request.Headers.TryGetValues(key, out keys))
+            if (!request.Headers.TryGetValue(key, out var values))
             {
                 return null;
             }
 
-            return keys.First();
+            return values.FirstOrDefault();
         }
 
         /// <summary>Retrieves an individual cookie from the cookies collection.</summary>
         /// <param name="request">The HTTP request.</param>
         /// <param name="cookieName">The cookie name.</param>
         /// <returns>The cookie value or <see langword="null"/>.</returns>
-        public static string GetCookie(this HttpRequestMessage request, string cookieName)
+        public static string GetCookie(this HttpRequest request, string cookieName)
         {
-            CookieHeaderValue cookie = request.Headers.GetCookies(cookieName).FirstOrDefault();
-            if (cookie != null)
+            if (request.Cookies.TryGetValue(cookieName, out var value))
             {
-                return cookie[cookieName].Value;
+                return value;
             }
 
             return null;

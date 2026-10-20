@@ -6,7 +6,6 @@ namespace Dnn.PersonaBar.Users.Components.Prompt.Commands
 {
     using System;
     using System.Collections.Generic;
-    using System.Data.SqlClient;
     using System.Text;
 
     using Dnn.PersonaBar.Library.Prompt;
@@ -14,8 +13,11 @@ namespace Dnn.PersonaBar.Users.Components.Prompt.Commands
     using Dnn.PersonaBar.Library.Prompt.Models;
     using Dnn.PersonaBar.Users.Components.Dto;
     using Dnn.PersonaBar.Users.Components.Prompt.Models;
+
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
+
+    using Microsoft.Data.SqlClient;
 
     [ConsoleCommand("set-user", Constants.UsersCategory, "Prompt_SetUser_Description")]
     public class SetUser : ConsoleCommandBase

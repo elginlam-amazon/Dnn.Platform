@@ -1,14 +1,14 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Tests.Web.Mvc.Routing
 {
-    using System.Web;
-
     using DotNetNuke.Web.Mvc.Framework.Modules;
     using DotNetNuke.Web.Mvc.Routing;
-    using Moq;
+
+    using Microsoft.AspNetCore.Http;
+
     using NUnit.Framework;
 
     [TestFixture]
@@ -46,7 +46,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Routing
         public void HasModuleRequestResult_Returns_True_If_Present()
         {
             // Arrange
-            HttpContextBase httpContext = MockHelper.CreateMockHttpContext();
+            HttpContext httpContext = MockHelper.CreateMockHttpContext();
             var expectedResult = new ModuleRequestResult();
             httpContext.Items[HttpContextExtensions.ModuleRequestResultKey] = expectedResult;
 
@@ -58,7 +58,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Routing
         public void HasModuleRequestResult_Returns_False_If_Not_Present()
         {
             // Arrange
-            HttpContextBase httpContext = MockHelper.CreateMockHttpContext();
+            HttpContext httpContext = MockHelper.CreateMockHttpContext();
 
             // Act and Assert
             Assert.That(httpContext.HasModuleRequestResult(), Is.False);
@@ -68,7 +68,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Routing
         public void SetModuleRequestResult_Sets_ModuleRequestResult()
         {
             // Arrange
-            HttpContextBase context = MockHelper.CreateMockHttpContext();
+            HttpContext context = MockHelper.CreateMockHttpContext();
             var expectedResult = new ModuleRequestResult();
 
             // Act

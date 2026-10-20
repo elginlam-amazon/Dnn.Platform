@@ -7,13 +7,11 @@ namespace Dnn.PersonaBar.SqlConsole.Services
     using System;
     using System.Collections.Generic;
     using System.Data;
-    using System.Data.SqlClient;
     using System.Globalization;
     using System.Linq;
     using System.Net;
     using System.Net.Http;
     using System.Text.RegularExpressions;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -24,6 +22,11 @@ namespace Dnn.PersonaBar.SqlConsole.Services
     using DotNetNuke.Data;
     using DotNetNuke.Services.Log.EventLog;
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.Data.SqlClient;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Host)]
     public class SqlConsoleController : PersonaBarApiController

@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -8,35 +8,30 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
     using System.Globalization;
     using System.Reflection;
     using System.Threading.Tasks;
-    using System.Web.Mvc;
 
     using DotNetNuke.Entities.Modules.Actions;
     using DotNetNuke.Framework;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
 
+    using Microsoft.AspNetCore.Mvc.Controllers;
+    using Microsoft.AspNetCore.Mvc.Filters;
+
+    /// <summary>Populates a module's actions by invoking a <c>Get{Action}Actions</c> method on the controller or a specified type.</summary>
     public class ModuleActionItemsAttribute : ActionFilterAttribute
     {
         private const string MethodNameTemplate = "Get{0}Actions";
 
+        /// <summary>Gets or sets the type on which to invoke the actions method.</summary>
         public Type Type { get; set; }
 
+        /// <summary>Gets or sets the name of the method to invoke.</summary>
         public string MethodName { get; set; }
 
         /// <inheritdoc />
-        public override void OnActionExecuting(ActionExecutingContext filterContext)
+        public override async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
         {
-            var controller = filterContext.Controller as IDnnController;
-            var result = this.InvokeMethod(filterContext, controller, false);
-            if (result is ModuleActionCollection moduleActions)
-            {
-                controller.ModuleActions = moduleActions;
-            }
-        }
-
-        public async Task OnActionExecutingAsync(ActionExecutingContext filterContext)
-        {
-            var controller = filterContext.Controller as IDnnController;
-            var result = this.InvokeMethod(filterContext, controller, true);
+            var controller = context.Controller as IDnnController;
+            var result = this.InvokeMethod(context, controller);
             if (result is ModuleActionCollection moduleActions)
             {
                 controller.ModuleActions = moduleActions;
@@ -45,9 +40,11 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
             {
                 controller.ModuleActions = await taskResult;
             }
+
+            await next();
         }
 
-        private static MethodInfo GetMethod(Type type, string methodName, bool supportsAsync)
+        private static MethodInfo GetMethod(Type type, string methodName)
         {
             var method = type.GetMethod(methodName);
 
@@ -57,7 +54,7 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
             }
 
             var returnType = method.ReturnType;
-            if (returnType == typeof(ModuleActionCollection) || (supportsAsync && returnType == typeof(Task<ModuleActionCollection>)))
+            if (returnType == typeof(ModuleActionCollection) || returnType == typeof(Task<ModuleActionCollection>))
             {
                 return method;
             }
@@ -65,21 +62,19 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
             throw new InvalidOperationException("The method must return an object of type ModuleActionCollection");
         }
 
-        private object InvokeMethod(ActionExecutingContext filterContext, IDnnController controller, bool supportsAsync)
+        private object InvokeMethod(ActionExecutingContext filterContext, IDnnController controller)
         {
-            Type type;
-            string methodName;
-
             if (controller == null)
             {
                 throw new InvalidOperationException("This attribute can only be applied to Controllers that implement IDnnController");
             }
 
+            Type type;
             object instance;
 
             if (this.Type == null)
             {
-                type = filterContext.Controller.GetType();
+                type = controller.GetType();
                 instance = controller;
             }
             else
@@ -88,16 +83,18 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
                 instance = Reflection.CreateInstance(type);
             }
 
+            string methodName;
             if (string.IsNullOrEmpty(this.MethodName))
             {
-                methodName = string.Format(CultureInfo.InvariantCulture, MethodNameTemplate, filterContext.ActionDescriptor.ActionName);
+                var actionName = (filterContext.ActionDescriptor as ControllerActionDescriptor)?.ActionName;
+                methodName = string.Format(CultureInfo.InvariantCulture, MethodNameTemplate, actionName);
             }
             else
             {
                 methodName = this.MethodName;
             }
 
-            var method = GetMethod(type, methodName, supportsAsync);
+            var method = GetMethod(type, methodName);
 
             return method.Invoke(instance, null);
         }

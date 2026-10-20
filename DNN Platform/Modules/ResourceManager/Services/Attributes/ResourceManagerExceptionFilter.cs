@@ -4,41 +4,43 @@
 namespace Dnn.Modules.ResourceManager.Services.Attributes
 {
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http.Filters;
 
     using Dnn.Modules.ResourceManager.Exceptions;
+
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Filters;
 
     /// <summary>A custom <see cref="ExceptionFilterAttribute"/> for the resource manager.</summary>
     public class ResourceManagerExceptionFilter : ExceptionFilterAttribute
     {
         /// <inheritdoc />
-        public override void OnException(HttpActionExecutedContext actionExecutedContext)
+        public override void OnException(ExceptionContext context)
         {
-            if (actionExecutedContext.Exception == null)
+            if (context?.Exception == null || context.ExceptionHandled)
             {
                 return;
             }
 
-            var exception = actionExecutedContext.Exception;
+            var exception = context.Exception;
 
             if (exception is FolderPermissionNotMetException)
             {
-                actionExecutedContext.Response = actionExecutedContext.Request.CreateResponse(
-                    HttpStatusCode.Forbidden,
-                    new { message = exception.Message });
+                context.Result = new ObjectResult(new { message = exception.Message })
+                {
+                    StatusCode = (int)HttpStatusCode.Forbidden,
+                };
+                context.ExceptionHandled = true;
                 return;
             }
 
             if (exception is NotFoundException)
             {
-                actionExecutedContext.Response = actionExecutedContext.Request.CreateResponse(
-                    HttpStatusCode.NotFound,
-                    new { message = exception.Message });
-                return;
+                context.Result = new ObjectResult(new { message = exception.Message })
+                {
+                    StatusCode = (int)HttpStatusCode.NotFound,
+                };
+                context.ExceptionHandled = true;
             }
-
-            throw exception;
         }
     }
 }

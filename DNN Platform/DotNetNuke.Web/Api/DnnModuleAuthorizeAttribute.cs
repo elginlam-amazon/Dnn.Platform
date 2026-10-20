@@ -4,11 +4,11 @@
 
 namespace DotNetNuke.Web.Api
 {
-    using System.Net.Http;
-
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Security;
     using DotNetNuke.Security.Permissions;
+
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Determines web API authorization based on module permissions.</summary>
     public class DnnModuleAuthorizeAttribute : AuthorizeAttributeBase, IOverrideDefaultAuthLevel
@@ -28,7 +28,7 @@ namespace DotNetNuke.Web.Api
         /// <inheritdoc />
         public override bool IsAuthorized(AuthFilterContext context)
         {
-            var activeModule = this.FindModuleInfo(context.ActionContext.Request);
+            var activeModule = this.FindModuleInfo(context.ActionContext.HttpContext.Request);
 
             if (activeModule != null)
             {
@@ -41,7 +41,7 @@ namespace DotNetNuke.Web.Api
         /// <summary>Finds the module associated with the request.</summary>
         /// <param name="request">The web API request.</param>
         /// <returns>A <see cref="ModuleInfo"/> instance or <see langword="null"/>.</returns>
-        protected virtual ModuleInfo FindModuleInfo(HttpRequestMessage request)
+        protected virtual ModuleInfo FindModuleInfo(HttpRequest request)
         {
             return request.FindModuleInfo();
         }

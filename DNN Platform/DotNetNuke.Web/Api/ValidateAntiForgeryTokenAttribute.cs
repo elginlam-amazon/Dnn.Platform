@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -9,12 +9,13 @@ namespace DotNetNuke.Web.Api
     using System.Diagnostics.CodeAnalysis;
     using System.Linq;
     using System.Threading;
-    using System.Web.Http.Controllers;
-    using System.Web.Http.Filters;
 
     using DotNetNuke.Web.Api.Internal;
 
-    /// <summary>A web API action filter which validates the anti-forgery token.</summary>
+    using Microsoft.AspNetCore.Mvc.Filters;
+
+    /// <summary>A services framework action filter which validates the anti-forgery token.</summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, Inherited = true, AllowMultiple = false)]
     public class ValidateAntiForgeryTokenAttribute : ActionFilterAttribute
     {
         /// <summary>The success result.</summary>
@@ -27,14 +28,11 @@ namespace DotNetNuke.Web.Api
         private static readonly List<string> BypassedAuthTypes = new List<string>();
 
         /// <inheritdoc />
-        public override bool AllowMultiple => false;
-
-        /// <inheritdoc />
-        public override void OnActionExecuting(HttpActionContext actionContext)
+        public override void OnActionExecuting(ActionExecutingContext context)
         {
-            if (!BypassTokenCheck())
+            if (!BypassTokenCheck(context))
             {
-                var result = this.IsAuthorized(actionContext);
+                var result = this.IsAuthorized(context);
                 if (!result.Item1)
                 {
                     throw new UnauthorizedAccessException(result.Item2);
@@ -42,8 +40,8 @@ namespace DotNetNuke.Web.Api
             }
         }
 
-        /// <summary>Appends the given <paramref name="authType"/> to the bypassed auth types.</summary>
-        /// <param name="authType">The auth type to add.</param>
+        /// <summary>Adds an authentication type for which the anti-forgery token is not validated.</summary>
+        /// <param name="authType">The authentication type.</param>
         internal static void AppendToBypassAuthTypes(string authType)
         {
             var text = (authType ?? string.Empty).Trim();
@@ -53,41 +51,31 @@ namespace DotNetNuke.Web.Api
             }
         }
 
-        /// <summary>Gets the value of the anti-forgery cookie.</summary>
-        /// <param name="actionContext">The request context.</param>
+        /// <summary>Gets the value of the anti-forgery cookie of the request.</summary>
+        /// <param name="actionContext">The action context.</param>
         /// <returns>The cookie value or <see cref="string.Empty"/>.</returns>
-        protected static string GetAntiForgeryCookieValue(HttpActionContext actionContext)
+        protected static string GetAntiForgeryCookieValue(FilterContext actionContext)
         {
-            if (actionContext?.Request != null && actionContext.Request.Headers.TryGetValues("Cookie", out var cookies))
+            var cookies = actionContext?.HttpContext.Request.Cookies;
+            if (cookies != null && cookies.TryGetValue(AntiForgery.Instance.CookieName, out var cookieValue))
             {
-                foreach (var cookieValue in cookies)
-                {
-                    var nameIndex = cookieValue.IndexOf(AntiForgery.Instance.CookieName, StringComparison.OrdinalIgnoreCase);
-                    if (nameIndex > -1)
-                    {
-                        var valueIndex = nameIndex + AntiForgery.Instance.CookieName.Length + 1;
-                        var valueEndIndex = cookieValue.Substring(valueIndex).IndexOf(';');
-                        return valueEndIndex > -1 ? cookieValue.Substring(valueIndex, valueEndIndex) : cookieValue.Substring(valueIndex);
-                    }
-                }
+                return cookieValue ?? string.Empty;
             }
 
             return string.Empty;
         }
 
-        /// <summary>Whether the request is authorized.</summary>
-        /// <param name="actionContext">The request context.</param>
-        /// <returns>A <see cref="Tuple"/> where the first value is whether the request is authorized, and the second value is a message.</returns>
-        protected virtual Tuple<bool, string> IsAuthorized(HttpActionContext actionContext)
+        /// <summary>Validates the anti-forgery token of the request (from the <c>RequestVerificationToken</c> header).</summary>
+        /// <param name="actionContext">The action context.</param>
+        /// <returns>A tuple with a value indicating whether the token is valid and the error message.</returns>
+        protected virtual Tuple<bool, string> IsAuthorized(FilterContext actionContext)
         {
             try
             {
-                if (!BypassTokenCheck())
+                if (!BypassTokenCheck(actionContext))
                 {
                     string token = null;
-                    IEnumerable<string> values;
-                    if (actionContext?.Request != null &&
-                        actionContext.Request.Headers.TryGetValues("RequestVerificationToken", out values))
+                    if (actionContext?.HttpContext.Request.Headers.TryGetValue("RequestVerificationToken", out var values) == true)
                     {
                         token = values.FirstOrDefault();
                     }
@@ -109,10 +97,10 @@ namespace DotNetNuke.Web.Api
             return SuccessResult;
         }
 
-        private static bool BypassTokenCheck()
+        private static bool BypassTokenCheck(FilterContext actionContext)
         {
             // bypass anti-forgery for those handlers that request so.
-            var authType = Thread.CurrentPrincipal?.Identity?.AuthenticationType;
+            var authType = actionContext?.HttpContext.User?.Identity?.AuthenticationType ?? Thread.CurrentPrincipal?.Identity?.AuthenticationType;
             return !string.IsNullOrEmpty(authType) && BypassedAuthTypes.Contains(authType);
         }
     }

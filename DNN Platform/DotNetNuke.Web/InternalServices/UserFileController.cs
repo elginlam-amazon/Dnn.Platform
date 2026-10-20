@@ -9,7 +9,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Entities.Icons;
 using DotNetNuke.Instrumentation;
@@ -17,6 +16,7 @@ using DotNetNuke.Services.FileSystem;
 using DotNetNuke.Services.Localization;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
 /// <summary>A web API controller for user files.</summary>

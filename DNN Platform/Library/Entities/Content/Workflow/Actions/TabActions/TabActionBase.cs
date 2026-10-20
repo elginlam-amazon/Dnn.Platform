@@ -5,7 +5,6 @@
 namespace DotNetNuke.Entities.Content.Workflow.Actions.TabActions
 {
     using System.Data;
-    using System.Data.SqlClient;
     using System.Globalization;
 
     using DotNetNuke.Common.Utilities;
@@ -15,6 +14,8 @@ namespace DotNetNuke.Entities.Content.Workflow.Actions.TabActions
     using DotNetNuke.Entities.Content.Workflow.Dto;
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Services.Localization;
+
+    using Microsoft.Data.SqlClient;
 
     /// <summary>
     /// TabActions base class.

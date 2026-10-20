@@ -23,7 +23,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal.PropertyEditorControls
     [ToolboxData("<{0}:DateTimeEditControl runat=server></{0}:DateTimeEditControl>")]
     public class DateTimeEditControl : EditControl
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<DateTimeEditControl>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<DateTimeEditControl>();
         private TextBox dateControl;
 
         /// <inheritdoc />

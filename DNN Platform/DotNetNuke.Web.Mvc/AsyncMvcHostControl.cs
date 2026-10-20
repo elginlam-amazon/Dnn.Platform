@@ -4,10 +4,8 @@
 namespace DotNetNuke.Web.Mvc
 {
     using System;
-    using System.Globalization;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web;
     using System.Web.UI;
 
     using DotNetNuke.Services.Exceptions;
@@ -44,7 +42,7 @@ namespace DotNetNuke.Web.Mvc
         {
             try
             {
-                HttpContextBase httpContext = new HttpContextWrapper(HttpContext.Current);
+                var httpContext = GetHttpContext();
 
                 var moduleExecutionEngine = GetModuleExecutionEngine();
 
@@ -70,9 +68,9 @@ namespace DotNetNuke.Web.Mvc
                 }
 
                 var mvcString = RenderModule(this.Result);
-                if (!string.IsNullOrEmpty(Convert.ToString(mvcString, CultureInfo.InvariantCulture)))
+                if (!string.IsNullOrEmpty(mvcString))
                 {
-                    this.Controls.Add(new LiteralControl(Convert.ToString(mvcString, CultureInfo.InvariantCulture)));
+                    this.Controls.Add(new LiteralControl(mvcString));
                 }
             }
             catch (Exception exc)

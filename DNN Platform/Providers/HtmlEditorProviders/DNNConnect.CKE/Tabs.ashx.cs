@@ -17,7 +17,6 @@ namespace DNNConnect.CKEditorProvider
     using DotNetNuke.Entities.Tabs;
 
     using Microsoft.Extensions.DependencyInjection;
-    using Microsoft.JScript;
 
     using Globals = DotNetNuke.Common.Globals;
 
@@ -73,7 +72,7 @@ namespace DNNConnect.CKEditorProvider
 
                 tabUrl = Globals.ResolveUrl(Regex.Replace(tabUrl, domainName, "~", RegexOptions.IgnoreCase));
 
-                var tabName = GlobalObject.escape(tab.TabName);
+                var tabName = Utilities.Utility.JavaScriptEscape(tab.TabName);
 
                 if (tab.Level.Equals(0))
                 {

@@ -114,27 +114,13 @@ public static class WebConfigManager
 
     public static void SyncConfig(string sitePath)
     {
-        var configFile = AppDomain.CurrentDomain.SetupInformation.ConfigurationFile;
-        var webConfigPath = Path.Combine(sitePath, "web.config");
-
-        var dllConfig = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
-        var webConfig = XDocument.Load(webConfigPath);
-
-        var keySection = dllConfig.GetSection("system.web/machineKey") as MachineKeySection;
-        var webNode = webConfig.XPathSelectElement("configuration/system.web/machineKey");
-
-        if (keySection.ValidationKey != webNode.Attribute("validationKey").Value)
-        {
-            keySection.ValidationKey = webNode.Attribute("validationKey").Value;
-            keySection.DecryptionKey = webNode.Attribute("decryptionKey").Value;
-
-            dllConfig.Save();
-
-            Type type = Assembly.GetAssembly(typeof(System.Web.TraceContext)).GetType("System.Web.Configuration.RuntimeConfig");
-            var fieldInfo = type.GetField("s_clientRuntimeConfig", BindingFlags.NonPublic | BindingFlags.Static);
-            fieldInfo.SetValue(null, null);
-            ConfigurationManager.RefreshSection("system.web/machineKey");
-        }
+        // The legacy implementation synchronized the machineKey between the test
+        // assembly's config file and the site web.config using System.Web.Configuration
+        // (MachineKeySection) and private System.Web RuntimeConfig internals. None of
+        // those APIs exist on .NET, and this helper is not exercised by the unit-test
+        // suite. It is retained only to preserve the public surface of this WatiN-era
+        // integration helper.
+        throw new NotSupportedException("WebConfigManager.SyncConfig is not supported on .NET (the legacy System.Web machineKey configuration APIs it relied on were removed).");
     }
 
     public static void TouchConfig(string sitePath)

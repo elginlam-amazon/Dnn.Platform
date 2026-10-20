@@ -9,11 +9,11 @@ namespace Dnn.PersonaBar.Sites.Services
     using System.Net;
     using System.Net.Http;
     using System.Web;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Sites.Services.Dto;
+
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
@@ -22,7 +22,10 @@ namespace Dnn.PersonaBar.Sites.Services
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Host)]
     public class SitesController : PersonaBarApiController
@@ -97,8 +100,8 @@ namespace Dnn.PersonaBar.Sites.Services
                 var errors = new List<string>();
                 var portalId = this.controller.CreatePortal(
                     errors,
-                    this.GetDomainName(),
-                    this.GetAbsoluteServerPath(),
+                    GetDomainName(),
+                    GetAbsoluteServerPath(),
                     request.SiteTemplate,
                     request.SiteName,
                     request.SiteAlias,
@@ -151,7 +154,7 @@ namespace Dnn.PersonaBar.Sites.Services
                     if (portal.PortalID != this.PortalSettings.PortalId &&
                         !PortalController.IsMemberOfPortalGroup(portal.PortalID))
                     {
-                        var strMessage = PortalController.DeletePortal(portal, this.GetAbsoluteServerPath());
+                        var strMessage = PortalController.DeletePortal(portal, GetAbsoluteServerPath());
                         if (string.IsNullOrEmpty(strMessage))
                         {
                             return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
@@ -251,7 +254,7 @@ namespace Dnn.PersonaBar.Sites.Services
         {
             try
             {
-                PortalController.DeleteExpiredPortals(this.GetAbsoluteServerPath());
+                PortalController.DeleteExpiredPortals(GetAbsoluteServerPath());
                 return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
             }
             catch (Exception exc)
@@ -326,13 +329,13 @@ namespace Dnn.PersonaBar.Sites.Services
             }
         }
 
-        private string GetAbsoluteServerPath()
+        private static string GetAbsoluteServerPath()
         {
-            var httpContext = this.Request.Properties["MS_HttpContext"] as HttpContextWrapper;
+            var request = System.Web.HttpContext.Current?.Request;
             var strServerPath = string.Empty;
-            if (httpContext != null)
+            if (request != null)
             {
-                strServerPath = httpContext.Request.MapPath(httpContext.Request.ApplicationPath);
+                strServerPath = request.MapPath(request.ApplicationPath);
             }
 
             if (!strServerPath.EndsWith(@"\", StringComparison.OrdinalIgnoreCase))
@@ -343,10 +346,11 @@ namespace Dnn.PersonaBar.Sites.Services
             return strServerPath;
         }
 
-        private string GetDomainName()
+        private static string GetDomainName()
         {
-            return this.Request.Properties["MS_HttpContext"] is HttpContextWrapper httpContext
-                ? Globals.GetDomainName(httpContext.Request, true)
+            var request = System.Web.HttpContext.Current?.Request;
+            return request != null
+                ? Globals.GetDomainName(request, true)
                 : string.Empty;
         }
 

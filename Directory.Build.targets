@@ -1,0 +1,30 @@
+<Project>
+  <!--
+    Libraries that multi-target a modern .NET TFM together with netstandard2.0 / net48 share one code base, and the
+    former .NET Framework 4.8 projects that now target .NET 10 were written against the .NET Framework API surface.
+    On the modern leg the .NET analyzers suggest APIs that do not exist on netstandard2.0 / .NET Framework
+    (ArgumentNullException.ThrowIfNull, string.Contains(char), Dictionary.TryAdd, span based overloads,
+    StringBuilder.Append(IFormatProvider, interpolated handler), ...). Applying them would require duplicating
+    the code behind #if blocks, so they are only silenced for the modern leg; the netstandard2.0 / net48 legs
+    keep running the full analyzer set (including CA1305) on the very same code.
+  -->
+  <PropertyGroup Condition="'$(TargetFramework)' != '' And $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net5.0'))">
+    <NoWarn>$(NoWarn);CA1305;CA1510;CA1511;CA1512;CA1513;CA1845;CA1846;CA1847;CA1864;CA1865;CA1866;CA1867;CA1868;CA2249</NoWarn>
+    <!-- Same category (newer-API suggestions) for code bases that were written against .NET Framework 4.8 and are now compiled for .NET 10 only. -->
+    <NoWarn>$(NoWarn);CA1863;CA1869;CA1850;CA1858;CA1862;CA2263;CA1849;CA1859;CA1861;CA1870;CA1872;CA2264;CA1835;CA1853;CA1854;CA1875;CA1830</NoWarn>
+    <!-- CA1725: the parameter names of the System.Web adapter interfaces (e.g. IHttpModule.Init) differ from System.Web. -->
+    <NoWarn>$(NoWarn);CA1725</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    Modern .NET leg of the (former) System.Web based projects.
+    - CS3001/CS3002/CS3003/CS3009/CS3024: the System.Web compatibility assemblies (Microsoft.AspNetCore.SystemWebAdapters,
+      CoreWebForms) are not annotated with [CLSCompliant], so the CLS checks of DNN's public API can no longer be verified.
+    - SYSLIB0051: the public DNN exception types keep their legacy ISerializable constructors / GetObjectData overrides
+      for source and binary compatibility with existing extensions; they are inert on .NET 10.
+  -->
+  <PropertyGroup Condition="'$(TargetFramework)' != '' And $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net5.0'))">
+    <NoWarn>$(NoWarn);CS3001;CS3002;CS3003;CS3009;CS3024;SYSLIB0051</NoWarn>
+    <NoWarn Condition="'$(Language)' == 'VB'">$(NoWarn);40025;40026;40027;40028;40029;40030;40031;40041</NoWarn>
+  </PropertyGroup>
+</Project>

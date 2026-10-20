@@ -5,7 +5,6 @@ namespace DotNetNuke.Entities.Tabs.TabVersions
 {
     using System;
     using System.Collections.Generic;
-    using System.Data.SqlClient;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
@@ -22,6 +21,7 @@ namespace DotNetNuke.Entities.Tabs.TabVersions
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.Data.SqlClient;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 

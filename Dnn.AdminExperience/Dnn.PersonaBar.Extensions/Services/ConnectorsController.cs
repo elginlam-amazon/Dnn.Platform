@@ -8,7 +8,6 @@ namespace Dnn.PersonaBar.Connectors.Services
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
     using System.Web.Script.Serialization;
 
     using Dnn.PersonaBar.Library;
@@ -21,7 +20,10 @@ namespace Dnn.PersonaBar.Connectors.Services
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = "Dnn.Connectors")]
     public class ConnectorsController : PersonaBarApiController

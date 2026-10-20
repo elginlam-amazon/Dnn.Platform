@@ -117,7 +117,7 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
 
         private static string GetModuleNameFromAssembly()
         {
-            var moduleFullName = Path.GetFileNameWithoutExtension(Assembly.GetExecutingAssembly().CodeBase);
+            var moduleFullName = Path.GetFileNameWithoutExtension(Assembly.GetExecutingAssembly().Location);
 
             return moduleFullName.Substring(moduleFullName.LastIndexOf('.') + 1);
         }

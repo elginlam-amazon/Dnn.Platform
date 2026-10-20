@@ -241,17 +241,19 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>decryption key.</returns>
         public static string GetDecryptionkey()
         {
-            var key = System.Configuration.ConfigurationManager.GetSection("system.web/machineKey") as MachineKeySection;
-            return key?.DecryptionKey.ToString() ?? string.Empty;
+            // the system.web configuration sections are not available through System.Configuration on .NET, read the web.config
+            var machineKey = Load().SelectSingleNode("configuration/system.web/machineKey") as XmlElement;
+            return machineKey?.GetAttribute("decryptionKey") ?? string.Empty;
         }
 
         /// <summary>Returns the fcnMode from web.config httpRuntime.</summary>
         /// <returns>FCN mode.</returns>
         public static string GetFcnMode()
         {
-            var section = System.Configuration.ConfigurationManager.GetSection("system.web/httpRuntime") as HttpRuntimeSection;
-            var mode = section?.FcnMode;
-            return ((ValueType)mode ?? FcnMode.NotSet).ToString();
+            // the system.web configuration sections are not available through System.Configuration on .NET, read the web.config
+            var httpRuntime = Load().SelectSingleNode("configuration/system.web/httpRuntime") as XmlElement;
+            var mode = httpRuntime?.GetAttribute("fcnMode");
+            return string.IsNullOrEmpty(mode) ? "NotSet" : mode;
         }
 
         /// <summary>Returns the maximum file size allowed to be uploaded to the application in bytes.</summary>
@@ -542,7 +544,7 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>An object representing the application section.</returns>
         public static object GetSection(string section)
         {
-            return WebConfigurationManager.GetWebApplicationSection(section);
+            return System.Configuration.ConfigurationManager.GetSection(section);
         }
 
         /// <summary>Loads the web.config file into an XML document.</summary>

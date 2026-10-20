@@ -442,7 +442,7 @@ namespace DotNetNuke.Security
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         public string CreateKey(int numBytes)
         {
-            using var rng = new RNGCryptoServiceProvider();
+            using var rng = RandomNumberGenerator.Create();
             var buff = new byte[numBytes];
             rng.GetBytes(buff);
             return BytesToHexString(buff);

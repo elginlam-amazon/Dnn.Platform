@@ -1112,7 +1112,9 @@ namespace DotNetNuke.Services.Upgrade
                 {
                     string url = "~/ErrorPage.aspx?status=500&error=" + errorMessage;
                     HttpContext.Current.Response.Clear();
-                    HttpContext.Current.Server.Transfer(url);
+
+                    // Server.Transfer is not supported on ASP.NET Core
+                    HttpContext.Current.Response.Redirect(Globals.ResolveUrl(url), true);
                 }
             }
         }

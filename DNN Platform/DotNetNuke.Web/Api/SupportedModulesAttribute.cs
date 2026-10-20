@@ -5,10 +5,11 @@
 namespace DotNetNuke.Web.Api
 {
     using System.Linq;
-    using System.Net.Http;
-    using System.Web.Http.Controllers;
 
     using DotNetNuke.Entities.Modules;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc.Filters;
 
     /// <summary>A web API authorization filter which requires the current module to be from particular desktop module.</summary>
     public class SupportedModulesAttribute(params string[] supportedModules) : AuthorizeAttributeBase
@@ -23,7 +24,7 @@ namespace DotNetNuke.Web.Api
         /// <inheritdoc />
         public override bool IsAuthorized(AuthFilterContext context)
         {
-            var module = this.FindModuleInfo(context.ActionContext.Request);
+            var module = this.FindModuleInfo(context.ActionContext.HttpContext.Request);
             if (module != null)
             {
                 return this.ModuleIsSupported(module);
@@ -35,13 +36,13 @@ namespace DotNetNuke.Web.Api
         /// <summary>Gets the module associated with the <paramref name="request"/>.</summary>
         /// <param name="request">The web API request.</param>
         /// <returns>The <see cref="ModuleInfo"/> instance or <see langword="null"/>.</returns>
-        protected virtual ModuleInfo FindModuleInfo(HttpRequestMessage request)
+        protected virtual ModuleInfo FindModuleInfo(HttpRequest request)
         {
             return request.FindModuleInfo();
         }
 
         /// <inheritdoc />
-        protected override bool SkipAuthorization(HttpActionContext actionContext)
+        protected override bool SkipAuthorization(AuthorizationFilterContext actionContext)
         {
             return false;
         }

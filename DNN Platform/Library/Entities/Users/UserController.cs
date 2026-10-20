@@ -1517,7 +1517,7 @@ namespace DotNetNuke.Entities.Users
 
             // Validate NonAlphaChars
             var rx = Globals.NonAlphanumericCharacters;
-            if (rx.Matches(password).Count < MembershipProviderConfig.MinNonAlphanumericCharacters)
+            if (rx.Count(password) < MembershipProviderConfig.MinNonAlphanumericCharacters)
             {
                 isValid = false;
             }

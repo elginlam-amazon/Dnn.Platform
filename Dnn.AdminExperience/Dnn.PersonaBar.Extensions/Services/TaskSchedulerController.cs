@@ -12,11 +12,11 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
     using System.Net;
     using System.Net.Http;
     using System.Threading;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.TaskScheduler.Services.Dto;
+
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Controllers;
     using DotNetNuke.Entities.Host;
@@ -25,8 +25,11 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
     using DotNetNuke.Services.Scheduling;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
     using Microsoft.VisualBasic;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Host)]
     public class TaskSchedulerController : PersonaBarApiController

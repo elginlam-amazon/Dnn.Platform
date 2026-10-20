@@ -90,7 +90,7 @@ namespace DotNetNuke.Services.OutputCache
         protected string GenerateCacheKeyHash(int tabId, string cacheKey)
         {
             byte[] hash = Encoding.ASCII.GetBytes(cacheKey);
-            using var sha256 = new SHA256CryptoServiceProvider();
+            using var sha256 = SHA256.Create();
             hash = sha256.ComputeHash(hash);
             return string.Concat(tabId.ToString(CultureInfo.InvariantCulture), "_", this.ByteArrayToString(hash));
         }

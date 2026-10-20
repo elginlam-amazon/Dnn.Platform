@@ -13,7 +13,6 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Logging;
@@ -38,8 +37,11 @@ using DotNetNuke.Services.Personalization;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.Api.Internal;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API for the control bar.</summary>
 /// <param name="businessControllerProvider">The business controller provider.</param>
@@ -476,8 +478,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
 
         if (userMode.UserMode.Equals("VIEW", StringComparison.OrdinalIgnoreCase))
         {
-            var cookie = this.Request.Headers.GetCookies("StayInEditMode").FirstOrDefault();
-            if (cookie != null && !string.IsNullOrEmpty(cookie["StayInEditMode"].Value))
+            if (!string.IsNullOrEmpty(this.Request.Cookies["StayInEditMode"]))
             {
                 var expireCookie = new CookieHeaderValue("StayInEditMode", string.Empty);
                 expireCookie.Expires = DateTimeOffset.Now.AddDays(-1);
@@ -539,7 +540,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
         return true;
 
         // If we are not in an edit page
-        ////return (string.IsNullOrEmpty(HttpContext.Current.Request.QueryString["mid"])) && (string.IsNullOrEmpty(HttpContext.Current.Request.QueryString["ctl"]));
+        ////return (string.IsNullOrEmpty(System.Web.HttpContext.Current.Request.QueryString["mid"])) && (string.IsNullOrEmpty(System.Web.HttpContext.Current.Request.QueryString["ctl"]));
     }
 
     private static void SetCloneModuleContext(bool cloneModuleContext)

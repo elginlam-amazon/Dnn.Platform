@@ -1,61 +1,40 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Web.Api
 {
-    using System;
-    using System.Net.Http;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using System.Web.Http.Controllers;
-    using System.Web.Http.Filters;
-
     using DotNetNuke.Common;
 
-    /// <summary>A base class for implementing a Web API authorization filter.</summary>
+    using Microsoft.AspNetCore.Mvc.Filters;
+
+    /// <summary>The base class of the (non attribute) authorization filters of the services framework.</summary>
     public abstract class AuthFilterBase : IAuthorizationFilter
     {
-        /// <summary>Gets a value indicating whether more than one instance of the indicated attribute can be specified for a single program element.</summary>
+        /// <summary>Gets a value indicating whether multiple instances of the filter are allowed.</summary>
         public abstract bool AllowMultiple { get; }
 
-        /// <summary>Tests if the request passes the authorization requirements.</summary>
+        /// <summary>Tests whether the request passes the authorization requirements.</summary>
         /// <param name="context">The auth filter context.</param>
-        /// <returns>True when authorization is successful.</returns>
+        /// <returns><see langword="true"/> if the request is authorized.</returns>
         public abstract bool IsAuthorized(AuthFilterContext context);
 
         /// <inheritdoc />
-        Task<HttpResponseMessage> IAuthorizationFilter.ExecuteAuthorizationFilterAsync(HttpActionContext actionContext, CancellationToken cancellationToken, Func<Task<HttpResponseMessage>> continuation)
+        void IAuthorizationFilter.OnAuthorization(AuthorizationFilterContext context)
         {
-            Requires.NotNull("actionContext", actionContext);
-            Requires.NotNull("continuation", continuation);
-
-            try
-            {
-                this.OnAuthorization(actionContext);
-            }
-            catch (Exception e)
-            {
-                var tcs = new TaskCompletionSource<HttpResponseMessage>();
-                tcs.SetException(e);
-                return tcs.Task;
-            }
-
-            if (actionContext.Response != null)
-            {
-                var tcs = new TaskCompletionSource<HttpResponseMessage>();
-                tcs.SetResult(actionContext.Response);
-                return tcs.Task;
-            }
-
-            return continuation();
+            this.OnAuthorization(context);
         }
 
-        /// <summary>Co-ordinates check of authorization and handles Auth failure.  Should rarely be overridden.</summary>
-        /// <param name="actionContext">The action context.</param>
-        protected virtual void OnAuthorization(HttpActionContext actionContext)
+        /// <summary>Authorizes the request.</summary>
+        /// <param name="actionContext">The authorization filter context.</param>
+        protected virtual void OnAuthorization(AuthorizationFilterContext actionContext)
         {
             Requires.NotNull("actionContext", actionContext);
+
+            if (actionContext.Result != null)
+            {
+                return;
+            }
 
             const string failureMessage = "Authorization has been denied for this request.";
             var authFilterContext = new AuthFilterContext(actionContext, failureMessage);

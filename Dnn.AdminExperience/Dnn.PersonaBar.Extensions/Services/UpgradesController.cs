@@ -12,18 +12,22 @@ namespace Dnn.PersonaBar.Extensions.Services
     using System.Net.Http;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Extensions.Services.Dto;
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
+
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Installer;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Host)]
     public class UpgradesController : PersonaBarApiController
@@ -194,7 +198,7 @@ namespace Dnn.PersonaBar.Extensions.Services
             if (!string.IsNullOrEmpty(fileName) && !string.IsNullOrEmpty(fileId))
             {
                 var writtenFile = Path.Combine(this.applicationStatusInfo.ApplicationMapPath, "App_Data", "Upgrade", fileId + ".resources");
-                if (!File.Exists(writtenFile))
+                if (!System.IO.File.Exists(writtenFile))
                 {
                     return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_InvalidPackage", fileName), });
                 }
@@ -211,7 +215,7 @@ namespace Dnn.PersonaBar.Extensions.Services
                 else
                 {
                     var upgradePath = Path.Combine(this.applicationStatusInfo.ApplicationMapPath, "App_Data", "Upgrade", Path.GetFileNameWithoutExtension(fileName) + ".zip");
-                    File.Move(writtenFile, upgradePath);
+                    System.IO.File.Move(writtenFile, upgradePath);
                     return this.Request.CreateResponse(HttpStatusCode.OK, fileName);
                 }
             }
@@ -235,7 +239,7 @@ namespace Dnn.PersonaBar.Extensions.Services
             // Ensure content is buffered (helps if something read headers but not the body).
             // Note: if a filter already consumed the body, buffering here won't restore it —
             // the filter must use LoadIntoBufferAsync or otherwise avoid consuming the stream.
-            await request.Content.LoadIntoBufferAsync().ConfigureAwait(false);
+            await request.Content.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(false);
 
             var provider = new MultipartMemoryStreamProvider();
 
@@ -254,24 +258,24 @@ namespace Dnn.PersonaBar.Extensions.Services
                 switch (name.ToUpperInvariant())
                 {
                     case "\"CHUNK\"":
-                        stream = await item.ReadAsStreamAsync();
+                        stream = await item.ReadAsStreamAsync(cancellationToken);
                         break;
                     case "\"START\"":
-                        if (!long.TryParse(await item.ReadAsStringAsync(), out startPosition))
+                        if (!long.TryParse(await item.ReadAsStringAsync(cancellationToken), out startPosition))
                         {
                             startPosition = 0;
                         }
 
                         break;
                     case "\"TOTALSIZE\"":
-                        if (!long.TryParse(await item.ReadAsStringAsync(), out totalSize))
+                        if (!long.TryParse(await item.ReadAsStringAsync(cancellationToken), out totalSize))
                         {
                             totalSize = 0;
                         }
 
                         break;
                     case "\"FILEID\"":
-                        fileId = await item.ReadAsStringAsync();
+                        fileId = await item.ReadAsStringAsync(cancellationToken);
                         break;
                 }
             }
@@ -283,7 +287,7 @@ namespace Dnn.PersonaBar.Extensions.Services
                 // use the file stream and start position to write the chunk to the file
                 using var fileStream = new FileStream(fileToWriteTo, FileMode.OpenOrCreate, FileAccess.Write);
                 fileStream.Position = startPosition;
-                await stream.CopyToAsync(fileStream).ConfigureAwait(false);
+                await stream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
             }
 
             return request.CreateResponse(HttpStatusCode.OK);

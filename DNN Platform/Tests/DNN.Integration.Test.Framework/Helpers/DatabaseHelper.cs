@@ -7,11 +7,12 @@ namespace DNN.Integration.Test.Framework.Helpers
     using System;
     using System.Collections.Generic;
     using System.Data;
-    using System.Data.SqlClient;
     using System.Dynamic;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data.PetaPoco;
+
+    using Microsoft.Data.SqlClient;
 
     public static class DatabaseHelper
     {

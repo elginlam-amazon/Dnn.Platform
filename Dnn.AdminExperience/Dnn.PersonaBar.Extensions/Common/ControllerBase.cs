@@ -9,7 +9,9 @@ namespace Dnn.PersonaBar.Prompt.Common
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Prompt.Models;
+
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.Web.Api;
 
     public abstract class ControllerBase : PersonaBarApiController
     {

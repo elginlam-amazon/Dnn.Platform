@@ -10,7 +10,7 @@
     <PackageName>Facebook_Auth</PackageName>
     <InstallPath>$(WebsiteInstallPath)\AuthSystem</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="CopyBin;GetFiles;DebugProject;Package" />
   <Target Name="GetFiles">
     <ItemGroup>

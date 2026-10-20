@@ -21,7 +21,7 @@ Imports System.Web.UI.HtmlControls
 Imports System.Web.UI.WebControls
 
 Namespace DotNetNuke.UI.WebControls
-    <DefaultProperty("Tabs"), ParseChildren(True, "Tabs"), Designer(GetType(DNNTabStripDesigner)), ToolboxData("<{0}:DNNTabStrip runat=server><{0}:DNNTab id=""Tab1"" Text=""Tab 1"" runat=""server"">Tab 1 Content</{0}:DNNTab><{0}:DNNTab id=""Tab2"" Text=""Tab 2"" runat=""server"">Tab 2 Content</{0}:DNNTab></{0}:DNNTabStrip>")> _
+    <DefaultProperty("Tabs"), ParseChildren(True, "Tabs"), ToolboxData("<{0}:DNNTabStrip runat=server><{0}:DNNTab id=""Tab1"" Text=""Tab 1"" runat=""server"">Tab 1 Content</{0}:DNNTab><{0}:DNNTab id=""Tab2"" Text=""Tab 2"" runat=""server"">Tab 2 Content</{0}:DNNTab></{0}:DNNTabStrip>")> _
     Public Class DNNTabStrip
         Inherits WebControl
         Implements IClientAPICallbackEventHandler, IPostBackEventHandler, IPostBackDataHandler

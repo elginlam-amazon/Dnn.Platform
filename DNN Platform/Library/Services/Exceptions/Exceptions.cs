@@ -338,7 +338,9 @@ namespace DotNetNuke.Services.Exceptions
                     if (url.Contains("error=terminate", StringComparison.OrdinalIgnoreCase))
                     {
                         HttpContext.Current.Response.Clear();
-                        HttpContext.Current.Server.Transfer("~/ErrorPage.aspx");
+
+                        // Server.Transfer is not supported on ASP.NET Core
+                        HttpContext.Current.Response.Redirect(Globals.ResolveUrl("~/ErrorPage.aspx"), true);
                     }
                     else
                     {
@@ -418,7 +420,7 @@ namespace DotNetNuke.Services.Exceptions
         {
             if (exc is ThreadAbortException)
             {
-                Thread.ResetAbort();
+                // thread aborts (and Thread.ResetAbort) do not exist on .NET, the check is kept for API compatibility
                 return true;
             }
             else

@@ -1,30 +1,31 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Tests.Web.Mvc.Framework.Controllers
 {
-    using System.Web;
-    using System.Web.Mvc;
-    using System.Web.Routing;
-
     using DotNetNuke.Tests.Web.Mvc.Fakes;
     using DotNetNuke.Web.Mvc.Framework.ActionResults;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Abstractions;
+    using Microsoft.AspNetCore.Mvc.Controllers;
+    using Microsoft.AspNetCore.Routing;
+
     using NUnit.Framework;
 
     [TestFixture]
     public class DnnControllerTests
     {
-        private const string TestViewName = "Foo";
-
         [Test]
         public void ActivePage_Property_Is_Null_If_PortalSettings_Not_Set_In_Context()
         {
             // Arrange
-            HttpContextBase httpContextBase = MockHelper.CreateMockHttpContext();
+            var httpContext = MockHelper.CreateMockHttpContext();
 
             // Act
-            var controller = this.SetupController(httpContextBase);
+            var controller = this.SetupController(httpContext);
 
             // Assert
             Assert.That(controller.ActivePage, Is.Null);
@@ -34,10 +35,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Controllers
         public void PortalSettings_Property_Is_Null_If_Not_Set_In_Context()
         {
             // Arrange
-            HttpContextBase context = MockHelper.CreateMockHttpContext();
+            var httpContext = MockHelper.CreateMockHttpContext();
 
             // Act
-            var controller = this.SetupController(context);
+            var controller = this.SetupController(httpContext);
 
             // Assert
             Assert.That(controller.PortalSettings, Is.Null);
@@ -47,11 +48,11 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Controllers
         public void ResultOfLastExecute_Returns_ViewResult()
         {
             // Arrange
-            HttpContextBase httpContextBase = MockHelper.CreateMockHttpContext();
+            var httpContext = MockHelper.CreateMockHttpContext();
 
             // Act
-            var controller = this.SetupController(httpContextBase);
-            controller.ActionInvoker.InvokeAction(controller.ControllerContext, "Action1");
+            var controller = this.SetupController(httpContext);
+            controller.Action1();
 
             // Assert
             Assert.That(controller.ResultOfLastExecute, Is.Not.Null);
@@ -62,10 +63,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Controllers
         public void User_Property_Is_Null_If_PortalSettings_Not_Set_In_Context()
         {
             // Arrange
-            HttpContextBase httpContextBase = MockHelper.CreateMockHttpContext();
+            var httpContext = MockHelper.CreateMockHttpContext();
 
             // Act
-            var controller = this.SetupController(httpContextBase);
+            var controller = this.SetupController(httpContext);
 
             // Assert
             Assert.That(controller.User, Is.Null);
@@ -75,10 +76,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Controllers
         public void View_Returns_DnnViewResult()
         {
             // Arrange
-            HttpContextBase httpContextBase = MockHelper.CreateMockHttpContext();
+            var httpContext = MockHelper.CreateMockHttpContext();
 
             // Act
-            var controller = this.SetupController(httpContextBase);
+            var controller = this.SetupController(httpContext);
             var viewResult = controller.Action1();
 
             // Assert
@@ -89,10 +90,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Controllers
         public void View_Returns_DnnViewResult_With_Correct_ViewName()
         {
             // Arrange
-            HttpContextBase httpContextBase = MockHelper.CreateMockHttpContext();
+            var httpContext = MockHelper.CreateMockHttpContext();
 
             // Act
-            var controller = this.SetupController(httpContextBase);
+            var controller = this.SetupController(httpContext);
             var viewResult = controller.Action1();
 
             // Assert
@@ -105,10 +106,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Controllers
         public void View_Returns_DnnViewResult_With_Correct_MasterName()
         {
             // Arrange
-            HttpContextBase httpContextBase = MockHelper.CreateMockHttpContext();
+            var httpContext = MockHelper.CreateMockHttpContext();
 
             // Act
-            var controller = this.SetupController(httpContextBase);
+            var controller = this.SetupController(httpContext);
             var viewResult = controller.Action2();
 
             // Assert
@@ -125,10 +126,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Controllers
         public void View_Returns_DnnViewResult_With_Correct_ViewData()
         {
             // Arrange
-            HttpContextBase httpContextBase = MockHelper.CreateMockHttpContext();
+            var httpContext = MockHelper.CreateMockHttpContext();
 
             // Act
-            var controller = this.SetupController(httpContextBase);
+            var controller = this.SetupController(httpContext);
             controller.ViewData.Add("key", "value");
             var viewResult = controller.Action2();
 
@@ -143,10 +144,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Controllers
         {
             // Arrange
             var dog = new Dog() { Name = "Fluffy" };
-            HttpContextBase httpContextBase = MockHelper.CreateMockHttpContext();
+            var httpContext = MockHelper.CreateMockHttpContext();
 
             // Act
-            var controller = this.SetupController(httpContextBase);
+            var controller = this.SetupController(httpContext);
             var viewResult = controller.Action3(dog);
 
             // Assert
@@ -156,40 +157,24 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Controllers
         }
 
         [Test]
-        public void View_Returns_DnnViewResult_With_Correct_ViewEngines()
-        {
-            // Arrange
-            var dog = new Dog() { Name = "Fluffy" };
-            HttpContextBase httpContextBase = MockHelper.CreateMockHttpContext();
-
-            // Act
-            var controller = this.SetupController(httpContextBase);
-            var viewResult = controller.Action3(dog);
-
-            // Assert
-            var dnnViewResult = viewResult as DnnViewResult;
-            Assert.That(dnnViewResult, Is.Not.Null);
-            Assert.That(dnnViewResult.ViewEngineCollection, Is.EqualTo(controller.ViewEngineCollection));
-        }
-
-        [Test]
         public void Initialize_CreatesInstance_Of_DnnUrlHelper()
         {
             // Arrange
-            HttpContextBase httpContextBase = MockHelper.CreateMockHttpContext();
+            var httpContext = MockHelper.CreateMockHttpContext();
 
             // Act
-            var controller = this.SetupController(httpContextBase);
-            controller.MockInitialize(httpContextBase.Request.RequestContext);
+            var controller = this.SetupController(httpContext);
+            controller.MockInitialize();
 
             // Assert
             Assert.That(controller.Url, Is.Not.Null);
         }
 
-        private FakeDnnController SetupController(HttpContextBase context)
+        private FakeDnnController SetupController(HttpContext context)
         {
             var controller = new FakeDnnController();
-            controller.ControllerContext = new ControllerContext(context, new RouteData(), controller);
+            var actionContext = new ActionContext(context, new RouteData(), new ControllerActionDescriptor());
+            controller.ControllerContext = new ControllerContext(actionContext);
             return controller;
         }
     }

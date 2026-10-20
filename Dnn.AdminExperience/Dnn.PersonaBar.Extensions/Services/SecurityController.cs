@@ -16,7 +16,6 @@ namespace Dnn.PersonaBar.Security.Services
     using System.Threading;
     using System.Threading.Tasks;
     using System.Web;
-    using System.Web.Http;
     using System.Xml;
 
     using Dnn.PersonaBar.Extensions.Components.Security.Ssl;
@@ -26,6 +25,7 @@ namespace Dnn.PersonaBar.Security.Services
     using Dnn.PersonaBar.Pages.Components;
     using Dnn.PersonaBar.Security.Helper;
     using Dnn.PersonaBar.Security.Services.Dto;
+
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Application;
@@ -46,11 +46,13 @@ namespace Dnn.PersonaBar.Security.Services
     using DotNetNuke.Web.Api.Auth.ApiTokens;
     using DotNetNuke.Web.Api.Auth.ApiTokens.Models;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
     using Constants = Dnn.PersonaBar.Library.Constants;
     using Localization = DotNetNuke.Services.Localization.Localization;
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>Provides REST APIs to manage security settings.</summary>
     [MenuPermission(MenuName = Components.Constants.MenuName)]
@@ -317,7 +319,7 @@ namespace Dnn.PersonaBar.Security.Services
                     return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, Localization.GetString("CannotDeleteLocalhost.Text", Components.Constants.LocalResourcesFile));
                 }
 
-                if (!IPFilterController.Instance.IsAllowableDeny(HttpContext.Current.Request.UserHostAddress, ipf))
+                if (!IPFilterController.Instance.IsAllowableDeny(System.Web.HttpContext.Current.Request.UserHostAddress, ipf))
                 {
                     return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, Localization.GetString("CannotDeleteIPInUse.Text", Components.Constants.LocalResourcesFile));
                 }
@@ -360,7 +362,7 @@ namespace Dnn.PersonaBar.Security.Services
                 IList<IPFilterInfo> currentRules = IPFilterController.Instance.GetIPFilters();
                 List<IPFilterInfo> currentWithDeleteRemoved = currentRules.Where(p => p.IPFilterID != filterId).ToList();
 
-                if (!IPFilterController.Instance.CanIPStillAccess(HttpContext.Current.Request.UserHostAddress, currentWithDeleteRemoved))
+                if (!IPFilterController.Instance.CanIPStillAccess(System.Web.HttpContext.Current.Request.UserHostAddress, currentWithDeleteRemoved))
                 {
                     return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, Localization.GetString("CannotDelete.Text", Components.Constants.LocalResourcesFile));
                 }
@@ -842,7 +844,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>audit check results.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetAuditCheckResults([FromUri] bool checkAll = false)
+        public HttpResponseMessage GetAuditCheckResults([FromQuery] bool checkAll = false)
         {
             try
             {
@@ -869,7 +871,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>audit check result.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetAuditCheckResult([FromUri] string id)
+        public HttpResponseMessage GetAuditCheckResult([FromQuery] string id)
         {
             try
             {

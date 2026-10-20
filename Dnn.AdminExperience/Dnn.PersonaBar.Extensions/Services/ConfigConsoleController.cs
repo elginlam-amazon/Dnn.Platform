@@ -9,7 +9,6 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
     using System.Net;
     using System.Net.Http;
     using System.Threading.Tasks;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.ConfigConsole.Services.Dto;
     using Dnn.PersonaBar.Library;
@@ -19,8 +18,11 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>The web API controller for the Config Console component in the Persona Bar.</summary>
     [MenuPermission(Scope = ServiceScope.Host)]

@@ -1,43 +1,42 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Tests.Web.Mvc
 {
-    using System;
-    using System.Web.Mvc;
-    using System.Web.Routing;
-
     using DotNetNuke.Web.Mvc.Framework.ActionResults;
+
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Routing;
+
     using NUnit.Framework;
 
     public static class ResultAssert
     {
-        public static void IsEmpty(ActionResult result)
+        public static void IsEmpty(IActionResult result)
         {
             Assert.That(result, Is.InstanceOf<EmptyResult>());
         }
 
-        public static void IsUnauthorized(ActionResult result)
+        public static void IsUnauthorized(IActionResult result)
         {
-            Assert.That(result, Is.InstanceOf<HttpUnauthorizedResult>());
+            Assert.That(result, Is.InstanceOf<UnauthorizedResult>());
         }
 
-        public static void IsView(ActionResult result, string viewName)
+        public static void IsView(IActionResult result, string viewName)
         {
             IsView(result, viewName, string.Empty, new RouteValueDictionary());
         }
 
-        public static void IsView(ActionResult result, string viewName, string masterName, RouteValueDictionary expectedViewData)
+        public static void IsView(IActionResult result, string viewName, string masterName, RouteValueDictionary expectedViewData)
         {
-            ViewResult viewResult = result.AssertCast<ViewResult>();
-            StringsEqualOrBothNullOrEmpty(viewName, viewResult.ViewName);
+            var viewResult = result.AssertCast<DnnViewResult>();
             StringsEqualOrBothNullOrEmpty(viewName, viewResult.ViewName);
 
             DictionaryAssert.ContainsEntries(expectedViewData, viewResult.ViewData);
         }
 
-        private static TCast AssertCast<TCast>(this ActionResult result)
+        private static TCast AssertCast<TCast>(this IActionResult result)
             where TCast : class
         {
             var castResult = result as TCast;

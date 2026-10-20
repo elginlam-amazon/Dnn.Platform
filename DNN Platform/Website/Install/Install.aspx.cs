@@ -45,7 +45,7 @@ namespace DotNetNuke.Services.Install
         // ReSharper disable once InconsistentNaming
         protected static string UpgradeWizardLocalResourceFile = "~/Install/App_LocalResources/UpgradeWizard.aspx.resx";
 
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<Install>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<Install>();
         private static readonly object InstallLocker = new object();
 
         private readonly IApplicationStatusInfo appStatus;
@@ -235,7 +235,9 @@ namespace DotNetNuke.Services.Install
                     // 403.3 means directory permissions issue
                     string strURL = "~/ErrorPage.aspx?status=403_3&error=" + strError;
                     HttpContext.Current.Response.Clear();
-                    HttpContext.Current.Server.Transfer(strURL);
+
+                    // Server.Transfer is not supported on ASP.NET Core
+                    HttpContext.Current.Response.Redirect(this.ResolveUrl(strURL), true);
                 }
             }
             else

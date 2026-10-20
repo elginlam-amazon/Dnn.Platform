@@ -324,7 +324,7 @@ namespace DNNConnect.CKEditorProvider.Web
                 cssFiles.Add("~" + this.portalSettings.HomeDirectory + "portal.css");
                 cssFiles.Add("~/Providers/HtmlEditorProviders/DNNConnect.CKE/css/CkEditorContents.css");
 
-                var resolvedCssFiles = cssFiles.Where(cssFile => File.Exists(this.MapPathSecure(cssFile))).Select(Globals.ResolveUrl).ToList();
+                var resolvedCssFiles = cssFiles.Where(cssFile => File.Exists(this.Context.Server.MapPath(cssFile))).Select(Globals.ResolveUrl).ToList();
 
                 if (!string.IsNullOrEmpty(this.currentEditorSettings.Config.ContentsCss))
                 {

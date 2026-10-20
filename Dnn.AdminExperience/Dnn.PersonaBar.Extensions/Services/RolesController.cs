@@ -12,11 +12,11 @@ namespace Dnn.PersonaBar.Roles.Services
     using System.Net.Http;
     using System.Security;
     using System.Web;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Roles.Services.DTO;
+
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
@@ -26,7 +26,10 @@ namespace Dnn.PersonaBar.Roles.Services
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = Components.Constants.MenuName)]
     public class RolesController : PersonaBarApiController
@@ -41,7 +44,7 @@ namespace Dnn.PersonaBar.Roles.Services
                 var roles = Components.RolesController.Instance.GetRoles(this.PortalSettings, groupId, keyword, out var total, startIndex, pageSize)
                     .Select(RoleDto.FromRoleInfo);
                 var loadMore = total > startIndex + pageSize;
-                var rsvpLink = Globals.AddHTTP(Globals.GetDomainName(HttpContext.Current.Request)) + "/" + Globals.glbDefaultPage + "?portalid=" + this.PortalId;
+                var rsvpLink = Globals.AddHTTP(Globals.GetDomainName(System.Web.HttpContext.Current.Request)) + "/" + Globals.glbDefaultPage + "?portalid=" + this.PortalId;
                 return this.Request.CreateResponse(HttpStatusCode.OK, new { roles, loadMore, rsvpLink });
             }
             catch (Exception ex)
@@ -54,7 +57,7 @@ namespace Dnn.PersonaBar.Roles.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = "Edit")]
-        public HttpResponseMessage SaveRole(RoleDto roleDto, [FromUri] bool assignExistUsers)
+        public HttpResponseMessage SaveRole(RoleDto roleDto, [FromQuery] bool assignExistUsers)
         {
             try
             {

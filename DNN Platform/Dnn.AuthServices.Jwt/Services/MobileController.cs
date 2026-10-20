@@ -5,12 +5,18 @@
 namespace Dnn.AuthServices.Jwt.Services
 {
     using System.Net.Http.Headers;
-    using System.Web.Http;
 
     using Dnn.AuthServices.Jwt.Components.Common.Controllers;
     using Dnn.AuthServices.Jwt.Components.Entity;
+
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc;
+
     using Newtonsoft.Json;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>API controller for JWT services (usually mobile).</summary>
     [DnnAuthorize(AuthTypes = "JWT")]
@@ -19,9 +25,9 @@ namespace Dnn.AuthServices.Jwt.Services
         /// <summary>Clients that used JWT login should use this API call to log out and invalidate the tokens.</summary>
         /// <returns>An asynchronous HTTP response.</returns>
         [HttpGet]
-        public IHttpActionResult Logout()
+        public IActionResult Logout()
         {
-            return JwtController.Instance.LogoutUser(this.Request)
+            return JwtController.Instance.LogoutUser(this.GetRequestMessage())
                 ? this.Ok(new { success = true, })
                 : this.Unauthorized();
         }
@@ -37,9 +43,9 @@ namespace Dnn.AuthServices.Jwt.Services
         /// <returns>An asynchronous HTTP response.</returns>
         [HttpPost]
         [AllowAnonymous]
-        public IHttpActionResult Login(LoginData loginData)
+        public IActionResult Login(LoginData loginData)
         {
-            var result = JwtController.Instance.LoginUser(this.Request, loginData);
+            var result = JwtController.Instance.LoginUser(this.GetRequestMessage(), loginData);
             return this.ReplyWith(result);
         }
 
@@ -56,16 +62,16 @@ namespace Dnn.AuthServices.Jwt.Services
         /// <returns>An asynchronous HTTP response.</returns>
         [HttpPost]
         [AllowAnonymous]
-        public IHttpActionResult ExtendToken(RenewalDto rtoken)
+        public IActionResult ExtendToken(RenewalDto rtoken)
         {
-            var result = JwtController.Instance.RenewToken(this.Request, rtoken.RenewalToken);
+            var result = JwtController.Instance.RenewToken(this.GetRequestMessage(), rtoken.RenewalToken);
             return this.ReplyWith(result);
         }
 
         /// <summary>Tests a get HTTP request.</summary>
         /// <returns>Basic information about the identity.</returns>
         [HttpGet]
-        public IHttpActionResult TestGet()
+        public IActionResult TestGet()
         {
             var identity = System.Threading.Thread.CurrentPrincipal.Identity;
             var reply = $"Hello {identity.Name}! You are authenticated through {identity.AuthenticationType}.";
@@ -77,7 +83,7 @@ namespace Dnn.AuthServices.Jwt.Services
         /// <returns>Basic information about the identity and the text provided in the POST.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IHttpActionResult TestPost(TestPostData something)
+        public IActionResult TestPost(TestPostData something)
         {
             var identity = System.Threading.Thread.CurrentPrincipal.Identity;
             var reply = $"Hello {identity.Name}! You are authenticated through {identity.AuthenticationType}." +
@@ -85,7 +91,7 @@ namespace Dnn.AuthServices.Jwt.Services
             return this.Ok(new { reply, });
         }
 
-        private IHttpActionResult ReplyWith(LoginResultData result)
+        private IActionResult ReplyWith(LoginResultData result)
         {
             if (result == null)
             {
@@ -95,10 +101,16 @@ namespace Dnn.AuthServices.Jwt.Services
             if (!string.IsNullOrEmpty(result.Error))
             {
                 // HACK: this will return the scheme with the error message as a challenge; non-standard method
-                return this.Unauthorized(new AuthenticationHeaderValue(JwtController.AuthScheme, result.Error));
+                this.Response.Headers.WWWAuthenticate = new AuthenticationHeaderValue(JwtController.AuthScheme, result.Error).ToString();
+                return this.Unauthorized();
             }
 
             return this.Ok(result);
+        }
+
+        private System.Net.Http.HttpRequestMessage GetRequestMessage()
+        {
+            return ServicesFrameworkRequestMessage.Create(this.HttpContext);
         }
 
         /// <summary>Represents the request data for a test POST.</summary>
