@@ -16,7 +16,7 @@ public class DnnUnitTest
 
     public virtual void OneTimeSetUp()
     {
-        var uri = new System.Uri(Assembly.GetExecutingAssembly().CodeBase);
+        var uri = new System.Uri(Assembly.GetExecutingAssembly().Location);
         var path = HttpUtility.UrlDecode(Path.GetFullPath(uri.AbsolutePath));
 
         this.WebsiteAppPath = "http://localhost/DNN_Platform";

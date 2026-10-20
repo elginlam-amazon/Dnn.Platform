@@ -343,8 +343,17 @@ namespace Dnn.AzureConnector.Components
 
                 blobClient.DefaultRequestOptions.RetryPolicy = new NoRetry();
 
-                var containers = blobClient.ListContainers();
-                if (containers.Any())
+                var containers = new List<Microsoft.WindowsAzure.Storage.Blob.CloudBlobContainer>();
+                Microsoft.WindowsAzure.Storage.Blob.BlobContinuationToken continuationToken = null;
+                do
+                {
+                    var resultSegment = blobClient.ListContainersSegmentedAsync(continuationToken).GetAwaiter().GetResult();
+                    containers.AddRange(resultSegment.Results);
+                    continuationToken = resultSegment.ContinuationToken;
+                }
+                while (continuationToken != null);
+
+                if (containers.Count != 0)
                 {
                     if (!string.IsNullOrEmpty(azureContainerName))
                     {

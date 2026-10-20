@@ -6,7 +6,6 @@ namespace Dnn.ExportImport.Services
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.ExportImport.Components.Common;
     using Dnn.ExportImport.Components.Controllers;
@@ -14,6 +13,10 @@ namespace Dnn.ExportImport.Services
 
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Mvc;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>REST APIs to manage import/export jobs.</summary>
     [RequireHost]
@@ -98,7 +101,7 @@ namespace Dnn.ExportImport.Services
         /// <returns>OK or a BadRequest with a cancel status value.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage CancelProcess([FromUri] int jobId)
+        public HttpResponseMessage CancelProcess([FromQuery] int jobId)
         {
             var cancelStatus = this.baseController.CancelJob(this.UserInfo.IsSuperUser ? -1 : this.PortalSettings.PortalId, jobId);
             return this.Request.CreateResponse(
@@ -113,7 +116,7 @@ namespace Dnn.ExportImport.Services
         /// <returns>OK or a BadRequest with a status value.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage RemoveJob([FromUri] int jobId)
+        public HttpResponseMessage RemoveJob([FromQuery] int jobId)
         {
             var cancelStatus = this.baseController.RemoveJob(this.UserInfo.IsSuperUser ? -1 : this.PortalSettings.PortalId, jobId);
             return this.Request.CreateResponse(

@@ -22,7 +22,7 @@ namespace DotNetNuke.Tests.Core.Entities.Portals
         {
             get
             {
-                var uri = new System.Uri(Assembly.GetExecutingAssembly().CodeBase);
+                var uri = new System.Uri(Assembly.GetExecutingAssembly().Location);
                 string path = Path.GetFullPath(uri.AbsolutePath).Replace("%20", " ");
 
                 return Path.Combine(path.Substring(0, path.IndexOf("bin", System.StringComparison.Ordinal)), "Entities\\Portals\\TestFiles");

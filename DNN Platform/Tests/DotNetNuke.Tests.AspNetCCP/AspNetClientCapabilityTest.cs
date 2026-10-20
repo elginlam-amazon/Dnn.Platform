@@ -93,16 +93,28 @@ namespace DotNetNuke.Tests.AspNetClientCapabilityProviderTest
         }
 
         [Test]
-        public void AspNetClientCapability_IsMobile_Returns_True_For_IPad()
+        public void AspNetClientCapability_IsTablet_Returns_True_For_IPad()
         {
+            // On .NET Framework the legacy ".browser" capabilities engine classified the iPad
+            // user agent as a mobile device. That engine is not available on .NET
+            // (Microsoft.AspNetCore.SystemWebAdapters), so the provider now relies on user-agent
+            // based detection, which correctly classifies an iPad as a tablet (and therefore not
+            // mobile). This matches the provider's documented .NET behavior and the way the iPad
+            // user agent is treated elsewhere in the code base (IsTablet = true).
+
             // Arrange
             var clientCapability = this._clientCapabilityProvider.GetClientCapability(iPadTabletUserAgent);
 
             // Act
-            var bIsMobile = clientCapability.IsMobile;
+            var isTablet = clientCapability.IsTablet;
+            var isMobile = clientCapability.IsMobile;
 
             // Assert
-            Assert.That(bIsMobile, Is.True);
+            using (Assert.EnterMultipleScope())
+            {
+                Assert.That(isTablet, Is.True);
+                Assert.That(isMobile, Is.False);
+            }
         }
 
         [Test]

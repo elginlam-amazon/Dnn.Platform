@@ -9,7 +9,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Instrumentation;
 using DotNetNuke.Internal.SourceGenerators;
@@ -17,7 +16,10 @@ using DotNetNuke.Services.Social.Messaging.Internal;
 using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for notifications.</summary>
 [DnnAuthorize]

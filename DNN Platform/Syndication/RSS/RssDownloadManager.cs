@@ -6,7 +6,7 @@ namespace DotNetNuke.Services.Syndication
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Net;
+    using System.Net.Http;
     using System.Web;
     using System.Xml;
 
@@ -19,6 +19,7 @@ namespace DotNetNuke.Services.Syndication
     {
         private const string RSSDir = "/RSS/";
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<RssDownloadManager>();
+        private static readonly HttpClient HttpClient = new HttpClient();
         private static readonly RssDownloadManager TheManager = new RssDownloadManager();
 
         private readonly Dictionary<string, RssChannelDom> cache;
@@ -108,7 +109,7 @@ namespace DotNetNuke.Services.Syndication
             }
 
             // download the feed
-            byte[] feed = new WebClient().DownloadData(url);
+            byte[] feed = HttpClient.GetByteArrayAsync(url).GetAwaiter().GetResult();
 
             // parse it as XML
             var doc = new XmlDocument { XmlResolver = null };

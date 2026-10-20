@@ -4,7 +4,7 @@
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -16,19 +16,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Dnn.ClientDependency" />
+    <PackageReference Include="CoreWebForms" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Reference Include="System.Configuration" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Web.Extensions" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
     <ProjectReference Include="..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
+    <ProjectReference Include="..\DotNetNuke.SystemWebCompat\DotNetNuke.SystemWebCompat.csproj" />
     <ProjectReference Include="..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
     <ProjectReference Include="..\DotNetNuke.Web.Client.ResourceManager\DotNetNuke.Web.Client.ResourceManager.csproj" />
   </ItemGroup>
@@ -39,7 +35,7 @@
   </ItemGroup>
 
   <Import Project="..\..\DNN_Platform.build" />
-  <Target Name="CopyBin" BeforeTargets="Build">
+  <Target Name="CopyBin" AfterTargets="Build">
     <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.Web.Client.dll" DestinationFolder="$(WebsitePath)\bin\" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.Web.Client.pdb" DestinationFolder="$(WebsitePath)\bin\" />
   </Target>

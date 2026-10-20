@@ -10,7 +10,6 @@ namespace Dnn.EditBar.UI.Services
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.EditBar.UI.Controllers;
 
@@ -27,8 +26,11 @@ namespace Dnn.EditBar.UI.Services
     using DotNetNuke.Web.Api.Internal;
     using DotNetNuke.Web.InternalServices;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for content editing.</summary>
     /// <param name="appStatus">The application status.</param>
@@ -63,7 +65,7 @@ namespace Dnn.EditBar.UI.Services
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage DeleteModule([FromUri] int moduleId)
+        public HttpResponseMessage DeleteModule([FromQuery] int moduleId)
         {
             var module = ModuleController.Instance.GetModule(moduleId, this.PortalSettings.ActiveTab.TabID, false);
             if (module == null)
@@ -130,13 +132,13 @@ namespace Dnn.EditBar.UI.Services
 
             var moduleScriptPath = $"{this.appSettings.ApplicationMapPath}/DesktopModules/{desktopModule.FolderName}/ClientScripts/ModuleEditor.js";
             var moduleScriptContent = string.Empty;
-            if (File.Exists(moduleScriptPath))
+            if (System.IO.File.Exists(moduleScriptPath))
             {
-                moduleScriptContent = File.ReadAllText(moduleScriptPath);
+                moduleScriptContent = System.IO.File.ReadAllText(moduleScriptPath);
             }
 
             var moduleStylePath = $"/DesktopModules/{desktopModule.FolderName}/Css/ModuleEditor.css";
-            if (File.Exists(this.appSettings.ApplicationMapPath + moduleStylePath))
+            if (System.IO.File.Exists(this.appSettings.ApplicationMapPath + moduleStylePath))
             {
                 moduleStylePath = Globals.ApplicationPath + moduleStylePath;
             }

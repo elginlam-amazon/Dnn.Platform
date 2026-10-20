@@ -157,8 +157,7 @@ namespace DotNetNuke.Tests.Modules.ExportImport
 
         private static string TestDataDirectory()
         {
-            var assemblyDir = Path.GetDirectoryName(new Uri(typeof(ExportImportRepositoryTests).Assembly.CodeBase).LocalPath);
-            return Path.Combine(assemblyDir, "ExportImport", "TestData");
+            return Path.Combine(AppContext.BaseDirectory, "ExportImport", "TestData");
         }
 
         private string CopyFixture(string fixtureName)

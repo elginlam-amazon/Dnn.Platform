@@ -8,7 +8,6 @@ using System;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Portals;
@@ -20,8 +19,11 @@ using DotNetNuke.Instrumentation;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.Api.Internal;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for module information.</summary>
 [DnnAuthorize]

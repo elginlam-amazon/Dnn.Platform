@@ -11,7 +11,6 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using System.Net.Http;
     using System.Threading.Tasks;
     using System.Web;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Extensions.Components.BulkInstall;
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.DataAccess.Models;
@@ -24,7 +23,11 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
+
     using Newtonsoft.Json;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for <see cref="Session"/>.</summary>
     /// <param name="sessionManager">The session manager.</param>
@@ -130,7 +133,7 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
             try
             {
                 // Get the users ip address.
-                string ipAddress = HttpContext.Current.Request.UserHostAddress;
+                string ipAddress = System.Web.HttpContext.Current.Request.UserHostAddress;
 
                 // Get the session.
                 Session sessionObj = this.sessionManager.GetSession(sessionGuid);
@@ -165,7 +168,7 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
             try
             {
                 // Get the users ip address.
-                string ipAddress = HttpContext.Current.Request.UserHostAddress;
+                string ipAddress = System.Web.HttpContext.Current.Request.UserHostAddress;
 
                 // Get the session.
                 Session sessionObj = this.sessionManager.GetSession(sessionGuid);

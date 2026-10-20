@@ -4,12 +4,13 @@
 namespace DotNetNuke.Tests.Web.DependencyInjection
 {
     using System;
-    using System.Web.Http.Filters;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.DependencyInjection.Extensions;
     using DotNetNuke.Tests.Utilities.Mocks;
+
+    using Microsoft.AspNetCore.Mvc.Filters;
 
     using Moq;
 
@@ -49,7 +50,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
             var container = default(IServiceProvider);
 
             // This should invoke without exceptions
-            container.BuildUp(Mock.Of<IFilter>());
+            container.BuildUp(Mock.Of<IFilterMetadata>());
         }
 
         [Test]
@@ -64,7 +65,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
         [Test]
         public void BuildUp_PrivateProperty_Test()
         {
-            var filter = new PrivateFilterAttribute();
+            var filter = new PrivateFilter();
 
             this.container.BuildUp(filter);
             filter.OnActionExecuted(null);
@@ -75,19 +76,18 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
         [Test]
         public void BuildUp_ProtectedProperty_Test()
         {
-            var filter = new ProtectedFilterAttribute();
+            var filter = new ProtectedFilter();
 
             this.container.BuildUp(filter);
             filter.OnActionExecuted(null);
 
             this.VerifyEventLoggerInvoked();
-
         }
 
         [Test]
         public void BuildUp_ProtectedInternalProperty_Test()
         {
-            var filter = new ProtectedInternalFilterAttribute();
+            var filter = new ProtectedInternalFilter();
 
             this.container.BuildUp(filter);
             filter.OnActionExecuted(null);
@@ -98,7 +98,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
         [Test]
         public void BuildUp_InternalProperty_Test()
         {
-            var filter = new InternalFilterAttribute();
+            var filter = new InternalFilter();
 
             this.container.BuildUp(filter);
             filter.OnActionExecuted(null);
@@ -109,7 +109,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
         [Test]
         public void BuildUp_NoDependencyAttribute_Test()
         {
-            var filter = new PublicNoDependencyAttributeFilterAttribute();
+            var filter = new PublicNoDependencyAttributeFilter();
 
             this.container.BuildUp(filter);
             Assert.Throws<NullReferenceException>(() => filter.OnActionExecuted(null));
@@ -120,7 +120,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
         [Test]
         public void BuildUp_NoSetter_Test()
         {
-            var filter = new NoSetFilterAttribute();
+            var filter = new NoSetFilter();
 
             this.container.BuildUp(filter);
             Assert.Throws<NullReferenceException>(() => filter.OnActionExecuted(null));
@@ -133,6 +133,5 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
         private void VerifyEventLoggerInvoked(Times times) =>
             Mock.Get(this.eventLogger)
                 .Verify(logger => logger.AddLog(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EventLogType>()), times);
-
     }
 }

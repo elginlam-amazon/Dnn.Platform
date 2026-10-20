@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -11,14 +11,19 @@
     <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
+    <!-- CA1416: the image handling uses System.Drawing.Common, which is supported on Windows (IIS) only. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.Web" />
-    <Reference Include="System.Web.Extensions" />
+    <PackageReference Include="CoreWebForms" />
+    <PackageReference Include="Microsoft.AspNet.WebApi.Client" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,6 +31,7 @@
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Log4net\DotNetNuke.Log4Net.csproj" />
+    <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.SystemWebCompat\DotNetNuke.SystemWebCompat.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.WebUtility\DotNetNuke.WebUtility.vbproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Web\DotNetNuke.Web.csproj" />

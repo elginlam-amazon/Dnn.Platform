@@ -134,7 +134,7 @@
                 services.AddSingleton<IPortalController>(portalController);
             });
             Host.PerformanceSetting = Globals.PerformanceSettings.ModerateCaching;
-            var uri = new Uri(Assembly.GetExecutingAssembly().CodeBase);
+            var uri = new Uri(Assembly.GetExecutingAssembly().Location);
             var path = HttpUtility.UrlDecode(Path.GetFullPath(uri.AbsolutePath));
             var websiteRootPath = path.Substring(0, path.IndexOf(DNNPlatformText, StringComparison.Ordinal));
             var physicalAppPath = Path.Combine(websiteRootPath, WebsiteText);

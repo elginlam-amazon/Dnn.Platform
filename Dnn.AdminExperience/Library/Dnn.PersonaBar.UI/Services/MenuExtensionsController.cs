@@ -8,7 +8,6 @@ namespace Dnn.PersonaBar.UI.Services
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -20,7 +19,9 @@ namespace Dnn.PersonaBar.UI.Services
     using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Exceptions;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 

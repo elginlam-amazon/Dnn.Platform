@@ -36,7 +36,7 @@ namespace DotNetNuke.Modules.Admin.Users
     /// <summary>The User UserModuleBase is used to manage the base parts of a User.</summary>
     public partial class User : UserUserControlBase
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<User>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<User>();
         private readonly IHostSettings hostSettings;
         private readonly IJavaScriptLibraryHelper javaScript;
         private readonly IPortalController portalController;

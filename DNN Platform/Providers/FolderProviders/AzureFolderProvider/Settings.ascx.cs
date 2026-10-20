@@ -25,7 +25,7 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
     /// <summary>Windows Azure Storage Settings Control.</summary>
     public partial class Settings : FolderMappingSettingsControlBase
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<Settings>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<Settings>();
         private readonly ICryptographyProvider cryptographyProvider;
         private readonly IHostSettings hostSettings;
 
@@ -288,11 +288,11 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
 
             try
             {
-                if (container.CreateIfNotExists())
+                if (container.CreateIfNotExistsAsync().GetAwaiter().GetResult())
                 {
-                    var permissions = container.GetPermissions();
+                    var permissions = container.GetPermissionsAsync().GetAwaiter().GetResult();
                     permissions.PublicAccess = BlobContainerPublicAccessType.Container;
-                    container.SetPermissions(permissions);
+                    container.SetPermissionsAsync(permissions).GetAwaiter().GetResult();
                 }
 
                 return true;
@@ -374,10 +374,18 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
 
             try
             {
-                foreach (var container in blobClient.ListContainers())
+                BlobContinuationToken continuationToken = null;
+                do
                 {
-                    this.ddlContainers.Items.Add(container.Name);
+                    var resultSegment = blobClient.ListContainersSegmentedAsync(continuationToken).GetAwaiter().GetResult();
+                    foreach (var container in resultSegment.Results)
+                    {
+                        this.ddlContainers.Items.Add(container.Name);
+                    }
+
+                    continuationToken = resultSegment.ContinuationToken;
                 }
+                while (continuationToken != null);
             }
             catch (StorageException ex)
             {

@@ -5,9 +5,10 @@ namespace DotNetNuke.Data
 {
     using System.Collections.Generic;
     using System.Data;
-    using System.Data.SqlClient;
 
     using DotNetNuke.Data.PetaPoco;
+
+    using Microsoft.Data.SqlClient;
 
     public class SqlDatabaseConnectionProvider : DatabaseConnectionProvider
     {

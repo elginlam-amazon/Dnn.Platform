@@ -7,10 +7,11 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
     using System.Collections.Generic;
     using System.Linq;
     using System.Threading;
-    using System.Web;
 
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
+
+    using Microsoft.AspNetCore.Http;
 
     public class DnnAuthorizeAttribute : AuthorizeAttributeBase
     {
@@ -61,7 +62,7 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
         }
 
         /// <inheritdoc />
-        protected override bool AuthorizeCore(HttpContextBase httpContext)
+        protected override bool AuthorizeCore(HttpContext httpContext)
         {
             if (!this.IsAuthenticated())
             {

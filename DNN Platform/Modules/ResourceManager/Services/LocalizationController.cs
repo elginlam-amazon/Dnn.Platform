@@ -5,11 +5,14 @@ namespace Dnn.Modules.ResourceManager.Services
 {
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.Modules.ResourceManager.Components;
+
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
+
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc;
 
     /// <summary>Provides localization web services.</summary>
     [DnnAuthorize]

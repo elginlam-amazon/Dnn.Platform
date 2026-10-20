@@ -174,7 +174,9 @@ namespace DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider
                     $"{protocol}{server.Url}/SimpleWebFarmSync.axd?command={commandParameter}&detail={detailParameter}";
 
                 // Build a webrequest
+#pragma warning disable SYSLIB0014 // WebRequest/HttpWebRequest obsolete: the asynchronous BeginGetResponse pattern with CookieContainer, default credentials and timeout-based abort is preserved as-is.
                 var notificationRequest = WebRequest.CreateHttp(notificationUrl);
+#pragma warning restore SYSLIB0014
 
                 // Create a cookie container so we can get cookies and use default credentials
                 notificationRequest.CookieContainer = new CookieContainer();

@@ -9,7 +9,6 @@ namespace DotNetNuke.Data
     using System.Collections.Generic;
     using System.Data;
     using System.Data.Common;
-    using System.Data.SqlClient;
     using System.Data.SqlTypes;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
@@ -30,7 +29,8 @@ namespace DotNetNuke.Data
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Scheduling;
     using DotNetNuke.Services.Search.Entities;
-    using Microsoft.ApplicationBlocks.Data;
+
+    using Microsoft.Data.SqlClient;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -4208,7 +4208,7 @@ namespace DotNetNuke.Data
             sql = DataUtil.ReplaceTokens(sql);
             try
             {
-                return SqlHelper.ExecuteReader(this.ConnectionString, CommandType.Text, sql, sqlCommandParameters);
+                return ExecuteReader(this.ConnectionString, sql, sqlCommandParameters);
             }
             catch
             {
@@ -4238,6 +4238,49 @@ namespace DotNetNuke.Data
             }
 
             return result;
+        }
+
+        /// <summary>Executes a SQL text command and returns a reader which closes the connection when it is disposed (replacement of <c>Microsoft.ApplicationBlocks.Data.SqlHelper.ExecuteReader</c>).</summary>
+        /// <param name="connectionString">The connection string.</param>
+        /// <param name="sql">The SQL command text.</param>
+        /// <param name="commandParameters">The command parameters, or <see langword="null"/>.</param>
+        /// <returns>An <see cref="IDataReader"/>.</returns>
+        private static IDataReader ExecuteReader(string connectionString, string sql, SqlParameter[] commandParameters)
+        {
+            var connection = new SqlConnection(connectionString);
+            try
+            {
+                connection.Open();
+#pragma warning disable CA2100 // the SQL text is provided by the (host) caller, parameters are passed separately
+                using var command = new SqlCommand(sql, connection) { CommandType = CommandType.Text };
+#pragma warning restore CA2100
+                if (commandParameters != null)
+                {
+                    foreach (var parameter in commandParameters)
+                    {
+                        if (parameter == null)
+                        {
+                            continue;
+                        }
+
+                        if ((parameter.Direction == ParameterDirection.InputOutput || parameter.Direction == ParameterDirection.Input) && parameter.Value == null)
+                        {
+                            parameter.Value = DBNull.Value;
+                        }
+
+                        command.Parameters.Add(parameter);
+                    }
+                }
+
+                var reader = command.ExecuteReader(CommandBehavior.CloseConnection);
+                command.Parameters.Clear();
+                return reader;
+            }
+            catch
+            {
+                connection.Dispose();
+                throw;
+            }
         }
 
         private static DateTime FixDate(DateTime dateToFix)

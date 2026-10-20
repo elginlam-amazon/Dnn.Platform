@@ -11,8 +11,6 @@ namespace DotNetNuke.Tests.Web.InternalServices
     using System.Linq;
     using System.Net.Http;
     using System.Threading;
-    using System.Web.Http;
-    using System.Web.Http.Hosting;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common.Utilities;
@@ -36,6 +34,10 @@ namespace DotNetNuke.Tests.Web.InternalServices
     using DotNetNuke.Web.InternalServices;
     using DotNetNuke.Web.InternalServices.Views.Search;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Abstractions;
+    using Microsoft.AspNetCore.Mvc.Controllers;
     using Microsoft.Extensions.DependencyInjection;
 
     using Moq;
@@ -132,13 +134,15 @@ namespace DotNetNuke.Tests.Web.InternalServices
             CBO.SetTestableInstance(this.mockCBO.Object);
 
             // create instance of the SearchServiceController
-            var request = new HttpRequestMessage();
-            var configuration = new HttpConfiguration();
+            // The services framework was ported to ASP.NET Core: providers are registered in
+            // TabAndModuleInfoProviderRegistry (replacing HttpConfiguration.AddTabAndModuleInfoProvider)
+            // and the controller request comes from its ControllerContext.HttpContext.
+            var httpContext = new DefaultHttpContext();
+            var request = httpContext.Request;
             var provider = new Mock<ITabAndModuleInfoProvider>();
             ModuleInfo expectedModule;
             provider.Setup(x => x.TryFindModuleInfo(request, out expectedModule)).Returns(true);
-            configuration.AddTabAndModuleInfoProvider(provider.Object);
-            request.Properties[HttpPropertyKeys.HttpConfigurationKey] = configuration;
+            TabAndModuleInfoProviderRegistry.AddTabAndModuleInfoProvider(provider.Object);
             this.serviceProvider = FakeServiceProvider.Setup(
                 services =>
                 {
@@ -162,7 +166,11 @@ namespace DotNetNuke.Tests.Web.InternalServices
                 this.fakeHostController,
                 HtmlModDefId)
             {
-                Request = request,
+                ControllerContext = new ControllerContext
+                {
+                    HttpContext = httpContext,
+                    ActionDescriptor = new ControllerActionDescriptor(),
+                },
             };
 
             this.internalSearchController = InternalSearchController.Instance;
@@ -174,7 +182,6 @@ namespace DotNetNuke.Tests.Web.InternalServices
         {
             this.serviceProvider.Dispose();
             this.luceneController.Dispose();
-            this.searchServiceController?.Dispose();
             this.DeleteIndexFolder();
             CBO.ClearInstance();
             TabController.ClearInstance();

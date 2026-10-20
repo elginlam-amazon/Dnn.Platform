@@ -8,15 +8,17 @@ namespace Dnn.PersonaBar.Servers.Services
     using System.IO;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Servers.Components.Log;
+
     using DotNetNuke.Common;
     using DotNetNuke.Data;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     [MenuPermission(Scope = ServiceScope.Host)]
@@ -104,12 +106,12 @@ namespace Dnn.PersonaBar.Servers.Services
         private HttpResponseMessage CreateLogFileResponse(string logFilePath)
         {
             ValidateFilePath(logFilePath);
-            if (!File.Exists(logFilePath))
+            if (!System.IO.File.Exists(logFilePath))
             {
                 return this.Request.CreateResponse(HttpStatusCode.NotFound);
             }
 
-            using var reader = File.OpenText(logFilePath);
+            using var reader = System.IO.File.OpenText(logFilePath);
             var logText = reader.ReadToEnd();
             return this.Request.CreateResponse(HttpStatusCode.OK, logText);
         }

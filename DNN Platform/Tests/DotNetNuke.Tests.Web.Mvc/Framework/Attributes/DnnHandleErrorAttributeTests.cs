@@ -1,14 +1,19 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Tests.Web.Mvc.Framework.Attributes
 {
     using System;
-    using System.Web.Mvc;
+    using System.Collections.Generic;
 
-    using DotNetNuke.Tests.Web.Mvc.Fakes;
     using DotNetNuke.Web.Mvc.Framework.ActionFilters;
+
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Abstractions;
+    using Microsoft.AspNetCore.Mvc.Filters;
+    using Microsoft.AspNetCore.Routing;
+
     using Moq;
     using Moq.Protected;
     using NUnit.Framework;
@@ -17,27 +22,16 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Attributes
     public class DnnHandleErrorAttributeTests
     {
         [Test]
-        public void OnException_Throws_InvalidOPerationExcption_IfNotUsedIn_IDnnController()
-        {
-            // Arrange
-            const string expectedMessage = "This attribute can only be applied to Controllers that implement IDnnController";
-            var sut = new DnnHandleErrorAttribute();
-
-            var exceptionContext = new ExceptionContext();
-
-            // Act / Assert
-            var ex = Assert.Throws<InvalidOperationException>(() => sut.OnException(exceptionContext));
-            Assert.That(ex.Message, Is.EqualTo(expectedMessage));
-        }
-
-        [Test]
         public void OnException_Logs_TheException()
         {
             // Arrange
             var testException = new Exception();
-            var exceptionContext = new ExceptionContext
+            var actionContext = new ActionContext(
+                MockHelper.CreateMockHttpContext(),
+                new RouteData(),
+                new ActionDescriptor());
+            var exceptionContext = new ExceptionContext(actionContext, new List<IFilterMetadata>())
             {
-                Controller = new FakeDnnController(),
                 Exception = testException,
             };
 

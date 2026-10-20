@@ -10,7 +10,6 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Logging;
 using DotNetNuke.Common;
@@ -18,6 +17,7 @@ using DotNetNuke.Instrumentation;
 using DotNetNuke.Services.Localization;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

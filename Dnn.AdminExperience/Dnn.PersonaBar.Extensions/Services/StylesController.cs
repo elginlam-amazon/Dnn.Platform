@@ -6,14 +6,18 @@ namespace Dnn.PersonaBar.Styles.Services
 {
     using System.Globalization;
     using System.IO;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
+
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Portals.Extensions;
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Mvc;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>
     /// REST API Controller for the Styles module.
@@ -26,7 +30,7 @@ namespace Dnn.PersonaBar.Styles.Services
         /// </summary>
         /// <returns>The current portal style settings.</returns>
         [HttpGet]
-        public IHttpActionResult GetStyles()
+        public IActionResult GetStyles()
         {
             if (!this.CanEdit())
             {
@@ -45,7 +49,7 @@ namespace Dnn.PersonaBar.Styles.Services
         /// <returns>OK.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IHttpActionResult SaveStyles(PortalStyles settings)
+        public IActionResult SaveStyles(PortalStyles settings)
         {
             if (!this.CanEdit())
             {
@@ -63,7 +67,7 @@ namespace Dnn.PersonaBar.Styles.Services
             // Overwrite the file
             var path = $"{this.PortalSettings.HomeSystemDirectoryMapPath}{settings.FileName}";
             var styles = settings.ToString();
-            File.WriteAllText(path, styles);
+            System.IO.File.WriteAllText(path, styles);
 
             return this.Ok();
         }
@@ -74,7 +78,7 @@ namespace Dnn.PersonaBar.Styles.Services
         /// <returns><see cref="PortalStyles"/>.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IHttpActionResult RestoreStyles()
+        public IActionResult RestoreStyles()
         {
             if (!this.CanEdit())
             {

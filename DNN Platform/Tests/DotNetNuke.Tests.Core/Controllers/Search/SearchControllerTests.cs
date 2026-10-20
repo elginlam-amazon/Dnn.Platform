@@ -2592,29 +2592,16 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
                 }
             });
 
+            t.IsBackground = true; // on .NET the worker cannot be aborted, so abandon it on timeout
             t.Start(); // start running 'proc' thread wrapper
 
             // from docs: "The Start method does not return until the new thread has started running."
             if (t.Join(timeout) == false)
             {
-                t.Abort(); // die evil thread!
-
-                // Abort raises the ThreadAbortException
-                int i = 0;
-                while ((t.Join(1) == false) && (i < 20))
-                {
-                    // 20 ms wait possible here
-                    i++;
-                }
-
-                if (i >= 20)
-                {
-                    // we didn't abort, might want to log this or take some other action
-                    // this can happen if you are doing something indefinitely hinky in a
-                    // finally block (cause the finally be will executed before the Abort
-                    // completes.
-                    Console.WriteLine("Abort didn't work as expected");
-                }
+                // Thread.Abort is not supported on .NET (it throws PlatformNotSupportedException).
+                // The worker thread is a background thread, so it is abandoned here and will not
+                // prevent the process from exiting. The timeout itself is still enforced above.
+                Console.WriteLine("Timed out waiting for the operation to complete; abandoning the worker thread.");
             }
 
             if (ex != null)

@@ -118,7 +118,9 @@ public class Utilities
                 return null;
             }
 
+#pragma warning disable SYSLIB0014 // WebRequest kept: downloads a remote avatar image with a configurable proxy; behavior preserved from the .NET Framework implementation.
             var myRequest = WebRequest.Create(imageUri);
+#pragma warning restore SYSLIB0014
             myRequest.Proxy = null;
             using var myResponse = myRequest.GetResponse();
             using var myStream = myResponse.GetResponseStream();
@@ -296,7 +298,9 @@ public class Utilities
             return string.Empty;
         }
 
+#pragma warning disable SYSLIB0014 // HttpWebRequest kept: relies on CookieContainer, KeepAlive and NetworkCredential semantics preserved from the .NET Framework implementation.
         var webRequest = (HttpWebRequest)WebRequest.Create(pageUri);
+#pragma warning restore SYSLIB0014
         webRequest.KeepAlive = false;
         webRequest.Proxy = null;
         webRequest.CookieContainer = cookies;

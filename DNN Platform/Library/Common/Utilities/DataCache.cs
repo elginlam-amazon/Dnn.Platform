@@ -783,12 +783,8 @@ namespace DotNetNuke.Common.Utilities
 
             try
             {
-                // check dictionary
-                if (LockDictionary.ContainsKey(key))
-                {
-                    // Remove lock
-                    LockDictionary.Remove(key);
-                }
+                // Remove lock
+                LockDictionary.Remove(key);
             }
             finally
             {

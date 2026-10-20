@@ -11,7 +11,6 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Common;
@@ -27,8 +26,11 @@ using DotNetNuke.Services.Journal;
 using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for the Journal module.</summary>
 /// <param name="hostSettings">The host settings.</param>

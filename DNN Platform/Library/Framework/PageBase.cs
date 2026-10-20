@@ -34,7 +34,7 @@ namespace DotNetNuke.Framework
     {
         private const string LinkItemPattern = "<(a|link|img|script|input|form|object).[^>]*(href|src|action)=(\\\"|'|)(.[^\\\"']*)(\\\"|'|)[^>]*>";
 
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<PageBase>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<PageBase>();
         private static readonly Regex LinkItemMatchRegex = new Regex(LinkItemPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private readonly ILogger traceLogger = DnnLoggingController.GetLogger("DNN.Trace");
         private readonly ArrayList localizedControls = [];
@@ -406,14 +406,18 @@ namespace DotNetNuke.Framework
                     else
                     {
                         HttpContext.Current.Response.Clear();
-                        HttpContext.Current.Server.Transfer("~/ErrorPage.aspx");
+
+                        // Server.Transfer is not supported on ASP.NET Core
+                        HttpContext.Current.Response.Redirect(Globals.ResolveUrl("~/ErrorPage.aspx"), true);
                     }
                 }
                 catch (Exception)
                 {
                     HttpContext.Current.Response.Clear();
                     var errorMessage = Localization.GetString("NoSitesForThisInstallation.Error", Localization.GlobalResourceFile);
-                    HttpContext.Current.Server.Transfer($"~/ErrorPage.aspx?status=503&error={HttpUtility.UrlEncode(errorMessage)}");
+
+                    // Server.Transfer is not supported on ASP.NET Core
+                    HttpContext.Current.Response.Redirect(Globals.ResolveUrl($"~/ErrorPage.aspx?status=503&error={HttpUtility.UrlEncode(errorMessage)}"), true);
                 }
             }
 

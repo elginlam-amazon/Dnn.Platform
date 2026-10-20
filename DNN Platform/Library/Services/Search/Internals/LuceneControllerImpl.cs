@@ -464,7 +464,7 @@ namespace DotNetNuke.Services.Search.Internals
 
         private void CheckDisposed()
         {
-            if (Thread.VolatileRead(ref this.isDisposed) == DISPOSED)
+            if (Volatile.Read(ref this.isDisposed) == DISPOSED)
             {
                 throw new ObjectDisposedException(Localization.GetExceptionMessage("LuceneControlerIsDisposed", "LuceneController is disposed and cannot be used anymore"));
             }

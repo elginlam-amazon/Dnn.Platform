@@ -8,13 +8,14 @@ namespace DotNetNuke.Web.Mvc.Routing
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Web.Routing;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Internal;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Internal.SourceGenerators;
+
+    using Microsoft.AspNetCore.Routing;
 
     /// <summary>Gets MVC routes.</summary>
     internal partial class PortalAliasMvcRouteManager : IPortalAliasMvcRouteManager

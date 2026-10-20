@@ -39,7 +39,7 @@ namespace DotNetNuke.UI.WebControls
         private const int LENGTHDEFAULT = 6;
         private const string RENDERURLDEFAULT = "ImageChallenge.captcha.aspx";
         private const string CHARSDEFAULT = "abcdefghijklmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<CaptchaControl>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<CaptchaControl>();
         private static readonly string[] FontFamilies =
         {
             "Comic Sans MS",

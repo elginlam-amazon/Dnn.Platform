@@ -8,8 +8,6 @@ namespace DotNetNuke.Services.Upgrade.Internals.Steps
     using System.Globalization;
     using System.Web;
 
-    using Microsoft.Win32;
-
     using Localization = DotNetNuke.Services.Localization.Localization;
 
     /// <summary>Performs verifications about the IIS environment.</summary>
@@ -22,16 +20,8 @@ namespace DotNetNuke.Services.Upgrade.Internals.Steps
 
             this.Details = Localization.GetString("CheckingIIS", this.LocalInstallResourceFile);
 
-            // Checks for integrated pipeline mode.
-            if (!HttpRuntime.UsingIntegratedPipeline)
-            {
-                this.Errors.Add(Localization.GetString("IISVerificationFail", this.LocalInstallResourceFile));
-                this.Status = StepStatus.Abort;
-                return;
-            }
-
-            // Check for .Net Framework 4.8
-            if (!IsDotNetVersionAtLeast(528040))
+            // ASP.NET Core always runs the integrated pipeline, check the .NET runtime version instead of the .NET Framework 4.8 registry key.
+            if (Environment.Version.Major < 10)
             {
                 this.Errors.Add(Localization.GetString("DotNetVersion48Required", this.LocalInstallResourceFile));
                 this.Status = StepStatus.Abort;
@@ -39,17 +29,6 @@ namespace DotNetNuke.Services.Upgrade.Internals.Steps
             }
 
             this.Status = StepStatus.Done;
-        }
-
-        private static bool IsDotNetVersionAtLeast(int version)
-        {
-            return GetVersion() >= version;
-        }
-
-        private static int GetVersion()
-        {
-            using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32).OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full\");
-            return Convert.ToInt32(key.GetValue("Release"), CultureInfo.InvariantCulture);
         }
     }
 }

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -16,7 +16,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
-    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,7 +29,10 @@
 
   <Import Project="..\..\DNN_Platform.build" />
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="XCOPY &quot;$(ProjectDir)bin\$(ConfigurationName)\netstandard2.0\DotNetNuke.Maintenance*&quot; &quot;$(WebsitePath)\bin&quot; /S /Y /I" />
+    <ItemGroup>
+      <PostBuildCopyFiles Include="$(ProjectDir)bin\$(Configuration)\net10.0\DotNetNuke.Maintenance*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PostBuildCopyFiles)" DestinationFolder="$(WebsitePath)\bin" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

@@ -342,7 +342,9 @@ namespace DotNetNuke.Common.Utilities
             // ensure delimiters are not used
             if (!popUpUrl.Contains("dnnModal.show"))
             {
+#pragma warning disable SYSLIB0013 // keep the escaping of the full popup URL (reserved characters must not be escaped)
                 popUpUrl = Uri.EscapeUriString(url);
+#pragma warning restore SYSLIB0013
                 popUpUrl = popUpUrl.Replace("\"", string.Empty);
                 popUpUrl = popUpUrl.Replace("'", string.Empty);
             }

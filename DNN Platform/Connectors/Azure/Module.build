@@ -11,6 +11,6 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\Connectors\Azure</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
-  <Import Project="$(BuildScriptsPath)\Module.Build"/>
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
+  <Import Project="$(BuildScriptsPath)\Module.build"/>
 </Project>

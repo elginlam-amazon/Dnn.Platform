@@ -7,7 +7,6 @@ namespace DotNetNuke.Tests.AspNetClientCapabilityProvider
     using System;
     using System.IO;
     using System.Linq;
-    using System.Web.Hosting;
 
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Providers.AspNetClientCapabilityProvider;
@@ -32,7 +31,7 @@ namespace DotNetNuke.Tests.AspNetClientCapabilityProvider
             MockComponentProvider.CreateEventLogController();
 
             // create the bin folder
-            var folderPath = HostingEnvironment.ApplicationPhysicalPath + "bin";
+            var folderPath = Path.Combine(AppContext.BaseDirectory, "bin");
             if (!Directory.Exists(folderPath))
             {
                 Directory.CreateDirectory(folderPath);

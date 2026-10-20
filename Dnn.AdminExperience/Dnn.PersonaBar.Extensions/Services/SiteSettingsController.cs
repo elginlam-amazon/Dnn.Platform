@@ -16,12 +16,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Web;
-    using System.Web.Http;
     using System.Xml;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.SiteSettings.Services.Dto;
+
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -52,11 +52,13 @@ namespace Dnn.PersonaBar.SiteSettings.Services
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.UI.WebControls;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
     using Constants = Dnn.PersonaBar.Library.Constants;
     using FileInfo = System.IO.FileInfo;
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>Provides Web API methods for the Site Settings module to use.</summary>
     /// <param name="navigationManager">A manager to provide navigation services.</param>
@@ -1496,7 +1498,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage DeleteListEntry([FromUri] int entryId, [FromUri] int? portalId)
+        public HttpResponseMessage DeleteListEntry([FromQuery] int entryId, [FromQuery] int? portalId)
         {
             try
             {
@@ -2779,7 +2781,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             {
                 var files = new SortedList();
                 Dictionary<string, Locale> locales = LocaleController.Instance.GetLocales(Null.NullInteger);
-                GetResourceFiles(files, HttpContext.Current.Server.MapPath("~\\"));
+                GetResourceFiles(files, System.Web.HttpContext.Current.Server.MapPath("~\\"));
 
                 var tables = new List<object>();
 
@@ -2794,11 +2796,11 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
                     foreach (DictionaryEntry file in files)
                     {
-                        if (!File.Exists(this.ResourceFile(file.Key.ToString(), locale.Code)))
+                        if (!System.IO.File.Exists(this.ResourceFile(file.Key.ToString(), locale.Code)))
                         {
                             tableMissing.Add(
                                 this.ResourceFile(file.Key.ToString(), locale.Code)
-                                    .Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    .Replace(System.Web.HttpContext.Current.Server.MapPath("~"), string.Empty));
                         }
                         else
                         {
@@ -2812,7 +2814,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                             }
                             catch
                             {
-                                tableError.Add(file.Key.ToString().Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                tableError.Add(file.Key.ToString().Replace(System.Web.HttpContext.Current.Server.MapPath("~"), string.Empty));
                                 dsDef = null;
                             }
 
@@ -2825,7 +2827,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                             {
                                 if (locale.Text != Localization.SystemLocale)
                                 {
-                                    tableError.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    tableError.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(System.Web.HttpContext.Current.Server.MapPath("~"), string.Empty));
                                     dsRes = null;
                                 }
                             }
@@ -2848,7 +2850,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                 }
                                 catch
                                 {
-                                    tableDuplicate.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    tableDuplicate.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(System.Web.HttpContext.Current.Server.MapPath("~"), string.Empty));
                                 }
 
                                 // Check for missing entries in localized file
@@ -2859,7 +2861,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                 }
                                 catch
                                 {
-                                    tableEntries.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    tableEntries.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(System.Web.HttpContext.Current.Server.MapPath("~"), string.Empty));
                                 }
                                 finally
                                 {
@@ -2874,7 +2876,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                 }
                                 catch
                                 {
-                                    tableObsolete.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    tableObsolete.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(System.Web.HttpContext.Current.Server.MapPath("~"), string.Empty));
                                 }
                                 finally
                                 {
@@ -2885,7 +2887,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                 var resFile = new FileInfo(this.ResourceFile(file.Key.ToString(), locale.Code));
                                 if (((FileInfo)file.Value).LastWriteTime > resFile.LastWriteTime)
                                 {
-                                    tableOld.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    tableOld.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(System.Web.HttpContext.Current.Server.MapPath("~"), string.Empty));
                                 }
                             }
                         }
@@ -3399,6 +3401,25 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             return -1;
         }
 
+        private static string GetAbsoluteServerPath()
+        {
+            var request = System.Web.HttpContext.Current?.Request;
+            if (request != null)
+            {
+                var strServerPath = request.MapPath(request.ApplicationPath);
+                if (!strServerPath.EndsWith(@"\", StringComparison.Ordinal))
+                {
+                    strServerPath += @"\";
+                }
+
+                return strServerPath;
+            }
+            else
+            {
+                return string.Empty;
+            }
+        }
+
         private string GetTranslatedPages(PortalSettings portalSettings, string code)
         {
             string status = string.Empty;
@@ -3510,24 +3531,6 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         private string ResourceFile(string filename, string language)
         {
             return Localization.GetResourceFileName(filename, language, string.Empty, Globals.GetPortalSettings(this.hostSettings).PortalId);
-        }
-
-        private string GetAbsoluteServerPath()
-        {
-            if (this.Request.Properties["MS_HttpContext"] is HttpContextWrapper httpContext)
-            {
-                var strServerPath = httpContext.Request.MapPath(httpContext.Request.ApplicationPath);
-                if (!strServerPath.EndsWith(@"\", StringComparison.Ordinal))
-                {
-                    strServerPath += @"\";
-                }
-
-                return strServerPath;
-            }
-            else
-            {
-                return string.Empty;
-            }
         }
 
         private bool ValidateProperty(ProfilePropertyDefinition definition, out HttpResponseMessage httpPropertyValidationError)

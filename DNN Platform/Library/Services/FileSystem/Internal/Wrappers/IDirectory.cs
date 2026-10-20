@@ -11,26 +11,26 @@ using System.Threading.Tasks;
 /// <summary>
 /// A contract specifying the ability to take actions on directories.
 /// A wrapper around functionality from <see cref="Directory"/>.
-/// Also provides async overloads via <see cref="SchwabenCode.QuickIO.QuickIODirectory"/>.
+/// Also provides async overloads which run the <see cref="Directory"/> operations on the thread pool.
 /// </summary>
 public interface IDirectory
 {
     /// <inheritdoc cref="Directory.Delete(string, bool)" />
     void Delete(string path, bool recursive);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIODirectory.DeleteAsync(string, bool)" />
+    /// <inheritdoc cref="Directory.Delete(string, bool)" />
     Task DeleteAsync(string path, bool recursive);
 
     /// <inheritdoc cref="Directory.Exists(string)" />
     bool Exists(string path);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIODirectory.ExistsAsync(string)" />
+    /// <inheritdoc cref="Directory.Exists(string)" />
     Task<bool> ExistsAsync(string path);
 
     /// <inheritdoc cref="Directory.GetDirectories(string)" />
     string[] GetDirectories(string path);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIODirectory.EnumerateDirectoryPathsAsync(string, string, SearchOption, SchwabenCode.QuickIO.QuickIOPathType, SchwabenCode.QuickIO.QuickIOEnumerateOptions)" />
+    /// <inheritdoc cref="Directory.EnumerateDirectories(string)" />
     Task<IEnumerable<string>> GetDirectoriesAsync(string path);
 
     /// <inheritdoc cref="Directory.GetFiles(string)" />
@@ -39,27 +39,27 @@ public interface IDirectory
     /// <inheritdoc cref="Directory.GetFiles(string, string, SearchOption)" />
     string[] GetFiles(string path, string searchPattern, SearchOption searchOption);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIODirectory.EnumerateFilePathsAsync(string, string, SearchOption, SchwabenCode.QuickIO.QuickIOPathType, SchwabenCode.QuickIO.QuickIOEnumerateOptions)" />
+    /// <inheritdoc cref="Directory.EnumerateFiles(string, string, SearchOption)" />
     Task<IEnumerable<string>> GetFilesAsync(string path);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIODirectory.EnumerateFilePathsAsync(string, string, SearchOption, SchwabenCode.QuickIO.QuickIOPathType, SchwabenCode.QuickIO.QuickIOEnumerateOptions)" />
+    /// <inheritdoc cref="Directory.EnumerateFiles(string, string, SearchOption)" />
     Task<IEnumerable<string>> GetFilesAsync(string path, string searchPattern, SearchOption searchOption);
 
     /// <inheritdoc cref="Directory.Move(string, string)" />
     void Move(string sourceDirName, string destDirName);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIODirectory.MoveAsync(string, string, bool)" />
+    /// <inheritdoc cref="Directory.Move(string, string)" />
     Task MoveAsync(string sourceDirName, string destDirName);
 
     /// <inheritdoc cref="Directory.CreateDirectory(string)" />
     void CreateDirectory(string path);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIODirectory.CreateAsync(string, bool)" />
+    /// <inheritdoc cref="Directory.CreateDirectory(string)" />
     Task CreateDirectoryAsync(string path);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIODirectory.Create(string, bool)" />
+    /// <inheritdoc cref="Directory.CreateDirectory(string)" />
     void CreateDirectory(string path, bool recursive);
 
-    /// <inheritdoc cref="SchwabenCode.QuickIO.QuickIODirectory.CreateAsync(string, bool)" />
+    /// <inheritdoc cref="Directory.CreateDirectory(string)" />
     Task CreateDirectoryAsync(string path, bool recursive);
 }

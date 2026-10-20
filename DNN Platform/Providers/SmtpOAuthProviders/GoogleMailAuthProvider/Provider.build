@@ -10,7 +10,7 @@
     <Providers></Providers>
     <InstallPath>$(WebsiteInstallPath)\Provider</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="GetFiles;DebugProject;Package" />
     <Target Name="GetFiles">
     <ItemGroup>

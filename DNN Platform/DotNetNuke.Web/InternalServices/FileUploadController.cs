@@ -19,7 +19,6 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
-using System.Web.Http;
 using System.Web.UI.WebControls;
 
 using DotNetNuke.Abstractions.Application;
@@ -38,10 +37,13 @@ using DotNetNuke.Services.Localization;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.Api.Internal;
 
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using FileInfo = DotNetNuke.Services.FileSystem.FileInfo;
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API for uploading files.</summary>
 [DnnAuthorize]

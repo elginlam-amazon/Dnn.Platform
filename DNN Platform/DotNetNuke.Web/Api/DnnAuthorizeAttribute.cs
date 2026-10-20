@@ -79,8 +79,8 @@ namespace DotNetNuke.Web.Api
         {
             Requires.NotNull("context", context);
 
-            var identity = Thread.CurrentPrincipal.Identity;
-            if (!identity.IsAuthenticated)
+            var identity = context.ActionContext.HttpContext.User?.Identity ?? Thread.CurrentPrincipal?.Identity;
+            if (identity?.IsAuthenticated != true)
             {
                 return false;
             }

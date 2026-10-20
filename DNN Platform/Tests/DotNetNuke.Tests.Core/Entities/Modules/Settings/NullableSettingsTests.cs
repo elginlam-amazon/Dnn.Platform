@@ -212,7 +212,7 @@ namespace DotNetNuke.Tests.Core.Entities.Modules.Settings
             this.MockTabModuleSettings(moduleInfo, new Hashtable());
             var expectedStringValue = stringValue ?? string.Empty;
             this.MockModuleController.Setup(pc => pc.UpdateModuleSetting(ModuleId, "StringProperty", expectedStringValue));
-            var integerString = integerValue?.ToString() ?? string.Empty;
+            var integerString = integerValue?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
             this.MockPortalController.Setup(pc => pc.UpdatePortalSetting(PortalId, "IntegerProperty", integerString, true, Null.NullString, false));
             var dateTimeString = datetimeValue?.ToString("o", CultureInfo.InvariantCulture) ?? string.Empty;
             this.MockModuleController.Setup(mc => mc.UpdateModuleSetting(ModuleId, "DateTimeProperty", dateTimeString));
@@ -233,7 +233,7 @@ namespace DotNetNuke.Tests.Core.Entities.Modules.Settings
             // Arrange
             var expectedStringValue = stringValue ?? string.Empty;
             var moduleInfo = GetModuleInfo;
-            var portalSettings = new Dictionary<string, string> { ["IntegerProperty"] = integerValue?.ToString() ?? string.Empty, };
+            var portalSettings = new Dictionary<string, string> { ["IntegerProperty"] = integerValue?.ToString(CultureInfo.InvariantCulture) ?? string.Empty, };
             var moduleSettings = new Hashtable { ["DateTimeProperty"] = datetimeValue?.ToString("o", CultureInfo.InvariantCulture) ?? string.Empty, ["StringProperty"] = expectedStringValue, };
             var tabModuleSettings = new Hashtable { ["TimeSpanProperty"] = timeSpanValue?.ToString("c", CultureInfo.InvariantCulture) ?? string.Empty, };
 

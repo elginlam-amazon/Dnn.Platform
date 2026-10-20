@@ -6,6 +6,7 @@ namespace DotNetNuke.Framework
     using System;
     using System.Diagnostics.CodeAnalysis;
     using System.Linq;
+    using System.Web;
     using System.Web.UI;
 
     using DotNetNuke.Abstractions.Application;

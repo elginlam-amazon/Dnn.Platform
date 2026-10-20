@@ -19,8 +19,8 @@ namespace DotNetNuke.Web.Api.Internal
         /// <returns><see langword="true"/> if the user has access, otherwise <see langword="false"/>.</returns>
         public static bool HasTabPermission(string permissionKey)
         {
-            var principal = Thread.CurrentPrincipal;
-            if (!principal.Identity.IsAuthenticated)
+            var principal = Thread.CurrentPrincipal ?? System.Web.HttpContext.Current?.User;
+            if (principal?.Identity?.IsAuthenticated != true)
             {
                 return false;
             }

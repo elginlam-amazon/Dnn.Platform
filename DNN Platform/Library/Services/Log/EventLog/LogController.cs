@@ -6,7 +6,6 @@ namespace DotNetNuke.Services.Log.EventLog
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Data.SqlClient;
     using System.Globalization;
     using System.IO;
     using System.Linq;
@@ -24,6 +23,7 @@ namespace DotNetNuke.Services.Log.EventLog
     using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
 
+    using Microsoft.Data.SqlClient;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 

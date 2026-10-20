@@ -16,7 +16,7 @@ Imports System.Web.UI
 Imports System.Web.UI.WebControls
 
 Namespace DotNetNuke.UI.WebControls
-    <Designer(GetType(DNNTextSuggestDesigner)), ToolboxData("<{0}:DNNTextSuggest runat=server></{0}:DNNTextSuggest>")> _
+    <ToolboxData("<{0}:DNNTextSuggest runat=server></{0}:DNNTextSuggest>")> _
     Public Class DNNTextSuggest
         Inherits TextBox
         Implements IPostBackEventHandler, IClientAPICallbackEventHandler

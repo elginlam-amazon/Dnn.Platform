@@ -12,13 +12,14 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Common;
 using DotNetNuke.Common.Lists;
 using DotNetNuke.Common.Utilities;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>A web API controller for retrieving regions and countries.</summary>
@@ -41,7 +42,7 @@ public class CountryRegionController(ListController listController)
     [HttpGet]
     public HttpResponseMessage Countries()
     {
-        var searchString = (HttpContext.Current.Request.Params["SearchString"] ?? string.Empty).NormalizeString();
+        var searchString = (System.Web.HttpContext.Current.Request.Params["SearchString"] ?? string.Empty).NormalizeString();
         var countries = CachedCountryList.GetCountryList(this.listController);
         return this.Request.CreateResponse(HttpStatusCode.OK, countries.Values.Where(
             x => x.NormalizedFullName.IndexOf(searchString, StringComparison.CurrentCulture) > -1).OrderBy(x => x.NormalizedFullName));

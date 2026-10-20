@@ -1,57 +1,41 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Tests.Web.Mvc.Fakes
 {
-    using System;
-    using System.Web.Mvc;
-    using System.Web.Routing;
-
-    using DotNetNuke.Tests.Web.Mvc.Fakes.Filters;
+    using DotNetNuke.Web.Mvc.Framework.ActionResults;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
+    using DotNetNuke.Web.Mvc.Helpers;
+
+    using Microsoft.AspNetCore.Mvc;
 
     public class FakeDnnController : DnnController
     {
-        public ActionResult Action1()
+        public IActionResult Action1()
         {
-            return this.View("Action1");
+            return this.View("Action1", (object)null);
         }
 
-        public ActionResult Action2()
+        public IActionResult Action2()
         {
-            return this.View("Action2", "Master2");
+            var result = (DnnViewResult)this.View("Action2", (object)null);
+            result.MasterName = "Master2";
+            return result;
         }
 
-        public ActionResult Action3(Dog dog)
+        public IActionResult Action3(Dog dog)
         {
-            return this.View("Action3", "Master3", dog);
+            var result = (DnnViewResult)this.View("Action3", dog);
+            result.MasterName = "Master3";
+            return result;
         }
 
-        [FakeHandleExceptionRedirect]
-        public ActionResult ActionWithExceptionFilter()
+        public void MockInitialize()
         {
-            throw new Exception();
-        }
-
-        [FakeOnExecutingRedirect]
-        public ActionResult ActionWithOnExecutingFilter()
-        {
-            return this.View("Action1");
-        }
-
-        [FakeOnExecutedRedirect]
-        public ActionResult ActionWithOnExecutedFilter()
-        {
-            return this.View("Action1");
-        }
-
-        public void MockInitialize(RequestContext requestContext)
-        {
-            // Mocking out the entire MvcHandler and Controller lifecycle proved to be difficult
-            // This method executes the initialization logic that occurs on every request which is
-            // executed from the Execute method.
-            this.Initialize(requestContext);
+            // The ASP.NET Core DnnController creates its DnnUrlHelper lazily during OnActionExecuting.
+            // This mirrors that initialization for tests that do not run the full action pipeline.
+            this.Url ??= new DnnUrlHelper(this);
         }
     }
 }

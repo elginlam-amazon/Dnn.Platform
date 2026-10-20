@@ -9,7 +9,6 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
     using System.IO;
     using System.Net.Http;
     using System.Web;
-    using System.Web.Http;
 
     using DotNetNuke.Common;
     using DotNetNuke.Instrumentation;
@@ -17,9 +16,12 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     using Newtonsoft.Json;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>Provides a file upload web service.</summary>
     public class FileUploadController : DnnApiController
@@ -79,7 +81,7 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
                     // todo: deal with the case where the exact file name already exists.
                     var fileInfo = this.fileManager.AddFile(userFolder, fileName, file.InputStream, true, true, this.fileContentTypeManager.GetContentType(Path.GetExtension(fileName)));
                     var fileIcon = Entities.Icons.IconController.IconURL("Ext" + fileInfo.Extension, "32x32");
-                    if (!File.Exists(context.Server.MapPath(fileIcon)))
+                    if (!System.IO.File.Exists(context.Server.MapPath(fileIcon)))
                     {
                         fileIcon = Entities.Icons.IconController.IconURL("File", "32x32");
                     }

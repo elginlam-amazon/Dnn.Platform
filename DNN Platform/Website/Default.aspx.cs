@@ -56,7 +56,7 @@ namespace DotNetNuke.Framework
     /// <summary>The DNN default page.</summary>
     public partial class DefaultPage : CDefault, IClientAPICallbackEventHandler
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<DefaultPage>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<DefaultPage>();
         private static readonly Regex HeaderTextRegex = new Regex(
             "<meta([^>])+name=('|\")robots('|\")",
             RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);

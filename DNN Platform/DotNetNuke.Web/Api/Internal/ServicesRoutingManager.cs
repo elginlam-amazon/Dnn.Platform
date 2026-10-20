@@ -7,11 +7,6 @@ namespace DotNetNuke.Web.Api.Internal
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web.Http;
-    using System.Web.Http.Dispatcher;
-    using System.Web.Http.Filters;
-    using System.Web.Http.Tracing;
-    using System.Web.Routing;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
@@ -32,8 +27,13 @@ namespace DotNetNuke.Web.Api.Internal
     public sealed partial class ServicesRoutingManager : IMapRoute, IRoutingManager
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<ServicesRoutingManager>();
+        private static readonly object InitializationLock = new object();
+        private static readonly List<DnnServiceRoute> RegisteredRoutes = new List<DnnServiceRoute>();
+        private static readonly List<AuthMessageHandlerBase> RegisteredAuthHandlers = new List<AuthMessageHandlerBase>();
+        private static bool initialized;
+
         private readonly IServiceProvider serviceProvider;
-        private readonly RouteCollection routes;
+        private readonly List<DnnServiceRoute> routes;
         private readonly PortalAliasRouteManager portalAliasRouteManager;
 
         /// <summary>Initializes a new instance of the <see cref="ServicesRoutingManager"/> class.</summary>
@@ -48,7 +48,7 @@ namespace DotNetNuke.Web.Api.Internal
         /// <param name="serviceProvider">The dependency injection container.</param>
         /// <param name="portalAliasService">The portal alias service.</param>
         public ServicesRoutingManager(IServiceProvider serviceProvider, IPortalAliasService portalAliasService)
-            : this(serviceProvider, portalAliasService, RouteTable.Routes)
+            : this(serviceProvider, portalAliasService, RegisteredRoutes)
         {
         }
 
@@ -56,7 +56,7 @@ namespace DotNetNuke.Web.Api.Internal
         /// <param name="serviceProvider">The dependency injection container.</param>
         /// <param name="portalAliasService">The portal alias service.</param>
         /// <param name="routes">The route collection.</param>
-        internal ServicesRoutingManager(IServiceProvider serviceProvider, IPortalAliasService portalAliasService, RouteCollection routes)
+        internal ServicesRoutingManager(IServiceProvider serviceProvider, IPortalAliasService portalAliasService, List<DnnServiceRoute> routes)
         {
             this.serviceProvider = serviceProvider;
             this.routes = routes;
@@ -65,11 +65,27 @@ namespace DotNetNuke.Web.Api.Internal
             this.TypeLocator = new TypeLocator();
         }
 
+        /// <summary>Gets the message handler which authenticates the requests with the forms authentication cookie (runs after all other auth message handlers).</summary>
+        internal static WebFormsAuthMessageHandler WebFormsAuthHandler { get; } = new WebFormsAuthMessageHandler();
+
+        /// <summary>Gets the message handler which sets up the portal context of the services framework requests.</summary>
+        internal static DnnContextMessageHandler ContextHandler { get; } = new DnnContextMessageHandler();
+
         /// <summary>Gets or sets the type locator.</summary>
         internal ITypeLocator TypeLocator { get; set; }
 
+        /// <summary>Gets a snapshot of the registered services framework routes.</summary>
+        /// <returns>The routes.</returns>
+        public static IReadOnlyList<DnnServiceRoute> GetRegisteredRoutes()
+        {
+            lock (RegisteredRoutes)
+            {
+                return RegisteredRoutes.ToArray();
+            }
+        }
+
         /// <inheritdoc />
-        public IList<Route> MapHttpRoute(string moduleFolderName, string routeName, string url, object defaults, object constraints, string[] namespaces)
+        public IList<DnnServiceRoute> MapHttpRoute(string moduleFolderName, string routeName, string url, object defaults, object constraints, string[] namespaces)
         {
             if (namespaces == null || namespaces.Length == 0 || string.IsNullOrEmpty(namespaces[0]))
             {
@@ -84,7 +100,7 @@ namespace DotNetNuke.Web.Api.Internal
             url = url.Trim('/', '\\');
 
             var prefixCounts = this.portalAliasRouteManager.GetRoutePrefixCounts();
-            var mappedRoutes = new List<Route>();
+            var mappedRoutes = new List<DnnServiceRoute>();
 
             foreach (var count in prefixCounts)
             {
@@ -110,13 +126,13 @@ namespace DotNetNuke.Web.Api.Internal
         }
 
         /// <inheritdoc />
-        public IList<Route> MapHttpRoute(string moduleFolderName, string routeName, string url, object defaults, string[] namespaces)
+        public IList<DnnServiceRoute> MapHttpRoute(string moduleFolderName, string routeName, string url, object defaults, string[] namespaces)
         {
             return this.MapHttpRoute(moduleFolderName, routeName, url, defaults, null, namespaces);
         }
 
         /// <inheritdoc />
-        public IList<Route> MapHttpRoute(string moduleFolderName, string routeName, string url, string[] namespaces)
+        public IList<DnnServiceRoute> MapHttpRoute(string moduleFolderName, string routeName, string url, string[] namespaces)
         {
             return this.MapHttpRoute(moduleFolderName, routeName, url, null, null, namespaces);
         }
@@ -126,51 +142,45 @@ namespace DotNetNuke.Web.Api.Internal
         {
             // register routes is ONLY called from within DNN application initialization
             // which is well protected from races
-            // allowing us to not worry about multi-threading threats here
-            if (!GlobalConfiguration.Configuration.MessageHandlers.Any(x => x is BasicAuthMessageHandler))
+            lock (InitializationLock)
             {
-                // Everything in this block is run one time at startup
+                if (!initialized)
+                {
+                    // Everything in this block is run one time at startup
+                    // the dnnContext message handler runs before any auth message handlers and the web forms
+                    // auth message handler runs after all other auth message handlers (see ServicesFrameworkEndpoint)
+                    this.RegisterAuthenticationHandlers();
+                    DnnAuthorizeAttribute.AppendToDefaultAuthTypes(WebFormsAuthHandler.AuthScheme);
 
-                // dnnContext message handler
-                // this must run before any auth message handlers
-                GlobalConfiguration.Configuration.MessageHandlers.Add(new DnnContextMessageHandler());
+                    // Add Windows Authentication type to make API request works when windows authentication enabled.
+                    DnnAuthorizeAttribute.AppendToDefaultAuthTypes("Negotiate");
 
-                this.RegisterAuthenticationHandlers();
-
-                // this must run after all other auth message handlers
-                var handler = new WebFormsAuthMessageHandler();
-                GlobalConfiguration.Configuration.MessageHandlers.Add(handler);
-                DnnAuthorizeAttribute.AppendToDefaultAuthTypes(handler.AuthScheme);
-
-                // Add Windows Authentication type to make API request works when windows authentication enabled.
-                DnnAuthorizeAttribute.AppendToDefaultAuthTypes("Negotiate");
-
-                // media type formatter for text/html, text/plain
-                GlobalConfiguration.Configuration.Formatters.Add(new StringPassThroughMediaTypeFormatter());
-
-                // controller selector that respects namespaces
-                GlobalConfiguration.Configuration.Services.Replace(typeof(IHttpControllerSelector), new DnnHttpControllerSelector(GlobalConfiguration.Configuration));
-                GlobalConfiguration.Configuration.DependencyResolver = new DnnDependencyResolver(Globals.DependencyProvider);
-
-                // trace writer for dotnetnuke.instrumentation
-                GlobalConfiguration.Configuration.Services.Replace(typeof(ITraceWriter), new TraceWriter(IsTracingEnabled()));
-
-                // replace the default action filter provider with our own
-                GlobalConfiguration.Configuration.Services.Add(typeof(IFilterProvider), Globals.DependencyProvider.GetRequiredService<IFilterProvider>());
-                var defaultProvider = GlobalConfiguration.Configuration.Services.GetFilterProviders().Where(x => x is ActionDescriptorFilterProvider);
-                GlobalConfiguration.Configuration.Services.Remove(typeof(IFilterProvider), defaultProvider);
-
-                // add standard tab and module id provider
-                GlobalConfiguration.Configuration.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
+                    // add standard tab and module id provider
+                    TabAndModuleInfoProviderRegistry.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
+                    initialized = true;
+                }
             }
 
-            using (this.routes.GetWriteLock())
+            lock (this.routes)
             {
                 this.routes.Clear();
                 this.LocateServicesAndMapRoutes();
             }
 
+            // let the ASP.NET Core endpoint routing pick up the new routes
+            ServicesFrameworkEndpointDataSource.NotifyRoutesChanged();
+
             Logger.ServicesRoutingManagerRegisteredRoutes(this.routes.Count);
+        }
+
+        /// <summary>Gets the authentication message handlers registered from the configuration (in execution order).</summary>
+        /// <returns>The handlers.</returns>
+        internal static IReadOnlyList<AuthMessageHandlerBase> GetAuthHandlers()
+        {
+            lock (RegisteredAuthHandlers)
+            {
+                return RegisteredAuthHandlers.ToArray();
+            }
         }
 
         /// <summary>Determines whether the given <paramref name="type"/> is a valid <see cref="IServiceRouteMapper"/>.</summary>
@@ -179,18 +189,6 @@ namespace DotNetNuke.Web.Api.Internal
         internal static bool IsValidServiceRouteMapper(Type type)
         {
             return type is { IsClass: true, IsAbstract: false, IsVisible: true, } && typeof(IServiceRouteMapper).IsAssignableFrom(type);
-        }
-
-        private static bool IsTracingEnabled()
-        {
-            var configValue = Config.GetSetting("EnableServicesFrameworkTracing");
-
-            if (!string.IsNullOrEmpty(configValue))
-            {
-                return Convert.ToBoolean(configValue);
-            }
-
-            return false;
         }
 
         private static void RegisterSystemRoutes()
@@ -232,7 +230,11 @@ namespace DotNetNuke.Web.Api.Internal
                         continue;
                     }
 
-                    GlobalConfiguration.Configuration.MessageHandlers.Add(handler);
+                    lock (RegisteredAuthHandlers)
+                    {
+                        RegisteredAuthHandlers.Add(handler);
+                    }
+
                     registeredSchemes.Add(schemeName);
                     Logger.ServicesRoutingManagerHandlerIsActivated(handler.AuthScheme, handler.GetType().FullName);
 
@@ -304,16 +306,11 @@ namespace DotNetNuke.Web.Api.Internal
             return this.TypeLocator.GetAllMatchingTypes(IsValidServiceRouteMapper);
         }
 
-        private Route MapHttpRouteWithNamespace(string name, string url, object defaults, object constraints, string[] namespaces)
+        private DnnServiceRoute MapHttpRouteWithNamespace(string name, string url, object defaults, object constraints, string[] namespaces)
         {
-            var route = this.routes.MapHttpRoute(name, url, defaults, constraints);
-            if (route.DataTokens == null)
-            {
-                route.DataTokens = new RouteValueDictionary();
-            }
-
-            route.SetNameSpaces(namespaces);
-            route.SetName(name);
+            var route = new DnnServiceRoute(name, url, defaults, constraints, namespaces);
+            this.routes.RemoveAll(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase));
+            this.routes.Add(route);
             return route;
         }
     }

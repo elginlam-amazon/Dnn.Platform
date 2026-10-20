@@ -10,7 +10,6 @@ namespace Dnn.PersonaBar.Themes.Services
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
     using System.Xml;
 
     using Dnn.PersonaBar.Library;
@@ -28,8 +27,11 @@ namespace Dnn.PersonaBar.Themes.Services
     using DotNetNuke.UI.Skins;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = Components.Constants.MenuName)]
     public class ThemesController : PersonaBarApiController
@@ -221,7 +223,7 @@ namespace Dnn.PersonaBar.Themes.Services
 
                 var strFile = this.appStatus.ApplicationMapPath + @"\" + token.ToLowerInvariant().Replace("/", @"\").Replace(".ascx", ".xml");
                 var settings = new List<ListItemInfo>();
-                if (File.Exists(strFile))
+                if (System.IO.File.Exists(strFile))
                 {
                     var xmlDoc = new XmlDocument { XmlResolver = null };
                     using (var xmlReader = XmlReader.Create(strFile, new XmlReaderSettings { XmlResolver = null, }))
@@ -256,7 +258,7 @@ namespace Dnn.PersonaBar.Themes.Services
 
                 var strFile = this.appStatus.ApplicationMapPath + @"\" + token.ToLowerInvariant().Replace("/", @"\").Replace(".ascx", ".xml");
                 var value = string.Empty;
-                if (File.Exists(strFile))
+                if (System.IO.File.Exists(strFile))
                 {
                     var xmlDoc = new XmlDocument { XmlResolver = null };
                     using (var xmlReader = XmlReader.Create(strFile, new XmlReaderSettings { XmlResolver = null, }))

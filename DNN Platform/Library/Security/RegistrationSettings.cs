@@ -4,6 +4,7 @@
 
 namespace DotNetNuke.Security
 {
+    using System.Collections;
     using System.Collections.Generic;
 
     using DotNetNuke.Collections;
@@ -41,24 +42,26 @@ namespace DotNetNuke.Security
         public RegistrationSettings(Dictionary<string, string> settings)
             : this()
         {
-            this.RandomPassword = settings.GetValueOrDefault("Registration_RandomPassword", this.RandomPassword);
-            this.RedirectAfterRegistration = settings.GetValueOrDefault("Redirect_AfterRegistration", this.RedirectAfterRegistration);
-            this.RedirectAfterLogout = settings.GetValueOrDefault("Redirect_AfterLogout", this.RedirectAfterLogout);
-            this.RedirectAfterLogin = settings.GetValueOrDefault("Redirect_AfterLogin", this.RedirectAfterLogin);
-            this.RegistrationFields = settings.GetValueOrDefault("Registration_RegistrationFields", this.RegistrationFields);
-            this.ExcludeTerms = settings.GetValueOrDefault("Registration_ExcludeTerms", this.ExcludeTerms);
-            this.RegistrationFormType = settings.GetValueOrDefault("Registration_RegistrationFormType", this.RegistrationFormType);
-            this.RequirePasswordConfirm = settings.GetValueOrDefault("Registration_RequireConfirmPassword", this.RequirePasswordConfirm);
-            this.RequireUniqueDisplayName = settings.GetValueOrDefault("Registration_RequireUniqueDisplayName", this.RequireUniqueDisplayName);
-            this.UseAuthProviders = settings.GetValueOrDefault("Registration_UseAuthProviders", this.UseAuthProviders);
-            this.UseEmailAsUserName = settings.GetValueOrDefault("Registration_UseEmailAsUserName", this.UseEmailAsUserName);
-            this.UseProfanityFilter = settings.GetValueOrDefault("Registration_UseProfanityFilter", this.UseProfanityFilter);
-            this.RequireValidProfile = settings.GetValueOrDefault("Security_RequireValidProfile", this.RequireValidProfile);
-            this.RequireValidProfileAtLogin = settings.GetValueOrDefault("Security_RequireValidProfileAtLogin", this.RequireValidProfileAtLogin);
-            this.UseCaptcha = settings.GetValueOrDefault("Security_CaptchaRegister", this.UseCaptcha);
-            this.UserNameValidator = settings.GetValueOrDefault("Security_UserNameValidation", this.UserNameValidator);
-            this.DisplayNameFormat = settings.GetValueOrDefault("Security_DisplayNameFormat", this.DisplayNameFormat);
-            this.EmailValidator = settings.GetValueOrDefault("Security_EmailValidation", this.EmailValidator);
+            // use the DNN (IDictionary) GetValueOrDefault overload, which converts the setting values
+            IDictionary settingsDictionary = settings;
+            this.RandomPassword = settingsDictionary.GetValueOrDefault("Registration_RandomPassword", this.RandomPassword);
+            this.RedirectAfterRegistration = settingsDictionary.GetValueOrDefault("Redirect_AfterRegistration", this.RedirectAfterRegistration);
+            this.RedirectAfterLogout = settingsDictionary.GetValueOrDefault("Redirect_AfterLogout", this.RedirectAfterLogout);
+            this.RedirectAfterLogin = settingsDictionary.GetValueOrDefault("Redirect_AfterLogin", this.RedirectAfterLogin);
+            this.RegistrationFields = settingsDictionary.GetValueOrDefault("Registration_RegistrationFields", this.RegistrationFields);
+            this.ExcludeTerms = settingsDictionary.GetValueOrDefault("Registration_ExcludeTerms", this.ExcludeTerms);
+            this.RegistrationFormType = settingsDictionary.GetValueOrDefault("Registration_RegistrationFormType", this.RegistrationFormType);
+            this.RequirePasswordConfirm = settingsDictionary.GetValueOrDefault("Registration_RequireConfirmPassword", this.RequirePasswordConfirm);
+            this.RequireUniqueDisplayName = settingsDictionary.GetValueOrDefault("Registration_RequireUniqueDisplayName", this.RequireUniqueDisplayName);
+            this.UseAuthProviders = settingsDictionary.GetValueOrDefault("Registration_UseAuthProviders", this.UseAuthProviders);
+            this.UseEmailAsUserName = settingsDictionary.GetValueOrDefault("Registration_UseEmailAsUserName", this.UseEmailAsUserName);
+            this.UseProfanityFilter = settingsDictionary.GetValueOrDefault("Registration_UseProfanityFilter", this.UseProfanityFilter);
+            this.RequireValidProfile = settingsDictionary.GetValueOrDefault("Security_RequireValidProfile", this.RequireValidProfile);
+            this.RequireValidProfileAtLogin = settingsDictionary.GetValueOrDefault("Security_RequireValidProfileAtLogin", this.RequireValidProfileAtLogin);
+            this.UseCaptcha = settingsDictionary.GetValueOrDefault("Security_CaptchaRegister", this.UseCaptcha);
+            this.UserNameValidator = settingsDictionary.GetValueOrDefault("Security_UserNameValidation", this.UserNameValidator);
+            this.DisplayNameFormat = settingsDictionary.GetValueOrDefault("Security_DisplayNameFormat", this.DisplayNameFormat);
+            this.EmailValidator = settingsDictionary.GetValueOrDefault("Security_EmailValidation", this.EmailValidator);
 
             this.ExcludeTermsRegex = "^(?:(?!" + this.ExcludeTerms.Replace(" ", string.Empty).Replace(",", "|") + ").)*$\\r?\\n?";
         }

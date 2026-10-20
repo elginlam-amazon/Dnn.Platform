@@ -16,8 +16,8 @@ namespace DotNetNuke.Web.Api
         /// <returns>True when authorization is successful.</returns>
         public override bool IsAuthorized(AuthFilterContext context)
         {
-            var principal = Thread.CurrentPrincipal;
-            if (!principal.Identity.IsAuthenticated)
+            var principal = (System.Security.Principal.IPrincipal)context?.ActionContext.HttpContext.User ?? Thread.CurrentPrincipal;
+            if (principal?.Identity?.IsAuthenticated != true)
             {
                 return false;
             }

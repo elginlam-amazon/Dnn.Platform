@@ -217,7 +217,7 @@ namespace DotNetNuke.Tests.Core.Entities.Modules.Settings
 
             this.MockTabModuleSettings(moduleInfo, new Hashtable());
             this.MockModuleController.Setup(mc => mc.UpdateTabModuleSetting(TabModuleId, SettingNamePrefix + "StringProperty", stringValue));
-            this.MockModuleController.Setup(mc => mc.UpdateTabModuleSetting(TabModuleId, SettingNamePrefix + "IntegerProperty", integerValue.ToString()));
+            this.MockModuleController.Setup(mc => mc.UpdateTabModuleSetting(TabModuleId, SettingNamePrefix + "IntegerProperty", integerValue.ToString(CultureInfo.InvariantCulture)));
             this.MockModuleController.Setup(mc => mc.UpdateTabModuleSetting(TabModuleId, SettingNamePrefix + "DoubleProperty", doubleValue.ToString(CultureInfo.InvariantCulture)));
             this.MockModuleController.Setup(mc => mc.UpdateTabModuleSetting(TabModuleId, SettingNamePrefix + "BooleanProperty", booleanValue.ToString()));
             this.MockModuleController.Setup(mc => mc.UpdateTabModuleSetting(TabModuleId, SettingNamePrefix + "DateTimeProperty", datetimeValue.ToString("o", CultureInfo.InvariantCulture)));
@@ -241,7 +241,7 @@ namespace DotNetNuke.Tests.Core.Entities.Modules.Settings
             var tabModuleSettings = new Hashtable
                                     {
                                         { SettingNamePrefix + "StringProperty", stringValue },
-                                        { SettingNamePrefix + "IntegerProperty", integerValue.ToString() },
+                                        { SettingNamePrefix + "IntegerProperty", integerValue.ToString(CultureInfo.InvariantCulture) },
                                         { SettingNamePrefix + "DoubleProperty", doubleValue.ToString(CultureInfo.InvariantCulture) },
                                         { SettingNamePrefix + "BooleanProperty", booleanValue.ToString() },
                                         { SettingNamePrefix + "DateTimeProperty", datetimeValue.ToString("o", CultureInfo.InvariantCulture) },

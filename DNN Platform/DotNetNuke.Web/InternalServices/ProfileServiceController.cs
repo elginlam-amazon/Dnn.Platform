@@ -9,7 +9,6 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Logging;
@@ -23,7 +22,10 @@ using DotNetNuke.Services.Localization;
 using DotNetNuke.Services.Registration;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for a user's profile.</summary>
 /// <param name="portalController">The portal controller.</param>
@@ -144,9 +146,9 @@ public class ProfileServiceController(IPortalController portalController, IAppli
     [HttpGet]
     public HttpResponseMessage ProfilePropertyValues()
     {
-        string searchString = HttpContext.Current.Request.Params["SearchString"].NormalizeString();
-        string propertyName = HttpContext.Current.Request.Params["PropName"].NormalizeString();
-        int portalId = int.Parse(HttpContext.Current.Request.Params["PortalId"], CultureInfo.InvariantCulture);
+        string searchString = System.Web.HttpContext.Current.Request.Params["SearchString"].NormalizeString();
+        string propertyName = System.Web.HttpContext.Current.Request.Params["PropName"].NormalizeString();
+        int portalId = int.Parse(System.Web.HttpContext.Current.Request.Params["PortalId"], CultureInfo.InvariantCulture);
         return this.Request.CreateResponse(HttpStatusCode.OK, Entities.Profile.ProfileController.SearchProfilePropertyValues(this.listController, this.hostSettings, this.portalController, this.appStatus, this.portalGroupController, portalId, propertyName, searchString));
     }
 

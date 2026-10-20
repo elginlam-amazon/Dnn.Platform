@@ -52,19 +52,11 @@ namespace DotNetNuke.Maintenance.Telerik
         /// <inheritdoc />
         public IEnumerable<string> GetAssembliesThatDependOnTelerik()
         {
-            // use a temp AppDomain to avoid locking files in the bin folder
-            var domain = AppDomain.CreateDomain(nameof(TelerikUtils));
-            try
-            {
-                return DirectoryGetFiles(this.BinPath, "*.dll", SearchOption.AllDirectories)
-                    .Where(IsNotWellKnownAssembly)
-                    .Where(path => this.AssemblyDependsOnTelerik(path, domain))
-                    .ToList();
-            }
-            finally
-            {
-                AppDomain.Unload(domain);
-            }
+            // read assemblies as raw bytes to avoid locking files in the bin folder
+            return DirectoryGetFiles(this.BinPath, "*.dll", SearchOption.AllDirectories)
+                .Where(IsNotWellKnownAssembly)
+                .Where(this.AssemblyDependsOnTelerik)
+                .ToList();
         }
 
         /// <inheritdoc />
@@ -76,19 +68,14 @@ namespace DotNetNuke.Maintenance.Telerik
         /// <inheritdoc />
         public Version GetTelerikVersion()
         {
-            var domain = AppDomain.CreateDomain(nameof(TelerikUtils));
             try
             {
                 var path = Path.Combine(this.BinPath, TelerikWebUIFileName);
-                return domain.Load(File.ReadAllBytes(path)).GetName().Version;
+                return System.Reflection.Assembly.Load(File.ReadAllBytes(path)).GetName().Version;
             }
             catch (Exception ex)
             {
                 throw new IOException("Could not get Telerik version number.", ex);
-            }
-            finally
-            {
-                AppDomain.Unload(domain);
             }
         }
 
@@ -103,11 +90,11 @@ namespace DotNetNuke.Maintenance.Telerik
 
         private static bool FileExists(string path) => File.Exists(path);
 
-        private static IEnumerable<string> GetReferencedAssemblyNames(string assemblyFilePath, AppDomain domain)
+        private static IEnumerable<string> GetReferencedAssemblyNames(string assemblyFilePath)
         {
             try
             {
-                return domain.Load(File.ReadAllBytes(assemblyFilePath))
+                return System.Reflection.Assembly.Load(File.ReadAllBytes(assemblyFilePath))
                     .GetReferencedAssemblies()
                     .Select(assembly => assembly.FullName);
             }
@@ -124,11 +111,11 @@ namespace DotNetNuke.Maintenance.Telerik
                 !Vendors.Any(vendor => fileName.StartsWith($"{vendor}.", StringComparison.OrdinalIgnoreCase));
         }
 
-        private bool AssemblyDependsOnTelerik(string path, AppDomain domain)
+        private bool AssemblyDependsOnTelerik(string path)
         {
             try
             {
-                return GetReferencedAssemblyNames(path, domain)
+                return GetReferencedAssemblyNames(path)
                     .Any(assemblyName => assemblyName.StartsWith("Telerik", StringComparison.OrdinalIgnoreCase));
             }
             catch (Exception ex)

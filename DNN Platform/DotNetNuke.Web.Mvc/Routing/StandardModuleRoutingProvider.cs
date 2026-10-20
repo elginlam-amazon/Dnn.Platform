@@ -1,44 +1,45 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Web.Mvc.Routing
 {
-    using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
-    using System.Web.Routing;
 
     using DotNetNuke.Abstractions;
-    using DotNetNuke.Collections;
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.UI.Modules;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.DependencyInjection;
 
+    /// <summary>The standard DNN module routing provider.</summary>
     public class StandardModuleRoutingProvider : ModuleRoutingProvider
     {
         private const string ExcludedQueryStringParams = "tabid,mid,ctl,language,popup,action,controller";
         private const string ExcludedRouteValues = "mid,ctl,popup";
 
+        /// <summary>Initializes a new instance of the <see cref="StandardModuleRoutingProvider"/> class.</summary>
         public StandardModuleRoutingProvider()
         {
             this.NavigationManager = Globals.GetCurrentServiceProvider().GetRequiredService<INavigationManager>();
         }
 
+        /// <summary>Gets the navigation manager.</summary>
         protected INavigationManager NavigationManager { get; }
 
         /// <inheritdoc />
         public override string GenerateUrl(RouteValueDictionary routeValues, ModuleInstanceContext moduleContext)
         {
-            // Look for a module control
             string controlKey = routeValues.ContainsKey("ctl") ? (string)routeValues["ctl"] : string.Empty;
 
-            List<string> additionalParams = (from routeValue in routeValues
-                                             where !ExcludedRouteValues.Split(',').ToList().Contains(routeValue.Key.ToLowerInvariant())
-                                             select routeValue.Key + "=" + routeValue.Value)
-                                             .ToList();
+            var additionalParams = (from routeValue in routeValues
+                                    where !ExcludedRouteValues.Split(',').ToList().Contains(routeValue.Key.ToLowerInvariant())
+                                    select routeValue.Key + "=" + routeValue.Value)
+                                    .ToList();
 
             string url;
             if (string.IsNullOrEmpty(controlKey))
@@ -55,7 +56,7 @@ namespace DotNetNuke.Web.Mvc.Routing
         }
 
         /// <inheritdoc />
-        public override RouteData GetRouteData(HttpContextBase httpContext, ModuleControlInfo moduleControl)
+        public override RouteData GetRouteData(HttpContext httpContext, ModuleControlInfo moduleControl)
         {
             var segments = moduleControl.ControlSrc.Replace(".mvc", string.Empty).Split('/');
             string routeNamespace = string.Empty;
@@ -79,30 +80,41 @@ namespace DotNetNuke.Web.Mvc.Routing
                 routeActionName = segments[1];
             }
 
-            var actionName = (httpContext == null) ? routeActionName : httpContext.Request.QueryString.GetValueOrDefault("action", routeActionName);
-            var controllerName = (httpContext == null) ? routeControllerName : httpContext.Request.QueryString.GetValueOrDefault("controller", routeControllerName);
+            var query = httpContext?.Request.Query;
+            var actionName = GetQueryValue(query, "action", routeActionName);
+            var controllerName = GetQueryValue(query, "controller", routeControllerName);
 
             var routeData = new RouteData();
             routeData.Values.Add("controller", controllerName);
             routeData.Values.Add("action", actionName);
 
-            if (httpContext != null)
+            if (query != null)
             {
-                foreach (var param in httpContext.Request.QueryString.AllKeys)
+                foreach (var param in query.Keys)
                 {
                     if (!ExcludedQueryStringParams.Split(',').ToList().Contains(param.ToLowerInvariant()))
                     {
-                        routeData.Values.Add(param, httpContext.Request.QueryString[param]);
+                        routeData.Values.Add(param, query[param].ToString());
                     }
                 }
             }
 
             if (!string.IsNullOrEmpty(routeNamespace))
             {
-                routeData.DataTokens.Add("namespaces", new string[] { routeNamespace });
+                routeData.DataTokens.Add("namespaces", new[] { routeNamespace });
             }
 
             return routeData;
+        }
+
+        private static string GetQueryValue(IQueryCollection query, string key, string fallback)
+        {
+            if (query != null && query.TryGetValue(key, out var value) && !string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            return fallback;
         }
     }
 }

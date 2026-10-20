@@ -9,7 +9,6 @@ namespace Dnn.PersonaBar.UI.Services
     using System.IO;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -18,7 +17,9 @@ namespace Dnn.PersonaBar.UI.Services
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     /// <summary>A Persona Bar API controller for pages.</summary>

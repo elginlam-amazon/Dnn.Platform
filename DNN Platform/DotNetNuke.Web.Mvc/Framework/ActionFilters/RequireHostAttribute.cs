@@ -1,40 +1,42 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 {
     using System;
     using System.Threading;
-    using System.Web;
-    using System.Web.Mvc;
 
     using DotNetNuke.Entities.Users;
-    using DotNetNuke.Web.Mvc.Framework.Controllers;
+    using DotNetNuke.Web.Mvc.Framework.Modules;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc.Filters;
+
+    /// <summary>Restricts access to an MVC module action to super users (hosts).</summary>
     public class RequireHostAttribute : AuthorizeAttributeBase
     {
         private UserInfo user;
 
         /// <inheritdoc />
-        public override void OnAuthorization(AuthorizationContext filterContext)
+        public override void OnAuthorization(AuthorizationFilterContext filterContext)
         {
-            var controller = filterContext.Controller as IDnnController;
-
-            if (controller == null)
+            if (filterContext.HttpContext.Items.TryGetValue(typeof(DnnModuleState), out var stateObj) && stateObj is DnnModuleState state)
             {
-                throw new InvalidOperationException("This attribute can only be applied to Controllers that implement IDnnController");
+                this.user = state.ModuleContext?.PortalSettings?.UserInfo;
             }
-
-            this.user = controller.ModuleContext.PortalSettings.UserInfo;
+            else
+            {
+                throw new InvalidOperationException("This attribute can only be applied to MVC module Controllers.");
+            }
 
             base.OnAuthorization(filterContext);
         }
 
         /// <inheritdoc />
-        protected override bool AuthorizeCore(HttpContextBase httpContext)
+        protected override bool AuthorizeCore(HttpContext httpContext)
         {
             var principal = Thread.CurrentPrincipal;
-            if (!principal.Identity.IsAuthenticated)
+            if (principal?.Identity?.IsAuthenticated != true)
             {
                 return false;
             }

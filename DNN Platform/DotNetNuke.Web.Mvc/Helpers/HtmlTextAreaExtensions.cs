@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -7,90 +7,164 @@ namespace DotNetNuke.Web.Mvc.Helpers
     using System;
     using System.Collections.Generic;
     using System.Linq.Expressions;
-    using System.Web.Mvc;
-    using System.Web.Mvc.Html;
 
+    using Microsoft.AspNetCore.Html;
+    using Microsoft.AspNetCore.Mvc.Rendering;
+
+    /// <summary>Renders textarea elements.</summary>
     public static class HtmlTextAreaExtensions
     {
         private const int TextAreaRows = 2;
         private const int TextAreaColumns = 20;
 
-        public static MvcHtmlString TextArea(this DnnHtmlHelper html, string name)
+        /// <summary>Renders a textarea for the given name.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="name">The name.</param>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextArea(this DnnHtmlHelper html, string name)
         {
-            var htmlHelper = html.HtmlHelper;
-            return htmlHelper.TextArea(name);
+            return html.HtmlHelper.TextArea(name);
         }
 
-        public static MvcHtmlString TextArea(this DnnHtmlHelper html, string name, object htmlAttributes)
+        /// <summary>Renders a textarea for the given name with HTML attributes.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="name">The name.</param>
+        /// <param name="htmlAttributes">The HTML attributes.</param>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextArea(this DnnHtmlHelper html, string name, object htmlAttributes)
         {
-            var htmlHelper = html.HtmlHelper;
-            return htmlHelper.TextArea(name, htmlAttributes);
+            return html.HtmlHelper.TextArea(name, null, htmlAttributes);
         }
 
-        public static MvcHtmlString TextArea(this DnnHtmlHelper html, string name, IDictionary<string, object> htmlAttributes)
+        /// <summary>Renders a textarea for the given name with HTML attributes.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="name">The name.</param>
+        /// <param name="htmlAttributes">The HTML attributes.</param>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextArea(this DnnHtmlHelper html, string name, IDictionary<string, object> htmlAttributes)
         {
-            var htmlHelper = html.HtmlHelper;
-            return htmlHelper.TextArea(name, htmlAttributes);
+            return html.HtmlHelper.TextArea(name, null, htmlAttributes);
         }
 
-        public static MvcHtmlString TextArea(this DnnHtmlHelper html, string name, string value)
+        /// <summary>Renders a textarea for the given name and value.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="name">The name.</param>
+        /// <param name="value">The value.</param>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextArea(this DnnHtmlHelper html, string name, string value)
         {
-            var htmlHelper = html.HtmlHelper;
-            return htmlHelper.TextArea(name, value);
+            return html.HtmlHelper.TextArea(name, value, null);
         }
 
-        public static MvcHtmlString TextArea(this DnnHtmlHelper html, string name, string value, object htmlAttributes)
+        /// <summary>Renders a textarea for the given name and value with HTML attributes.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="name">The name.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="htmlAttributes">The HTML attributes.</param>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextArea(this DnnHtmlHelper html, string name, string value, object htmlAttributes)
         {
-            var htmlHelper = html.HtmlHelper;
-            return htmlHelper.TextArea(name, value, htmlAttributes);
+            return html.HtmlHelper.TextArea(name, value, htmlAttributes);
         }
 
-        public static MvcHtmlString TextArea(this DnnHtmlHelper html, string name, string value, IDictionary<string, object> htmlAttributes)
+        /// <summary>Renders a textarea for the given name and value with HTML attributes.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="name">The name.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="htmlAttributes">The HTML attributes.</param>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextArea(this DnnHtmlHelper html, string name, string value, IDictionary<string, object> htmlAttributes)
         {
-            var htmlHelper = html.HtmlHelper;
-            return htmlHelper.TextArea(name, value, htmlAttributes);
+            return html.HtmlHelper.TextArea(name, value, htmlAttributes);
         }
 
-        public static MvcHtmlString TextArea(this DnnHtmlHelper html, string name, string value, int rows, int columns, object htmlAttributes)
+        /// <summary>Renders a textarea with the given rows, columns, and HTML attributes.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="name">The name.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="rows">The number of rows.</param>
+        /// <param name="columns">The number of columns.</param>
+        /// <param name="htmlAttributes">The HTML attributes.</param>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextArea(this DnnHtmlHelper html, string name, string value, int rows, int columns, object htmlAttributes)
         {
-            var htmlHelper = html.HtmlHelper;
-            return htmlHelper.TextArea(name, value, rows, columns, htmlAttributes);
+            return html.HtmlHelper.TextArea(name, value, rows, columns, htmlAttributes);
         }
 
-        public static MvcHtmlString TextArea(this DnnHtmlHelper html, string name, string value, int rows, int columns, IDictionary<string, object> htmlAttributes)
+        /// <summary>Renders a textarea with the given rows, columns, and HTML attributes.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="name">The name.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="rows">The number of rows.</param>
+        /// <param name="columns">The number of columns.</param>
+        /// <param name="htmlAttributes">The HTML attributes.</param>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextArea(this DnnHtmlHelper html, string name, string value, int rows, int columns, IDictionary<string, object> htmlAttributes)
         {
-            var htmlHelper = html.HtmlHelper;
-            return htmlHelper.TextArea(name, value, rows, columns, htmlAttributes);
+            return html.HtmlHelper.TextArea(name, value, rows, columns, htmlAttributes);
         }
 
-        public static MvcHtmlString TextAreaFor<TModel, TProperty>(this DnnHtmlHelper<TModel> html, Expression<Func<TModel, TProperty>> expression)
+        /// <summary>Renders a textarea for the given model expression.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="expression">The model expression.</param>
+        /// <typeparam name="TModel">The model type.</typeparam>
+        /// <typeparam name="TProperty">The property type.</typeparam>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextAreaFor<TModel, TProperty>(this DnnHtmlHelper<TModel> html, Expression<Func<TModel, TProperty>> expression)
         {
-            var htmlHelper = html.HtmlHelper as HtmlHelper<TModel>;
-            return htmlHelper.TextAreaFor(expression, TextAreaRows, TextAreaColumns, null);
+            return html.HtmlHelper.TextAreaFor(expression, TextAreaRows, TextAreaColumns, null);
         }
 
-        public static MvcHtmlString TextAreaFor<TModel, TProperty>(this DnnHtmlHelper<TModel> html, Expression<Func<TModel, TProperty>> expression, object htmlAttributes)
+        /// <summary>Renders a textarea for the given model expression with HTML attributes.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="expression">The model expression.</param>
+        /// <param name="htmlAttributes">The HTML attributes.</param>
+        /// <typeparam name="TModel">The model type.</typeparam>
+        /// <typeparam name="TProperty">The property type.</typeparam>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextAreaFor<TModel, TProperty>(this DnnHtmlHelper<TModel> html, Expression<Func<TModel, TProperty>> expression, object htmlAttributes)
         {
-            var htmlHelper = html.HtmlHelper as HtmlHelper<TModel>;
-            return htmlHelper.TextAreaFor(expression, TextAreaRows, TextAreaColumns, htmlAttributes);
+            return html.HtmlHelper.TextAreaFor(expression, TextAreaRows, TextAreaColumns, htmlAttributes);
         }
 
-        public static MvcHtmlString TextAreaFor<TModel, TProperty>(this DnnHtmlHelper<TModel> html, Expression<Func<TModel, TProperty>> expression, IDictionary<string, object> htmlAttributes)
+        /// <summary>Renders a textarea for the given model expression with HTML attributes.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="expression">The model expression.</param>
+        /// <param name="htmlAttributes">The HTML attributes.</param>
+        /// <typeparam name="TModel">The model type.</typeparam>
+        /// <typeparam name="TProperty">The property type.</typeparam>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextAreaFor<TModel, TProperty>(this DnnHtmlHelper<TModel> html, Expression<Func<TModel, TProperty>> expression, IDictionary<string, object> htmlAttributes)
         {
-            var htmlHelper = html.HtmlHelper as HtmlHelper<TModel>;
-            return htmlHelper.TextAreaFor(expression, TextAreaRows, TextAreaColumns, htmlAttributes);
+            return html.HtmlHelper.TextAreaFor(expression, TextAreaRows, TextAreaColumns, htmlAttributes);
         }
 
-        public static MvcHtmlString TextAreaFor<TModel, TProperty>(this DnnHtmlHelper<TModel> html, Expression<Func<TModel, TProperty>> expression, int rows, int columns, object htmlAttributes)
+        /// <summary>Renders a textarea for the given model expression with rows, columns, and HTML attributes.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="expression">The model expression.</param>
+        /// <param name="rows">The number of rows.</param>
+        /// <param name="columns">The number of columns.</param>
+        /// <param name="htmlAttributes">The HTML attributes.</param>
+        /// <typeparam name="TModel">The model type.</typeparam>
+        /// <typeparam name="TProperty">The property type.</typeparam>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextAreaFor<TModel, TProperty>(this DnnHtmlHelper<TModel> html, Expression<Func<TModel, TProperty>> expression, int rows, int columns, object htmlAttributes)
         {
-            var htmlHelper = html.HtmlHelper as HtmlHelper<TModel>;
-            return htmlHelper.TextAreaFor(expression, rows, columns, htmlAttributes);
+            return html.HtmlHelper.TextAreaFor(expression, rows, columns, htmlAttributes);
         }
 
-        public static MvcHtmlString TextAreaFor<TModel, TProperty>(this DnnHtmlHelper<TModel> html, Expression<Func<TModel, TProperty>> expression, int rows, int columns, IDictionary<string, object> htmlAttributes)
+        /// <summary>Renders a textarea for the given model expression with rows, columns, and HTML attributes.</summary>
+        /// <param name="html">The HTML helper.</param>
+        /// <param name="expression">The model expression.</param>
+        /// <param name="rows">The number of rows.</param>
+        /// <param name="columns">The number of columns.</param>
+        /// <param name="htmlAttributes">The HTML attributes.</param>
+        /// <typeparam name="TModel">The model type.</typeparam>
+        /// <typeparam name="TProperty">The property type.</typeparam>
+        /// <returns>The textarea HTML.</returns>
+        public static IHtmlContent TextAreaFor<TModel, TProperty>(this DnnHtmlHelper<TModel> html, Expression<Func<TModel, TProperty>> expression, int rows, int columns, IDictionary<string, object> htmlAttributes)
         {
-            var htmlHelper = html.HtmlHelper as HtmlHelper<TModel>;
-            return htmlHelper.TextAreaFor(expression, rows, columns, htmlAttributes);
+            return html.HtmlHelper.TextAreaFor(expression, rows, columns, htmlAttributes);
         }
     }
 }

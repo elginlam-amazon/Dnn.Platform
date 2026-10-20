@@ -1,8 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AssemblyName>Dnn.ContactList.Mvc</AssemblyName>
-    <TargetFramework>net48</TargetFramework>
-    <OutputPath>bin\</OutputPath>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <PackageId>Dnn.ContactList.Mvc</PackageId>
@@ -15,15 +15,21 @@
     <ProduceReferenceAssembly>False</ProduceReferenceAssembly>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
     <BaseOutputPath>.\bin</BaseOutputPath>
-    <AssetTargetFallback>netstandard2.0</AssetTargetFallback>
+    <!-- The .cshtml views are deployed as content under DesktopModules/MVC/... and compiled at
+         runtime by the Website; they must not be precompiled into this assembly, so this module
+         uses the plain Microsoft.NET.Sdk (not Sdk.Razor/Sdk.Web) and keeps the views as content. -->
+    <EnableDefaultContentItems>false</EnableDefaultContentItems>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNet.Mvc" />
-    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
   <ItemGroup>
@@ -31,16 +37,13 @@
     <ProjectReference Include="..\Dnn.ContactList.Api\Dnn.ContactList.Api.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Web" />
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Properties\" />
-  </ItemGroup>
-  <ItemGroup>
+    <AdditionalFiles Include="..\..\..\..\stylecop.json" Link="stylecop.json" />
     <Compile Include="..\..\..\..\SolutionInfo.cs">
       <Link>SolutionInfo.cs</Link>
     </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Views\**\*.cshtml" />
   </ItemGroup>
   <Import Project="Module.build" />
 </Project>

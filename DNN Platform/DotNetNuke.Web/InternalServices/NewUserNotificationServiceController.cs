@@ -7,7 +7,6 @@ namespace DotNetNuke.Web.InternalServices;
 using System;
 using System.Net;
 using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Logging;
@@ -23,7 +22,10 @@ using DotNetNuke.Services.Mail;
 using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+
+using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for new user notifications.</summary>
 /// <param name="roleProvider">The role provider.</param>

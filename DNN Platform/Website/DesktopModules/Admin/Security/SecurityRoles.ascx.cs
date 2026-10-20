@@ -39,7 +39,7 @@ namespace DotNetNuke.Modules.Admin.Security
     /// <summary>The SecurityRoles PortalModuleBase is used to manage the users and roles they have.</summary>
     public partial class SecurityRoles : PortalModuleBase, IActionable
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<SecurityRoles>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<SecurityRoles>();
         private readonly INavigationManager navigationManager;
         private readonly RoleProvider roleProvider;
         private readonly IRoleController roleController;

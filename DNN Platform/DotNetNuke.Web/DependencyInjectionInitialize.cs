@@ -19,8 +19,27 @@ namespace DotNetNuke.Web
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger(typeof(DependencyInjectionInitialize));
 
+        /// <summary>Gets or sets the service provider of the ASP.NET Core host (when the DNN services were registered in the host container with <see cref="AddDnnServices"/>).</summary>
+        public static IServiceProvider HostServiceProvider { get; set; }
+
         /// <summary>Gets the service collection (for logging/diagnostics).</summary>
         internal static IServiceCollection ServiceCollection { get; private set; }
+
+        /// <summary>Registers the DNN services (all <see cref="IDnnStartup"/> implementations) in the service collection of the ASP.NET Core host.</summary>
+        /// <param name="services">The service collection of the host.</param>
+        /// <returns>The <paramref name="services"/> instance.</returns>
+        public static IServiceCollection AddDnnServices(this IServiceCollection services)
+        {
+            if (services == null)
+            {
+                throw new ArgumentNullException(nameof(services));
+            }
+
+            services.AddSingleton<IScopeAccessor, ScopeAccessor>();
+            ConfigureAllStartupServices(services);
+            ServiceCollection = services;
+            return services;
+        }
 
         /// <summary>Builds the service provider.</summary>
         /// <returns>An <see cref="IServiceProvider"/> instance.</returns>

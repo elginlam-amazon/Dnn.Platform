@@ -89,10 +89,9 @@ public class Crypto
         var saltBytes = GenerateRandomEntropy(SaltSize);
         var ivBytes = GenerateRandomEntropy(IvSize);
 
-        using var password = new Rfc2898DeriveBytes(passPhrase, saltBytes, DerivationIterations);
-        var keyBytes = password.GetBytes(KeySize / 8);
+        var keyBytes = DeriveKey(passPhrase, saltBytes);
 
-        using var symmetricKey = new AesManaged();
+        using var symmetricKey = Aes.Create();
         symmetricKey.BlockSize = BlockSize;
         symmetricKey.Mode = CipherMode.CBC;
         symmetricKey.Padding = PaddingMode.PKCS7;
@@ -181,30 +180,39 @@ public class Crypto
             .Take(encryptedBytesWithSaltAndIv.Length - ((SaltSize / 8) + (IvSize / 8)))
             .ToArray();
 
-        // Prepare store for decrypted string and bytes read.
-        byte[] plainTextBytes;
-        int decryptedByteCount;
+        var keyBytes = DeriveKey(passPhrase, saltBytes);
 
-        using (var password = new Rfc2898DeriveBytes(passPhrase, saltBytes, DerivationIterations))
+        using var symmetricKey = Aes.Create();
+        symmetricKey.BlockSize = BlockSize;
+        symmetricKey.Mode = CipherMode.CBC;
+        symmetricKey.Padding = PaddingMode.PKCS7;
+
+        using var decryptor = symmetricKey.CreateDecryptor(keyBytes, ivBytes);
+        using var memoryStream = new MemoryStream(encryptedBytes);
+        using var cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read);
+        var plainTextBytes = new byte[encryptedBytes.Length];
+
+        // Since .NET 6 CryptoStream.Read can return fewer bytes than requested, so read until the end of the stream.
+        var decryptedByteCount = 0;
+        int bytesRead;
+        while (decryptedByteCount < plainTextBytes.Length
+               && (bytesRead = cryptoStream.Read(plainTextBytes, decryptedByteCount, plainTextBytes.Length - decryptedByteCount)) > 0)
         {
-            var keyBytes = password.GetBytes(KeySize / 8);
-
-            using var symmetricKey = new AesManaged();
-            symmetricKey.BlockSize = BlockSize;
-            symmetricKey.Mode = CipherMode.CBC;
-            symmetricKey.Padding = PaddingMode.PKCS7;
-
-            using var decryptor = symmetricKey.CreateDecryptor(keyBytes, ivBytes);
-            using var memoryStream = new MemoryStream(encryptedBytes);
-            using var cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read);
-            var decryptedBytes = new byte[encryptedBytes.Length];
-            var bytesDecrypted = cryptoStream.Read(decryptedBytes, 0, decryptedBytes.Length);
-
-            plainTextBytes = decryptedBytes;
-            decryptedByteCount = bytesDecrypted;
+            decryptedByteCount += bytesRead;
         }
 
         return plainTextBytes.Take(decryptedByteCount).ToArray();
+    }
+
+    /// <summary>Derives the AES key from the pass phrase (PBKDF2 with HMAC-SHA1, the algorithm used by the original <see cref="Rfc2898DeriveBytes"/> constructor).</summary>
+    private static byte[] DeriveKey(string passPhrase, byte[] saltBytes)
+    {
+#if NET
+        return Rfc2898DeriveBytes.Pbkdf2(passPhrase, saltBytes, DerivationIterations, HashAlgorithmName.SHA1, KeySize / 8);
+#else
+        using var password = new Rfc2898DeriveBytes(passPhrase, saltBytes, DerivationIterations);
+        return password.GetBytes(KeySize / 8);
+#endif
     }
 
     private static byte[] GenerateRandomEntropy(int bitCount)

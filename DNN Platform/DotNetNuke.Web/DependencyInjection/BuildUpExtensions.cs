@@ -7,12 +7,12 @@ namespace DotNetNuke.DependencyInjection.Extensions
     using System.Collections.Generic;
     using System.Linq;
     using System.Reflection;
-    using System.Web.Http.Filters;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Web;
 
+    using Microsoft.AspNetCore.Mvc.Filters;
     using Microsoft.Extensions.Logging;
 
     /// <summary>Adds property injection extension methods.</summary>
@@ -22,8 +22,8 @@ namespace DotNetNuke.DependencyInjection.Extensions
 
         /// <summary>Injects property dependency for properties that are decorated with <see cref="DependencyAttribute"/>.</summary>
         /// <param name="container">The service provider.</param>
-        /// <param name="filter">The <see cref="IFilter"/> to inject properties.</param>
-        internal static void BuildUp(this IServiceProvider container, IFilter filter)
+        /// <param name="filter">The <see cref="IFilterMetadata"/> to inject properties.</param>
+        internal static void BuildUp(this IServiceProvider container, IFilterMetadata filter)
         {
             if (container == null || filter == null)
             {

@@ -1079,10 +1079,12 @@ namespace DotNetNuke.Tests.Core.Providers.Folder
         [Test]
         public void UpdateFile_Sets_With_And_Height_When_File_Is_Image()
         {
+#pragma warning disable CA1416 // System.Drawing.Bitmap/Image are Windows-only; this test exercises image sizing behavior
             var image = new Bitmap(10, 20);
 
             this.mockFileManager.Setup(mfm => mfm.IsImageFile(this.fileInfo.Object)).Returns(true);
             this.mockFileManager.Setup(mfm => mfm.GetImageFromStream(It.IsAny<Stream>())).Returns(image);
+#pragma warning restore CA1416
             this.mockFileManager.Setup(mfm => mfm.GetHash(this.fileInfo.Object));
 
             var bytes = new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };

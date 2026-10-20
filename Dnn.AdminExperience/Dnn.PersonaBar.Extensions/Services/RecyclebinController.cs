@@ -12,17 +12,21 @@ namespace Dnn.PersonaBar.Recyclebin.Services
     using System.Net;
     using System.Net.Http;
     using System.Text;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Recyclebin.Components;
     using Dnn.PersonaBar.Recyclebin.Components.Dto;
+
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Mvc;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = Components.Constants.MenuName)]
     public class RecyclebinController : PersonaBarApiController

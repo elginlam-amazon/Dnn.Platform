@@ -261,15 +261,15 @@ public class ExchangeOnlineOAuthProvider : ISmtpOAuthProvider
             throw new ArgumentException("Invalid portal Id.");
         }
 
-        var tenantId = portalSettings.GetValueOrDefault(Constants.TenantIdSettingName, string.Empty);
-        var clientId = portalSettings.GetValueOrDefault(Constants.ClientIdSettingName, string.Empty);
-        var clientSecret = portalSettings.GetValueOrDefault(Constants.ClientSecretSettingName, string.Empty);
+        var tenantId = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(portalSettings, Constants.TenantIdSettingName, string.Empty);
+        var clientId = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(portalSettings, Constants.ClientIdSettingName, string.Empty);
+        var clientSecret = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(portalSettings, Constants.ClientSecretSettingName, string.Empty);
         if (!string.IsNullOrWhiteSpace(clientSecret))
         {
-            var algorithmName = portalSettings.GetValueOrDefault(Constants.ClientSecretEncryptionAlgorithm, string.Empty);
+            var algorithmName = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(portalSettings, Constants.ClientSecretEncryptionAlgorithm, string.Empty);
             if (!string.IsNullOrWhiteSpace(algorithmName))
             {
-                var initializationVector = portalSettings.GetValueOrDefault(Constants.ClientSecretInitializationVector, string.Empty);
+                var initializationVector = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(portalSettings, Constants.ClientSecretInitializationVector, string.Empty);
                 clientSecret = this.cryptographyProvider.DecryptString(clientSecret, Config.GetDecryptionkey(), algorithmName, initializationVector);
             }
             else

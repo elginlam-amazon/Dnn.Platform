@@ -25,6 +25,13 @@ namespace DotNetNuke.Web.Api.Internal.Auth
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         public string AuthScheme => "Forms";
 
+        /// <summary>Processes the request (called by the services framework endpoints, after the other authentication message handlers).</summary>
+        /// <param name="request">The request message.</param>
+        internal void Process(HttpRequestMessage request)
+        {
+            this.ProcessRequest(request, CancellationToken.None);
+        }
+
         /// <inheritdoc />
         protected override HttpRequestMessage ProcessRequest(HttpRequestMessage request, CancellationToken cancellationToken)
         {

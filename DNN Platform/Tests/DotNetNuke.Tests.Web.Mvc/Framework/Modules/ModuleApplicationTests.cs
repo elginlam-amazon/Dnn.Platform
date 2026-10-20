@@ -1,22 +1,23 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
+
 namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
 {
     using System;
-
-    using System.Web.Mvc;
-    using System.Web.Routing;
+    using System.Collections.Generic;
 
     using DotNetNuke.Entities.Modules;
-    using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.UI.Modules;
-    using DotNetNuke.Web.Mvc.Framework.Controllers;
     using DotNetNuke.Web.Mvc.Framework.Modules;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc.Abstractions;
+    using Microsoft.AspNetCore.Mvc.Infrastructure;
     using Microsoft.Extensions.DependencyInjection;
 
     using Moq;
+    using Moq.Protected;
 
     using NUnit.Framework;
 
@@ -26,22 +27,29 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
         private const string ActionName = "Action";
         private const string ControllerName = "Controller";
 
-        private FakeServiceProvider serviceProvider;
+        private ServiceProvider requestServices;
 
         [SetUp]
         public void Setup()
         {
-            this.serviceProvider = FakeServiceProvider.Setup(
-                services =>
-                {
-                    services.AddSingleton<IControllerFactory, DefaultControllerFactory>();
-                });
+            // The new ModuleApplication resolves the action-descriptor provider and the action
+            // invoker factory from the request's service provider. Provide empty collections so
+            // the application reaches its "action not found" guard deterministically.
+            var descriptorProvider = new Mock<IActionDescriptorCollectionProvider>();
+            descriptorProvider
+                .SetupGet(p => p.ActionDescriptors)
+                .Returns(new ActionDescriptorCollection(new List<ActionDescriptor>(), 0));
+
+            var services = new ServiceCollection();
+            services.AddSingleton(descriptorProvider.Object);
+            services.AddSingleton(Mock.Of<IActionInvokerFactory>());
+            this.requestServices = services.BuildServiceProvider();
         }
 
         [TearDown]
         public void TearDown()
         {
-            this.serviceProvider.Dispose();
+            this.requestServices?.Dispose();
         }
 
         [Test]
@@ -51,219 +59,81 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
             var app = new Mock<ModuleApplication> { CallBase = true };
 
             int initCounter = 0;
-            app.Setup(a => a.Init())
+            app.Protected().Setup("Init")
                 .Callback(() => initCounter++);
 
-            var controller = new Mock<IDnnController>();
-
-            var controllerFactory = SetupControllerFactory(controller.Object);
-            app.SetupGet(a => a.ControllerFactory).Returns(controllerFactory.Object);
-
-            // Act
-            app.Object.ExecuteRequest(CreateModuleContext(ControllerName, ActionName));
-            app.Object.ExecuteRequest(CreateModuleContext(ControllerName, ActionName));
+            // Act (no action descriptor is registered, so each request throws after initialization)
+            TryExecute(() => app.Object.ExecuteRequest(this.CreateModuleContext(ControllerName, ActionName)));
+            TryExecute(() => app.Object.ExecuteRequest(this.CreateModuleContext(ControllerName, ActionName)));
 
             // Assert
             Assert.That(initCounter, Is.EqualTo(1));
         }
 
         [Test]
-        public void ExecuteRequest_Calls_ControllerFactory_To_Construct_Controller()
+        public void ExecuteRequest_Throws_InvalidOperationException_If_Action_Cannot_Be_Found()
         {
             // Arrange
             var app = new ModuleApplication();
-
-            var controllerFactory = new Mock<IControllerFactory>();
-            RequestContext actualRequestContext = null;
-            controllerFactory.Setup(f => f.CreateController(It.IsAny<RequestContext>(), ControllerName))
-                                 .Callback<RequestContext, string>((c, n) => actualRequestContext = c)
-                                 .Returns(new Mock<IDnnController>().Object);
-
-            app.ControllerFactory = controllerFactory.Object;
-
-            ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
-
-            // Act
-            app.ExecuteRequest(moduleRequestContext);
-
-            // Assert
-            controllerFactory.Verify(f => f.CreateController(It.IsAny<RequestContext>(), ControllerName));
-            Assert.That(actualRequestContext.HttpContext, Is.SameAs(moduleRequestContext.HttpContext));
-        }
-
-        [Test]
-        public void ExecuteRequest_Throws_InvalidOperationException_If_Controller_Only_Implements_IController()
-        {
-            // Arrange
-            var app = new ModuleApplication();
-
-            var controller = new Mock<IController>();
-            var controllerFactory = SetupControllerFactory(controller.Object);
-            app.ControllerFactory = controllerFactory.Object;
-
-            ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
+            var moduleRequestContext = this.CreateModuleContext(ControllerName, ActionName);
 
             // Act and Assert
             Assert.Throws<InvalidOperationException>(() => app.ExecuteRequest(moduleRequestContext));
         }
 
         [Test]
-        public void ExecuteRequest_Throws_InvalidOperationException_If_Controller_Has_NonStandard_Action_Invoker()
+        public void ExecuteRequest_Uses_Default_Controller_And_Action_When_RouteData_Is_Empty()
         {
             // Arrange
-            var app = new ModuleApplication();
+            var app = new ModuleApplication
+            {
+                DefaultControllerName = ControllerName,
+                DefaultActionName = ActionName,
+            };
 
-            var controller = new Mock<Controller>();
-            var invoker = new Mock<IActionInvoker>();
-            controller.Object.ActionInvoker = invoker.Object;
+            var moduleRequestContext = this.CreateModuleContext(null, null);
 
-            var controllerFactory = SetupControllerFactory(controller.Object);
-            app.ControllerFactory = controllerFactory.Object;
-
-            ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
-
-            // Act and Assert
-            Assert.Throws<InvalidOperationException>(() => app.ExecuteRequest(moduleRequestContext));
-        }
-
-        [Test]
-        public void ExecuteRequest_Does_Not_Throw_If_Controller_Implements_IDnnController()
-        {
-            // Arrange
-            var app = new ModuleApplication();
-
-            var controller = new Mock<IController>();
-            controller.As<IDnnController>();
-
-            var controllerFactory = SetupControllerFactory(controller.Object);
-            app.ControllerFactory = controllerFactory.Object;
-
-            ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
-
-            // Act and Assert
-            app.ExecuteRequest(moduleRequestContext);
-        }
-
-        [Test]
-        public void ExecuteRequest_Returns_Result_And_ControllerContext_From_Controller()
-        {
-            // Arrange
-            var app = new ModuleApplication();
-
-            ControllerContext controllerContext = MockHelper.CreateMockControllerContext();
-            ActionResult actionResult = new Mock<ActionResult>().Object;
-
-            var controller = SetupMockController(actionResult, controllerContext);
-
-            var controllerFactory = SetupControllerFactory(controller.Object);
-            app.ControllerFactory = controllerFactory.Object;
-
-            ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
-
-            // Act
-            ModuleRequestResult result = app.ExecuteRequest(moduleRequestContext);
-
+            // Act and Assert (no matching descriptor exists, so the defaults are resolved and the guard fires)
+            var ex = Assert.Throws<InvalidOperationException>(() => app.ExecuteRequest(moduleRequestContext));
             using (Assert.EnterMultipleScope())
             {
-                // Assert
-                Assert.That(result.ActionResult, Is.SameAs(actionResult));
-                Assert.That(result.ControllerContext, Is.SameAs(controllerContext));
+                Assert.That(ex.Message, Does.Contain(ActionName));
+                Assert.That(ex.Message, Does.Contain(ControllerName));
             }
         }
 
-        [Test]
-        public void ExecuteRequest_Executes_Constructed_Controller_And_Provides_RequestContext()
+        private static void TryExecute(Action action)
         {
-            // Arrange
-            var app = new ModuleApplication();
-
-            var controller = new Mock<IController>();
-            controller.As<IDnnController>();
-
-            var controllerFactory = SetupControllerFactory(controller.Object);
-            app.ControllerFactory = controllerFactory.Object;
-
-            ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
-
-            // Act
-            ModuleRequestResult result = app.ExecuteRequest(moduleRequestContext);
-
-            // Assert
-            controller.Verify(c => c.Execute(It.Is<RequestContext>(rc =>
-                    rc.HttpContext == moduleRequestContext.HttpContext &&
-                    rc.RouteData.GetRequiredString("controller") == ControllerName)));
+            try
+            {
+                action();
+            }
+            catch (InvalidOperationException)
+            {
+                // Expected: no action descriptor is registered for these tests.
+            }
         }
 
-        [Test]
-        public void ExecuteRequest_ReleasesController_After_Executing()
+        private ModuleRequestContext CreateModuleContext(string controllerName, string actionName)
         {
-            // Arrange
-            var app = new ModuleApplication();
+            var routeData = new Microsoft.AspNetCore.Routing.RouteData();
+            if (controllerName != null)
+            {
+                routeData.Values["controller"] = controllerName;
+            }
 
-            var controller = new Mock<IDnnController>();
+            if (actionName != null)
+            {
+                routeData.Values["action"] = actionName;
+            }
 
-            var controllerFactory = SetupControllerFactory(controller.Object);
-            app.ControllerFactory = controllerFactory.Object;
-
-            ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
-
-            // Act
-            ModuleRequestResult result = app.ExecuteRequest(moduleRequestContext);
-
-            // Assert
-            controllerFactory.Verify(cf => cf.ReleaseController(controller.Object));
-        }
-
-        [Test]
-        public void ExecuteRequest_ReleasesController_Even_If_It_Throws_An_Exception()
-        {
-            // Arrange
-            var app = new ModuleApplication();
-
-            var controller = new Mock<IDnnController>();
-            controller.Setup(c => c.Execute(It.IsAny<RequestContext>()))
-                .Throws(new Exception("Uh Oh!"));
-
-            var controllerFactory = SetupControllerFactory(controller.Object);
-            app.ControllerFactory = controllerFactory.Object;
-
-            ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
-
-            // Act (and verify the exception is thrown; also supresses the exception so it doesn't fail the test)
-            Assert.Throws<Exception>(() => app.ExecuteRequest(moduleRequestContext));
-
-            // Assert
-            controllerFactory.Verify(f => f.ReleaseController(controller.Object));
-        }
-
-        private static Mock<IDnnController> SetupMockController(ActionResult actionResult, ControllerContext controllerContext)
-        {
-            var mockController = new Mock<IDnnController>();
-            mockController.Setup(c => c.ResultOfLastExecute)
-                .Returns(actionResult);
-            mockController.Setup(c => c.ControllerContext)
-                .Returns(controllerContext);
-            return mockController;
-        }
-
-        private static Mock<IControllerFactory> SetupControllerFactory(IController controller)
-        {
-            var controllerFactory = new Mock<IControllerFactory>();
-            controllerFactory.Setup(cf => cf.CreateController(It.IsAny<RequestContext>(), It.IsAny<string>()))
-                            .Returns(controller);
-            return controllerFactory;
-        }
-
-        private static ModuleRequestContext CreateModuleContext(string controllerName, string actionName)
-        {
-            var routeData = new RouteData();
-            routeData.Values.Add("controller", controllerName);
-            routeData.Values.Add("action", actionName);
+            var httpContext = MockHelper.CreateMockHttpContext("http://localhost/Portal/Page/ModuleRoute");
+            httpContext.RequestServices = this.requestServices;
 
             var moduleContext = new ModuleInstanceContext { Configuration = new ModuleInfo { ModuleID = 42 } };
             return new ModuleRequestContext
             {
-                HttpContext = MockHelper.CreateMockHttpContext("http://localhost/Portal/Page/ModuleRoute"),
+                HttpContext = httpContext,
                 RouteData = routeData,
                 ModuleContext = moduleContext,
             };

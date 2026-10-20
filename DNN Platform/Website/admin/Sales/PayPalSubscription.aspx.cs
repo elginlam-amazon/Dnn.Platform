@@ -25,7 +25,7 @@ namespace DotNetNuke.Modules.Admin.Sales
     [DnnDeprecated(10, 0, 2, "No replacement")]
     public partial class PayPalSubscription : PageBase
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<PayPalSubscription>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<PayPalSubscription>();
 
         /// <summary>Initializes a new instance of the <see cref="PayPalSubscription"/> class.</summary>
         public PayPalSubscription()

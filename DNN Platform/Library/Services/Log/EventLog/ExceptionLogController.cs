@@ -4,7 +4,6 @@
 namespace DotNetNuke.Services.Log.EventLog
 {
     using System;
-    using System.Data.SqlClient;
     using System.Diagnostics;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
@@ -13,6 +12,8 @@ namespace DotNetNuke.Services.Log.EventLog
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.Exceptions;
+
+    using Microsoft.Data.SqlClient;
 
     public class ExceptionLogController : LogController
     {

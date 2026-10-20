@@ -15,6 +15,8 @@ namespace DotNetNuke.Web.Common.Internal
     using DotNetNuke.Common;
     using DotNetNuke.Instrumentation;
 
+    using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Hosting;
     using Microsoft.Extensions.Logging;
 
     /// <summary>Watches <c>bin</c> folder and root files and unloads the app domain proactively when they change.</summary>
@@ -131,7 +133,8 @@ namespace DotNetNuke.Web.Common.Internal
 
             try
             {
-                HttpRuntime.UnloadAppDomain();
+                // there is no AppDomain unloading on ASP.NET Core, stop the application (IIS / the host restarts it)
+                Globals.GetCurrentServiceProvider().GetService<IHostApplicationLifetime>()?.StopApplication();
             }
             catch (Exception ex)
             {

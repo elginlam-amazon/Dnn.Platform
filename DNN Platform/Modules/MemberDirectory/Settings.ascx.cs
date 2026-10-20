@@ -4,35 +4,43 @@
 namespace DotNetNuke.Modules.MemberDirectory
 {
     using System;
-    using System.Diagnostics;
+    using System.Collections;
+    using System.Collections.Generic;
     using System.Globalization;
     using System.IO;
     using System.Linq;
-    using System.Text;
     using System.Web;
-    using System.Web.UI;
     using System.Web.UI.WebControls;
 
+    using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Lists;
     using DotNetNuke.Common.Utilities;
+    using DotNetNuke.Entities.Modules;
+    using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Profile;
-    using DotNetNuke.Internal.SourceGenerators;
-    using DotNetNuke.Modules.MemberDirectory.Presenters;
+    using DotNetNuke.Entities.Users.Social;
     using DotNetNuke.Modules.MemberDirectory.ViewModels;
+    using DotNetNuke.Security.Roles;
     using DotNetNuke.Services.Localization;
-    using DotNetNuke.Web.Mvp;
     using DotNetNuke.Web.UI.WebControls.Extensions;
-    using WebFormsMvp;
+
+    using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>Display member directory settings.</summary>
-    [DnnDeprecated(9, 2, 0, "Replace WebFormsMvp and DotNetNuke.Web.Mvp with MVC or SPA patterns instead")]
-    [PresenterBinding(typeof(ModuleSettingsPresenter))]
-    public partial class Settings : SettingsView<MemberDirectorySettingsModel>
+    /// <remarks>
+    /// This control was originally implemented using the WebFormsMvp based <c>DotNetNuke.Web.Mvp</c>
+    /// pattern (a <c>SettingsView&lt;MemberDirectorySettingsModel&gt;</c> plus a <c>ModuleSettingsPresenter</c>).
+    /// That framework was removed, so the presenter logic has been folded directly into this
+    /// <see cref="ModuleSettingsBase"/> code-behind while preserving the original behavior.
+    /// </remarks>
+    public partial class Settings : ModuleSettingsBase
     {
         public const int DefaultPageSize = 20;
 
         private static string templatePath = "~/DesktopModules/MemberDirectory/Templates/";
+
+        private readonly MemberDirectorySettingsModel model = new MemberDirectorySettingsModel();
 
         private string defaultSearchField1 = "DisplayName";
         private string defaultSearchField2 = "Email";
@@ -78,119 +86,113 @@ namespace DotNetNuke.Modules.MemberDirectory
             }
         }
 
-        /// <inheritdoc />
-        protected override void OnInit(EventArgs e)
-        {
-            base.OnInit(e);
-
-            this.AutoDataBind = false;
-        }
+        /// <summary>Gets the settings view model.</summary>
+        protected MemberDirectorySettingsModel Model => this.model;
 
         /// <inheritdoc />
-        protected override void OnLoad(EventArgs e)
+        public override void LoadSettings()
         {
-            base.OnLoad(e);
+            base.LoadSettings();
 
-            if (!this.IsPostBack)
+            if (this.IsPostBack)
             {
-                if (this.Model.Groups.Count > 0)
-                {
-                    this.groupList.DataSource = this.Model.Groups;
-                    this.groupList.DataBind();
-                    this.groupList.Items.Insert(0, new ListItem(Localization.GetString("None_Specified"), Null.NullInteger.ToString()));
-                }
-                else
-                {
-                    this.filterBySelector.Items.FindByValue("Group").Enabled = false;
-                }
-
-                foreach (var rel in this.Model.Relationships)
-                {
-                    this.relationShipList.AddItem(Localization.GetString(rel.Name, Localization.SharedResourceFile), rel.RelationshipId.ToString());
-                }
-
-                var profileResourceFile = "~/DesktopModules/Admin/Security/App_LocalResources/Profile.ascx";
-
-                System.Web.UI.WebControls.ListItemCollection propertiesCollection = this.GetPropertiesCollection(profileResourceFile);
-
-                // Bind the ListItemCollection to the list
-                this.propertyList.DataSource = propertiesCollection;
-                this.propertyList.DataBind();
-
-                // Insert custom properties to the Search field lists
-                propertiesCollection.Insert(0, new ListItem(Localization.GetString("Username", this.LocalResourceFile), "Username"));
-                propertiesCollection.Insert(1, new ListItem(Localization.GetString("DisplayName", this.LocalResourceFile), "DisplayName"));
-                propertiesCollection.Insert(2, new ListItem(Localization.GetString("Email", this.LocalResourceFile), "Email"));
-
-                // Bind the properties collection in the Search Field Lists
-                this.searchField1List.DataSource = propertiesCollection;
-                this.searchField1List.DataBind();
-
-                this.searchField2List.DataSource = propertiesCollection;
-                this.searchField2List.DataBind();
-
-                this.searchField3List.DataSource = propertiesCollection;
-                this.searchField3List.DataBind();
-
-                this.searchField4List.DataSource = propertiesCollection;
-                this.searchField4List.DataBind();
-
-                this.filterBySelector.Select(this.filterBy, false, 0);
-
-                switch (this.filterBy)
-                {
-                    case "Group":
-                        this.groupList.Select(this.filterValue, false, 0);
-                        break;
-                    case "Relationship":
-                        this.relationShipList.Select(this.filterValue, false, 0);
-                        break;
-                    case "ProfileProperty":
-                        this.propertyList.Select(this.filterValue, false, 0);
-                        break;
-                    case "User":
-                        break;
-                }
-
-                this.searchField1List.Select(this.GetTabModuleSetting("SearchField1", this.defaultSearchField1));
-                this.searchField2List.Select(this.GetTabModuleSetting("SearchField2", this.defaultSearchField2));
-                this.searchField3List.Select(this.GetTabModuleSetting("SearchField3", this.defaultSearchField3));
-                this.searchField4List.Select(this.GetTabModuleSetting("SearchField4", this.defaultSearchField4));
-
-                this.ExcludeHostUsersCheckBox.Checked = bool.Parse(this.GetTabModuleSetting("ExcludeHostUsers", "false"));
+                return;
             }
-        }
 
-        /// <inheritdoc />
-        protected override void OnSettingsLoaded()
-        {
-            base.OnSettingsLoaded();
+            this.LoadModel();
 
-            if (!this.IsPostBack)
+            // Originally handled by SettingsViewBase.OnSettingsLoaded.
+            this.BindSortList();
+
+            this.itemTemplate.Text = this.GetTabModuleSetting("ItemTemplate", DefaultItemTemplate);
+            this.alternateItemTemplate.Text = this.GetTabModuleSetting("AlternateItemTemplate", DefaultAlternateItemTemplate);
+            this.popUpTemplate.Text = this.GetTabModuleSetting("PopUpTemplate", DefaultPopUpTemplate);
+            this.displaySearchList.Select(this.GetTabModuleSetting("DisplaySearch", this.defaultDisplaySearch));
+            this.enablePopUp.Checked = bool.Parse(this.GetTabModuleSetting("EnablePopUp", this.defaultEnablePopUp));
+
+            this.filterBy = this.GetModuleSetting("FilterBy", this.defaultFilterBy);
+            this.filterValue = this.GetModuleSetting("FilterValue", this.defaultFilterValue);
+            this.propertyValue.Text = this.GetModuleSetting("FilterPropertyValue", string.Empty);
+
+            this.sortFieldList.Select(this.GetTabModuleSetting("SortField", this.defaultSortField));
+            this.sortOrderList.Select(this.GetTabModuleSetting("SortOrder", this.defaultSortOrder));
+
+            this.pageSize.Text = this.GetTabModuleSetting("PageSize", DefaultPageSize.ToString(CultureInfo.InvariantCulture));
+            this.disablePager.Checked = bool.Parse(this.GetTabModuleSetting("DisablePaging", "False"));
+
+            // Originally handled by the view's OnLoad.
+            if (this.Model.Groups.Count > 0)
             {
-                this.BindSortList();
-
-                this.itemTemplate.Text = this.GetTabModuleSetting("ItemTemplate", DefaultItemTemplate);
-                this.alternateItemTemplate.Text = this.GetTabModuleSetting("AlternateItemTemplate", DefaultAlternateItemTemplate);
-                this.popUpTemplate.Text = this.GetTabModuleSetting("PopUpTemplate", DefaultPopUpTemplate);
-                this.displaySearchList.Select(this.GetTabModuleSetting("DisplaySearch", this.defaultDisplaySearch));
-                this.enablePopUp.Checked = bool.Parse(this.GetTabModuleSetting("EnablePopUp", this.defaultEnablePopUp));
-
-                this.filterBy = this.GetModuleSetting("FilterBy", this.defaultFilterBy);
-                this.filterValue = this.GetModuleSetting("FilterValue", this.defaultFilterValue);
-                this.propertyValue.Text = this.GetModuleSetting("FilterPropertyValue", string.Empty);
-
-                this.sortFieldList.Select(this.GetTabModuleSetting("SortField", this.defaultSortField));
-                this.sortOrderList.Select(this.GetTabModuleSetting("SortOrder", this.defaultSortOrder));
-
-                this.pageSize.Text = this.GetTabModuleSetting("PageSize", DefaultPageSize.ToString(CultureInfo.InvariantCulture));
-                this.disablePager.Checked = bool.Parse(this.GetTabModuleSetting("DisablePaging", "False"));
+                this.groupList.DataSource = this.Model.Groups;
+                this.groupList.DataBind();
+                this.groupList.Items.Insert(0, new ListItem(Localization.GetString("None_Specified"), Null.NullInteger.ToString()));
             }
+            else
+            {
+                this.filterBySelector.Items.FindByValue("Group").Enabled = false;
+            }
+
+            foreach (var rel in this.Model.Relationships)
+            {
+                this.relationShipList.AddItem(Localization.GetString(rel.Name, Localization.SharedResourceFile), rel.RelationshipId.ToString());
+            }
+
+            var profileResourceFile = "~/DesktopModules/Admin/Security/App_LocalResources/Profile.ascx";
+
+            System.Web.UI.WebControls.ListItemCollection propertiesCollection = this.GetPropertiesCollection(profileResourceFile);
+
+            // Bind the ListItemCollection to the list
+            this.propertyList.DataSource = propertiesCollection;
+            this.propertyList.DataBind();
+
+            // Insert custom properties to the Search field lists
+            propertiesCollection.Insert(0, new ListItem(Localization.GetString("Username", this.LocalResourceFile), "Username"));
+            propertiesCollection.Insert(1, new ListItem(Localization.GetString("DisplayName", this.LocalResourceFile), "DisplayName"));
+            propertiesCollection.Insert(2, new ListItem(Localization.GetString("Email", this.LocalResourceFile), "Email"));
+
+            // Bind the properties collection in the Search Field Lists
+            this.searchField1List.DataSource = propertiesCollection;
+            this.searchField1List.DataBind();
+
+            this.searchField2List.DataSource = propertiesCollection;
+            this.searchField2List.DataBind();
+
+            this.searchField3List.DataSource = propertiesCollection;
+            this.searchField3List.DataBind();
+
+            this.searchField4List.DataSource = propertiesCollection;
+            this.searchField4List.DataBind();
+
+            this.filterBySelector.Select(this.filterBy, false, 0);
+
+            switch (this.filterBy)
+            {
+                case "Group":
+                    this.groupList.Select(this.filterValue, false, 0);
+                    break;
+                case "Relationship":
+                    this.relationShipList.Select(this.filterValue, false, 0);
+                    break;
+                case "ProfileProperty":
+                    this.propertyList.Select(this.filterValue, false, 0);
+                    break;
+                case "User":
+                    break;
+            }
+
+            this.searchField1List.Select(this.GetTabModuleSetting("SearchField1", this.defaultSearchField1));
+            this.searchField2List.Select(this.GetTabModuleSetting("SearchField2", this.defaultSearchField2));
+            this.searchField3List.Select(this.GetTabModuleSetting("SearchField3", this.defaultSearchField3));
+            this.searchField4List.Select(this.GetTabModuleSetting("SearchField4", this.defaultSearchField4));
+
+            this.ExcludeHostUsersCheckBox.Checked = bool.Parse(this.GetTabModuleSetting("ExcludeHostUsers", "false"));
         }
 
         /// <inheritdoc />
-        protected override void OnSavingSettings()
+        public override void UpdateSettings()
         {
+            this.EnsureModelSettings();
+
             this.Model.TabModuleSettings["ItemTemplate"] = this.itemTemplate.Text;
             this.Model.TabModuleSettings["AlternateItemTemplate"] = this.alternateItemTemplate.Text;
             this.Model.TabModuleSettings["PopUpTemplate"] = this.popUpTemplate.Text;
@@ -228,12 +230,83 @@ namespace DotNetNuke.Modules.MemberDirectory
 
             this.Model.TabModuleSettings["ExcludeHostUsers"] = this.ExcludeHostUsersCheckBox.Checked.ToString(CultureInfo.InvariantCulture);
 
-            base.OnSavingSettings();
+            // Persist the settings (originally handled by ModuleSettingsPresenter.SaveSettings).
+            foreach (var setting in this.Model.ModuleSettings)
+            {
+                ModuleController.Instance.UpdateModuleSetting(this.ModuleId, setting.Key, setting.Value);
+            }
+
+            foreach (var setting in this.Model.TabModuleSettings)
+            {
+                ModuleController.Instance.UpdateTabModuleSetting(this.ModuleContext.TabModuleId, setting.Key, setting.Value);
+            }
+
+            base.UpdateSettings();
         }
 
-        private ListItemCollection GetPropertiesCollection(string profileResourceFile)
+        /// <summary>Gets the module setting.</summary>
+        /// <param name="key">The setting name.</param>
+        /// <param name="defaultValue">The default setting value.</param>
+        /// <returns>The setting value or <paramref name="defaultValue"/>.</returns>
+        protected string GetModuleSetting(string key, string defaultValue)
         {
-            var result = new ListItemCollection();
+            return this.Model.ModuleSettings.TryGetValue(key, out var settingValue) ? settingValue : defaultValue;
+        }
+
+        /// <summary>Gets the tab-module setting.</summary>
+        /// <param name="key">The setting name.</param>
+        /// <param name="defaultValue">The default setting value.</param>
+        /// <returns>The setting value or <paramref name="defaultValue"/>.</returns>
+        protected string GetTabModuleSetting(string key, string defaultValue)
+        {
+            return this.Model.TabModuleSettings.TryGetValue(key, out var settingValue) ? settingValue : defaultValue;
+        }
+
+        /// <summary>Loads the view model from the current module context.</summary>
+        private void LoadModel()
+        {
+            this.Model.ModuleSettings = this.ModuleContext.Configuration.ModuleSettings
+                .Cast<DictionaryEntry>()
+                .ToDictionary(kvp => (string)kvp.Key, kvp => (string)kvp.Value);
+
+            this.Model.TabModuleSettings = this.ModuleContext.Configuration.TabModuleSettings
+                .Cast<DictionaryEntry>()
+                .ToDictionary(kvp => (string)kvp.Key, kvp => (string)kvp.Value);
+
+            this.Model.Groups = RoleController.Instance.GetRoles(this.PortalId, r => r.Status == RoleStatus.Approved);
+            this.Model.Relationships = RelationshipController.Instance.GetRelationshipsByPortalId(this.PortalId);
+
+            this.Model.ProfileProperties = new List<ProfilePropertyDefinition>();
+            foreach (ProfilePropertyDefinition definition in ProfileController.GetPropertyDefinitionsByPortal(
+                this.DependencyProvider.GetRequiredService<IHostSettings>(),
+                this.DependencyProvider.GetRequiredService<IPortalController>(),
+                this.DependencyProvider.GetRequiredService<IApplicationStatusInfo>(),
+                this.DependencyProvider.GetRequiredService<IPortalGroupController>(),
+                this.PortalId,
+                true,
+                true))
+            {
+                var controller = new ListController(null, null);
+                ListEntryInfo textType = controller.GetListEntryInfo("DataType", "Text");
+                ListEntryInfo regionType = controller.GetListEntryInfo("DataType", "Region");
+                ListEntryInfo countryType = controller.GetListEntryInfo("DataType", "Country");
+                if (definition.DataType == textType.EntryID || definition.DataType == regionType.EntryID || definition.DataType == countryType.EntryID)
+                {
+                    this.Model.ProfileProperties.Add(definition);
+                }
+            }
+        }
+
+        /// <summary>Ensures the model has settings dictionaries available during a post-back save.</summary>
+        private void EnsureModelSettings()
+        {
+            this.Model.ModuleSettings ??= new Dictionary<string, string>();
+            this.Model.TabModuleSettings ??= new Dictionary<string, string>();
+        }
+
+        private System.Web.UI.WebControls.ListItemCollection GetPropertiesCollection(string profileResourceFile)
+        {
+            var result = new System.Web.UI.WebControls.ListItemCollection();
             foreach (var property in this.Model.ProfileProperties)
             {
                 result.Add(new ListItem(this.GetLocalizeName(property.PropertyName, profileResourceFile), property.PropertyName));
@@ -254,7 +327,7 @@ namespace DotNetNuke.Modules.MemberDirectory
             this.sortFieldList.Items.Add(this.AddSearchItem("LastName"));
             this.sortFieldList.Items.Add(this.AddSearchItem("DisplayName"));
             this.sortFieldList.Items.Add(this.AddSearchItem("CreatedOnDate", "DateCreated"));
-            var controller = new ListController();
+            var controller = new ListController(null, null);
             var imageDataType = controller.GetListEntryInfo("DataType", "Image");
             foreach (ProfilePropertyDefinition definition in this.Model.ProfileProperties)
             {

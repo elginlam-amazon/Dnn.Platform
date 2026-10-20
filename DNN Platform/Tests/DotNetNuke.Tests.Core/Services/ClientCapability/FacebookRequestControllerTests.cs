@@ -86,8 +86,7 @@ namespace DotNetNuke.Tests.Core.Services.ClientCapability
         [Test]
         public void FacebookRequestController_GetFacebookDetailsFromRequest_With_Get_Request()
         {
-            HttpRequest httpRequest = new HttpRequest("unittest.aspx", "http://localhost/unittest.aspx", string.Empty);
-            httpRequest.RequestType = "GET";
+            var httpRequest = CreateHttpRequest("GET", null);
 
             var request = FacebookRequestController.GetFacebookDetailsFromRequest(httpRequest);
             Assert.That(request, Is.Null);
@@ -96,10 +95,7 @@ namespace DotNetNuke.Tests.Core.Services.ClientCapability
         [Test]
         public void FacebookRequestController_GetFacebookDetailsFromRequest_With_Post_Invalid_Request()
         {
-            HttpRequest httpRequest = new HttpRequest("unittest.aspx", "http://localhost/unittest.aspx", string.Empty);
-            httpRequest.RequestType = "POST";
-            this.SetReadonly(httpRequest.Form, false);
-            httpRequest.Form.Add("signed_request", this._requestDics["Invalid"]);
+            var httpRequest = CreateHttpRequest("POST", this._requestDics["Invalid"]);
 
             var request = FacebookRequestController.GetFacebookDetailsFromRequest(httpRequest);
             Assert.That(request, Is.Null);
@@ -108,10 +104,7 @@ namespace DotNetNuke.Tests.Core.Services.ClientCapability
         [Test]
         public void FacebookRequestController_GetFacebookDetailsFromRequest_With_Post_Valid_Request()
         {
-            HttpRequest httpRequest = new HttpRequest("unittest.aspx", "http://localhost/unittest.aspx", string.Empty);
-            httpRequest.RequestType = "POST";
-            this.SetReadonly(httpRequest.Form, false);
-            httpRequest.Form.Add("signed_request", this._requestDics["Valid"]);
+            var httpRequest = CreateHttpRequest("POST", this._requestDics["Valid"]);
 
             var request = FacebookRequestController.GetFacebookDetailsFromRequest(httpRequest);
             Assert.That(request.IsValid, Is.EqualTo(true));
@@ -128,13 +121,35 @@ namespace DotNetNuke.Tests.Core.Services.ClientCapability
             return epoc.AddSeconds((double)value);
         }
 
-        private void SetReadonly(NameValueCollection collection, bool readOnly)
+        /// <summary>
+        /// Builds a <see cref="HttpRequest"/> for the given HTTP method, optionally posting a
+        /// <c>signed_request</c> form value.
+        /// </summary>
+        /// <remarks>
+        /// On .NET Framework the test created a <see cref="HttpRequest"/> directly and mutated its
+        /// read-only <c>Form</c> collection via reflection. The System.Web adapter
+        /// (Microsoft.AspNetCore.SystemWebAdapters) wraps an ASP.NET Core request, so the request is
+        /// now built from a <see cref="Microsoft.AspNetCore.Http.DefaultHttpContext"/> instead.
+        /// </remarks>
+        private static HttpRequest CreateHttpRequest(string method, string signedRequest)
         {
-            var readOnlyProperty = collection.GetType().GetProperty("IsReadOnly", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (readOnlyProperty != null)
+            var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+            var coreRequest = context.Request;
+            coreRequest.Method = method;
+            coreRequest.Scheme = "http";
+            coreRequest.Host = new Microsoft.AspNetCore.Http.HostString("localhost");
+            coreRequest.Path = "/unittest.aspx";
+
+            if (signedRequest != null)
             {
-                readOnlyProperty.SetValue(collection, readOnly, null);
+                var form = new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
+                {
+                    { "signed_request", signedRequest },
+                };
+                coreRequest.Form = new Microsoft.AspNetCore.Http.FormCollection(form);
             }
+
+            return context.Request;
         }
     }
 }

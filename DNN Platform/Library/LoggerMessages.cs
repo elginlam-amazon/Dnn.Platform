@@ -6,7 +6,6 @@ namespace DotNetNuke;
 
 using System;
 using System.Configuration;
-using System.Data.SqlClient;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -23,6 +22,7 @@ using DotNetNuke.Services.Upgrade.Internals.Steps;
 
 using Lucene.Net.Search;
 
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
 /// <summary>Extension methods for <see cref="ILogger"/> for pre-defined logging messages.</summary>

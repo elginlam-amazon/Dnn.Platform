@@ -512,8 +512,10 @@ namespace DotNetNuke.Tests.Urls
             var simulator = new Instance.Utilities.HttpSimulator.HttpSimulator("/", this.WebsitePhysicalAppPath);
             simulator.SimulateRequest(url);
 
-            var browserCaps = new HttpBrowserCapabilities { Capabilities = new Hashtable() };
-            HttpContext.Current.Request.Browser = browserCaps;
+            // On .NET the System.Web adapter (Microsoft.AspNetCore.SystemWebAdapters) always exposes a
+            // non-null HttpRequest.Browser, and both HttpBrowserCapabilities and HttpRequest.Browser are
+            // read-only, so the previous explicit assignment (needed on .NET Framework to avoid a null
+            // Browser) is neither necessary nor possible here.
         }
 
         private void ProcessRequest(FriendlyUrlSettings settings, UrlTestHelper testHelper)

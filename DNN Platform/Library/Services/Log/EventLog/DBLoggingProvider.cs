@@ -7,7 +7,6 @@ namespace DotNetNuke.Services.Log.EventLog
     using System.Collections;
     using System.Collections.Generic;
     using System.Data;
-    using System.Data.SqlClient;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.IO;
@@ -24,6 +23,7 @@ namespace DotNetNuke.Services.Log.EventLog
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Scheduling;
 
+    using Microsoft.Data.SqlClient;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -501,11 +501,25 @@ namespace DotNetNuke.Services.Log.EventLog
             }
         }
 
+        /// <summary>Gets a value indicating whether custom errors are enabled for the request (replacement of <c>HttpContext.IsCustomErrorEnabled</c>, based on the <c>customErrors</c> mode of the <c>web.config</c>).</summary>
+        /// <param name="context">The HTTP context.</param>
+        /// <returns><see langword="true"/> when custom errors are shown.</returns>
+        private static bool IsCustomErrorEnabled(HttpContext context)
+        {
+            var mode = Config.GetCustomErrorMode();
+            if (string.Equals(mode, "Off", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return string.Equals(mode, "On", StringComparison.OrdinalIgnoreCase) || !context.Request.IsLocal;
+        }
+
         private static void WriteError(LogTypeConfigInfo logTypeConfigInfo, Exception exc, string header, string message)
         {
             if (HttpContext.Current != null)
             {
-                if (HttpContext.Current.IsCustomErrorEnabled)
+                if (IsCustomErrorEnabled(HttpContext.Current))
                 {
                     HttpContext.Current.AddError(exc);
                 }

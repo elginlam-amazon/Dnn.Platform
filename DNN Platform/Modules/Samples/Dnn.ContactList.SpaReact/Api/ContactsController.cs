@@ -1,10 +1,13 @@
 ﻿using System.Net;
 using System.Net.Http;
-using System.Web.Http;
+
 using Dnn.ContactList.Api;
 using Dnn.ContactList.SpaReact.Dto;
+
 using DotNetNuke.Collections;
 using DotNetNuke.Web.Api;
+
+using Microsoft.AspNetCore.Mvc;
 
 namespace Dnn.ContactList.SpaReact.Api
 {

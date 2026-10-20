@@ -1,49 +1,54 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Web.Mvc.Framework
 {
-    using System;
-    using System.Web.Mvc;
-
     using DotNetNuke.Common;
-    using DotNetNuke.Framework;
     using DotNetNuke.Web.Mvc.Helpers;
 
+    using Microsoft.AspNetCore.Mvc.Razor;
+    using Microsoft.AspNetCore.Mvc.Rendering;
+    using Microsoft.AspNetCore.Mvc.ViewFeatures;
     using Microsoft.Extensions.DependencyInjection;
 
-    public abstract class DnnWebViewPage : WebViewPage
+    /// <summary>Base class for DNN MVC module Razor views.</summary>
+    public abstract class DnnWebViewPage : RazorPage<dynamic>
     {
-        private readonly IServicesFramework servicesFramework;
+        private DnnHelper<object> dnn;
+        private DnnHtmlHelper<object> html;
+        private DnnUrlHelper url;
 
-        /// <summary>Initializes a new instance of the <see cref="DnnWebViewPage"/> class.</summary>
-        [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IServicesFramework. Scheduled removal in v12.0.0.")]
-        protected DnnWebViewPage()
-            : this(null)
+        /// <summary>Gets the DNN helper.</summary>
+        public DnnHelper<object> Dnn => this.dnn ??= this.CreateDnnHelper();
+
+        /// <summary>Gets the DNN HTML helper.</summary>
+        public DnnHtmlHelper<object> Html => this.html ??= this.CreateHtmlHelper();
+
+        /// <summary>Gets the DNN URL helper.</summary>
+        public DnnUrlHelper Url => this.url ??= new DnnUrlHelper(this.ViewContext);
+
+        private IHtmlHelper<object> ContextualizedHtmlHelper()
         {
+            var htmlHelper = this.Context.RequestServices.GetRequiredService<IHtmlHelper<object>>();
+            if (htmlHelper is IViewContextAware contextAware)
+            {
+                contextAware.Contextualize(this.ViewContext);
+            }
+
+            return htmlHelper;
         }
 
-        /// <summary>Initializes a new instance of the <see cref="DnnWebViewPage"/> class.</summary>
-        /// <param name="servicesFramework">The web API service framework.</param>
-        protected DnnWebViewPage(IServicesFramework servicesFramework)
+        private DnnHtmlHelper<object> CreateHtmlHelper()
         {
-            this.servicesFramework = servicesFramework ?? Globals.GetCurrentServiceProvider().GetRequiredService<IServicesFramework>();
+            return new DnnHtmlHelper<object>(this.ContextualizedHtmlHelper(), null);
         }
 
-        public DnnHelper<object> Dnn { get; set; }
-
-        public new DnnHtmlHelper<object> Html { get; set; }
-
-        public new DnnUrlHelper Url { get; set; }
-
-        /// <inheritdoc />
-        public override void InitHelpers()
+        private DnnHelper<object> CreateDnnHelper()
         {
-            this.Ajax = new AjaxHelper<object>(this.ViewContext, this);
-            this.Html = new DnnHtmlHelper<object>(this.ViewContext, this, this.servicesFramework);
-            this.Url = new DnnUrlHelper(this.ViewContext);
-            this.Dnn = ActivatorUtilities.CreateInstance<DnnHelper<object>>(Globals.GetCurrentServiceProvider(), this.ViewContext, this);
+            return ActivatorUtilities.CreateInstance<DnnHelper<object>>(
+                Globals.GetCurrentServiceProvider(),
+                this.ContextualizedHtmlHelper());
         }
     }
 }

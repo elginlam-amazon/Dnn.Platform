@@ -11,7 +11,6 @@ namespace Dnn.PersonaBar.UI.Services
     using System.Net.Http;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -24,7 +23,9 @@ namespace Dnn.PersonaBar.UI.Services
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Installer;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A Persona Bar API controller for the server summary.</summary>

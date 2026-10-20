@@ -1,17 +1,16 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Web.Mvc.Framework.Modules
 {
-    using System;
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
 
     using DotNetNuke.Common;
-    using DotNetNuke.Web.Mvc.Framework.ActionResults;
 
+    /// <summary>Executes an MVC module and renders its result.</summary>
     public class ModuleExecutionEngine : IModuleExecutionEngine
     {
         /// <inheritdoc />
@@ -21,20 +20,19 @@ namespace DotNetNuke.Web.Mvc.Framework.Modules
 
             if (moduleRequestContext.ModuleApplication != null)
             {
-                // Run the module
                 return moduleRequestContext.ModuleApplication.ExecuteRequest(moduleRequestContext);
             }
 
             return null;
         }
 
+        /// <inheritdoc />
         public async Task<ModuleRequestResult> ExecuteModuleAsync(ModuleRequestContext moduleRequestContext, CancellationToken cancellationToken)
         {
             Requires.NotNull("moduleRequestContext", moduleRequestContext);
 
             if (moduleRequestContext.ModuleApplication != null)
             {
-                // Run the module
                 return await moduleRequestContext.ModuleApplication.ExecuteRequestAsync(moduleRequestContext, cancellationToken);
             }
 
@@ -44,14 +42,12 @@ namespace DotNetNuke.Web.Mvc.Framework.Modules
         /// <inheritdoc />
         public virtual void ExecuteModuleResult(ModuleRequestResult moduleResult, TextWriter writer)
         {
-            var result = moduleResult.ActionResult as IDnnViewResult;
-            if (result != null)
+            Requires.NotNull("moduleResult", moduleResult);
+            Requires.NotNull("writer", writer);
+
+            if (moduleResult.RenderedOutput != null)
             {
-                result.ExecuteResult(moduleResult.ControllerContext, writer);
-            }
-            else
-            {
-                moduleResult.ActionResult.ExecuteResult(moduleResult.ControllerContext);
+                writer.Write(moduleResult.RenderedOutput);
             }
         }
     }

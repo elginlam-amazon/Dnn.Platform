@@ -9,7 +9,6 @@ namespace DotNetNuke.Modules.Journal
     using System.IO;
     using System.Net.Http;
     using System.Web;
-    using System.Web.Http;
 
     using DotNetNuke.Common;
     using DotNetNuke.Instrumentation;
@@ -18,9 +17,12 @@ namespace DotNetNuke.Modules.Journal
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     using Newtonsoft.Json;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     public class FileUploadController : DnnApiController
     {
@@ -84,7 +86,7 @@ namespace DotNetNuke.Modules.Journal
                 {
                     var fileInfo = JournalController.Instance.SaveJourmalFile(this.ActiveModule, this.UserInfo, fileName, file.InputStream);
                     var fileIcon = Entities.Icons.IconController.IconURL("Ext" + fileInfo.Extension, "32x32");
-                    if (!File.Exists(context.Server.MapPath(fileIcon)))
+                    if (!System.IO.File.Exists(context.Server.MapPath(fileIcon)))
                     {
                         fileIcon = Entities.Icons.IconController.IconURL("File", "32x32");
                     }

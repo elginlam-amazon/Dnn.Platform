@@ -5,7 +5,6 @@ namespace DotNetNuke.Services.Upgrade.Internals
 {
     using System;
     using System.Data.Common;
-    using System.Data.SqlClient;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Net;
@@ -18,6 +17,8 @@ namespace DotNetNuke.Services.Upgrade.Internals
     using DotNetNuke.Services.FileSystem;
     using DotNetNuke.Services.Installer;
     using DotNetNuke.Services.Upgrade.Internals.InstallConfiguration;
+
+    using Microsoft.Data.SqlClient;
 
     using Localization = DotNetNuke.Services.Localization.Localization;
 

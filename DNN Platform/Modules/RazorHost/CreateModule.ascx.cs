@@ -7,6 +7,7 @@ namespace DotNetNuke.Modules.RazorHost
     using System.Collections.Generic;
     using System.Globalization;
     using System.IO;
+    using System.Web;
     using System.Web.Hosting;
     using System.Web.UI.WebControls;
 
@@ -31,7 +32,7 @@ namespace DotNetNuke.Modules.RazorHost
     [DnnDeprecated(9, 3, 2, "Use Razor Pages instead")]
     public partial class CreateModule : ModuleUserControlBase
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<CreateModule>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<CreateModule>();
         private readonly INavigationManager navigationManager;
 
         private string razorScriptFileFormatString = "~/DesktopModules/RazorModules/RazorHost/Scripts/{0}";

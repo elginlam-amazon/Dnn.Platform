@@ -11,12 +11,15 @@ namespace Dnn.EditBar.UI.Services
     using System.Net.Http;
     using System.Text;
     using System.Web;
-    using System.Web.Http;
 
     using Dnn.EditBar.Library;
+
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Mvc;
+
     using Newtonsoft.Json;
 
     [DnnAuthorize]
@@ -98,7 +101,7 @@ namespace Dnn.EditBar.UI.Services
         private static string GetJsonFileContent(string culture)
         {
             var path = GetResourcesJsonFilePath(culture);
-            return File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8) : null;
+            return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path, Encoding.UTF8) : null;
         }
 
         private static Dictionary<string, IDictionary<string, string>> GenerateJsonFile(string culture)
@@ -123,7 +126,7 @@ namespace Dnn.EditBar.UI.Services
                 Directory.CreateDirectory(folderPath);
             }
 
-            File.WriteAllText(filePath, content, Encoding.UTF8);
+            System.IO.File.WriteAllText(filePath, content, Encoding.UTF8);
 
             return resources;
         }
@@ -131,13 +134,13 @@ namespace Dnn.EditBar.UI.Services
         private static string GetResourcesJsonFilePath(string culture)
         {
             var path = Path.Combine(Constants.EditBarRelativePath, "Resources", $"LocalResources.{culture}.resources");
-            return HttpContext.Current.Server.MapPath(path);
+            return System.Web.HttpContext.Current.Server.MapPath(path);
         }
 
         private static string[] GetAllResourceFiles(string culture)
         {
             var editBarResourcesPath = Path.Combine(Constants.EditBarRelativePath, "App_LocalResources");
-            var physicalPath = HttpContext.Current.Server.MapPath(editBarResourcesPath);
+            var physicalPath = System.Web.HttpContext.Current.Server.MapPath(editBarResourcesPath);
             return Directory.GetFiles(physicalPath, "*.resx");
         }
     }

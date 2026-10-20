@@ -8,7 +8,6 @@ namespace Dnn.AzureConnector.Services
     using System.Collections.Generic;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Extensions;
@@ -17,6 +16,7 @@ namespace Dnn.AzureConnector.Services
     using DotNetNuke.Services.FileSystem;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.WindowsAzure.Storage;
 

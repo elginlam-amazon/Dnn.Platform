@@ -25,7 +25,7 @@ namespace Dnn.Modules.Console
     /// <summary>Loads and saves the module settings.</summary>
     public partial class Settings : ModuleSettingsBase
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<Settings>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<Settings>();
 
         /// <inheritdoc />
         public override void LoadSettings()

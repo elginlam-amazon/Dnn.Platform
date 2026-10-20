@@ -56,7 +56,7 @@ namespace DotNetNuke.Modules.Admin.Authentication
     public partial class Login : UserModuleBase
     {
         private const string LOGINPATH = "/login";
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<Login>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<Login>();
 
         private static readonly Regex UserLanguageRegex = new Regex("(.*)(&|\\?)(language=)([^&\\?]+)(.*)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 

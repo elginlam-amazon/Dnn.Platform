@@ -1622,7 +1622,7 @@ namespace DotNetNuke.Services.FileSystem
                 return false;
             }
 
-            if (file.StartDate == null || file.StartDate == Null.NullDate)
+            if (file.StartDate == Null.NullDate)
             {
                 exceptionMessage = Localization.GetExceptionMessage("StartDateRequired", "The Start Date is required");
                 return false;

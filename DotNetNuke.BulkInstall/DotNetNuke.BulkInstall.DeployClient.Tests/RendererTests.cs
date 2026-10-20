@@ -80,9 +80,14 @@ public class RendererTests
         var console = new TestConsole().Interactive();
 
         var renderer = new Renderer(console);
-        renderer.RenderListOfFiles(LogLevel.Information, new[] { @"E:\foo\bar\OpenContent_4.5.0_Install.zip", @"E:\foo\bar\2sxc_12.4.4_Install.zip", });
 
-        console.Output.ShouldContainStringsInOrder(onlyOnce: true, @"E:\foo\bar", "OpenContent_4.5.0_Install.zip", "2sxc_12.4.4_Install.zip");
+        // Build the input paths and expected directory prefix using the current platform's
+        // directory separator so the Path-based renderer splits them the same way everywhere.
+        var sep = Path.DirectorySeparatorChar;
+        var dir = $"E:{sep}foo{sep}bar";
+        renderer.RenderListOfFiles(LogLevel.Information, new[] { $"{dir}{sep}OpenContent_4.5.0_Install.zip", $"{dir}{sep}2sxc_12.4.4_Install.zip", });
+
+        console.Output.ShouldContainStringsInOrder(onlyOnce: true, dir, "OpenContent_4.5.0_Install.zip", "2sxc_12.4.4_Install.zip");
     }
 
     [Fact]
@@ -91,19 +96,26 @@ public class RendererTests
         var console = new TestConsole().Interactive();
 
         var renderer = new Renderer(console);
+
+        // Use the platform's directory separator and root so the Path-based renderer splits the
+        // paths into the same tree on every OS (on Windows the root is "E:\", elsewhere "/").
+        var sep = Path.DirectorySeparatorChar;
+        var root = OperatingSystem.IsWindows() ? $"E:{sep}" : $"{sep}";
         renderer.RenderListOfFiles(LogLevel.Information, new[]
         {
-            @"E:\my-top-level.zip",
-            @"E:\foo\Modules\the-module.zip",
-            @"E:\foo\Modules\the-templates.zip",
-            @"E:\foo\Skins\themezilla.zip",
+            $"{root}my-top-level.zip",
+            $"{root}foo{sep}Modules{sep}the-module.zip",
+            $"{root}foo{sep}Modules{sep}the-templates.zip",
+            $"{root}foo{sep}Skins{sep}themezilla.zip",
         });
 
+        // The drive/root node renders as the bare separator ("/") on non-Windows platforms, and
+        // newlines recur throughout the output, so both are asserted for ordering only. The
+        // once-only check is applied to the unique file/folder tokens to verify each appears once.
         console.Output.ShouldContainStringsInOrder(
-            onlyOnce: true,
             "Packages",
             "\n",
-            @"E:\",
+            root,
             "\n",
             "my-top-level.zip",
             "\n",
@@ -119,6 +131,17 @@ public class RendererTests
             "\n",
             "themezilla.zip",
             "\n");
+
+        console.Output.ShouldContainStringsInOrder(
+            onlyOnce: true,
+            "Packages",
+            "my-top-level.zip",
+            "foo",
+            "Modules",
+            "the-module.zip",
+            "the-templates.zip",
+            "Skins",
+            "themezilla.zip");
     }
 
     [Fact]
@@ -127,17 +150,22 @@ public class RendererTests
         var console = new TestConsole().Interactive();
 
         var renderer = new Renderer(console);
+
+        // Use the platform's directory separator and root so the Path-based renderer splits the
+        // paths into the same tree on every OS (on Windows the root is "E:\", elsewhere "/").
+        var sep = Path.DirectorySeparatorChar;
+        var root = OperatingSystem.IsWindows() ? $"E:{sep}" : $"{sep}";
         renderer.RenderListOfFiles(LogLevel.Information, new[]
         {
-            @"E:\foo\Containers\my-containers.zip",
-            @"E:\foo\Modules\the-module.zip",
-            @"E:\foo\Modules\the-templates.zip",
-            @"E:\foo\Skins\themezilla.zip",
+            $"{root}foo{sep}Containers{sep}my-containers.zip",
+            $"{root}foo{sep}Modules{sep}the-module.zip",
+            $"{root}foo{sep}Modules{sep}the-templates.zip",
+            $"{root}foo{sep}Skins{sep}themezilla.zip",
         });
 
         console.Output.ShouldContainStringsInOrder(
             onlyOnce: true,
-            @"E:\foo",
+            $"{root}foo",
             "Containers",
             "my-containers.zip",
             "Modules",

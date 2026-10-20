@@ -4,58 +4,57 @@
 
 namespace DotNetNuke.Web.Api
 {
-    using System.Web.Http.Routing;
-
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Internal.SourceGenerators;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
 
-    /// <summary>Extension methods on <see cref="UrlHelper"/> for generating web API links.</summary>
+    /// <summary>Extension methods on <see cref="IUrlHelper"/> for generating web API links.</summary>
     public static partial class UrlHelperExtensions
     {
         /// <summary>Generate WebAPI Links compatible with DNN Services Framework.</summary>
-        /// <param name="urlHelper">The <see cref="UrlHelper"/>.</param>
+        /// <param name="urlHelper">The <see cref="IUrlHelper"/>.</param>
         /// <param name="moduleFolderName">ModuleFolderName for the route.</param>
         /// <param name="routeName">RouteName for the route.</param>
         /// <param name="routeValues">Values to be passed to the route.</param>
         /// <returns>a URL.</returns>
         [DnnDeprecated(10, 2, 2, "Please use overload taking IPortalAliasService")]
-        public static partial string DnnLink(this UrlHelper urlHelper, string moduleFolderName, string routeName, object routeValues)
+        public static partial string DnnLink(this IUrlHelper urlHelper, string moduleFolderName, string routeName, object routeValues)
             => urlHelper.DnnLink(Globals.GetCurrentServiceProvider().GetRequiredService<IPortalAliasService>(), moduleFolderName, routeName, routeValues);
 
         /// <summary>Generate WebAPI Links compatible with DNN Services Framework.</summary>
-        /// <param name="urlHelper">The <see cref="UrlHelper"/>.</param>
+        /// <param name="urlHelper">The <see cref="IUrlHelper"/>.</param>
         /// <param name="portalAliasService">The portal alias service.</param>
         /// <param name="moduleFolderName">ModuleFolderName for the route.</param>
         /// <param name="routeName">RouteName for the route.</param>
         /// <param name="routeValues">Values to be passed to the route.</param>
         /// <returns>a URL.</returns>
-        public static string DnnLink(this UrlHelper urlHelper, IPortalAliasService portalAliasService, string moduleFolderName, string routeName, object routeValues)
+        public static string DnnLink(this IUrlHelper urlHelper, IPortalAliasService portalAliasService, string moduleFolderName, string routeName, object routeValues)
             => urlHelper.DnnLink(portalAliasService, moduleFolderName, routeName, routeValues, (IPortalAliasInfo)PortalSettings.Current.PortalAlias);
 
         /// <summary>Generate WebAPI Links compatible with DNN Services Framework.</summary>
-        /// <param name="urlHelper">The <see cref="UrlHelper"/>.</param>
+        /// <param name="urlHelper">The <see cref="IUrlHelper"/>.</param>
         /// <param name="moduleFolderName">ModuleFolderName for the route.</param>
         /// <param name="routeName">RouteName for the route.</param>
         /// <param name="routeValues">Values to be passed to the route.</param>
         /// <param name="portalAliasInfo">The PortalAlias to use in the URL.</param>
         /// <returns>a URL.</returns>
         [DnnDeprecated(10, 2, 2, "Please use overload taking IPortalAliasService")]
-        public static partial string DnnLink(this UrlHelper urlHelper, string moduleFolderName, string routeName, object routeValues, PortalAliasInfo portalAliasInfo)
+        public static partial string DnnLink(this IUrlHelper urlHelper, string moduleFolderName, string routeName, object routeValues, PortalAliasInfo portalAliasInfo)
             => urlHelper.DnnLink(Globals.GetCurrentServiceProvider().GetRequiredService<IPortalAliasService>(), moduleFolderName, routeName, routeValues, portalAliasInfo);
 
         /// <summary>Generate WebAPI Links compatible with DNN Services Framework.</summary>
-        /// <param name="urlHelper">The <see cref="UrlHelper"/>.</param>
+        /// <param name="urlHelper">The <see cref="IUrlHelper"/>.</param>
         /// <param name="portalAliasService">The portal alias service.</param>
         /// <param name="moduleFolderName">ModuleFolderName for the route.</param>
         /// <param name="routeName">RouteName for the route.</param>
         /// <param name="routeValues">Values to be passed to the route.</param>
         /// <param name="portalAliasInfo">The PortalAlias to use in the URL.</param>
         /// <returns>a URL.</returns>
-        public static string DnnLink(this UrlHelper urlHelper, IPortalAliasService portalAliasService, string moduleFolderName, string routeName, object routeValues, PortalAliasInfo portalAliasInfo)
+        public static string DnnLink(this IUrlHelper urlHelper, IPortalAliasService portalAliasService, string moduleFolderName, string routeName, object routeValues, PortalAliasInfo portalAliasInfo)
             => urlHelper.DnnLink(portalAliasService, moduleFolderName, routeName, routeValues, (IPortalAliasInfo)portalAliasInfo);
 
         /// <summary>Generate WebAPI Links compatible with DNN Services Framework.</summary>
@@ -66,18 +65,18 @@ namespace DotNetNuke.Web.Api
         /// <param name="portalAliasInfo">The PortalAlias to use in the URL.</param>
         /// <returns>a URL.</returns>
         [DnnDeprecated(10, 2, 2, "Please use overload taking IPortalAliasService")]
-        public static partial string DnnLink(this UrlHelper urlHelper, string moduleFolderName, string routeName, object routeValues, IPortalAliasInfo portalAliasInfo)
+        public static partial string DnnLink(this IUrlHelper urlHelper, string moduleFolderName, string routeName, object routeValues, IPortalAliasInfo portalAliasInfo)
             => urlHelper.DnnLink(Globals.GetCurrentServiceProvider().GetRequiredService<IPortalAliasService>(), moduleFolderName, routeName, routeValues, portalAliasInfo);
 
         /// <summary>Generate WebAPI Links compatible with DNN Services Framework.</summary>
-        /// <param name="urlHelper">The <see cref="UrlHelper"/>.</param>
+        /// <param name="urlHelper">The <see cref="IUrlHelper"/>.</param>
         /// <param name="portalAliasService">The portal alias service.</param>
         /// <param name="moduleFolderName">ModuleFolderName for the route.</param>
         /// <param name="routeName">RouteName for the route.</param>
         /// <param name="routeValues">Values to be passed to the route.</param>
         /// <param name="portalAliasInfo">The PortalAlias to use in the URL.</param>
         /// <returns>a URL.</returns>
-        public static string DnnLink(this UrlHelper urlHelper, IPortalAliasService portalAliasService, string moduleFolderName, string routeName, object routeValues, IPortalAliasInfo portalAliasInfo)
+        public static string DnnLink(this IUrlHelper urlHelper, IPortalAliasService portalAliasService, string moduleFolderName, string routeName, object routeValues, IPortalAliasInfo portalAliasInfo)
         {
             var parm = new PortalAliasRouteManager(portalAliasService);
             var fullName = parm.GetRouteName(moduleFolderName, routeName, (IPortalAliasInfo)PortalSettings.Current.PortalAlias);

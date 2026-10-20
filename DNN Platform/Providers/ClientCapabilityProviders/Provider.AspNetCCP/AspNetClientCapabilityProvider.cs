@@ -128,22 +128,6 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider
             }
         }
 
-        /// <summary>Gets the browser capabilities.</summary>
-        /// <param name="headers">The headers collection.</param>
-        /// <param name="userAgent">The request's user agent.</param>
-        /// <returns>An <see cref="HttpBrowserCapabilities"/> instance.</returns>
-        public static HttpBrowserCapabilities GetHttpBrowserCapabilities(NameValueCollection headers, string userAgent)
-        {
-            var factory = new BrowserCapabilitiesFactory();
-            var browserCaps = new HttpBrowserCapabilities();
-            var hashtable = new Hashtable(180, StringComparer.OrdinalIgnoreCase);
-            hashtable[string.Empty] = userAgent;
-            browserCaps.Capabilities = hashtable;
-            factory.ConfigureBrowserCapabilities(headers, browserCaps);
-            factory.ConfigureCustomCapabilities(headers, browserCaps);
-            return browserCaps;
-        }
-
         /// <inheritdoc />
         public override IClientCapability GetClientCapability(string userAgent)
         {
@@ -152,7 +136,7 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider
                 return new AspNetClientCapability(SampleProperties);
             }
 
-            return new AspNetClientCapability(userAgent, GetHttpBrowserCapabilities(new NameValueCollection(), userAgent));
+            return new AspNetClientCapability(userAgent);
         }
 
         /// <inheritdoc />

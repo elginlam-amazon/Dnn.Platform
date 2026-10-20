@@ -86,7 +86,7 @@ namespace DotNetNuke.Services.Mail
             try
             {
                 using var smtpClient = CreateSmtpClient(smtpInfo, host, port);
-                await smtpClient.SendMailAsync(mailMessage);
+                await smtpClient.SendMailAsync(mailMessage, cancellationToken);
 
                 return string.Empty;
             }

@@ -298,7 +298,7 @@ namespace DotNetNuke.Tests.Content.Mocks
 
         internal static IFileInfo CreateRandomFile(int fileId)
         {
-            var files = Directory.EnumerateFiles(@"C:\").ToArray();
+            var files = Directory.EnumerateFiles(AppContext.BaseDirectory).ToArray();
 
             var random = new Random((int)DateTime.UtcNow.Ticks);
 

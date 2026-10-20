@@ -13,6 +13,7 @@ namespace DNN.Integration.Test.Framework
     using System.Net.Cache;
     using System.Net.Http;
     using System.Net.Http.Headers;
+    using System.Net.Http.Json;
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
@@ -142,7 +143,9 @@ namespace DNN.Integration.Test.Framework
                 try
                 {
                     var requestUriString = CombineUrlPath(this.Domain, LogoffPath);
+#pragma warning disable SYSLIB0014 // HttpWebRequest is obsolete; retained for legacy integration-test HTTP flow.
                     var httpWebRequest1 = (HttpWebRequest)WebRequest.Create(requestUriString);
+#pragma warning restore SYSLIB0014
                     httpWebRequest1.Method = "GET";
                     httpWebRequest1.KeepAlive = false;
                     httpWebRequest1.CookieContainer = this._sessionCookiesContainer;
@@ -916,7 +919,9 @@ namespace DNN.Integration.Test.Framework
 
         private HttpWebResponse PostForm(string postUrl, string userAgent, string contentType, IDictionary<string, string> headers, byte[] formData, bool followRedirect)
         {
+#pragma warning disable SYSLIB0014 // HttpWebRequest is obsolete; retained for legacy integration-test HTTP flow.
             var request = WebRequest.Create(postUrl) as HttpWebRequest;
+#pragma warning restore SYSLIB0014
 
             if (request == null)
             {

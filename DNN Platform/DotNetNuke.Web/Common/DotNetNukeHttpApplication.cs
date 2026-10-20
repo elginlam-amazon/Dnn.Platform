@@ -62,7 +62,7 @@ namespace DotNetNuke.Web.Common.Internal
             ComponentFactory.InstallComponents(new ProviderInstaller("caching", typeof(CachingProvider), typeof(FBCachingProvider)));
             ComponentFactory.InstallComponents(new ProviderInstaller("logging", typeof(LoggingProvider), typeof(DBLoggingProvider)));
             ComponentFactory.InstallComponents(new ProviderInstaller("scheduling", typeof(SchedulingProvider), typeof(DNNScheduler)));
-            ComponentFactory.InstallComponents(new ProviderInstaller("members", typeof(MembershipProvider), typeof(AspNetMembershipProvider)));
+            ComponentFactory.InstallComponents(new ProviderInstaller("members", typeof(DotNetNuke.Security.Membership.MembershipProvider), typeof(AspNetMembershipProvider)));
             ComponentFactory.InstallComponents(new ProviderInstaller("roles", typeof(RoleProvider), typeof(DNNRoleProvider)));
             ComponentFactory.InstallComponents(new ProviderInstaller("profiles", typeof(ProfileProvider), typeof(DNNProfileProvider)));
             ComponentFactory.InstallComponents(new ProviderInstaller("permissions", typeof(PermissionProvider), typeof(CorePermissionProvider)));
@@ -85,9 +85,11 @@ namespace DotNetNuke.Web.Common.Internal
             ComponentFactory.InstallComponents(new ProviderInstaller("tokens", typeof(TokenProvider)));
             ComponentFactory.InstallComponents(new ProviderInstaller("mail", typeof(MailProvider)));
 
-            dependencyProvider.SetProvider(DependencyInjectionInitialize.BuildServiceProvider());
+            // use the container of the ASP.NET Core host when the DNN services were registered there (DependencyInjectionInitialize.AddDnnServices)
+            dependencyProvider.SetProvider(DependencyInjectionInitialize.HostServiceProvider ?? DependencyInjectionInitialize.BuildServiceProvider());
             ServiceRequestScopeModule.SetServiceProvider(Globals.DependencyProvider);
-            HttpRuntime.WebObjectActivator = new WebFormsServiceProvider();
+
+            // the System.Web adapters resolve HttpRuntime.WebObjectActivator from the ASP.NET Core services (see WebFormsServiceProvider)
         }
 
         private static void RegisterIfNotAlreadyRegistered<TConcrete>()

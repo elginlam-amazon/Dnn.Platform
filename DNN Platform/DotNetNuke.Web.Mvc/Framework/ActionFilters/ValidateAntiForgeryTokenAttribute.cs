@@ -1,47 +1,44 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 {
     using System;
-    using System.Collections.Generic;
-    using System.Diagnostics.CodeAnalysis;
-    using System.Linq;
     using System.Threading;
-    using System.Web;
 
     using DotNetNuke.Web.Mvc.Common;
 
+    using Microsoft.AspNetCore.Http;
+
+    /// <summary>Validates the DNN anti-forgery token, read from the <c>RequestVerificationToken</c> header or the <c>__RequestVerificationToken</c> form field.</summary>
     public class ValidateAntiForgeryTokenAttribute : AuthorizeAttributeBase
     {
-        public virtual bool IsAuthenticated(HttpContextBase httpContext)
+        /// <summary>Determines whether the request carries a valid anti-forgery token.</summary>
+        /// <param name="httpContext">The HTTP context.</param>
+        /// <returns><see langword="true"/> if the token is valid.</returns>
+        public virtual bool IsAuthenticated(HttpContext httpContext)
         {
             try
             {
-                if (Thread.CurrentPrincipal.Identity.IsAuthenticated)
-                {
-                    var headers = httpContext.Request.Headers;
-                    var form = httpContext.Request.Form;
-
-                    // Try to fetch the token from Headers. (Used with Dnn service framework.).
-                    // If not found then fetch it from form fields. (Would be used with standard MVC call).
-                    var token = headers.GetValues("RequestVerificationToken")?.FirstOrDefault() ?? form.GetValues("__RequestVerificationToken")?.FirstOrDefault();
-
-                    var cookieValue = this.GetAntiForgeryCookieValue(httpContext);
-                    if (token != null)
-                    {
-                        AntiForgery.Instance.Validate(cookieValue, token);
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-                else
+                if (Thread.CurrentPrincipal?.Identity?.IsAuthenticated != true)
                 {
                     return false;
                 }
+
+                string token = httpContext.Request.Headers["RequestVerificationToken"];
+                if (string.IsNullOrEmpty(token) && httpContext.Request.HasFormContentType)
+                {
+                    token = httpContext.Request.Form["__RequestVerificationToken"];
+                }
+
+                if (string.IsNullOrEmpty(token))
+                {
+                    return false;
+                }
+
+                var cookieValue = this.GetAntiForgeryCookieValue(httpContext);
+                AntiForgery.Instance.Validate(cookieValue, token);
             }
             catch (Exception)
             {
@@ -51,33 +48,20 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
             return true;
         }
 
-        [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
-        protected string GetAntiForgeryCookieValue(HttpContextBase context)
+        /// <summary>Gets the anti-forgery cookie value from the request.</summary>
+        /// <param name="context">The HTTP context.</param>
+        /// <returns>The cookie value, or an empty string.</returns>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Breaking change")]
+        protected string GetAntiForgeryCookieValue(HttpContext context)
         {
-            foreach (var cookieValue in context.Request.Headers.GetValues("Cookie"))
-            {
-                var nameIndex = cookieValue.IndexOf(AntiForgery.Instance.CookieName, StringComparison.InvariantCultureIgnoreCase);
-
-                if (nameIndex > -1)
-                {
-                    var valueIndex = nameIndex + AntiForgery.Instance.CookieName.Length + 1;
-                    var valueEndIndex = cookieValue.Substring(valueIndex).IndexOf(';');
-                    return valueEndIndex > -1 ? cookieValue.Substring(valueIndex, valueEndIndex) : cookieValue.Substring(valueIndex);
-                }
-            }
-
-            return string.Empty;
+            var cookieName = AntiForgery.Instance.CookieName;
+            return context.Request.Cookies.TryGetValue(cookieName, out var value) ? value : string.Empty;
         }
 
         /// <inheritdoc />
-        protected override bool AuthorizeCore(HttpContextBase httpContext)
+        protected override bool AuthorizeCore(HttpContext httpContext)
         {
-            if (!this.IsAuthenticated(httpContext))
-            {
-                return false;
-            }
-
-            return true;
+            return this.IsAuthenticated(httpContext);
         }
     }
 }

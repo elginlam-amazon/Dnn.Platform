@@ -69,7 +69,7 @@ namespace DotNetNuke.UI.Modules
                 }
                 catch (ThreadAbortException)
                 {
-                    Thread.ResetAbort();
+                    // thread aborts (and Thread.ResetAbort) do not exist on .NET
                 }
             }
 

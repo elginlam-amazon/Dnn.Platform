@@ -164,7 +164,7 @@ namespace DotNetNuke.Services.Cache
         {
             // cache key may contain characters invalid for a filename - this method creates a valid filename
             byte[] fileNameBytes = Encoding.ASCII.GetBytes(cacheKey);
-            using (var sha256 = new SHA256CryptoServiceProvider())
+            using (var sha256 = SHA256.Create())
             {
                 fileNameBytes = sha256.ComputeHash(fileNameBytes);
                 string finalFileName = ByteArrayToString(fileNameBytes);

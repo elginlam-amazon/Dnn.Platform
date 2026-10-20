@@ -7,6 +7,7 @@ namespace DotNetNuke.Modules.Admin.ViewProfile
     using System.Linq;
     using System.Text;
     using System.Threading;
+    using System.Web;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
@@ -24,6 +25,7 @@ namespace DotNetNuke.Modules.Admin.ViewProfile
     using DotNetNuke.Services.Social.Notifications;
     using DotNetNuke.Services.Tokens;
     using DotNetNuke.UI.Modules;
+
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>The ViewProfile ProfileModuleUserControlBase is used to view a Users Profile.</summary>

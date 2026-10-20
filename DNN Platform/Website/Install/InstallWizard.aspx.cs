@@ -62,7 +62,7 @@ namespace DotNetNuke.Services.Install
         private static readonly IInstallationStep InstallSiteStep = new InstallSiteStep();
         private static readonly IInstallationStep InstallSuperUserStep = new InstallSuperUserStep();
 
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<InstallWizard>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<InstallWizard>();
 
         // Ordered List of Steps (and weight in percentage) to be executed
         private static readonly IDictionary<IInstallationStep, int> Steps = new Dictionary<IInstallationStep, int>
@@ -549,7 +549,9 @@ namespace DotNetNuke.Services.Install
         protected override void OnError(EventArgs e)
         {
             HttpContext.Current.Response.Clear();
-            HttpContext.Current.Server.Transfer("~/ErrorPage.aspx");
+
+            // Server.Transfer is not supported on ASP.NET Core
+            HttpContext.Current.Response.Redirect(this.ResolveUrl("~/ErrorPage.aspx"), true);
         }
 
         /// <inheritdoc />
@@ -966,7 +968,9 @@ namespace DotNetNuke.Services.Install
                     // 403-3 Error - Redirect to ErrorPage
                     var strUrl = "~/ErrorPage.aspx?status=403_3&error=" + strError;
                     HttpContext.Current.Response.Clear();
-                    HttpContext.Current.Server.Transfer(strUrl);
+
+                    // Server.Transfer is not supported on ASP.NET Core
+                    HttpContext.Current.Response.Redirect(Globals.ResolveUrl(strUrl), true);
                 }
             }
         }

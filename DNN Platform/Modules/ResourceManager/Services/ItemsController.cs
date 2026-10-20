@@ -13,12 +13,12 @@ namespace Dnn.Modules.ResourceManager.Services
     using System.Net.Http.Headers;
     using System.Web;
     using System.Web.Hosting;
-    using System.Web.Http;
 
     using Dnn.Modules.ResourceManager.Components;
     using Dnn.Modules.ResourceManager.Helpers;
     using Dnn.Modules.ResourceManager.Services.Attributes;
     using Dnn.Modules.ResourceManager.Services.Dto;
+
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Security;
     using DotNetNuke.Abstractions.Security.Permissions;
@@ -37,9 +37,12 @@ namespace Dnn.Modules.ResourceManager.Services
     using DotNetNuke.UI.Modules;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
 
     using CreateNewFolderRequest = Dnn.Modules.ResourceManager.Services.Dto.CreateNewFolderRequest;
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>Expose any services via this class. You can keep services in separate classes or all together in one service class.</summary>
     [ResourceManagerExceptionFilter]
@@ -151,7 +154,7 @@ namespace Dnn.Modules.ResourceManager.Services
         /// <summary>Gets the module settings.</summary>
         /// <returns><see cref="SettingsManager"/>.</returns>
         [HttpGet]
-        public IHttpActionResult GetSettings()
+        public IActionResult GetSettings()
         {
             var groupId = this.FindGroupId(this.Request);
             var moduleId = this.Request.FindModuleId();
@@ -163,7 +166,7 @@ namespace Dnn.Modules.ResourceManager.Services
         /// <param name="folderId">The ID of the folder to get.</param>
         /// <returns>An Item viewmodel.</returns>
         [HttpGet]
-        public IHttpActionResult GetFolderItem(int folderId)
+        public IActionResult GetFolderItem(int folderId)
         {
             var folder = FolderManager.Instance.GetFolder(folderId);
             var item = this.GetItemViewModel(folder);
@@ -188,7 +191,7 @@ namespace Dnn.Modules.ResourceManager.Services
         /// <param name="item">The thumbnail download request.</param>
         /// <returns>The http response message.</returns>
         [HttpGet]
-        public HttpResponseMessage ThumbnailDownLoad([FromUri] ThumbnailDownloadRequest item)
+        public HttpResponseMessage ThumbnailDownLoad([FromQuery] ThumbnailDownloadRequest item)
         {
             var file = FileManager.Instance.GetFile(item.FileId);
             if (file == null || !PermissionsManager.Instance.HasGetFileContentPermission(file.FolderId))
@@ -393,7 +396,7 @@ namespace Dnn.Modules.ResourceManager.Services
         /// <returns>Detailed information about the file.</returns>
         [HttpGet]
         [AllowAnonymous]
-        public IHttpActionResult GetFileDetails(int fileId)
+        public IActionResult GetFileDetails(int fileId)
         {
             var file = FileManager.Instance.GetFile(fileId);
             if (file == null)
@@ -405,7 +408,7 @@ namespace Dnn.Modules.ResourceManager.Services
             if (!FolderPermissionController.CanViewFolder((FolderInfo)folder))
             {
                 var message = LocalizationHelper.GetString("UserHasNoPermissionToReadFileProperties.Error");
-                return this.InternalServerError(new Exception(message));
+                return this.StatusCode((int)HttpStatusCode.InternalServerError, new { Message = message });
             }
 
             var createdBy = file.CreatedByUser(this.PortalSettings.PortalId);
@@ -433,7 +436,7 @@ namespace Dnn.Modules.ResourceManager.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
 
-        public IHttpActionResult SaveFileDetails(FileDetailsRequest fileDetails)
+        public IActionResult SaveFileDetails(FileDetailsRequest fileDetails)
         {
             var file = FileManager.Instance.GetFile(fileDetails.FileId);
             if (file == null)
@@ -445,7 +448,7 @@ namespace Dnn.Modules.ResourceManager.Services
             if (!FolderPermissionController.CanManageFolder((FolderInfo)folder))
             {
                 var message = LocalizationHelper.GetString("UserHasNoPermissionToManageFileProperties.Error");
-                return this.InternalServerError(new Exception(message));
+                return this.StatusCode((int)HttpStatusCode.InternalServerError, new { Message = message });
             }
 
             ItemsManager.Instance.SaveFileDetails(file, fileDetails);
@@ -458,14 +461,14 @@ namespace Dnn.Modules.ResourceManager.Services
         /// <returns>Detailed information about the folder.</returns>
         [HttpGet]
 
-        public IHttpActionResult GetFolderDetails(int folderId)
+        public IActionResult GetFolderDetails(int folderId)
         {
             var folder = FolderManager.Instance.GetFolder(folderId);
 
             if (!FolderPermissionController.CanManageFolder((FolderInfo)folder))
             {
                 var message = LocalizationHelper.GetString("UserHasNoPermissionToManageFolder.Error");
-                return this.InternalServerError(new Exception(message));
+                return this.StatusCode((int)HttpStatusCode.InternalServerError, new { Message = message });
             }
 
             var createdBy = folder.CreatedByUser(this.PortalSettings.PortalId);
@@ -491,7 +494,7 @@ namespace Dnn.Modules.ResourceManager.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
 
-        public IHttpActionResult SaveFolderDetails(FolderDetailsRequest folderDetails)
+        public IActionResult SaveFolderDetails(FolderDetailsRequest folderDetails)
         {
             var folder = FolderManager.Instance.GetFolder(folderDetails.FolderId);
             if (folder == null)
@@ -502,7 +505,7 @@ namespace Dnn.Modules.ResourceManager.Services
             if (!FolderPermissionController.CanManageFolder((FolderInfo)folder))
             {
                 var message = LocalizationHelper.GetString("UserHasNoPermissionToManageFolder.Error");
-                return this.InternalServerError(new Exception(message));
+                return this.StatusCode((int)HttpStatusCode.InternalServerError, new { Message = message });
             }
 
             ItemsManager.Instance.SaveFolderDetails(folder, folderDetails);
@@ -559,7 +562,7 @@ namespace Dnn.Modules.ResourceManager.Services
         /// <returns>A string representing the full url  to the folder icon.</returns>
         [HttpGet]
         [ValidateAntiForgeryToken]
-        public IHttpActionResult GetFolderIconUrl(int folderId)
+        public IActionResult GetFolderIconUrl(int folderId)
         {
             var folderMappingId = FolderManager.Instance.GetFolder(folderId).FolderMappingID;
             var url = GetFolderIconUrl(this.PortalSettings.PortalId, folderMappingId);
@@ -570,7 +573,7 @@ namespace Dnn.Modules.ResourceManager.Services
         /// <returns>A collection of role groups.</returns>
         [HttpGet]
         [ValidateAntiForgeryToken]
-        public IHttpActionResult GetRoleGroups()
+        public IActionResult GetRoleGroups()
         {
             if (!this.UserInfo.IsInRole(this.PortalSettings.AdministratorRoleName))
             {
@@ -588,7 +591,7 @@ namespace Dnn.Modules.ResourceManager.Services
         /// <returns>A collection of roles.</returns>
         [HttpGet]
         [ValidateAntiForgeryToken]
-        public IHttpActionResult GetRoles()
+        public IActionResult GetRoles()
         {
             var matchedRoles = RoleController.Instance.GetRoles(this.PortalSettings.PortalId)
                 .Where(r => r.Status == RoleStatus.Approved)
@@ -616,7 +619,7 @@ namespace Dnn.Modules.ResourceManager.Services
         /// <returns>A collection of users.</returns>
         [HttpGet]
         [ValidateAntiForgeryToken]
-        public IHttpActionResult GetSuggestionUsers(string keyword, int count)
+        public IActionResult GetSuggestionUsers(string keyword, int count)
         {
             try
             {
@@ -658,7 +661,7 @@ namespace Dnn.Modules.ResourceManager.Services
             }
             catch (Exception ex)
             {
-                return this.InternalServerError(new Exception(ex.Message));
+                return this.StatusCode((int)HttpStatusCode.InternalServerError, new { ex.Message });
             }
         }
 
@@ -666,7 +669,7 @@ namespace Dnn.Modules.ResourceManager.Services
         /// <returns>An object containing the allowed file extensions and the validation code to use for uploads.</returns>
         [HttpGet]
         [ValidateAntiForgeryToken]
-        public IHttpActionResult GetAllowedFileExtensions()
+        public IActionResult GetAllowedFileExtensions()
         {
             var allowedExtensions = FileManager.Instance.WhiteList.ToStorageString();
             var parameters = new List<object>
@@ -688,7 +691,7 @@ namespace Dnn.Modules.ResourceManager.Services
 
         private static string GetFileIconUrl(string extension)
         {
-            if (!string.IsNullOrEmpty(extension) && File.Exists(HostingEnvironment.MapPath(IconController.IconURL("Ext" + extension, "32x32", "Standard"))))
+            if (!string.IsNullOrEmpty(extension) && System.IO.File.Exists(HostingEnvironment.MapPath(IconController.IconURL("Ext" + extension, "32x32", "Standard"))))
             {
                 return IconController.IconURL("Ext" + extension, "32x32", "Standard");
             }
@@ -707,12 +710,12 @@ namespace Dnn.Modules.ResourceManager.Services
             }
 
             var localSvg = string.Format(svgPath, folderMapping.FolderProviderType.Replace("FolderProvider", string.Empty).ToLowerInvariant());
-            if (File.Exists(HostingEnvironment.MapPath($"~/{localSvg}")))
+            if (System.IO.File.Exists(HostingEnvironment.MapPath($"~/{localSvg}")))
             {
                 return Globals.ApplicationPath + "/" + localSvg;
             }
 
-            if (File.Exists(HostingEnvironment.MapPath(folderMapping.ImageUrl)))
+            if (System.IO.File.Exists(HostingEnvironment.MapPath(folderMapping.ImageUrl)))
             {
                 return VirtualPathUtility.ToAbsolute(folderMapping.ImageUrl);
             }
@@ -720,11 +723,10 @@ namespace Dnn.Modules.ResourceManager.Services
             return Globals.ApplicationPath + "/" + string.Format(svgPath, "standard");
         }
 
-        private int FindGroupId(HttpRequestMessage request)
+        private int FindGroupId(HttpRequest request)
         {
-            var headers = request.Headers;
             int groupId;
-            int.TryParse(headers.GetValues("GroupId").FirstOrDefault(), out groupId);
+            int.TryParse(request.Headers["GroupId"].ToString(), out groupId);
             return groupId;
         }
 

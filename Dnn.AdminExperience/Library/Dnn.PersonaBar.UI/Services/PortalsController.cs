@@ -8,7 +8,6 @@ namespace Dnn.PersonaBar.UI.Services
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -17,7 +16,9 @@ namespace Dnn.PersonaBar.UI.Services
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     /// <summary>Service to perform portal operations.</summary>

@@ -10,7 +10,6 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -23,8 +22,11 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
     using DotNetNuke.Security.Roles;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for the Member Directory module.</summary>
     /// <param name="listController">The list controller.</param>

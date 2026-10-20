@@ -6,7 +6,6 @@ namespace DotNetNuke.Common
     using System;
     using System.Globalization;
     using System.IO;
-    using System.Reflection;
     using System.Threading;
     using System.Web;
     using System.Web.Hosting;
@@ -85,56 +84,9 @@ namespace DotNetNuke.Common
         {
             try
             {
-                ApplicationShutdownReason shutdownReason = HostingEnvironment.ShutdownReason;
-                string shutdownDetail;
-                switch (shutdownReason)
-                {
-                    case ApplicationShutdownReason.BinDirChangeOrDirectoryRename:
-                        shutdownDetail = "The AppDomain shut down because of a change to the Bin folder or files contained in it.";
-                        break;
-                    case ApplicationShutdownReason.BrowsersDirChangeOrDirectoryRename:
-                        shutdownDetail = "The AppDomain shut down because of a change to the App_Browsers folder or files contained in it.";
-                        break;
-                    case ApplicationShutdownReason.ChangeInGlobalAsax:
-                        shutdownDetail = "The AppDomain shut down because of a change to Global.asax.";
-                        break;
-                    case ApplicationShutdownReason.ChangeInSecurityPolicyFile:
-                        shutdownDetail = "The AppDomain shut down because of a change in the code access security policy file.";
-                        break;
-                    case ApplicationShutdownReason.CodeDirChangeOrDirectoryRename:
-                        shutdownDetail = "The AppDomain shut down because of a change to the App_Code folder or files contained in it.";
-                        break;
-                    case ApplicationShutdownReason.ConfigurationChange:
-                        shutdownDetail = "The AppDomain shut down because of a change to the application level configuration.";
-                        break;
-                    case ApplicationShutdownReason.HostingEnvironment:
-                        shutdownDetail = "The AppDomain shut down because of the hosting environment.";
-                        break;
-                    case ApplicationShutdownReason.HttpRuntimeClose:
-                        shutdownDetail = "The AppDomain shut down because of a call to Close.";
-                        break;
-                    case ApplicationShutdownReason.IdleTimeout:
-                        shutdownDetail = "The AppDomain shut down because of the maximum allowed idle time limit.";
-                        break;
-                    case ApplicationShutdownReason.InitializationError:
-                        shutdownDetail = "The AppDomain shut down because of an AppDomain initialization error.";
-                        break;
-                    case ApplicationShutdownReason.MaxRecompilationsReached:
-                        shutdownDetail = "The AppDomain shut down because of the maximum number of dynamic recompiles of resources limit.";
-                        break;
-                    case ApplicationShutdownReason.PhysicalApplicationPathChanged:
-                        shutdownDetail = "The AppDomain shut down because of a change to the physical path for the application.";
-                        break;
-                    case ApplicationShutdownReason.ResourcesDirChangeOrDirectoryRename:
-                        shutdownDetail = "The AppDomain shut down because of a change to the App_GlobalResources folder or files contained in it.";
-                        break;
-                    case ApplicationShutdownReason.UnloadAppDomainCalled:
-                        shutdownDetail = "The AppDomain shut down because of a call to UnloadAppDomain.";
-                        break;
-                    default:
-                        shutdownDetail = "Shutdown reason: " + shutdownReason;
-                        break;
-                }
+                // ASP.NET Core does not track a shutdown reason (System.Web's HostingEnvironment.ShutdownReason),
+                // the application is stopped by the host (IHostApplicationLifetime).
+                const string shutdownDetail = "The application shut down because of the hosting environment.";
 
                 var log = new LogInfo
                 {
@@ -144,37 +96,7 @@ namespace DotNetNuke.Common
                 log.AddProperty("Shutdown Details", shutdownDetail);
                 LogController.Instance.AddLog(log);
 
-                // enhanced shutdown logging
-                if (typeof(HttpRuntime).InvokeMember(
-                        "_theRuntime",
-                        BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.GetField,
-                        null,
-                        null,
-                        null,
-                        CultureInfo.InvariantCulture) is not HttpRuntime runtime)
-                {
-                    Logger.InitializeApplicationShuttingDown(shutdownDetail);
-                }
-                else
-                {
-                    var shutDownMessage = runtime.GetType().InvokeMember(
-                        "_shutDownMessage",
-                        BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.GetField,
-                        null,
-                        runtime,
-                        null,
-                        CultureInfo.InvariantCulture) as string;
-
-                    var shutDownStack = runtime.GetType().InvokeMember(
-                        "_shutDownStack",
-                        BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.GetField,
-                        null,
-                        runtime,
-                        null,
-                        CultureInfo.InvariantCulture) as string;
-
-                    Logger.InitializeApplicationShuttingDownWithInfo(shutdownDetail, shutDownMessage, shutDownStack);
-                }
+                Logger.InitializeApplicationShuttingDown(shutdownDetail);
             }
             catch (Exception exc)
             {
@@ -348,7 +270,9 @@ namespace DotNetNuke.Common
 
                             string url = "~/ErrorPage.aspx?status=500&error=Site Unavailable&error2=Connection To The Database Failed";
                             HttpContext.Current.Response.Clear();
-                            HttpContext.Current.Server.Transfer(url);
+
+                            // Server.Transfer is not supported on ASP.NET Core
+                            HttpContext.Current.Response.Redirect(Globals.ResolveUrl(url), true);
                         }
                     }
 

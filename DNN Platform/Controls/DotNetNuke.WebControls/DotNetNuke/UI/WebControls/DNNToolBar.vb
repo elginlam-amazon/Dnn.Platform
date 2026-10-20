@@ -14,12 +14,11 @@ Imports System.ComponentModel.Design
 Imports System.Diagnostics
 Imports System.Text
 Imports System.Web.UI
-Imports System.Web.UI.Design
 Imports System.Web.UI.HtmlControls
 Imports System.Web.UI.WebControls
 
 Namespace DotNetNuke.UI.WebControls
-    <ProvideProperty("Toolbar", GetType(Control)), DefaultProperty("Buttons"), ParseChildren(True, "Buttons"), Designer(GetType(DNNToolBarDesigner)), PersistChildren(False)> _
+    <ProvideProperty("Toolbar", GetType(Control)), DefaultProperty("Buttons"), ParseChildren(True, "Buttons"), PersistChildren(False)> _
     Public Class DNNToolBar
         Inherits Control
         Implements IExtenderProvider
@@ -103,11 +102,7 @@ Namespace DotNetNuke.UI.WebControls
         End Function
 
         Friend Sub NotifyDesigner()
-            If (If((Not WebControls.IsDesignMode OrElse (MyBase.Site Is Nothing)), 0, 1) <> 0) Then
-                Dim member As PropertyDescriptor = TypeDescriptor.GetProperties(Me)("Toolbar")
-                Dim ce As New ComponentChangedEventArgs(Me, member, Nothing, Me)
-                DirectCast(DirectCast(MyBase.Site.Container, IDesignerHost).GetDesigner(Me), ControlDesigner).OnComponentChanged(Me, ce)
-            End If
+            ' Visual Studio design-time hosting (System.Web.UI.Design.ControlDesigner) is not available on .NET.
         End Sub
 
         Public Function RegisterToolBar(ByVal objAssociatedControl As Control, ByVal strShowEventName As String, ByVal strHideEventName As String, ByVal strToolBarActionHandler As String) As Boolean

@@ -3,12 +3,11 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Web.Razor.Helpers
 {
-    using System;
-    using System.Web;
-
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.UI.Modules;
+
+    using Microsoft.AspNetCore.Html;
 
     /// <summary>A razor helper for HTML generation.</summary>
     [DnnDeprecated(9, 3, 2, "Use Razor Pages instead")]

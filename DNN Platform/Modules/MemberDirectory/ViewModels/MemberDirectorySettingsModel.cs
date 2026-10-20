@@ -9,13 +9,15 @@ namespace DotNetNuke.Modules.MemberDirectory.ViewModels
 
     using DotNetNuke.Entities.Profile;
     using DotNetNuke.Entities.Users.Social;
-    using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security.Roles;
-    using DotNetNuke.Web.Mvp;
 
     /// <summary>The model for <see cref="Settings"/>.</summary>
-    [DnnDeprecated(9, 2, 0, "Replace WebFormsMvp and DotNetNuke.Web.Mvp with MVC or SPA patterns instead")]
-    public partial class MemberDirectorySettingsModel : SettingsModel
+    /// <remarks>
+    /// Originally derived from the WebFormsMvp based <c>DotNetNuke.Web.Mvp.SettingsModel</c>, which was
+    /// removed. The <see cref="ModuleSettings"/> and <see cref="TabModuleSettings"/> members that the base
+    /// class previously provided are now declared directly here to preserve the original behavior.
+    /// </remarks>
+    public partial class MemberDirectorySettingsModel
     {
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
@@ -26,5 +28,11 @@ namespace DotNetNuke.Modules.MemberDirectory.ViewModels
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
         public IList<RoleInfo> Groups;
+
+        /// <summary>Gets or sets the module settings.</summary>
+        public Dictionary<string, string> ModuleSettings { get; set; }
+
+        /// <summary>Gets or sets the tab-module settings.</summary>
+        public Dictionary<string, string> TabModuleSettings { get; set; }
     }
 }

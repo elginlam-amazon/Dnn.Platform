@@ -49,7 +49,7 @@ namespace DotNetNuke.Services.UserRequest
 
             if (!string.IsNullOrEmpty(userRequestIpHeader) && request.Headers.AllKeys.Contains(userRequestIpHeader))
             {
-                userIpAddress = request.Headers[userRequestIpHeader];
+                userIpAddress = request.Headers[userRequestIpHeader] ?? string.Empty;
                 userIpAddress = userIpAddress.Split(',')[0];
                 if (ipFamily == IPAddressFamily.IPv4 && userIpAddress.Contains(':'))
                 {

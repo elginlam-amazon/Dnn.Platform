@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -13,14 +13,9 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
-  <ItemGroup Condition=" '$(TargetFramework)' == 'net48' ">
-    <Reference Include="System.Web" />
-  </ItemGroup>
-
   <ItemGroup>
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
-    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="CoreWebForms" />
   </ItemGroup>
 
   <ItemGroup>
@@ -38,7 +33,10 @@
 
   <Import Project="..\..\DNN_Platform.build" />
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="XCOPY &quot;$(ProjectDir)bin\$(ConfigurationName)\net48\DotNetNuke.ModulePipeline.*&quot; &quot;$(WebsitePath)\bin&quot; /S /Y /I" />
+    <ItemGroup>
+      <PostBuildCopyFiles Include="$(ProjectDir)bin\$(Configuration)\net10.0\DotNetNuke.ModulePipeline.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PostBuildCopyFiles)" DestinationFolder="$(WebsitePath)\bin" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

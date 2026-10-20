@@ -10,7 +10,6 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions;
 using DotNetNuke.Common;
@@ -18,6 +17,7 @@ using DotNetNuke.Entities.Tabs;
 using DotNetNuke.Services.Localization;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>A web API for getting the translation status of a site.</summary>
@@ -56,7 +56,7 @@ public class LanguageServiceController : DnnApiController
     [HttpGet]
     public HttpResponseMessage GetNonTranslatedPages(string languageCode)
     {
-        var request = HttpContext.Current.Request;
+        var request = System.Web.HttpContext.Current.Request;
         var locale = this.localeController.GetLocale(languageCode);
 
         List<PageDto> pages = [];

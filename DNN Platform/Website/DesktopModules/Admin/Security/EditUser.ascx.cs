@@ -42,7 +42,7 @@ namespace DotNetNuke.Modules.Admin.Users
     /// <summary>The ManageUsers UserModuleBase is used to manage Users.</summary>
     public partial class EditUser : UserModuleBase
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<EditUser>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<EditUser>();
         private readonly INavigationManager navigationManager;
         private readonly IJavaScriptLibraryHelper javaScript;
         private readonly IPortalController portalController;

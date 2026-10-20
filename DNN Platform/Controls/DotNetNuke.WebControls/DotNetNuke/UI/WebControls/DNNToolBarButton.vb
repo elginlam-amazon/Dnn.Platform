@@ -142,6 +142,25 @@ Namespace DotNetNuke.UI.WebControls
             Return Me
         End Function
 
+        ' Members added to ICustomTypeDescriptor in .NET (trimming support); VB does not consume default interface implementations.
+        Public Function GetConverterFromRegisteredType() As TypeConverter Implements ICustomTypeDescriptor.GetConverterFromRegisteredType
+            Return Me.GetConverter()
+        End Function
+
+        Public Function GetEventsFromRegisteredType() As EventDescriptorCollection Implements ICustomTypeDescriptor.GetEventsFromRegisteredType
+            Return Me.GetEvents2()
+        End Function
+
+        Public Function GetPropertiesFromRegisteredType() As PropertyDescriptorCollection Implements ICustomTypeDescriptor.GetPropertiesFromRegisteredType
+            Return Me.GetProperties2()
+        End Function
+
+        Public ReadOnly Property RequireRegisteredTypes As Boolean? Implements ICustomTypeDescriptor.RequireRegisteredTypes
+            Get
+                Return Nothing
+            End Get
+        End Property
+
         Private Sub HandlePropertyFilters(ByVal pd As PropertyDescriptor, ByVal x As PropertyDescriptorCollection)
             pd.GetValue(Me)
             x.Add(pd)

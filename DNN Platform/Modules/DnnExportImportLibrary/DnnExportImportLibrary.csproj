@@ -3,7 +3,7 @@
   <PropertyGroup>
     <RootNamespace>Dnn.ExportImport</RootNamespace>
     <AssemblyName>DotNetNuke.SiteExportImport.Library</AssemblyName>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>

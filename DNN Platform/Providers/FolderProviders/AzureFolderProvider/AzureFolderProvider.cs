@@ -52,9 +52,11 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
         {
             this.cryptographyProvider = cryptographyProvider ?? HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<ICryptographyProvider>();
 
+#pragma warning disable SYSLIB0014 // ServicePointManager is obsolete; the legacy WindowsAzure.Storage SDK still honours these connection tuning settings, so they are preserved.
             ServicePointManager.DefaultConnectionLimit = 100;
             ServicePointManager.UseNagleAlgorithm = false;
             ServicePointManager.Expect100Continue = false;
+#pragma warning restore SYSLIB0014
 
             // Read the configuration specific information for this provider
             var objProvider = (Provider)this.providerConfiguration.Providers[ProviderName];
@@ -115,7 +117,7 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
 
                 const string groupPolicyIdentifier = "DNNFileManagerPolicy";
 
-                var permissions = container.GetPermissions();
+                var permissions = container.GetPermissionsAsync().GetAwaiter().GetResult();
 
                 SharedAccessBlobPolicy policy;
 
@@ -145,7 +147,7 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
                     Thread.CurrentThread.CurrentCulture = CultureInfo.CreateSpecificCulture("en-US");
                 }
 
-                container.SetPermissions(permissions);
+                container.SetPermissionsAsync(permissions).GetAwaiter().GetResult();
 
                 var signature = blob.GetSharedAccessSignature(new SharedAccessBlobPolicy(), groupPolicyIdentifier);
 
@@ -177,7 +179,16 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
             var sc = new StorageCredentials(accountName, accountKey);
             var csa = new CloudStorageAccount(sc, useHttps);
             var blobClient = csa.CreateCloudBlobClient();
-            blobClient.ListContainers().ToList().ForEach(x => containers.Add(x.Name));
+
+            BlobContinuationToken continuationToken = null;
+            do
+            {
+                var resultSegment = blobClient.ListContainersSegmentedAsync(continuationToken).GetAwaiter().GetResult();
+                resultSegment.Results.ToList().ForEach(x => containers.Add(x.Name));
+                continuationToken = resultSegment.ContinuationToken;
+            }
+            while (continuationToken != null);
+
             return containers;
         }
 
@@ -209,7 +220,7 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
             var sourceBlob = container.GetBlobReference(sourceUri);
             var newBlob = container.GetBlobReference(newUri);
 
-            newBlob.StartCopy(sourceBlob.Uri);
+            newBlob.StartCopyAsync(sourceBlob.Uri).GetAwaiter().GetResult();
 
             this.ClearCache(folderMapping.FolderMappingID);
         }
@@ -220,7 +231,7 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
             var container = this.GetContainer(folderMapping);
             var blob = container.GetBlobReference(uri);
 
-            blob.DeleteIfExists();
+            blob.DeleteIfExistsAsync().GetAwaiter().GetResult();
 
             this.ClearCache(folderMapping.FolderMappingID);
         }
@@ -238,7 +249,7 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
             var blob = container.GetBlockBlobReference(uri);
 
             var memoryStream = new MemoryStream();
-            blob.DownloadToStream(memoryStream);
+            blob.DownloadToStreamAsync(memoryStream).GetAwaiter().GetResult();
             memoryStream.Seek(0, SeekOrigin.Begin);
 
             return memoryStream;
@@ -271,14 +282,14 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
                     {
                         // This overload allows control of the page size. You can return all remaining results by passing null for the maxResults parameter,
                         // or by calling a different overload.
-                        var resultSegment = container.ListBlobsSegmented(
+                        var resultSegment = container.ListBlobsSegmentedAsync(
                             string.Empty,
                             true,
                             BlobListingDetails.All,
                             synchBatchSize,
                             continuationToken,
                             null,
-                            null);
+                            null).GetAwaiter().GetResult();
                         foreach (var blobItem in resultSegment.Results)
                         {
                             list.Add(new AzureRemoteStorageItem { Blob = new AzureBlob(blobItem as CloudBlob), });
@@ -301,8 +312,8 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
             var sourceBlob = container.GetBlobReference(sourceUri);
             var newBlob = container.GetBlobReference(newUri);
 
-            newBlob.StartCopy(sourceBlob.Uri);
-            sourceBlob.Delete();
+            newBlob.StartCopyAsync(sourceBlob.Uri).GetAwaiter().GetResult();
+            sourceBlob.DeleteAsync().GetAwaiter().GetResult();
 
             this.ClearCache(folderMapping.FolderMappingID);
         }
@@ -312,14 +323,29 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
         {
             var container = this.GetContainer(folderMapping);
             var directory = container.GetDirectoryReference(sourceUri);
-            var blobs = directory.ListBlobs(true);
+
+            var blobs = new List<Microsoft.WindowsAzure.Storage.Blob.IListBlobItem>();
+            BlobContinuationToken continuationToken = null;
+            do
+            {
+                var resultSegment = directory.ListBlobsSegmentedAsync(
+                    true,
+                    BlobListingDetails.None,
+                    null,
+                    continuationToken,
+                    null,
+                    null).GetAwaiter().GetResult();
+                blobs.AddRange(resultSegment.Results);
+                continuationToken = resultSegment.ContinuationToken;
+            }
+            while (continuationToken != null);
 
             foreach (var blobItem in blobs)
             {
                 var blob = (CloudBlob)blobItem;
                 var newBlob = container.GetBlobReference(newUri + blobItem.Uri.LocalPath.Substring(directory.Uri.LocalPath.Length));
-                newBlob.StartCopy(blob.Uri);
-                blob.Delete();
+                newBlob.StartCopyAsync(blob.Uri).GetAwaiter().GetResult();
+                blob.DeleteAsync().GetAwaiter().GetResult();
             }
 
             this.ClearCache(folderMapping.FolderMappingID);
@@ -332,7 +358,7 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
             var blob = container.GetBlockBlobReference(uri);
 
             stream.Seek(0, SeekOrigin.Begin);
-            blob.UploadFromStream(stream);
+            blob.UploadFromStreamAsync(stream).GetAwaiter().GetResult();
 
             // Set the content type
             blob.Properties.ContentType = FileContentTypeManager.Instance.GetContentType(Path.GetExtension(uri));
@@ -343,7 +369,7 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
                 blob.Properties.CacheControl = this.cacheControl;
             }
 
-            blob.SetProperties();
+            blob.SetPropertiesAsync().GetAwaiter().GetResult();
 
             this.ClearCache(folderMapping.FolderMappingID);
         }

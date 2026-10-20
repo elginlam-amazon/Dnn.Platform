@@ -5,14 +5,15 @@
 namespace DotNetNuke.Web.Api.Internal
 {
     using System;
-    using System.Net.Http;
-    using System.Web.Http.Controllers;
+    using System.Linq;
+
+    using Microsoft.AspNetCore.Mvc.Filters;
 
     /// <summary>An implementation of <see cref="ValidateAntiForgeryTokenAttribute"/> that supports iframes.</summary>
     public class IFrameSupportedValidateAntiForgeryTokenAttribute : ValidateAntiForgeryTokenAttribute
     {
         /// <inheritdoc />
-        protected override Tuple<bool, string> IsAuthorized(HttpActionContext actionContext)
+        protected override Tuple<bool, string> IsAuthorized(FilterContext actionContext)
         {
             var result = base.IsAuthorized(actionContext);
             if (result.Item1)
@@ -22,16 +23,7 @@ namespace DotNetNuke.Web.Api.Internal
 
             try
             {
-                var queryString = actionContext.Request.GetQueryNameValuePairs();
-                var token = string.Empty;
-                foreach (var kvp in queryString)
-                {
-                    if (kvp.Key == "__RequestVerificationToken")
-                    {
-                        token = kvp.Value;
-                        break;
-                    }
-                }
+                var token = actionContext.HttpContext.Request.Query["__RequestVerificationToken"].FirstOrDefault() ?? string.Empty;
 
                 var cookieValue = GetAntiForgeryCookieValue(actionContext);
 

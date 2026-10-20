@@ -533,12 +533,13 @@ namespace DotNetNuke.Entities.Urls
                 const string errorPageHtmlHeader = @"<html><head><title>{0}</title></head><body>";
                 const string errorPageHtmlFooter = @"</body></html>";
                 var errorPageHtml = new StringWriter();
-                CustomErrorsSection ceSection = null;
+                var customErrorsOff = false;
 
                 // 876 : security catch for custom error reading
                 try
                 {
-                    ceSection = (CustomErrorsSection)WebConfigurationManager.GetSection("system.web/customErrors");
+                    // the system.web/customErrors section is not available through System.Configuration on .NET, it is read from the web.config
+                    customErrorsOff = string.Equals(DotNetNuke.Common.Utilities.Config.GetCustomErrorMode(), "Off", StringComparison.OrdinalIgnoreCase);
                 }
 
                 // ReSharper disable once EmptyGeneralCatchClause
@@ -805,7 +806,9 @@ namespace DotNetNuke.Entities.Urls
                                     // is satisfied it's working with a page-based handler
                                     IHttpHandler spoofPage = new CDefault();
                                     context.Handler = spoofPage;
-                                    server.Transfer("~/" + errUrl, true);
+
+                                    // Server.Transfer is not supported on ASP.NET Core, rewrite the request to the error page instead
+                                    context.RewritePath("~/" + errUrl, false);
                                 }
                                 else
                                 {
@@ -840,7 +843,9 @@ namespace DotNetNuke.Entities.Urls
 
                             response.StatusCode = statusCode;
                             response.Status = status;
-                            server.Transfer("~/" + errUrl, true);
+
+                            // Server.Transfer is not supported on ASP.NET Core, rewrite the request to the error page instead
+                            context.RewritePath("~/" + errUrl, false);
                         }
                         else
                         {
@@ -904,7 +909,7 @@ namespace DotNetNuke.Entities.Urls
                         }
                     }
 
-                    if (ceSection is { Mode: CustomErrorsMode.Off, })
+                    if (customErrorsOff)
                     {
                         errorPageHtml.Write(errorPageHtmlHeader);
                         errorPageHtml.Write($"<div style='font-weight:bolder'>Exception:</div><div>{ex.Message}</div>");
@@ -2804,8 +2809,7 @@ namespace DotNetNuke.Entities.Urls
             catch (ThreadAbortException)
             {
                 // do nothing, a threadAbortException will have occured from using a server.transfer or response.redirect within the code block.  This is the highest
-                // level try/catch block, so we handle it here.
-                Thread.ResetAbort();
+                // level try/catch block, so we handle it here (thread aborts and Thread.ResetAbort do not exist on .NET).
             }
             catch (Exception ex)
             {

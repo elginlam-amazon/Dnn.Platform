@@ -1,94 +1,98 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Tests.Web.Mvc
 {
-    using System;
     using System.Collections.Generic;
-    using System.Collections.Specialized;
-    using System.IO;
-    using System.Web;
-    using System.Web.Mvc;
-    using System.Web.Routing;
+    using System.Reflection;
 
-    using Moq;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Abstractions;
+    using Microsoft.AspNetCore.Mvc.Controllers;
+    using Microsoft.AspNetCore.Mvc.ModelBinding;
+    using Microsoft.AspNetCore.Mvc.Rendering;
+    using Microsoft.AspNetCore.Mvc.ViewFeatures;
+    using Microsoft.AspNetCore.Routing;
 
     public class MockHelper
     {
-        public static HttpContextBase CreateMockHttpContext()
+        public static HttpContext CreateMockHttpContext()
         {
-            return CreateMockHttpContext(new Dictionary<string, object>());
+            return CreateMockHttpContext(new Dictionary<object, object>());
         }
 
-        public static HttpContextBase CreateMockHttpContext(Dictionary<string, object> items)
+        public static HttpContext CreateMockHttpContext(IDictionary<object, object> items)
         {
-            var mockContext = new Mock<HttpContextBase>();
-            mockContext.SetupGet(c => c.Items)
-                       .Returns(items);
+            var context = new DefaultHttpContext();
+            foreach (var pair in items)
+            {
+                context.Items[pair.Key] = pair.Value;
+            }
 
-            var mockRequest = new Mock<HttpRequestBase>();
-            mockRequest.Setup(r => r.QueryString)
-                       .Returns(new NameValueCollection());
-            mockRequest.Setup(r => r.RequestContext)
-                       .Returns(new RequestContext());
-
-            var mockResponse = new Mock<HttpResponseBase>();
-
-            mockContext.SetupGet(c => c.Request)
-                       .Returns(mockRequest.Object);
-            mockContext.SetupGet(c => c.Response)
-                       .Returns(mockResponse.Object);
-
-            return mockContext.Object;
+            return context;
         }
 
-        public static HttpContextBase CreateMockHttpContext(string requestUrl)
+        public static HttpContext CreateMockHttpContext(string requestUrl)
         {
-            HttpContextBase httpContext = CreateMockHttpContext();
+            var context = new DefaultHttpContext();
 
-            var mockRequest = Mock.Get(httpContext.Request);
-            mockRequest.Setup(r => r.Url)
-                       .Returns(new Uri(requestUrl));
-            mockRequest.Setup(r => r.ApplicationPath)
-                       .Returns(new Uri(requestUrl).AbsolutePath);
-            mockRequest.Setup(r => r.RawUrl)
-                       .Returns(requestUrl);
+            if (!string.IsNullOrEmpty(requestUrl))
+            {
+                var uri = new System.Uri(requestUrl);
+                context.Request.Scheme = uri.Scheme;
+                context.Request.Host = uri.IsDefaultPort ? new HostString(uri.Host) : new HostString(uri.Host, uri.Port);
+                context.Request.PathBase = new PathString(uri.AbsolutePath.TrimEnd('/'));
+                context.Request.Path = new PathString(uri.AbsolutePath);
+                context.Request.QueryString = string.IsNullOrEmpty(uri.Query) ? QueryString.Empty : new QueryString(uri.Query);
+            }
 
-            var mockResponse = new Mock<HttpResponseBase>();
-            mockResponse.Setup(r => r.ApplyAppPathModifier(It.IsAny<string>()))
-                        .Returns<string>(s => s);
-
-            Mock.Get(httpContext)
-                .SetupGet(c => c.Response)
-                .Returns(mockResponse.Object);
-
-            return httpContext;
-        }
-
-        public static ControllerContext CreateMockControllerContext(ControllerBase controller)
-        {
-            return new ControllerContext(CreateMockHttpContext(), new RouteData(), controller);
-        }
-
-        public static ControllerContext CreateMockControllerContext(HttpContextBase httpContext)
-        {
-            return new ControllerContext(httpContext, new RouteData(), new Mock<ControllerBase>().Object);
+            return context;
         }
 
         public static ControllerContext CreateMockControllerContext()
         {
-            return CreateMockControllerContext(new Mock<ControllerBase>().Object);
+            return CreateMockControllerContext((HttpContext)null, new RouteData());
         }
 
-        public static ControllerContext CreateMockControllerContext(RouteData routeDatae)
+        public static ControllerContext CreateMockControllerContext(HttpContext httpContext)
         {
-            return new ControllerContext(CreateMockHttpContext(), routeDatae, new Mock<ControllerBase>().Object);
+            return CreateMockControllerContext(httpContext, new RouteData());
         }
 
-        public static ControllerContext CreateMockControllerContext(HttpContextBase httpContext, RouteData routeData)
+        public static ControllerContext CreateMockControllerContext(RouteData routeData)
         {
-            return new ControllerContext(httpContext ?? CreateMockHttpContext(), routeData, new Mock<ControllerBase>().Object);
+            return CreateMockControllerContext(null, routeData);
+        }
+
+        public static ControllerContext CreateMockControllerContext(HttpContext httpContext, RouteData routeData)
+        {
+            var actionContext = new ActionContext(
+                httpContext ?? CreateMockHttpContext(),
+                routeData ?? new RouteData(),
+                new ControllerActionDescriptor());
+            return new ControllerContext(actionContext);
+        }
+
+        public static Microsoft.AspNetCore.Mvc.Filters.AuthorizationFilterContext CreateAuthorizationFilterContext(
+            System.Type controllerType,
+            string actionMethodName,
+            params Microsoft.AspNetCore.Mvc.Filters.IFilterMetadata[] filters)
+        {
+            var methodInfo = controllerType.GetMethod(actionMethodName);
+            var descriptor = new ControllerActionDescriptor
+            {
+                ControllerTypeInfo = controllerType.GetTypeInfo(),
+                MethodInfo = methodInfo,
+                ControllerName = controllerType.Name,
+                ActionName = actionMethodName,
+            };
+
+            var actionContext = new ActionContext(CreateMockHttpContext(), new RouteData(), descriptor);
+            return new Microsoft.AspNetCore.Mvc.Filters.AuthorizationFilterContext(
+                actionContext,
+                new System.Collections.Generic.List<Microsoft.AspNetCore.Mvc.Filters.IFilterMetadata>(filters));
         }
 
         public static ViewContext CreateViewContext(string url)
@@ -97,16 +101,22 @@ namespace DotNetNuke.Tests.Web.Mvc
             routeData.Values["controller"] = "Controller";
             routeData.Values["action"] = "Action";
             routeData.Values["id"] = "Id";
-            var controllerContext = new ControllerContext(
+
+            var actionContext = new ActionContext(
                 CreateMockHttpContext(url),
                 routeData,
-                new Mock<ControllerBase>().Object);
+                new ControllerActionDescriptor());
+
+            var viewData = new ViewDataDictionary(new EmptyModelMetadataProvider(), new ModelStateDictionary());
+            var tempData = new TempDataDictionary(actionContext.HttpContext, new Moq.Mock<ITempDataProvider>().Object);
+
             return new ViewContext(
-                controllerContext,
-                new Mock<IView>().Object,
-                new ViewDataDictionary(),
-                new TempDataDictionary(),
-                new StringWriter());
+                actionContext,
+                new Moq.Mock<Microsoft.AspNetCore.Mvc.ViewEngines.IView>().Object,
+                viewData,
+                tempData,
+                new System.IO.StringWriter(),
+                new Microsoft.AspNetCore.Mvc.ViewFeatures.HtmlHelperOptions());
         }
     }
 }

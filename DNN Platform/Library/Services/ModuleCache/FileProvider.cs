@@ -285,7 +285,7 @@ namespace DotNetNuke.Services.ModuleCache
         private string GenerateCacheKeyHash(int tabModuleId, string cacheKey)
         {
             byte[] hash = Encoding.ASCII.GetBytes(cacheKey);
-            using (var sha256 = new SHA256CryptoServiceProvider())
+            using (var sha256 = SHA256.Create())
             {
                 hash = sha256.ComputeHash(hash);
                 return tabModuleId + "_" + this.ByteArrayToString(hash);

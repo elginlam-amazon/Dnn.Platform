@@ -8,7 +8,6 @@ namespace DotNetNuke.Modules.Groups
     using System.Collections.Generic;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
@@ -28,8 +27,11 @@ namespace DotNetNuke.Modules.Groups
     using DotNetNuke.Services.Social.Notifications;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for moderation in the Groups module.</summary>
     /// <param name="navigationManager">The navigation manager.</param>

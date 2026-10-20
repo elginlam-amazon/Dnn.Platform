@@ -9,7 +9,6 @@ namespace DotNetNuke.Web.Services
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Application;
@@ -22,6 +21,8 @@ namespace DotNetNuke.Web.Services
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Models;
 
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A web API controller for getting information about modules in the site.</summary>
@@ -53,7 +54,7 @@ namespace DotNetNuke.Web.Services
         /// <param name="moduleList">A comma-delimited list of module names.</param>
         /// <returns>A response with a list of objects containing <c>tabModuleId</c> and <c>moniker</c> fields.</returns>
         [HttpGet]
-        public IHttpActionResult Monikers(string moduleList)
+        public IActionResult Monikers(string moduleList)
         {
             var monikers = GetMonikersForList(this.hostSettings, moduleList);
             return this.Ok(monikers.Select(kpv => new { tabModuleId = kpv.Key, moniker = kpv.Value, }));

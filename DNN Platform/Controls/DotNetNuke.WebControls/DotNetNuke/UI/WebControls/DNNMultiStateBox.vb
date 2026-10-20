@@ -12,12 +12,11 @@ Imports System.ComponentModel
 Imports System.ComponentModel.Design
 Imports System.Diagnostics
 Imports System.Web.UI
-Imports System.Web.UI.Design
 Imports System.Web.UI.WebControls
 Imports DotNetNuke.Abstractions.ClientResources
 
 Namespace DotNetNuke.UI.WebControls
-    <PersistChildren(False), ParseChildren(True, "States"), ToolboxData("<{0}:DNNMultiStateBox runat=server></{0}:DNNMultiStateBox>"), Designer(GetType(DNNMultiStateBoxDesigner))> _
+    <PersistChildren(False), ParseChildren(True, "States"), ToolboxData("<{0}:DNNMultiStateBox runat=server></{0}:DNNMultiStateBox>")> _
     Public Class DNNMultiStateBox
         Inherits CheckBox
         ' Methods
@@ -69,21 +68,7 @@ Namespace DotNetNuke.UI.WebControls
         End Function
 
         Friend Sub NotifyDesigner()
-            If (If((Not MyBase.DesignMode OrElse (Me.States Is Nothing)), 0, 1) <> 0) Then
-                Dim designer As ControlDesigner = TryCast(TryCast(MyBase.Site.Container,IDesignerHost).GetDesigner(Me),ControlDesigner)
-                Dim member As PropertyDescriptor = Nothing
-                Try 
-                    member = TypeDescriptor.GetProperties(Me)("States")
-                Catch exception1 As Exception
-                    Dim ex As Exception = exception1
-                    ProjectData.SetProjectError(ex)
-                    Dim exception As Exception = ex
-                    ProjectData.ClearProjectError
-                    Return
-                End Try
-                Dim ce As New ComponentChangedEventArgs(Me, member, Nothing, Me.States)
-                designer.OnComponentChanged(Me, ce)
-            End If
+            ' Visual Studio design-time hosting (System.Web.UI.Design.ControlDesigner) is not available on .NET.
         End Sub
 
         Public Sub RegisterClientScript()

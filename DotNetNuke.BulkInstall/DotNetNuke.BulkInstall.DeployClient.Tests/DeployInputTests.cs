@@ -13,7 +13,11 @@ using Spectre.Console.Cli;
 public class DeployInputTests
 {
     [InlineData("", false)]
-    [InlineData("/test", false)]
+
+    // A scheme-less path is not an absolute URI. Note: a root-anchored path such as "/test" parses
+    // as an absolute file:// URI on Unix but not on Windows, so a relative path is used here to keep
+    // the case invalid on every platform.
+    [InlineData("relative/path", false)]
     [InlineData("https://test.com", true)]
     [InlineData("http://test.com", true)]
     [Theory]

@@ -3,14 +3,42 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Tests.Core.Services.CryptographyProviders
 {
+    using System;
+
+    using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Services.Cryptography;
+    using DotNetNuke.Tests.Utilities.Fakes;
+
+    using Microsoft.Extensions.DependencyInjection;
+
+    using Moq;
 
     using NUnit.Framework;
 
     [TestFixture]
     public class CoreCryptographyProviderTests
     {
+        private FakeServiceProvider serviceProvider;
+
+        [SetUp]
+        public void SetUp()
+        {
+            // Config.GetDecryptionkey() now reads the machineKey from web.config via an
+            // IApplicationStatusInfo resolved from the DI container (on .NET Framework it read the
+            // ambient web.config directly). Point the application map path at the test output
+            // directory, which contains a minimal web.config with a machineKey.
+            var appStatus = new Mock<IApplicationStatusInfo>();
+            appStatus.SetupGet(x => x.ApplicationMapPath).Returns(AppContext.BaseDirectory);
+            this.serviceProvider = FakeServiceProvider.Setup(
+                services => services.AddSingleton(appStatus.Object));
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            this.serviceProvider.Dispose();
+        }
         [Test]
         public void EncryptData_Should_Return_Encrypted_String()
         {

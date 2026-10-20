@@ -64,7 +64,7 @@ namespace DotNetNuke.Services.Install
         protected static readonly string StatusFilename = "upgradestat.log.resources.txt";
 
         private const string LocalesFile = "/Install/App_LocalResources/Locales.xml";
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<UpgradeWizard>();
+        private static new readonly ILogger Logger = DnnLoggingController.GetLogger<UpgradeWizard>();
         private static string localResourceFile = "~/Install/App_LocalResources/UpgradeWizard.aspx.resx";
         private static string culture;
         private static string[] supportedLanguages;
@@ -313,7 +313,9 @@ namespace DotNetNuke.Services.Install
         protected override void OnError(EventArgs e)
         {
             HttpContext.Current.Response.Clear();
-            HttpContext.Current.Server.Transfer("~/ErrorPage.aspx");
+
+            // Server.Transfer is not supported on ASP.NET Core
+            HttpContext.Current.Response.Redirect(this.ResolveUrl("~/ErrorPage.aspx"), true);
         }
 
         /// <inheritdoc />

@@ -8,7 +8,6 @@ namespace Dnn.PersonaBar.Servers.Services
     using System.Linq;
     using System.Net;
     using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -23,8 +22,11 @@ namespace Dnn.PersonaBar.Servers.Services
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Client;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Host)]
     public class ServerSettingsPerformanceController : PersonaBarApiController
