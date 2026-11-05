@@ -4,8 +4,8 @@
 
 namespace DotNetNuke.Services.GeneratedImage.FilterTransform
 {
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
 
     /// <summary>Brightness ImageTransform class.</summary>
     public class ImageBrightnessTransform : ImageTransform
@@ -29,10 +29,14 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
         /// <summary>Processes an input image applying a brightness image transformation.</summary>
         /// <param name="image">Input image.</param>
         /// <returns>Image result after image transformation.</returns>
+        /// <remarks>
+        /// The per-channel arithmetic — including the original's quirk of clamping a negative
+        /// channel to 1 rather than 0 — is preserved exactly; only the pixel access moved from
+        /// <c>Bitmap.GetPixel</c>/<c>SetPixel</c> to ImageSharp's pixel rows.
+        /// </remarks>
         public override Image ProcessImage(Image image)
         {
-            var temp = (Bitmap)image;
-            var bmap = (Bitmap)temp.Clone();
+            var bmap = image.CloneAs<Rgba32>();
             if (this.Brightness < -255)
             {
                 this.Brightness = -255;
@@ -43,51 +47,55 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
                 this.Brightness = 255;
             }
 
-            Color c;
-            for (int i = 0; i < bmap.Width; i++)
+            var brightness = this.Brightness;
+            bmap.ProcessPixelRows(accessor =>
             {
-                for (int j = 0; j < bmap.Height; j++)
+                for (var j = 0; j < accessor.Height; j++)
                 {
-                    c = bmap.GetPixel(i, j);
-                    int cR = c.R + this.Brightness;
-                    int cG = c.G + this.Brightness;
-                    int cB = c.B + this.Brightness;
-
-                    if (cR < 0)
+                    var row = accessor.GetRowSpan(j);
+                    for (var i = 0; i < row.Length; i++)
                     {
-                        cR = 1;
-                    }
+                        var c = row[i];
+                        int cR = c.R + brightness;
+                        int cG = c.G + brightness;
+                        int cB = c.B + brightness;
 
-                    if (cR > 255)
-                    {
-                        cR = 255;
-                    }
+                        if (cR < 0)
+                        {
+                            cR = 1;
+                        }
 
-                    if (cG < 0)
-                    {
-                        cG = 1;
-                    }
+                        if (cR > 255)
+                        {
+                            cR = 255;
+                        }
 
-                    if (cG > 255)
-                    {
-                        cG = 255;
-                    }
+                        if (cG < 0)
+                        {
+                            cG = 1;
+                        }
 
-                    if (cB < 0)
-                    {
-                        cB = 1;
-                    }
+                        if (cG > 255)
+                        {
+                            cG = 255;
+                        }
 
-                    if (cB > 255)
-                    {
-                        cB = 255;
-                    }
+                        if (cB < 0)
+                        {
+                            cB = 1;
+                        }
 
-                    bmap.SetPixel(i, j, Color.FromArgb((byte)cR, (byte)cG, (byte)cB));
+                        if (cB > 255)
+                        {
+                            cB = 255;
+                        }
+
+                        row[i] = new Rgba32((byte)cR, (byte)cG, (byte)cB, byte.MaxValue);
+                    }
                 }
-            }
+            });
 
-            return (Bitmap)bmap.Clone();
+            return bmap;
         }
     }
 }

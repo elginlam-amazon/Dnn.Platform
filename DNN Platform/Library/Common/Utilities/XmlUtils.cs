@@ -8,13 +8,14 @@ namespace DotNetNuke.Common.Utilities
     using System.Collections.Generic;
     using System.Globalization;
     using System.IO;
-    using System.Net;
+    using System.Net.Http;
     using System.Text;
     using System.Xml;
     using System.Xml.Serialization;
     using System.Xml.XPath;
     using System.Xml.Xsl;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Instrumentation;
@@ -776,11 +777,16 @@ namespace DotNetNuke.Common.Utilities
         [DnnDeprecated(7, 0, 0, "Use XmlDocument.Load instead", RemovalVersion = 11)]
         public static partial XmlDocument GetXMLContent(string contentUrl)
         {
-            // This function reads an XML document via a URL and returns it as an XmlDocument object
+            // This function reads an XML document via a URL and returns it as an XmlDocument object.
+            // Uses the synchronous HttpClient.Send so the (public, synchronous) signature is preserved
+            // without blocking on an async call.
             var functionReturnValue = new XmlDocument { XmlResolver = null };
-            var req = WebRequest.Create(contentUrl);
-            var result = req.GetResponse();
-            var objXmlReader = new XmlTextReader(result.GetResponseStream())
+            var client = Globals.GetExternalHttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Get, contentUrl);
+            using var response = client.Send(request, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+            using var contentStream = response.Content.ReadAsStream();
+            var objXmlReader = new XmlTextReader(contentStream)
             {
                 XmlResolver = null,
                 DtdProcessing = DtdProcessing.Prohibit,

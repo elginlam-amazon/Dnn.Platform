@@ -13,7 +13,6 @@ namespace DotNetNuke.Entities.Tabs
     using System.Linq;
     using System.Text.RegularExpressions;
     using System.Threading;
-    using System.Web;
     using System.Xml;
     using System.Xml.Serialization;
 
@@ -1073,7 +1072,7 @@ namespace DotNetNuke.Entities.Tabs
             var xmlSkinDocType = new XmlDocument { XmlResolver = null };
 
             // default to the skinname.doctype.xml to allow the individual skin to override the skin package
-            var skinFileName = HttpContext.Current.Server.MapPath(this.SkinSrc.Replace(".ascx", ".doctype.xml"));
+            var skinFileName = HttpContextSource.MapPath(this.SkinSrc.Replace(".ascx", ".doctype.xml"));
             if (File.Exists(skinFileName))
             {
                 using var doctypeReader = XmlReader.Create(skinFileName, new XmlReaderSettings { XmlResolver = null, });
@@ -1082,7 +1081,7 @@ namespace DotNetNuke.Entities.Tabs
             }
 
             // use the skin.doctype.xml file
-            var packageFileName = HttpContext.Current.Server.MapPath(SkinSrcRegex.Replace(this.SkinSrc, "skin.doctype.xml"));
+            var packageFileName = HttpContextSource.MapPath(SkinSrcRegex.Replace(this.SkinSrc, "skin.doctype.xml"));
             if (File.Exists(packageFileName))
             {
                 using var doctypeReader = XmlReader.Create(packageFileName, new XmlReaderSettings { XmlResolver = null, });

@@ -6,10 +6,12 @@ namespace DotNetNuke.Entities.Urls
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
+    using System.Net;
 
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Controllers;
+
+    using Microsoft.AspNetCore.Http;
 
     public class RewriterUtils
     {
@@ -30,7 +32,7 @@ namespace DotNetNuke.Entities.Urls
                     var i = parameter.IndexOf('=');
                     if (i >= 0)
                     {
-                        var value = HttpUtility.UrlEncode(HttpUtility.UrlDecode(parameter.Substring(i + 1)));
+                        var value = WebUtility.UrlEncode(WebUtility.UrlDecode(parameter.Substring(i + 1)));
                         parameters.Add(parameter.Substring(0, i) + "=" + value);
                     }
                     else
@@ -42,12 +44,32 @@ namespace DotNetNuke.Entities.Urls
                 queryString = string.Join("&", parameters);
             }
 
-            // rewrite the path..
-            context.RewritePath(sendToUrlLessQString, string.Empty, queryString);
+            // rewrite the path.. ASP.NET Core has no HttpContext.RewritePath; mutating
+            // Request.Path/Request.QueryString in middleware is the documented equivalent and is
+            // transparent to the rest of the pipeline (the original URL stays in the
+            // IHttpRequestFeature only if the caller preserved it).
+            var pathBase = context.Request.PathBase.Value ?? string.Empty;
+            var newPath = sendToUrlLessQString;
+            if (newPath.StartsWith("~", StringComparison.Ordinal))
+            {
+                // application-relative ("~/page.aspx"): the tilde maps to the path base, which
+                // Request.Path must not contain.
+                newPath = newPath.Substring(1);
+            }
+            else if (pathBase.Length > 1 && newPath.StartsWith(pathBase, StringComparison.OrdinalIgnoreCase))
+            {
+                newPath = newPath.Substring(pathBase.Length);
+            }
 
-            // NOTE!  The above RewritePath() overload is only supported in the .NET Framework 1.1
-            // If you are using .NET Framework 1.0, use the below form instead:
-            // context.RewritePath(sendToUrl);
+            if (!newPath.StartsWith("/", StringComparison.Ordinal))
+            {
+                newPath = "/" + newPath;
+            }
+
+            context.Request.Path = new PathString(newPath);
+            context.Request.QueryString = string.IsNullOrEmpty(queryString)
+                ? QueryString.Empty
+                : new QueryString("?" + queryString);
         }
 
         internal static string ResolveUrl(string appPath, string url)

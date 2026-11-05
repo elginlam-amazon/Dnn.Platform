@@ -173,11 +173,10 @@ namespace DotNetNuke.Services.EventQueue
         /// <returns><see langword="true"/> if the message was successfully sent to all subscribers, otherwise <see langword="false"/>.</returns>
         public static bool SendMessage(EventMessage message, string eventName)
         {
-            // set the sent date if it wasn't set by the sender
-            if (message.SentDate != null)
-            {
-                message.SentDate = DateTime.Now;
-            }
+            // Set the sent date. EventMessage.SentDate is a non-nullable DateTime, so the legacy
+            // "if (message.SentDate != null)" guard was always true and the date was always
+            // overwritten; the unconditional assignment preserves that behavior exactly.
+            message.SentDate = DateTime.Now;
 
             // Get the subscribers to this event
             string[] subscribers = GetSubscribers(eventName);

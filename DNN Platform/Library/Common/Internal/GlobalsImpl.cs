@@ -7,13 +7,13 @@ namespace DotNetNuke.Common.Internal
     using System;
     using System.Diagnostics.CodeAnalysis;
     using System.Text;
-    using System.Web;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Tabs;
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A collection of Dnn global methods and properties.</summary>

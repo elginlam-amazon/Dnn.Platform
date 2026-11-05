@@ -6,12 +6,13 @@ namespace DotNetNuke.Data.PetaPoco
 {
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
     using System.Data;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
     using global::PetaPoco;
+
+    using Microsoft.Data.SqlClient;
 
     using Microsoft.Extensions.DependencyInjection;
 
@@ -25,14 +26,14 @@ namespace DotNetNuke.Data.PetaPoco
         /// <summary>Initializes a new instance of the <see cref="PetaPocoDataContext"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IHostSettings. Scheduled removal in v12.0.0.")]
         public PetaPocoDataContext()
-            : this(ConfigurationManager.ConnectionStrings[0].Name, string.Empty)
+            : this(ConfigurationSource.GetDefaultConnectionStringName(), string.Empty)
         {
         }
 
         /// <summary>Initializes a new instance of the <see cref="PetaPocoDataContext"/> class.</summary>
         /// <param name="hostSettings">The host settings.</param>
         public PetaPocoDataContext(IHostSettings hostSettings)
-            : this(hostSettings, ConfigurationManager.ConnectionStrings[0].Name, string.Empty)
+            : this(hostSettings, ConfigurationSource.GetDefaultConnectionStringName(), string.Empty)
         {
         }
 
@@ -91,7 +92,13 @@ namespace DotNetNuke.Data.PetaPoco
 
             this.hostSettings = hostSettings ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
 
-            this.database = new Database(connectionStringName);
+            var connectionString = ConfigurationSource.GetConnectionString(connectionStringName);
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                throw new InvalidOperationException($"No connection string named '{connectionStringName}' was found in the configuration.");
+            }
+
+            this.database = new Database(connectionString, SqlClientFactory.Instance);
             this.mapper = new PetaPocoMapper(tablePrefix);
             this.TablePrefix = tablePrefix;
             this.FluentMappers = mappers;

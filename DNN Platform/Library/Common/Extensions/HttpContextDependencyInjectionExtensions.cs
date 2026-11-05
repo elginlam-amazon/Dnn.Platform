@@ -5,99 +5,129 @@
 namespace DotNetNuke.Common.Extensions
 {
     using System;
-    using System.Collections;
-    using System.Web;
+    using System.Collections.Generic;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
-    /// <summary>Dependency injection extensions for HttpContext.</summary>
+    /// <summary>Dependency injection extensions for <see cref="HttpContext"/>.</summary>
+    /// <remarks>
+    /// On ASP.NET Core the request already owns a service scope (<c>HttpContext.RequestServices</c>).
+    /// These members are kept so the platform's legacy call sites keep compiling and behaving the
+    /// same, but they now return the request's own scope whenever one is available instead of
+    /// creating a second, competing scope.
+    /// </remarks>
     public static class HttpContextDependencyInjectionExtensions
     {
+        private static readonly object ScopeKey = typeof(IServiceScope);
+
         /// <summary>Sets the service scope for the http context.</summary>
         /// <param name="httpContext">The http context.</param>
         /// <param name="scope">The service scope.</param>
         public static void SetScope(this HttpContext httpContext, IServiceScope scope)
-            => SetScope(new HttpContextWrapper(httpContext), scope);
-
-        /// <summary>Sets the service scope for the http context base.</summary>
-        /// <param name="httpContext">The http context base.</param>
-        /// <param name="scope">The service scope.</param>
-        public static void SetScope(this HttpContextBase httpContext, IServiceScope scope)
         {
-            if (!httpContext.Items.Contains(typeof(IServiceScope)))
+            if (httpContext is null)
             {
-                httpContext.Items[typeof(IServiceScope)] = scope;
+                throw new ArgumentNullException(nameof(httpContext));
+            }
+
+            if (!httpContext.Items.ContainsKey(ScopeKey))
+            {
+                httpContext.Items[ScopeKey] = scope;
             }
         }
 
         /// <summary>Clears the service scope for the http context.</summary>
         /// <param name="httpContext">The http context on which to clear the service scope.</param>
         public static void ClearScope(this HttpContext httpContext)
-            => ClearScope(new HttpContextWrapper(httpContext));
-
-        /// <summary>Clears the service scope for the http context.</summary>
-        /// <param name="httpContext">The http context on which to clear the service scope.</param>
-        public static void ClearScope(this HttpContextBase httpContext)
         {
-            httpContext.Items.Remove(typeof(IServiceScope));
+            if (httpContext is null)
+            {
+                throw new ArgumentNullException(nameof(httpContext));
+            }
+
+            httpContext.Items.Remove(ScopeKey);
         }
 
-        /// <summary>Gets the http context service scope.</summary>
+        /// <summary>Gets the http context service scope, creating one if necessary.</summary>
         /// <param name="httpContext">The http context from which to get the scope from.</param>
-        /// <returns>A service scope.</returns>
+        /// <returns>A service scope, or <see langword="null"/> when no service provider is available yet.</returns>
         public static IServiceScope GetScope(this HttpContext httpContext)
-            => GetScope(new HttpContextWrapper(httpContext));
-
-        /// <summary>Gets the http context base service scope.</summary>
-        /// <param name="httpContext">The http context base from which to get the scope from.</param>
-        /// <returns>A service scope.</returns>
-        public static IServiceScope GetScope(this HttpContextBase httpContext)
         {
-            var scope = httpContext.Items.GetScope();
-            if (scope is not null || Globals.DependencyProvider is null)
+            if (httpContext is null)
+            {
+                throw new ArgumentNullException(nameof(httpContext));
+            }
+
+            var scope = GetStoredScope(httpContext.Items);
+            if (scope is not null)
             {
                 return scope;
             }
 
-            const string ScopeLockName = "GetScope_lock";
-            if (httpContext.Items.Contains(ScopeLockName))
+            // Prefer the scope ASP.NET Core already created for this request.
+            if (httpContext.RequestServices is not null)
             {
-                // another thread is adding the scope, try again
-                return GetScope(httpContext);
+                scope = new RequestServicesScope(httpContext.RequestServices);
+                httpContext.Items[ScopeKey] = scope;
+                return scope;
             }
 
-            var scopeLock = new object();
-            httpContext.Items.Add(ScopeLockName, scopeLock);
-            lock (httpContext.Items[ScopeLockName])
+            if (Globals.DependencyProvider is null)
             {
-                if (httpContext.Items[ScopeLockName] == scopeLock)
+                return null;
+            }
+
+            lock (ScopeKey)
+            {
+                scope = GetStoredScope(httpContext.Items);
+                if (scope is null)
                 {
-                    if (!httpContext.Items.Contains(typeof(IServiceScope)))
-                    {
-                        scope = Globals.DependencyProvider.CreateScope();
-                        httpContext.Items[typeof(IServiceScope)] = scope;
-                    }
+                    scope = Globals.DependencyProvider.CreateScope();
+                    httpContext.Items[ScopeKey] = scope;
+                    httpContext.Response.RegisterForDispose(new ScopeDisposer(httpContext));
                 }
             }
 
-            if (scope is not null)
+            return scope;
+        }
+
+        private static IServiceScope GetStoredScope(IDictionary<object, object> httpContextItems)
+        {
+            return httpContextItems.TryGetValue(ScopeKey, out var scope) ? scope as IServiceScope : null;
+        }
+
+        /// <summary>An <see cref="IServiceScope"/> façade over the request's own service provider; disposing it is a no-op because the framework owns the lifetime.</summary>
+        private sealed class RequestServicesScope : IServiceScope
+        {
+            public RequestServicesScope(IServiceProvider serviceProvider)
             {
-                httpContext.AddOnRequestCompleted(DisposeScope);
-                return scope;
+                this.ServiceProvider = serviceProvider;
             }
 
-            return GetScope(httpContext);
+            public IServiceProvider ServiceProvider { get; }
+
+            public void Dispose()
+            {
+                // The request pipeline owns RequestServices; do not dispose it here.
+            }
         }
 
-        private static IServiceScope GetScope(this IDictionary httpContextItems)
+        /// <summary>Disposes a platform-created scope when the response completes (replaces <c>HttpContext.AddOnRequestCompleted</c>).</summary>
+        private sealed class ScopeDisposer : IDisposable
         {
-            return httpContextItems[typeof(IServiceScope)] as IServiceScope;
-        }
+            private readonly HttpContext httpContext;
 
-        private static void DisposeScope(HttpContextBase httpContext)
-        {
-            httpContext.Items.GetScope()?.Dispose();
-            httpContext.ClearScope();
+            public ScopeDisposer(HttpContext httpContext)
+            {
+                this.httpContext = httpContext;
+            }
+
+            public void Dispose()
+            {
+                GetStoredScope(this.httpContext.Items)?.Dispose();
+                this.httpContext.ClearScope();
+            }
         }
     }
 }

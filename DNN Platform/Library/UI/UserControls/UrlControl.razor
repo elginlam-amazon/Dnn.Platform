@@ -1,0 +1,1794 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Collections
+@using System.Collections.Generic
+@using System.Globalization
+@using System.IO
+@using System.Linq
+@using System.Threading.Tasks
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Host
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Tabs
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Framework
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.FileSystem
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using Globals = DotNetNuke.Common.Globals
+
+@if (this.IsVisible)
+{
+    <div class="urlControl">
+        @if (this.TypeRowVisible)
+        {
+            <div class="urlControlLinkType dnnClear">
+                <span class="dnnFormLabel">@this.TypeCaption</span>
+                <div class="ucLinkTypeRadioButtons">
+                    @foreach (var item in this.typeItems)
+                    {
+                        <div>
+                            <label>
+                                <input type="radio"
+                                       name="@this.TypeGroupName"
+                                       value="@item.Value"
+                                       checked="@item.Selected"
+                                       @onchange="@(() => this.OnTypeChangedAsync(item.Value))" />
+                                @item.Text
+                            </label>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        @if (this.UrlRowVisible)
+        {
+            <div class="urlControlFile dnnClear">
+                <span>@this.UrlCaption</span>
+                <div>
+                    @if (this.UrlListVisible)
+                    {
+                        <select id="cboUrls" style="@this.ControlWidthStyle" @onchange="this.OnUrlSelectedAsync">
+                            @foreach (var item in this.urlItems)
+                            {
+                                <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+                            }
+                        </select>
+                    }
+                    @if (this.UrlTextVisible)
+                    {
+                        <input id="txtUrl" type="text" style="@this.ControlWidthStyle" value="@this.urlText" @onchange="this.OnUrlTextChangedAsync" />
+                    }
+                    @if (this.SelectButtonVisible)
+                    {
+                        <a id="cmdSelect" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.SelectAsync" @onclick:preventDefault="true">@this.SelectCaption</a>
+                    }
+                    @if (this.DeleteButtonVisible)
+                    {
+                        <a id="cmdDelete" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.DeleteAsync" @onclick:preventDefault="true">@this.DeleteCaption</a>
+                    }
+                    @if (this.AddButtonVisible)
+                    {
+                        <a id="cmdAdd" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.AddAsync" @onclick:preventDefault="true">@this.AddCaption</a>
+                    }
+                </div>
+            </div>
+        }
+        @if (this.TabRowVisible)
+        {
+            <div class="urlControlTab dnnClear">
+                <span>@this.TabCaption</span>
+                <select id="cboTabs" style="@this.ControlWidthStyle" @onchange="this.OnTabSelectedAsync">
+                    @foreach (var item in this.tabItems)
+                    {
+                        <option value="@item.Value" selected="@item.Selected" disabled="@(!item.Enabled)">@item.Text</option>
+                    }
+                </select>
+            </div>
+        }
+        @if (this.FileRowVisible)
+        {
+            <div class="urlControlFileRow dnnClear">
+                <div class="dnnFormItem">
+                    <span class="dnnFormLabel">@this.FolderCaption</span>
+                    <div>
+                        <select id="cboFolders" style="@this.ControlWidthStyle" @onchange="this.OnFolderChangedAsync">
+                            @foreach (var item in this.folderItems)
+                            {
+                                <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+                            }
+                        </select>
+                        @if (this.StorageLocationTypeVisible)
+                        {
+                            <img id="imgStorageLocationType" src="@this.StorageLocationTypeImageUrl" alt="" />
+                        }
+                    </div>
+                </div>
+                <div class="dnnFormItem">
+                    <span class="dnnFormLabel">@this.FileCaption</span>
+                    <div>
+                        @if (this.FileListVisible)
+                        {
+                            <select id="cboFiles" style="@this.ControlWidthStyle" @onchange="this.OnFileSelectedAsync">
+                                @foreach (var item in this.fileItems)
+                                {
+                                    <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+                                }
+                            </select>
+                        }
+                        @if (this.FileUploadVisible)
+                        {
+                            <InputFile id="txtFile" OnChange="@this.OnFileSelectedForUpload" />
+                        }
+                    </div>
+                </div>
+                <div class="dnnFormItem">
+                    @if (this.UploadButtonVisible)
+                    {
+                        <a id="cmdUpload" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.UploadAsync" @onclick:preventDefault="true">@this.UploadCaption</a>
+                    }
+                    @if (this.SaveButtonVisible)
+                    {
+                        <a id="cmdSave" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.SaveAsync" @onclick:preventDefault="true">@this.SaveCaption</a>
+                    }
+                    @if (this.CancelButtonVisible)
+                    {
+                        <a id="cmdCancel" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CancelAsync" @onclick:preventDefault="true">@this.CancelCaption</a>
+                    }
+                </div>
+            </div>
+        }
+        @if (this.ImagesRowVisible)
+        {
+            <div class="dnnFormItem urlControlImagesRow dnnClear">
+                <span class="dnnFormLabel">@this.ImageCaption</span>
+                <select id="cboImages" style="@this.ControlWidthStyle" @onchange="this.OnImageSelectedAsync">
+                    @foreach (var item in this.imageItems)
+                    {
+                        <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+                    }
+                </select>
+            </div>
+        }
+        @if (this.UserRowVisible)
+        {
+            <div class="urlControlUseRow dnnClear">
+                <span>@this.UserCaption</span>
+                <input id="txtUser" type="text" style="@this.ControlWidthStyle" value="@this.userText" @onchange="this.OnUserTextChangedAsync" />
+            </div>
+        }
+        @if (this.ErrorRowVisible)
+        {
+            <div class="dnnFormMessage">
+                <span id="lblMessage" class="dnnFormError">@((MarkupString)(this.Message ?? string.Empty))</span>
+            </div>
+        }
+        <div class="dnnClear">
+            @if (this.ShowTrack)
+            {
+                <label>
+                    <input type="checkbox" id="chkTrack" checked="@this.trackChecked" @onchange="this.OnTrackChanged" />
+                    @this.TrackCaption
+                </label>
+                <br />
+            }
+            @if (this.ShowLog)
+            {
+                <label>
+                    <input type="checkbox" id="chkLog" checked="@this.logChecked" @onchange="this.OnLogChanged" />
+                    @this.LogCaption
+                </label>
+                <br />
+            }
+            @if (this.ShowNewWindow)
+            {
+                <label>
+                    <input type="checkbox" id="chkNewWindow" checked="@this.newWindowChecked" @onchange="this.OnNewWindowChanged" />
+                    @this.NewWindowCaption
+                </label>
+                <br />
+            }
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>The maximum size of an uploaded file, which matches the DNN default request limit.</summary>
+    private const long MaxUploadSize = 1024L * 1024L * 1024L;
+
+    private static readonly ILog Logger = LoggerSource.Instance.GetLogger(typeof(UrlControl));
+
+    private readonly List<ListItem> typeItems = new List<ListItem>();
+    private readonly List<ListItem> urlItems = new List<ListItem>();
+    private readonly List<ListItem> tabItems = new List<ListItem>();
+    private readonly List<ListItem> folderItems = new List<ListItem>();
+    private readonly List<ListItem> fileItems = new List<ListItem>();
+    private readonly List<ListItem> imageItems = new List<ListItem>();
+
+    private bool doChangeURL;
+    private bool doReloadFiles;
+    private bool doReloadFolders;
+    private bool doRenderTypeControls;
+    private bool doRenderTypes;
+    private string localResourceFile;
+    private PortalInfo objPortal;
+    private bool initialized;
+
+    private string fileFilter = string.Empty;
+    private bool includeActiveTab;
+    private int moduleId = -2;
+    private bool moduleIdSet;
+    private bool required = true;
+    private bool showFiles = true;
+    private bool showImages;
+    private bool showNone;
+    private bool showTabs = true;
+    private bool showUpLoad = true;
+    private bool showUrls = true;
+    private bool showUsers;
+    private string urlState;
+    private string urlType;
+    private string widthState;
+    private bool isUrlControlLoaded;
+    private bool foldersLoaded;
+    private bool filesLoaded;
+    private string lastFolderPath;
+    private string lastFileName;
+
+    private string urlText = string.Empty;
+    private string userText = string.Empty;
+    private bool trackChecked;
+    private bool logChecked;
+    private bool newWindowChecked;
+    private IBrowserFile pendingUpload;
+
+    /// <summary>Gets or sets the JavaScript runtime used for the delete confirmation prompt.</summary>
+    [Inject]
+    protected IJSRuntime JSRuntime { get; set; }
+
+    /// <summary>Gets a value indicating whether the activity of the url is logged.</summary>
+    public bool Log => this.ShowLog && this.logChecked;
+
+    /// <summary>Gets a value indicating whether the clicks on the url are tracked.</summary>
+    public bool Track => this.ShowTrack && this.trackChecked;
+
+    /// <summary>Gets or sets the comma separated list of allowed file extensions.</summary>
+    [Parameter]
+    public string FileFilter
+    {
+        get => this.fileFilter ?? string.Empty;
+
+        set
+        {
+            this.fileFilter = value;
+            if (this.initialized)
+            {
+                this.doReloadFiles = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the currently active tab can be selected.</summary>
+    [Parameter]
+    public bool IncludeActiveTab
+    {
+        get => this.includeActiveTab;
+
+        set
+        {
+            this.includeActiveTab = value;
+            if (this.initialized)
+            {
+                this.doRenderTypeControls = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets the resource file the captions are localized from.</summary>
+    [Parameter]
+    public string LocalResourceFile
+    {
+        get =>
+            string.IsNullOrEmpty(this.localResourceFile)
+                ? "~/controls/" + Localization.LocalResourceDirectory + "/URLControl.ascx"
+                : this.localResourceFile;
+
+        set => this.localResourceFile = value;
+    }
+
+    /// <summary>Gets or sets the id of the module the url belongs to.</summary>
+    [Parameter]
+    public int ModuleID
+    {
+        get
+        {
+            var myMid = -2;
+            if (this.moduleIdSet)
+            {
+                myMid = this.moduleId;
+            }
+            else
+            {
+                var queryValue = this.Request?.Query["mid"].ToString();
+                if (!string.IsNullOrEmpty(queryValue))
+                {
+                    if (!int.TryParse(queryValue, out myMid))
+                    {
+                        myMid = -2;
+                    }
+                }
+            }
+
+            return myMid;
+        }
+
+        set
+        {
+            this.moduleId = value;
+            this.moduleIdSet = true;
+        }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the url opens in a new window.</summary>
+    [Parameter]
+    public bool NewWindow
+    {
+        get => this.ShowNewWindow && this.newWindowChecked;
+        set => this.newWindowChecked = this.ShowNewWindow && value;
+    }
+
+    /// <summary>Gets or sets a value indicating whether a url must be supplied.</summary>
+    [Parameter]
+    public bool Required
+    {
+        get => this.required;
+
+        set
+        {
+            this.required = value;
+            if (this.initialized)
+            {
+                this.doRenderTypeControls = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the file link type is offered.</summary>
+    [Parameter]
+    public bool ShowFiles
+    {
+        get => this.showFiles;
+
+        set
+        {
+            this.showFiles = value;
+            if (this.initialized)
+            {
+                this.doRenderTypes = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the system image link type is offered.</summary>
+    [Parameter]
+    public bool ShowImages
+    {
+        get => this.showImages;
+
+        set
+        {
+            this.showImages = value;
+            if (this.initialized)
+            {
+                this.doRenderTypes = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the "log activity" check box is shown.</summary>
+    [Parameter]
+    public bool ShowLog { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the "open in new window" check box is shown.</summary>
+    [Parameter]
+    public bool ShowNewWindow { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the "none" link type is offered.</summary>
+    [Parameter]
+    public bool ShowNone
+    {
+        get => this.showNone;
+
+        set
+        {
+            this.showNone = value;
+            if (this.initialized)
+            {
+                this.doRenderTypes = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the page link type is offered.</summary>
+    [Parameter]
+    public bool ShowTabs
+    {
+        get => this.showTabs;
+
+        set
+        {
+            this.showTabs = value;
+            if (this.initialized)
+            {
+                this.doRenderTypes = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the "track clicks" check box is shown.</summary>
+    [Parameter]
+    public bool ShowTrack { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether uploading a new file is allowed.</summary>
+    [Parameter]
+    public bool ShowUpLoad
+    {
+        get => this.showUpLoad;
+
+        set
+        {
+            this.showUpLoad = value;
+            if (this.initialized)
+            {
+                this.doRenderTypeControls = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the url link type is offered.</summary>
+    [Parameter]
+    public bool ShowUrls
+    {
+        get => this.showUrls;
+
+        set
+        {
+            this.showUrls = value;
+            if (this.initialized)
+            {
+                this.doRenderTypes = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the user link type is offered.</summary>
+    [Parameter]
+    public bool ShowUsers
+    {
+        get => this.showUsers;
+
+        set
+        {
+            this.showUsers = value;
+            if (this.initialized)
+            {
+                this.doRenderTypes = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets the selected url.</summary>
+    [Parameter]
+    public string Url
+    {
+        get
+        {
+            var r = string.Empty;
+            var strCurrentType = this.SelectedTypeValue;
+
+            switch (strCurrentType)
+            {
+                case "I":
+                    var selectedImage = this.imageItems.Find(item => item.Selected);
+                    if (selectedImage != null)
+                    {
+                        r = selectedImage.Value;
+                    }
+
+                    break;
+                case "U":
+                    if (this.UrlListVisible)
+                    {
+                        var selectedUrl = this.urlItems.Find(item => item.Selected);
+                        if (selectedUrl != null)
+                        {
+                            r = selectedUrl.Value;
+                            this.urlText = r;
+                        }
+                    }
+                    else
+                    {
+                        var mCustomUrl = this.urlText;
+                        if (mCustomUrl.Equals("http://", StringComparison.OrdinalIgnoreCase))
+                        {
+                            r = string.Empty;
+                        }
+                        else
+                        {
+                            r = Globals.AddHTTP(mCustomUrl);
+                        }
+                    }
+
+                    break;
+                case "T":
+                    var selectedTab = this.tabItems.Find(item => item.Selected);
+                    if (selectedTab != null)
+                    {
+                        var strTab = selectedTab.Value;
+                        if (Globals.NumberMatchRegex.IsMatch(strTab) && (Convert.ToInt32(strTab, CultureInfo.InvariantCulture) >= 0))
+                        {
+                            r = strTab;
+                        }
+                    }
+
+                    break;
+                case "F":
+                    var selectedFile = this.fileItems.Find(item => item.Selected);
+                    if (selectedFile != null)
+                    {
+                        if (!string.IsNullOrEmpty(selectedFile.Value))
+                        {
+                            r = "FileID=" + selectedFile.Value;
+                        }
+                        else
+                        {
+                            r = string.Empty;
+                        }
+                    }
+
+                    break;
+                case "M":
+                    if (!string.IsNullOrEmpty(this.userText))
+                    {
+                        var objUser = UserController.GetCachedUser(this.objPortal.PortalID, this.userText);
+                        if (objUser != null)
+                        {
+                            r = "UserID=" + objUser.UserID;
+                        }
+                        else
+                        {
+                            this.Message = Localization.GetString("NoUser", this.LocalResourceFile);
+                            this.ErrorRowVisible = true;
+                            this.userText = string.Empty;
+                        }
+                    }
+
+                    break;
+            }
+
+            return r;
+        }
+
+        set
+        {
+            this.urlState = value;
+            this.urlText = string.Empty;
+
+            if (this.initialized)
+            {
+                this.doChangeURL = true;
+                this.doReloadFiles = true;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets the type of the selected url.</summary>
+    [Parameter]
+    public string UrlType
+    {
+        get => this.urlType ?? string.Empty;
+
+        set
+        {
+            if (value != null && !string.IsNullOrEmpty(value.Trim()))
+            {
+                this.urlType = value;
+                if (this.initialized)
+                {
+                    this.doChangeURL = true;
+                }
+            }
+        }
+    }
+
+    /// <summary>Gets or sets the CSS width of the editors.</summary>
+    /// <value>A CSS length (the Web Forms control parsed this into a <c>Unit</c>).</value>
+    [Parameter]
+    public string Width
+    {
+        get => this.widthState ?? string.Empty;
+
+        set
+        {
+            if (!string.IsNullOrEmpty(value))
+            {
+                this.widthState = value;
+            }
+        }
+    }
+
+    /// <summary>Gets a value indicating whether the control renders anything.</summary>
+    /// <remarks>Replaces <c>this.Visible = false</c> for unauthenticated requests.</remarks>
+    public bool IsVisible { get; private set; } = true;
+
+    /// <summary>Gets the error message currently shown.</summary>
+    public string Message { get; private set; } = string.Empty;
+
+    /// <summary>Gets a value indicating whether the error row is rendered.</summary>
+    public bool ErrorRowVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the link type selector is rendered.</summary>
+    public bool TypeRowVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the url row is rendered.</summary>
+    public bool UrlRowVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the page row is rendered.</summary>
+    public bool TabRowVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the file row is rendered.</summary>
+    public bool FileRowVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the image row is rendered.</summary>
+    public bool ImagesRowVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the user row is rendered.</summary>
+    public bool UserRowVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the stored url list is rendered.</summary>
+    public bool UrlListVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the free text url editor is rendered.</summary>
+    public bool UrlTextVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the "select" button is rendered.</summary>
+    public bool SelectButtonVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the "add" button is rendered.</summary>
+    public bool AddButtonVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the "delete" button is rendered.</summary>
+    public bool DeleteButtonVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the file list is rendered.</summary>
+    public bool FileListVisible { get; private set; } = true;
+
+    /// <summary>Gets a value indicating whether the file upload input is rendered.</summary>
+    public bool FileUploadVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the "upload" button is rendered.</summary>
+    public bool UploadButtonVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the "save" button is rendered.</summary>
+    public bool SaveButtonVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the "cancel" button is rendered.</summary>
+    public bool CancelButtonVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the storage location icon is rendered.</summary>
+    public bool StorageLocationTypeVisible { get; private set; }
+
+    /// <summary>Gets the url of the storage location icon.</summary>
+    public string StorageLocationTypeImageUrl { get; private set; }
+
+    /// <summary>Gets the <c>name</c> attribute shared by the link type radio buttons.</summary>
+    public string TypeGroupName => "optType_" + this.GetHashCode().ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>Gets the inline width style of the editors.</summary>
+    private string ControlWidthStyle => string.IsNullOrEmpty(this.widthState) ? null : "width:" + this.widthState;
+
+    /// <summary>Gets the value of the selected link type.</summary>
+    private string SelectedTypeValue => this.typeItems.Find(item => item.Selected)?.Value ?? string.Empty;
+
+    /// <summary>Gets the value of the selected folder.</summary>
+    private string SelectedFolderValue => this.folderItems.Find(item => item.Selected)?.Value ?? string.Empty;
+
+    /// <summary>Gets the value of the selected file.</summary>
+    private string SelectedFileValue => this.fileItems.Find(item => item.Selected)?.Value ?? string.Empty;
+
+    /// <summary>Gets the localized link type caption.</summary>
+    private string TypeCaption => Localization.GetString("Type", this.LocalResourceFile);
+
+    /// <summary>Gets the localized url caption.</summary>
+    private string UrlCaption => Localization.GetString("URL", this.LocalResourceFile);
+
+    /// <summary>Gets the localized page caption.</summary>
+    private string TabCaption => Localization.GetString("Tab", this.LocalResourceFile);
+
+    /// <summary>Gets the localized folder caption.</summary>
+    private string FolderCaption => Localization.GetString("Folder", this.LocalResourceFile);
+
+    /// <summary>Gets the localized file caption.</summary>
+    private string FileCaption => Localization.GetString("File", this.LocalResourceFile);
+
+    /// <summary>Gets the localized image caption.</summary>
+    private string ImageCaption => Localization.GetString("Image", this.LocalResourceFile);
+
+    /// <summary>Gets the localized user caption.</summary>
+    private string UserCaption => Localization.GetString("User", this.LocalResourceFile);
+
+    /// <summary>Gets the localized "select" caption.</summary>
+    private string SelectCaption => Localization.GetString("Select", this.LocalResourceFile);
+
+    /// <summary>Gets the localized "delete" caption.</summary>
+    private string DeleteCaption => Localization.GetString("Delete", this.LocalResourceFile);
+
+    /// <summary>Gets the localized "add" caption.</summary>
+    private string AddCaption => Localization.GetString("Add", this.LocalResourceFile);
+
+    /// <summary>Gets the localized "upload" caption.</summary>
+    private string UploadCaption => Localization.GetString("Upload", this.LocalResourceFile);
+
+    /// <summary>Gets the localized "save" caption.</summary>
+    private string SaveCaption => Localization.GetString("Save", this.LocalResourceFile);
+
+    /// <summary>Gets the localized "cancel" caption.</summary>
+    private string CancelCaption => Localization.GetString("Cancel", this.LocalResourceFile);
+
+    /// <summary>Gets the localized "track" caption.</summary>
+    private string TrackCaption => Localization.GetString("Track", this.LocalResourceFile);
+
+    /// <summary>Gets the localized "log" caption.</summary>
+    private string LogCaption => Localization.GetString("Log", this.LocalResourceFile);
+
+    /// <summary>Gets the localized "new window" caption.</summary>
+    private string NewWindowCaption => Localization.GetString("NewWindow", this.LocalResourceFile);
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        var context = DotNetNuke.Common.HttpContextSource.Current;
+        if (context is null)
+        {
+            Logger.Debug("UrlControl: no HTTP request in flight, the save button cannot be excluded from partial postbacks.");
+        }
+        else
+        {
+            AJAX.RegisterPostBackControl(this);
+        }
+
+        // prevent unauthorized access
+        if (this.Request is null || !this.Request.IsAuthenticated())
+        {
+            this.IsVisible = false;
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.initialized)
+        {
+            return;
+        }
+
+        this.ErrorRowVisible = false;
+
+        try
+        {
+            var portalIdValue = this.Request?.Query["pid"].ToString();
+            if (!string.IsNullOrEmpty(portalIdValue) && (Globals.IsHostTab(this.PortalSettings.ActiveTab.TabID) || UserController.Instance.GetCurrentUserInfo().IsSuperUser))
+            {
+                this.objPortal = PortalController.Instance.GetPortal(int.Parse(portalIdValue, CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                this.objPortal = PortalController.Instance.GetPortal(this.PortalSettings.PortalId);
+            }
+
+            if (!this.isUrlControlLoaded)
+            {
+                // let's make at least an initialization
+                // The type radio button must be initialized
+                // The url must be initialized no matter its value
+                this.doRenderTypes = true;
+                this.doChangeURL = true;
+            }
+        }
+        catch (Exception exc)
+        {
+            this.Message = UserControlExceptionHandler.Process(exc);
+            this.ErrorRowVisible = true;
+        }
+
+        this.initialized = true;
+
+        // The Web Forms control did this work in PreRender; a component must have its markup state
+        // ready before it renders, so the same pipeline runs at the end of the load phase.
+        this.RenderPipeline();
+    }
+
+    /// <summary>Runs the deferred rendering steps, which was the body of the Web Forms <c>OnPreRender</c>.</summary>
+    private void RenderPipeline()
+    {
+        try
+        {
+            if (this.doRenderTypes)
+            {
+                this.DoRenderTypes();
+            }
+
+            if (this.doChangeURL)
+            {
+                this.DoChangeURL();
+            }
+
+            if (this.doReloadFolders || this.doReloadFiles)
+            {
+                this.DoCorrectRadioButtonList();
+                this.doRenderTypeControls = true;
+            }
+
+            if (this.doRenderTypeControls)
+            {
+                if (!(this.doReloadFolders || this.doReloadFiles))
+                {
+                    this.DoCorrectRadioButtonList();
+                }
+
+                this.DoRenderTypeControls();
+            }
+
+            this.urlState = null;
+            this.isUrlControlLoaded = true;
+        }
+        catch (Exception exc)
+        {
+            // Let's detect possible problems
+            Exceptions.LogException(new RenderException("Error rendering URLControl subcontrols.", exc));
+        }
+    }
+
+    /// <summary>Resets the deferred rendering flags, which the Web Forms handlers did on every postback.</summary>
+    private void ResetRenderFlags()
+    {
+        this.doRenderTypeControls = false; // Must not render on this postback
+        this.doRenderTypes = false;
+        this.doChangeURL = false;
+        this.doReloadFolders = false;
+        this.doReloadFiles = false;
+    }
+
+    /// <summary>Handles a change of the selected folder.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnFolderChangedAsync(ChangeEventArgs args)
+    {
+        this.SelectValue(this.folderItems, args?.Value?.ToString());
+
+        var portalId = Null.NullInteger;
+
+        if (!this.IsHostMenu || !string.IsNullOrEmpty(this.Request?.Query["pid"].ToString()))
+        {
+            portalId = this.objPortal.PortalID;
+        }
+
+        var objFolder = FolderManager.Instance.GetFolder(portalId, this.SelectedFolderValue);
+        if (objFolder != null && FolderPermissionController.CanAddFolder((FolderInfo)objFolder))
+        {
+            if (!this.FileUploadVisible)
+            {
+                this.SaveButtonVisible = false;
+
+                // only show if not already in upload mode and not disabled
+                this.UploadButtonVisible = this.ShowUpLoad;
+            }
+        }
+        else
+        {
+            // reset controls
+            this.FileListVisible = true;
+            this.UploadButtonVisible = false;
+            this.FileUploadVisible = false;
+            this.SaveButtonVisible = false;
+            this.CancelButtonVisible = false;
+        }
+
+        this.LoadFiles(!this.Required);
+        this.SetStorageLocationType();
+        this.lastFolderPath = this.SelectedFolderValue;
+        this.lastFileName = this.SelectedFileValue;
+
+        this.ResetRenderFlags();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Switches the url row to the free text editor.</summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>This is the port of <c>cmdAdd_Click</c>.</remarks>
+    private Task AddAsync()
+    {
+        this.UrlListVisible = false;
+        this.SelectButtonVisible = true;
+        this.UrlTextVisible = true;
+        this.AddButtonVisible = false;
+        this.DeleteButtonVisible = false;
+        this.ResetRenderFlags();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Cancels an upload.</summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>This is the port of <c>cmdCancel_Click</c>.</remarks>
+    private Task CancelAsync()
+    {
+        this.FileListVisible = true;
+        this.UploadButtonVisible = true;
+        this.FileUploadVisible = false;
+        this.SaveButtonVisible = false;
+        this.CancelButtonVisible = false;
+        this.pendingUpload = null;
+        this.ResetRenderFlags();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Deletes the selected stored url.</summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>
+    /// This is the port of <c>cmdDelete_Click</c>; the confirmation prompt that
+    /// <c>ClientAPI.AddButtonConfirm</c> attached to the button is now a JS interop call.
+    /// </remarks>
+    private async Task DeleteAsync()
+    {
+        var selected = this.urlItems.Find(item => item.Selected);
+        if (selected != null)
+        {
+            var confirmed = await this.JSRuntime.InvokeAsync<bool>("confirm", Localization.GetString("DeleteItem"));
+            if (!confirmed)
+            {
+                this.ResetRenderFlags();
+                return;
+            }
+
+            var objUrls = new UrlController();
+            objUrls.DeleteUrl(this.objPortal.PortalID, selected.Value);
+            this.LoadUrls(); // we must reload the url list
+        }
+
+        this.ResetRenderFlags();
+    }
+
+    /// <summary>Records the file the user picked for upload.</summary>
+    /// <param name="args">The file change arguments.</param>
+    private void OnFileSelectedForUpload(InputFileChangeEventArgs args)
+    {
+        this.pendingUpload = args?.File;
+    }
+
+    /// <summary>Uploads the picked file into the selected folder.</summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>This is the port of <c>cmdSave_Click</c>.</remarks>
+    private async Task SaveAsync()
+    {
+        this.UploadButtonVisible = false;
+
+        // if no file is selected exit
+        if (this.pendingUpload is null || string.IsNullOrEmpty(this.pendingUpload.Name))
+        {
+            return;
+        }
+
+        string parentFolderName;
+        if (Globals.IsHostTab(this.PortalSettings.ActiveTab.TabID))
+        {
+            parentFolderName = Globals.HostMapPath;
+        }
+        else
+        {
+            parentFolderName = this.PortalSettings.HomeDirectoryMapPath;
+        }
+
+        parentFolderName += this.SelectedFolderValue;
+
+        var strExtension = Path.GetExtension(this.pendingUpload.Name).Replace(".", string.Empty);
+        if (!string.IsNullOrEmpty(this.FileFilter) && !("," + this.FileFilter).Contains("," + strExtension, StringComparison.OrdinalIgnoreCase))
+        {
+            // trying to upload a file not allowed for current filter
+            this.Message = string.Format(CultureInfo.CurrentCulture, Localization.GetString("UploadError", this.LocalResourceFile), this.FileFilter, strExtension);
+            this.ErrorRowVisible = true;
+        }
+        else
+        {
+            var fileManager = FileManager.Instance;
+            var folderManager = FolderManager.Instance;
+
+            var settings = PortalController.Instance.GetCurrentSettings();
+            var currentPage = TabController.CurrentPage;
+            var portalId = (currentPage.ParentId == settings.SuperTabId) ? Null.NullInteger : settings.PortalId;
+
+            var fileName = Path.GetFileName(this.pendingUpload.Name);
+            var folderPath = Globals.GetSubFolderPath(parentFolderName.Replace("/", @"\") + fileName, portalId);
+
+            var folder = folderManager.GetFolder(portalId, folderPath);
+            this.ErrorRowVisible = false;
+
+            try
+            {
+                // Was txtFile.PostedFile.InputStream; a browser file is streamed instead.
+                await using var uploadStream = this.pendingUpload.OpenReadStream(MaxUploadSize);
+                fileManager.AddFile(folder, fileName, uploadStream, true, true, ((FileManager)fileManager).GetContentType(Path.GetExtension(fileName)));
+            }
+            catch (Services.FileSystem.PermissionsNotMetException)
+            {
+                this.Message += "<br />" + string.Format(CultureInfo.CurrentCulture, Localization.GetString("InsufficientFolderPermission"), folder.FolderPath);
+                this.ErrorRowVisible = true;
+            }
+            catch (NoSpaceAvailableException)
+            {
+                this.Message += "<br />" + string.Format(CultureInfo.CurrentCulture, Localization.GetString("DiskSpaceExceeded"), fileName);
+                this.ErrorRowVisible = true;
+            }
+            catch (InvalidFileExtensionException)
+            {
+                this.Message += "<br />" + string.Format(CultureInfo.CurrentCulture, Localization.GetString("RestrictedFileType"), fileName, Host.AllowedExtensionWhitelist.ToDisplayString());
+                this.ErrorRowVisible = true;
+            }
+            catch (Exception)
+            {
+                this.Message += "<br />" + string.Format(CultureInfo.CurrentCulture, Localization.GetString("SaveFileError"), fileName);
+                this.ErrorRowVisible = true;
+            }
+        }
+
+        if (string.IsNullOrEmpty(this.Message))
+        {
+            this.FileListVisible = true;
+            this.UploadButtonVisible = this.ShowUpLoad;
+            this.FileUploadVisible = false;
+            this.SaveButtonVisible = false;
+            this.CancelButtonVisible = false;
+            this.ErrorRowVisible = false;
+
+            this.LoadFiles(false);
+
+            var fileName1 = this.pendingUpload.Name.Substring(this.pendingUpload.Name.LastIndexOf(@"\", StringComparison.Ordinal) + 1);
+            var uploaded = this.fileItems.FindByText(fileName1);
+            if (uploaded != null)
+            {
+                this.fileItems.ClearSelection();
+                uploaded.Selected = true;
+            }
+
+            this.lastFileName = this.SelectedFileValue;
+        }
+
+        this.pendingUpload = null;
+        this.ResetRenderFlags();
+    }
+
+    /// <summary>Switches the url row to the list of stored urls.</summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>This is the port of <c>cmdSelect_Click</c>.</remarks>
+    private Task SelectAsync()
+    {
+        this.UrlListVisible = true;
+        this.SelectButtonVisible = false;
+        this.UrlTextVisible = false;
+        this.AddButtonVisible = true;
+        this.DeleteButtonVisible = PortalSecurity.IsInRole(this.objPortal.AdministratorRoleName);
+        this.LoadUrls();
+        var current = this.urlItems.FindByValue(this.urlText);
+        if (current != null)
+        {
+            this.urlItems.ClearSelection();
+            current.Selected = true;
+        }
+
+        this.ResetRenderFlags();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Switches the file row into upload mode.</summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>This is the port of <c>cmdUpload_Click</c>.</remarks>
+    private Task UploadAsync()
+    {
+        var strSaveFolder = this.SelectedFolderValue;
+        this.LoadFolders("WRITE");
+        var saveFolder = this.folderItems.FindByValue(strSaveFolder);
+        if (saveFolder != null)
+        {
+            saveFolder.Selected = true;
+            this.FileListVisible = false;
+            this.UploadButtonVisible = false;
+            this.FileUploadVisible = true;
+            this.SaveButtonVisible = true;
+            this.CancelButtonVisible = true;
+        }
+        else
+        {
+            if (this.folderItems.Count > 0)
+            {
+                this.folderItems[0].Selected = true;
+                this.FileListVisible = false;
+                this.UploadButtonVisible = false;
+                this.FileUploadVisible = true;
+                this.SaveButtonVisible = true;
+                this.CancelButtonVisible = true;
+            }
+            else
+            {
+                // reset controls
+                this.LoadFolders("BROWSE,WRITE");
+                var restored = this.folderItems.FindByValue(strSaveFolder);
+                if (restored != null)
+                {
+                    restored.Selected = true;
+                }
+
+                this.FileListVisible = true;
+                this.UploadButtonVisible = false;
+                this.FileUploadVisible = false;
+                this.SaveButtonVisible = false;
+                this.CancelButtonVisible = false;
+                this.Message = Localization.GetString("NoWritePermission", this.LocalResourceFile);
+                this.ErrorRowVisible = true;
+            }
+        }
+
+        this.ResetRenderFlags();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles a change of the link type.</summary>
+    /// <param name="value">The newly selected link type.</param>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>This is the port of <c>optType_SelectedIndexChanged</c>.</remarks>
+    private Task OnTypeChangedAsync(string value)
+    {
+        // Type changed, render the correct control set
+        this.SelectValue(this.typeItems, value);
+        this.urlType = value;
+        this.doRenderTypeControls = true;
+        this.RenderPipeline();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles a change of the selected stored url.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnUrlSelectedAsync(ChangeEventArgs args)
+    {
+        this.SelectValue(this.urlItems, args?.Value?.ToString());
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles a change of the typed url.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnUrlTextChangedAsync(ChangeEventArgs args)
+    {
+        this.urlText = args?.Value?.ToString() ?? string.Empty;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles a change of the selected page.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnTabSelectedAsync(ChangeEventArgs args)
+    {
+        this.SelectValue(this.tabItems, args?.Value?.ToString());
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles a change of the selected file.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnFileSelectedAsync(ChangeEventArgs args)
+    {
+        this.SelectValue(this.fileItems, args?.Value?.ToString());
+        this.lastFileName = this.SelectedFileValue;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles a change of the selected system image.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnImageSelectedAsync(ChangeEventArgs args)
+    {
+        this.SelectValue(this.imageItems, args?.Value?.ToString());
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles a change of the typed user name.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnUserTextChangedAsync(ChangeEventArgs args)
+    {
+        this.userText = args?.Value?.ToString() ?? string.Empty;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles the "track clicks" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    private void OnTrackChanged(ChangeEventArgs args)
+    {
+        this.trackChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Handles the "log activity" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    private void OnLogChanged(ChangeEventArgs args)
+    {
+        this.logChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Handles the "open in new window" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    private void OnNewWindowChanged(ChangeEventArgs args)
+    {
+        this.newWindowChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Marks the item with the given value as the only selected one.</summary>
+    /// <param name="items">The items to update.</param>
+    /// <param name="value">The value to select.</param>
+    private void SelectValue(List<ListItem> items, string value)
+    {
+        items.ClearSelection();
+        var item = items.FindByValue(value);
+        if (item != null)
+        {
+            item.Selected = true;
+        }
+    }
+
+    /// <summary>Gets the files of the selected folder.</summary>
+    /// <param name="noneSpecified">Whether to include a "none specified" entry.</param>
+    /// <returns>The file list.</returns>
+    private ArrayList GetFileList(bool noneSpecified)
+    {
+        var portalId = Null.NullInteger;
+
+        if ((!this.IsHostMenu) || !string.IsNullOrEmpty(this.Request?.Query["pid"].ToString()))
+        {
+            portalId = this.objPortal.PortalID;
+        }
+
+        return Globals.GetFileList(portalId, this.FileFilter, noneSpecified, this.SelectedFolderValue, false);
+    }
+
+    /// <summary>Reloads the file list of the selected folder.</summary>
+    /// <param name="noneSpecified">Whether to include a "none specified" entry.</param>
+    private void LoadFiles(bool noneSpecified)
+    {
+        var previous = this.SelectedFileValue;
+        this.fileItems.Clear();
+        foreach (FileItem file in this.GetFileList(noneSpecified))
+        {
+            this.fileItems.Add(new ListItem(file.Text, file.Value));
+        }
+
+        var restored = this.fileItems.FindByValue(previous);
+        if (restored != null)
+        {
+            restored.Selected = true;
+        }
+    }
+
+    /// <summary>Loads the folders the current user has the given permissions on.</summary>
+    /// <param name="permissions">The comma separated list of required permissions.</param>
+    private void LoadFolders(string permissions)
+    {
+        this.folderItems.Clear();
+
+        var folders = FolderManager.Instance.GetFolders(UserController.Instance.GetCurrentUserInfo(), permissions);
+        foreach (FolderInfo folder in folders)
+        {
+            var folderItem = new ListItem();
+            if (folder.FolderPath == Null.NullString)
+            {
+                folderItem.Text = Localization.GetString("Root", this.LocalResourceFile);
+            }
+            else
+            {
+                folderItem.Text = folder.DisplayPath;
+            }
+
+            folderItem.Value = folder.FolderPath;
+            this.folderItems.Add(folderItem);
+        }
+    }
+
+    /// <summary>Loads the urls that were stored for the portal.</summary>
+    private void LoadUrls()
+    {
+        var objUrls = new UrlController();
+        this.urlItems.Clear();
+        foreach (UrlInfo url in objUrls.GetUrls(this.objPortal.PortalID))
+        {
+            this.urlItems.Add(new ListItem(url.Url, url.Url));
+        }
+    }
+
+    /// <summary>Shows the storage provider icon of the selected folder.</summary>
+    private void SetStorageLocationType()
+    {
+        var folderName = this.SelectedFolderValue;
+
+        // Check to see if this is the 'Root' folder, if so we cannot rely on its text value because it is something and not an empty string that we need to lookup the 'root' folder
+        if (this.SelectedFolderValue == string.Empty)
+        {
+            folderName = string.Empty;
+        }
+
+        var objFolderInfo = FolderManager.Instance.GetFolder(this.PortalSettings.PortalId, folderName);
+        if (objFolderInfo != null)
+        {
+            var folderMapping = FolderMappingController.Instance.GetFolderMapping(objFolderInfo.PortalID, objFolderInfo.FolderMappingID);
+            if (folderMapping.MappingName == "Standard")
+            {
+                this.StorageLocationTypeVisible = false;
+            }
+            else
+            {
+                this.StorageLocationTypeVisible = true;
+                this.StorageLocationTypeImageUrl = FolderProvider.Instance(folderMapping.FolderProviderType).GetFolderProviderIconPath();
+            }
+        }
+    }
+
+    /// <summary>Resolves the url that was assigned and selects the matching link type.</summary>
+    private void DoChangeURL()
+    {
+        var url = this.urlState ?? string.Empty;
+        var urltype = this.urlType ?? string.Empty;
+        if (!string.IsNullOrEmpty(url))
+        {
+            var objUrls = new UrlController();
+            var trackingUrl = url;
+
+            urltype = Globals.GetURLType(url).ToString("g").Substring(0, 1);
+            if (urltype == "U" && url.StartsWith("~/" + this.PortalSettings.DefaultIconLocation, StringComparison.InvariantCultureIgnoreCase))
+            {
+                urltype = "I";
+            }
+
+            this.urlType = urltype;
+            if (urltype == "F")
+            {
+                if (url.StartsWith("fileid=", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    trackingUrl = url;
+                    var objFile = FileManager.Instance.GetFile(int.Parse(url.Substring(7), CultureInfo.InvariantCulture));
+                    if (objFile != null)
+                    {
+                        url = objFile.Folder + objFile.FileName;
+                    }
+                }
+                else
+                {
+                    // to handle legacy scenarios before the introduction of the FileServerHandler
+                    var fileName = Path.GetFileName(url);
+                    var folderPath = url.Substring(0, url.LastIndexOf(fileName, StringComparison.OrdinalIgnoreCase));
+                    var folder = FolderManager.Instance.GetFolder(this.objPortal.PortalID, folderPath);
+                    var fileId = -1;
+                    if (folder != null)
+                    {
+                        var file = FileManager.Instance.GetFile(folder, fileName);
+                        if (file != null)
+                        {
+                            fileId = file.FileId;
+                        }
+                    }
+
+                    trackingUrl = "FileID=" + fileId.ToString(CultureInfo.InvariantCulture);
+                }
+            }
+
+            if (urltype == "M")
+            {
+                if (url.StartsWith("userid=", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    var objUser = UserController.GetUserById(this.objPortal.PortalID, int.Parse(url.Substring(7), CultureInfo.InvariantCulture));
+                    if (objUser != null)
+                    {
+                        url = objUser.Username;
+                    }
+                }
+            }
+
+            var objUrlTracking = objUrls.GetUrlTracking(this.objPortal.PortalID, trackingUrl, this.ModuleID);
+            if (objUrlTracking != null)
+            {
+                this.newWindowChecked = objUrlTracking.NewWindow;
+                this.trackChecked = objUrlTracking.TrackClicks;
+                this.logChecked = objUrlTracking.LogActivity;
+            }
+            else
+            {
+                // the url does not exist in the tracking table
+                this.trackChecked = false;
+                this.logChecked = false;
+            }
+
+            this.urlState = url;
+        }
+        else
+        {
+            if (!string.IsNullOrEmpty(urltype))
+            {
+                this.typeItems.ClearSelection();
+                var item = this.typeItems.FindByValue(urltype);
+                if (item != null)
+                {
+                    item.Selected = true;
+                }
+                else if (this.typeItems.Count > 0)
+                {
+                    this.typeItems[0].Selected = true;
+                }
+            }
+            else
+            {
+                if (this.typeItems.Count > 0)
+                {
+                    this.typeItems.ClearSelection();
+                    this.typeItems[0].Selected = true;
+                }
+            }
+
+            this.newWindowChecked = false; // Need check
+            this.trackChecked = false; // Need check
+            this.logChecked = false; // Need check
+        }
+
+        // Url type changed, then we must draw the controls for that type
+        this.doRenderTypeControls = true;
+    }
+
+    /// <summary>Builds the list of offered link types.</summary>
+    private void DoRenderTypes()
+    {
+        // We must clear the list to keep the same item order
+        var strCurrent = this.SelectedTypeValue; // Save current selected value
+
+        this.typeItems.Clear();
+        if (this.ShowNone)
+        {
+            this.typeItems.Add(new ListItem(Localization.GetString("NoneType", this.LocalResourceFile), "N"));
+        }
+
+        if (this.ShowUrls)
+        {
+            this.typeItems.Add(new ListItem(Localization.GetString("URLType", this.LocalResourceFile), "U"));
+        }
+
+        if (this.ShowTabs)
+        {
+            this.typeItems.Add(new ListItem(Localization.GetString("TabType", this.LocalResourceFile), "T"));
+        }
+
+        if (this.ShowFiles)
+        {
+            this.typeItems.Add(new ListItem(Localization.GetString("FileType", this.LocalResourceFile), "F"));
+        }
+
+        if (this.ShowImages)
+        {
+            this.typeItems.Add(new ListItem(Localization.GetString("ImageType", this.LocalResourceFile), "I"));
+        }
+
+        if (this.ShowUsers)
+        {
+            this.typeItems.Add(new ListItem(Localization.GetString("UserType", this.LocalResourceFile), "M"));
+        }
+
+        if (this.typeItems.Count > 0)
+        {
+            if (!string.IsNullOrEmpty(strCurrent))
+            {
+                var item = this.typeItems.FindByValue(strCurrent);
+                if (item != null)
+                {
+                    item.Selected = true;
+                }
+                else
+                {
+                    this.typeItems[0].Selected = true;
+                    this.doRenderTypeControls = true; // Type changed, re-draw
+                }
+            }
+            else
+            {
+                this.typeItems[0].Selected = true;
+                this.doRenderTypeControls = true; // Type changed, re-draw
+            }
+
+            this.TypeRowVisible = this.typeItems.Count > 1;
+        }
+        else
+        {
+            this.TypeRowVisible = false;
+        }
+    }
+
+    /// <summary>Makes sure the selected link type matches the recorded url type.</summary>
+    private void DoCorrectRadioButtonList()
+    {
+        var urltype = this.urlType ?? string.Empty;
+
+        if (this.typeItems.Count > 0)
+        {
+            this.typeItems.ClearSelection();
+            if (!string.IsNullOrEmpty(urltype))
+            {
+                var item = this.typeItems.FindByValue(urltype);
+                if (item != null)
+                {
+                    item.Selected = true;
+                }
+                else
+                {
+                    this.typeItems[0].Selected = true;
+                    urltype = this.typeItems[0].Value;
+                    this.urlType = urltype;
+                }
+            }
+            else
+            {
+                this.typeItems[0].Selected = true;
+                urltype = this.typeItems[0].Value;
+                this.urlType = urltype;
+            }
+        }
+    }
+
+    /// <summary>Renders the editors of the selected link type.</summary>
+    private void DoRenderTypeControls()
+    {
+        var url = this.urlState ?? string.Empty;
+        var urltype = this.urlType ?? string.Empty;
+        if (!string.IsNullOrEmpty(urltype))
+        {
+            // load listitems
+            switch (this.SelectedTypeValue)
+            {
+                case "N": // None
+                    this.UrlRowVisible = false;
+                    this.TabRowVisible = false;
+                    this.FileRowVisible = false;
+                    this.UserRowVisible = false;
+                    this.ImagesRowVisible = false;
+                    break;
+                case "I": // System Image
+                    this.UrlRowVisible = false;
+                    this.TabRowVisible = false;
+                    this.FileRowVisible = false;
+                    this.UserRowVisible = false;
+                    this.ImagesRowVisible = true;
+
+                    this.imageItems.Clear();
+
+                    var strImagesFolder = Path.Combine(Globals.ApplicationMapPath, this.PortalSettings.DefaultIconLocation.Replace('/', '\\'));
+                    foreach (var strImage in Directory.GetFiles(strImagesFolder))
+                    {
+                        var img = strImage.Replace(strImagesFolder, string.Empty).Trim('/').Trim('\\');
+                        this.imageItems.Add(new ListItem(img, $"~/{this.PortalSettings.DefaultIconLocation}/{img}".ToLowerInvariant()));
+                    }
+
+                    var selectedItem = this.imageItems.FindByValue(url.ToLowerInvariant());
+                    if (selectedItem != null)
+                    {
+                        selectedItem.Selected = true;
+                    }
+
+                    break;
+
+                case "U": // Url
+                    this.UrlRowVisible = true;
+                    this.TabRowVisible = false;
+                    this.FileRowVisible = false;
+                    this.UserRowVisible = false;
+                    this.ImagesRowVisible = false;
+                    if (string.IsNullOrEmpty(this.urlText))
+                    {
+                        this.urlText = url;
+                    }
+
+                    if (string.IsNullOrEmpty(this.urlText))
+                    {
+                        this.urlText = "http://";
+                    }
+
+                    this.UrlTextVisible = true;
+
+                    this.SelectButtonVisible = true;
+
+                    this.UrlListVisible = false;
+                    this.AddButtonVisible = false;
+                    this.DeleteButtonVisible = false;
+                    break;
+                case "T": // tab
+                    this.UrlRowVisible = false;
+                    this.TabRowVisible = true;
+                    this.FileRowVisible = false;
+                    this.UserRowVisible = false;
+                    this.ImagesRowVisible = false;
+
+                    this.tabItems.Clear();
+
+                    var currentPage = TabController.CurrentPage;
+                    var settings = PortalController.Instance.GetCurrentSettings();
+                    foreach (TabInfo tab in TabController.GetPortalTabs(settings.PortalId, Null.NullInteger, !this.Required, "none available", true, false, false, true, false))
+                    {
+                        this.tabItems.Add(new ListItem(tab.IndentedTabName, tab.TabID.ToString(CultureInfo.InvariantCulture)));
+                    }
+
+                    var selectedTab = this.tabItems.FindByValue(url);
+                    if (selectedTab != null)
+                    {
+                        selectedTab.Selected = true;
+                    }
+
+                    if (!this.IncludeActiveTab)
+                    {
+                        var activeTab = this.tabItems.FindByValue(currentPage.TabID.ToString(CultureInfo.InvariantCulture));
+                        if (activeTab != null)
+                        {
+                            // Was Attributes.Add("disabled", "disabled") on the list item.
+                            activeTab.Enabled = false;
+                        }
+                    }
+
+                    break;
+                case "F": // file
+                    this.UrlRowVisible = false;
+                    this.TabRowVisible = false;
+                    this.FileRowVisible = true;
+                    this.UserRowVisible = false;
+                    this.ImagesRowVisible = false;
+
+                    if (!this.foldersLoaded || this.doReloadFolders)
+                    {
+                        this.LoadFolders("BROWSE,WRITE");
+                        this.foldersLoaded = true;
+                    }
+
+                    if (this.folderItems.Count == 0)
+                    {
+                        this.Message = Localization.GetString("NoPermission", this.LocalResourceFile);
+                        this.ErrorRowVisible = true;
+                        this.FileRowVisible = false;
+                        return;
+                    }
+
+                    // select folder
+                    // We Must check if selected folder has changed because of a property change (Secure, Database)
+                    var fileName = string.Empty;
+                    var folderPath = string.Empty;
+                    var lastFile = this.lastFileName ?? string.Empty;
+                    var lastFolder = this.lastFolderPath ?? string.Empty;
+                    var mustRedrawFiles = false;
+
+                    if (url != string.Empty)
+                    {
+                        // Let's use the new URL
+                        fileName = url.Substring(url.LastIndexOf("/", StringComparison.Ordinal) + 1);
+                        folderPath = url.Replace(fileName, string.Empty);
+                    }
+                    else
+                    {
+                        // Use last settings
+                        fileName = lastFile;
+                        folderPath = lastFolder;
+                    }
+
+                    var folderItem = this.folderItems.FindByValue(folderPath);
+                    if (folderItem != null)
+                    {
+                        this.folderItems.ClearSelection();
+                        folderItem.Selected = true;
+                    }
+                    else if (this.folderItems.Count > 0)
+                    {
+                        this.folderItems.ClearSelection();
+                        this.folderItems[0].Selected = true;
+                        folderPath = this.folderItems[0].Value;
+                    }
+
+                    if (!this.filesLoaded || folderPath != lastFolder || this.doReloadFiles)
+                    {
+                        // Reload files only if property change or not same folder
+                        mustRedrawFiles = true;
+                        this.filesLoaded = true;
+                    }
+                    else
+                    {
+                        if (this.fileItems.Count > 0)
+                        {
+                            if ((this.Required && string.IsNullOrEmpty(this.fileItems[0].Value)) || (!this.Required && !string.IsNullOrEmpty(this.fileItems[0].Value)))
+                            {
+                                // Required state has changed, so we need to reload files
+                                mustRedrawFiles = true;
+                            }
+                        }
+                        else if (!this.Required)
+                        {
+                            // Required state has changed, so we need to reload files
+                            mustRedrawFiles = true;
+                        }
+                    }
+
+                    if (mustRedrawFiles)
+                    {
+                        this.fileItems.Clear();
+                        foreach (FileItem file in this.GetFileList(!this.Required))
+                        {
+                            this.fileItems.Add(new ListItem(file.Text, file.Value));
+                        }
+
+                        var selectedFile = this.fileItems.FindByText(fileName);
+                        if (selectedFile != null)
+                        {
+                            this.fileItems.ClearSelection();
+                            selectedFile.Selected = true;
+                        }
+                    }
+
+                    this.FileListVisible = true;
+                    this.FileUploadVisible = false;
+
+                    var objFolder = (FolderInfo)FolderManager.Instance.GetFolder(this.objPortal.PortalID, folderPath);
+                    this.UploadButtonVisible = this.ShowUpLoad && objFolder != null && FolderPermissionController.CanAddFolder(objFolder);
+
+                    this.SetStorageLocationType();
+                    this.UrlTextVisible = false;
+                    this.SaveButtonVisible = false;
+                    this.CancelButtonVisible = false;
+
+                    this.lastFolderPath = this.SelectedFolderValue;
+                    this.lastFileName = this.SelectedFileValue;
+
+                    break;
+                case "M": // membership users
+                    this.UrlRowVisible = false;
+                    this.TabRowVisible = false;
+                    this.FileRowVisible = false;
+                    this.UserRowVisible = true;
+                    this.ImagesRowVisible = false;
+                    if (string.IsNullOrEmpty(this.userText))
+                    {
+                        this.userText = url;
+                    }
+
+                    break;
+            }
+        }
+        else
+        {
+            this.UrlRowVisible = false;
+            this.ImagesRowVisible = false;
+            this.TabRowVisible = false;
+            this.FileRowVisible = false;
+            this.UserRowVisible = false;
+        }
+    }
+}

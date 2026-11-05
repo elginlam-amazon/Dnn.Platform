@@ -45,7 +45,7 @@ namespace DotNetNuke.Services.Installer.Packages
             }
         }
 
-        protected string DisplayMode => (this.Request.QueryString["Display"] ?? string.Empty).ToLowerInvariant();
+        protected string DisplayMode => (this.Request?.Query["Display"].ToString() ?? string.Empty).ToLowerInvariant();
 
         protected virtual string EditorID
         {

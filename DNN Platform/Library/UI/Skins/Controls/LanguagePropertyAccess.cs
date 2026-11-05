@@ -8,9 +8,10 @@ namespace DotNetNuke.UI.Skins.Controls
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.IO;
-    using System.Web;
+    using System.Net;
 
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Internal;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
@@ -108,9 +109,10 @@ namespace DotNetNuke.UI.Skins.Controls
         private string[] GetQsParams(string newLanguage, bool isLocalized)
         {
             string returnValue = string.Empty;
-            NameValueCollection queryStringCollection = HttpContext.Current.Request.QueryString;
+            var request = HttpContextSource.CurrentOrThrow.Request;
+            NameValueCollection queryStringCollection = request.GetQueryString();
             var rawQueryStringCollection =
-                HttpUtility.ParseQueryString(new Uri(HttpContext.Current.Request.Url.Scheme + "://" + HttpContext.Current.Request.Url.Authority + HttpContext.Current.Request.RawUrl).Query);
+                QueryStringUtils.ParseQueryString(new Uri(request.Scheme + "://" + request.Host.Value + request.GetRawUrl()).Query);
 
             var settings = PortalController.Instance.GetCurrentSettings();
             string[] arrKeys = queryStringCollection.AllKeys;
@@ -172,7 +174,7 @@ namespace DotNetNuke.UI.Skins.Controls
                                             returnValue += "&";
                                         }
 
-                                        returnValue += arrKeys[i] + "=" + HttpUtility.UrlEncode(rawQueryStringCollection.Get(arrKeys[i]));
+                                        returnValue += arrKeys[i] + "=" + WebUtility.UrlEncode(rawQueryStringCollection.Get(arrKeys[i]));
                                     }
                                 }
 
@@ -194,7 +196,7 @@ namespace DotNetNuke.UI.Skins.Controls
                                             var qsv = arrKeys[i];
                                             qsv = qsv.Replace("\"", string.Empty);
                                             qsv = qsv.Replace("'", string.Empty);
-                                            returnValue += qsv + "=" + HttpUtility.UrlEncode(arrValues[j]);
+                                            returnValue += qsv + "=" + WebUtility.UrlEncode(arrValues[j]);
                                         }
                                     }
                                 }
@@ -279,7 +281,7 @@ namespace DotNetNuke.UI.Skins.Controls
                 // Example: Accessing protected page /de-de/Page1 redirects to /de-DE/Login?returnurl=%2f%2fde-de%2fPage1 and changing language to en-us on the login page
                 // using the language links won't change the language in the returnurl parameter and the user will be redirected to the de-de version after logging in
                 // Assumption: Loosing the returnurl information is better than confusing the user by switching the language back after the login
-                var queryParams = HttpUtility.ParseQueryString(new Uri(string.Concat(HttpContext.Current.Request.Url.GetLeftPart(UriPartial.Authority), HttpContext.Current.Request.RawUrl)).Query);
+                var queryParams = QueryStringUtils.ParseQueryString(new Uri(string.Concat(HttpContextSource.CurrentOrThrow.Request.Scheme, "://", HttpContextSource.CurrentOrThrow.Request.Host.Value, HttpContextSource.CurrentOrThrow.Request.GetRawUrl())).Query);
                 queryParams.Remove("returnurl");
                 var queryString = queryParams.ToString();
                 if (queryString.Length > 0)
@@ -288,7 +290,7 @@ namespace DotNetNuke.UI.Skins.Controls
                 }
             }
 
-            var controlKey = HttpContext.Current.Request.QueryString["ctl"];
+            var controlKey = HttpContextSource.Current?.Request?.GetValue("ctl");
             var queryStrings = this.GetQsParams(newLocale.Code, islocalized);
             var isSuperTab = this.objPortal.ActiveTab.IsSuperTab;
             var url = $"{TestableGlobals.Instance.NavigateURL(tabId, isSuperTab, this.objPortal, controlKey, newLanguage, queryStrings)}{rawQueryString}";

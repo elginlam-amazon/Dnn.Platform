@@ -9,9 +9,9 @@ namespace DotNetNuke.Services.Search.Internals
     using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Net;
     using System.Text;
     using System.Threading;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -20,16 +20,14 @@ namespace DotNetNuke.Services.Search.Internals
     using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Exceptions;
+    using Localization = DotNetNuke.Services.Localization.Localization;
     using Lucene.Net.Analysis;
     using Lucene.Net.Documents;
     using Lucene.Net.Index;
     using Lucene.Net.Search;
-    using Lucene.Net.Search.Vectorhighlight;
+    using Lucene.Net.Search.VectorHighlight;
     using Lucene.Net.Store;
-
     using Microsoft.Extensions.Logging;
-
-    using Localization = DotNetNuke.Services.Localization.Localization;
 
     /// <summary>  The Impl Controller class for Lucene.</summary>
     internal partial class LuceneControllerImpl : ILuceneController, IDisposable
@@ -53,7 +51,7 @@ namespace DotNetNuke.Services.Search.Internals
         private readonly List<CachedReader> oldReaders = new List<CachedReader>();
 
         private IndexWriter writer;
-        private IndexReader idxReader;
+        private DirectoryReader idxReader;
         private CachedReader reader;
         private FastVectorHighlighter fastHighlighter;
         private int isDisposed = UNDISPOSED;
@@ -109,11 +107,22 @@ namespace DotNetNuke.Services.Search.Internals
                             }
 
                             this.CheckDisposed();
-                            var writer = new IndexWriter(
-                                FSDirectory.Open(this.IndexFolder),
-                                this.GetCustomAnalyzer() ?? new SynonymAnalyzer(),
-                                IndexWriter.MaxFieldLength.UNLIMITED);
-                            this.idxReader = writer.GetReader();
+
+                            // Lucene 4.8 cannot read an index written by Lucene 3.x. If the on-disk index
+                            // predates the upgrade, discard it and request a full re-index rather than
+                            // failing every search/index operation from here on.
+                            IndexWriter writer;
+                            try
+                            {
+                                writer = CreateWriter(this.IndexFolder, this.GetCustomAnalyzer() ?? new SynonymAnalyzer());
+                            }
+                            catch (Exception ex) when (IsUnreadableIndexException(ex))
+                            {
+                                this.ResetIncompatibleIndex(ex);
+                                writer = CreateWriter(this.IndexFolder, this.GetCustomAnalyzer() ?? new SynonymAnalyzer());
+                            }
+
+                            this.idxReader = writer.GetReader(true);
                             Thread.MemoryBarrier();
                             this.writer = writer;
                         }
@@ -140,8 +149,8 @@ namespace DotNetNuke.Services.Search.Internals
             {
                 if (this.fastHighlighter == null)
                 {
-                    FragListBuilder fragListBuilder = new SimpleFragListBuilder();
-                    FragmentsBuilder fragmentBuilder = new ScoreOrderFragmentsBuilder(
+                    IFragListBuilder fragListBuilder = new SimpleFragListBuilder();
+                    IFragmentsBuilder fragmentBuilder = new ScoreOrderFragmentsBuilder(
                         new[] { HighlightPreTag }, new[] { HighlightPostTag });
                     this.fastHighlighter = new FastVectorHighlighter(true, true, fragListBuilder, fragmentBuilder);
                 }
@@ -213,7 +222,7 @@ namespace DotNetNuke.Services.Search.Internals
                         }).ToList();
                     break;
                 }
-                catch (Exception ex) when (ex is IOException or AlreadyClosedException)
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException)
                 {
                     this.DisposeReaders();
                     this.DisposeWriter(false);
@@ -236,7 +245,7 @@ namespace DotNetNuke.Services.Search.Internals
         public void Add(Document doc)
         {
             Requires.NotNull("searchDocument", doc);
-            if (doc.GetFields().Count > 0)
+            if (doc.Fields.Count > 0)
             {
                 try
                 {
@@ -292,7 +301,7 @@ namespace DotNetNuke.Services.Search.Internals
                 this.CheckDisposed();
 
                 // optimize down to "> 1 segments" for better performance than down to 1
-                this.writer.Optimize(4, doWait);
+                this.writer.ForceMerge(4, doWait);
 
                 if (doWait)
                 {
@@ -327,7 +336,7 @@ namespace DotNetNuke.Services.Search.Internals
         {
             this.CheckDisposed();
             var searcher = this.GetSearcher();
-            return searcher.IndexReader.NumDocs();
+            return searcher.IndexReader.NumDocs;
         }
 
         /// <inheritdoc />
@@ -342,7 +351,7 @@ namespace DotNetNuke.Services.Search.Internals
             return new SearchStatistics
             {
                 // Hack: seems that NumDocs/MaxDoc are buggy and return incorrect/swapped values
-                TotalActiveDocuments = searcher.IndexReader.NumDocs(),
+                TotalActiveDocuments = searcher.IndexReader.NumDocs,
                 TotalDeletedDocuments = searcher.IndexReader.NumDeletedDocs,
                 IndexLocation = this.IndexFolder,
                 LastModifiedOn = System.IO.Directory.GetLastWriteTimeUtc(this.IndexFolder),
@@ -380,7 +389,7 @@ namespace DotNetNuke.Services.Search.Internals
                         {
                             analyzer = Reflection.CreateInstance(analyzerType) as Analyzer;
                         }
-                        else if (analyzerType?.GetConstructor([typeof(Lucene.Net.Util.Version),]) != null)
+                        else if (analyzerType?.GetConstructor([typeof(Lucene.Net.Util.LuceneVersion),]) != null)
                         {
                             analyzer = Reflection.CreateInstance(analyzerType, [Constants.LuceneVersion,]) as Analyzer;
                         }
@@ -439,7 +448,7 @@ namespace DotNetNuke.Services.Search.Internals
             var s = highlighter.GetBestFragment(fieldQuery, searcher.IndexReader, match.Doc, tag, length);
             if (!string.IsNullOrEmpty(s))
             {
-                s = HttpUtility.HtmlEncode(s).Replace(HighlightPreTag, HtmlPreTag).Replace(HighlightPostTag, HtmlPostTag);
+                s = WebUtility.HtmlEncode(s).Replace(HighlightPreTag, HtmlPreTag).Replace(HighlightPostTag, HtmlPostTag);
             }
 
             return s;
@@ -462,9 +471,56 @@ namespace DotNetNuke.Services.Search.Internals
             return displayScore;
         }
 
+        private static IndexWriter CreateWriter(string indexFolder, Analyzer analyzer)
+        {
+            var config = new IndexWriterConfig(Constants.LuceneVersion, analyzer)
+            {
+                OpenMode = OpenMode.CREATE_OR_APPEND,
+            };
+
+            return new IndexWriter(FSDirectory.Open(indexFolder), config);
+        }
+
+        /// <summary>Determines whether the exception means the on-disk index cannot be read by this Lucene version.</summary>
+        private static bool IsUnreadableIndexException(Exception ex)
+        {
+            return ex is IndexFormatTooOldException or IndexFormatTooNewException or CorruptIndexException;
+        }
+
+        /// <summary>
+        /// Deletes an index that this Lucene version cannot read (e.g. one written by the Lucene 3.0.3
+        /// used before the .NET upgrade) and schedules a full re-index of every portal.
+        /// </summary>
+        private void ResetIncompatibleIndex(Exception ex)
+        {
+            Logger.LuceneControllerSearchException(ex);
+
+            if (System.IO.Directory.Exists(this.IndexFolder))
+            {
+                foreach (var file in System.IO.Directory.GetFiles(this.IndexFolder, "*.*"))
+                {
+                    try
+                    {
+                        File.Delete(file);
+                    }
+                    catch (IOException deleteException)
+                    {
+                        throw new SearchException(
+                            Localization.GetExceptionMessage(
+                                "UnableToDeleteStaleLuceneIndex",
+                                "The search index was written by an older, unreadable Lucene version and could not be deleted. Please delete the contents of the search index folder and re-index."),
+                            deleteException);
+                    }
+                }
+            }
+
+            // Ask the search scheduler for a full re-index of all portals.
+            SearchHelper.Instance.SetSearchReindexRequestTime(true);
+        }
+
         private void CheckDisposed()
         {
-            if (Thread.VolatileRead(ref this.isDisposed) == DISPOSED)
+            if (Volatile.Read(ref this.isDisposed) == DISPOSED)
             {
                 throw new ObjectDisposedException(Localization.GetExceptionMessage("LuceneControlerIsDisposed", "LuceneController is disposed and cannot be used anymore"));
             }
@@ -475,9 +531,11 @@ namespace DotNetNuke.Services.Search.Internals
             IndexSearcher searcher;
             if (this.idxReader != null)
             {
-                // use the Reopen() method for better near-realtime when the _writer isn't null
-                var newReader = this.idxReader.Reopen();
-                if (this.idxReader != newReader)
+                // DirectoryReader.OpenIfChanged replaces the 3.x IndexReader.Reopen() and gives
+                // better near-realtime behaviour while the writer is open. It returns null when
+                // nothing changed, in which case the existing reader stays in use.
+                var newReader = DirectoryReader.OpenIfChanged(this.idxReader);
+                if (newReader != null)
                 {
                     ////_idxReader.Dispose(); -- will get disposed upon disposing the searcher
                     Interlocked.Exchange(ref this.idxReader, newReader);
@@ -487,9 +545,19 @@ namespace DotNetNuke.Services.Search.Internals
             }
             else
             {
-                // Note: disposing the IndexSearcher instance obtained from the next
-                // statement will not close the underlying reader on dispose.
-                searcher = new IndexSearcher(FSDirectory.Open(this.IndexFolder));
+                // Note: the IndexSearcher does not own the reader in Lucene 4.8, so the reader is
+                // disposed explicitly by CachedReader.Dispose().
+                try
+                {
+                    searcher = new IndexSearcher(DirectoryReader.Open(FSDirectory.Open(this.IndexFolder)));
+                }
+                catch (Exception ex) when (IsUnreadableIndexException(ex))
+                {
+                    this.ResetIncompatibleIndex(ex);
+                    throw new SearchIndexEmptyException(Localization.GetExceptionMessage(
+                        "SearchIndexingDirectoryNoValid",
+                        "Search indexing directory is either empty or does not exist"));
+                }
             }
 
             var reader = new CachedReader(searcher);
@@ -593,7 +661,7 @@ namespace DotNetNuke.Services.Search.Internals
 
             public void Dispose()
             {
-                this.searcher.Dispose();
+                // IndexSearcher is not IDisposable in Lucene 4.8; only the reader owns resources.
                 this.searcher.IndexReader.Dispose();
             }
 

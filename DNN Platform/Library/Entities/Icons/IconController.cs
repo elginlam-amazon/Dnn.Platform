@@ -5,7 +5,6 @@ namespace DotNetNuke.Entities.Icons
 {
     using System;
     using System.IO;
-    using System.Web.Hosting;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Application;
@@ -86,7 +85,7 @@ namespace DotNetNuke.Entities.Icons
 
         public static string GetFileIconUrl(string extension)
         {
-            if (!string.IsNullOrEmpty(extension) && File.Exists(HostingEnvironment.MapPath(IconURL("Ext" + extension, "32x32", "Standard"))))
+            if (!string.IsNullOrEmpty(extension) && File.Exists(HttpContextSource.MapPath(IconURL("Ext" + extension, "32x32", "Standard"))))
             {
                 return IconURL("Ext" + extension, "32x32", "Standard");
             }
@@ -137,7 +136,7 @@ namespace DotNetNuke.Entities.Icons
                 if (!IconsStatusOnDisk.ContainsKey(path))
                 {
                     IconsStatusOnDisk.Add(path, true);
-                    var iconPhysicalPath = Path.Combine(appStatus.ApplicationMapPath, path.Replace('/', '\\'));
+                    var iconPhysicalPath = Path.Combine(appStatus.ApplicationMapPath, path.Replace('/', Path.DirectorySeparatorChar));
                     if (!File.Exists(iconPhysicalPath))
                     {
                         Logger.IconControllerIconNotPresentOnDisk(iconPhysicalPath);

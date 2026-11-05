@@ -4,8 +4,8 @@
 
 namespace DotNetNuke.Services.GeneratedImage.FilterTransform
 {
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
 
     /// <summary>Grey Scale ImageTransform class.</summary>
     public class ImageGreyScaleTransform : ImageTransform
@@ -22,23 +22,29 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
         /// <summary>Processes an input image applying a grey scale image transformation.</summary>
         /// <param name="image">Input image.</param>
         /// <returns>Image result after image transformation.</returns>
+        /// <remarks>
+        /// Keeps the original ITU-R BT.601 luma weights and the original truncating cast rather
+        /// than delegating to ImageSharp's <c>Grayscale()</c> processor, which uses different
+        /// coefficients and would change the output bytes.
+        /// </remarks>
         public override Image ProcessImage(Image image)
         {
-            var temp = (Bitmap)image;
-            var bmap = (Bitmap)temp.Clone();
-            Color c;
-            for (int i = 0; i < bmap.Width; i++)
+            var bmap = image.CloneAs<Rgba32>();
+            bmap.ProcessPixelRows(accessor =>
             {
-                for (int j = 0; j < bmap.Height; j++)
+                for (var j = 0; j < accessor.Height; j++)
                 {
-                    c = bmap.GetPixel(i, j);
-                    byte gray = (byte)((.299 * c.R) + (.587 * c.G) + (.114 * c.B));
-
-                    bmap.SetPixel(i, j, Color.FromArgb(gray, gray, gray));
+                    var row = accessor.GetRowSpan(j);
+                    for (var i = 0; i < row.Length; i++)
+                    {
+                        var c = row[i];
+                        var gray = (byte)((.299 * c.R) + (.587 * c.G) + (.114 * c.B));
+                        row[i] = new Rgba32(gray, gray, gray, byte.MaxValue);
+                    }
                 }
-            }
+            });
 
-            return (Bitmap)bmap.Clone();
+            return bmap;
         }
     }
 }

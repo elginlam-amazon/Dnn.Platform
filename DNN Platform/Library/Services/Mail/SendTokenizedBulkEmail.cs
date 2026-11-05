@@ -13,9 +13,9 @@ namespace DotNetNuke.Services.Mail
     using System.Net.Mail;
     using System.Net.Mime;
     using System.Text;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Portals;
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Entities.Portals;
@@ -527,7 +527,7 @@ namespace DotNetNuke.Services.Mail
         {
             this.portalSettings = PortalController.Instance.GetCurrentSettings();
             this.PortalAlias = ((IPortalAliasInfo)PortalSettings.Current.PortalAlias).HttpAlias;
-            this.SendingUser = (UserInfo)HttpContext.Current.Items["UserInfo"];
+            this.SendingUser = (UserInfo)HttpContextSource.CurrentOrThrow.Items["UserInfo"];
             this.tokenReplace = new TokenReplace();
             this.confirmBodyHTML = Localization.GetString("EMAIL_BulkMailConf_Html_Body", Localization.GlobalResourceFile, this.strSenderLanguage);
             this.confirmBodyText = Localization.GetString("EMAIL_BulkMailConf_Text_Body", Localization.GlobalResourceFile, this.strSenderLanguage);

@@ -5,15 +5,19 @@
 namespace DotNetNuke.ExtensionPoints
 {
     using System;
-    using System.ComponentModel;
-    using System.Diagnostics.CodeAnalysis;
     using System.Text;
-    using System.Web.UI;
 
     using DotNetNuke.Common;
 
-    [DefaultProperty("Text")]
-    [ToolboxData("<{0}:ContextMenuItemExtensionControl runat=server></{0}:ContextMenuItemExtensionControl>")]
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+
+    /// <summary>Renders the context menu item extension points registered for a module/group.</summary>
+    /// <remarks>
+    /// Was a <c>WebControl</c> that built its HTML in <c>OnInit</c> and wrote it from
+    /// <c>RenderContents</c>. The HTML is unchanged; it is now emitted as pre-rendered markup from
+    /// <see cref="BuildRenderTree"/>.
+    /// </remarks>
     public class ContextMenuItemExtensionControl : DefaultExtensionControl
     {
         private string content = string.Empty;
@@ -49,10 +53,14 @@ namespace DotNetNuke.ExtensionPoints
         }
 
         /// <inheritdoc />
-        [SuppressMessage("Microsoft.Naming", "CA1725:ParameterNamesShouldMatchBaseDeclaration", Justification = "Breaking change")]
-        protected override void RenderContents(HtmlTextWriter output)
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
-            output.Write(this.content);
+            if (builder is null)
+            {
+                throw new ArgumentNullException(nameof(builder));
+            }
+
+            builder.AddContent(0, new MarkupString(this.content));
         }
     }
 }

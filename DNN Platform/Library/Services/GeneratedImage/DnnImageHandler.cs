@@ -1,24 +1,20 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.Services.GeneratedImage
 {
     using System;
-    using System.Collections.Generic;
     using System.Collections.Specialized;
-    using System.Configuration;
-    using System.Drawing;
-    using System.Drawing.Imaging;
     using System.Globalization;
     using System.IO;
     using System.Linq;
     using System.Reflection;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Options;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Services.FileSystem;
@@ -28,9 +24,29 @@ namespace DotNetNuke.Services.GeneratedImage
 
     using Microsoft.Extensions.DependencyInjection;
 
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.Formats;
+    using SixLabors.ImageSharp.Formats.Bmp;
+    using SixLabors.ImageSharp.Formats.Gif;
+    using SixLabors.ImageSharp.Formats.Jpeg;
+    using SixLabors.ImageSharp.Formats.Png;
+    using SixLabors.ImageSharp.PixelFormats;
+
     using Assembly = System.Reflection.Assembly;
 
-    /// <summary>An <see cref="IHttpHandler"/> for serving images.</summary>
+    /// <summary>The endpoint that serves generated images.</summary>
+    /// <remarks>
+    /// <para>
+    /// Was an <c>IHttpHandler</c> registered in <c>web.config</c> as
+    /// <c>&lt;add name="DnnImageHandler" path="DnnImageHandler.ashx" verb="*" …/&gt;</c>. Because the
+    /// IIS mapping matched the file name at any folder depth (child portals and module folders all
+    /// request <c>DnnImageHandler.ashx</c> relative to themselves), the endpoint is mapped both at
+    /// the application root and through a wildcard route — see
+    /// <c>DnnImageHandlerEndpoint.MapDnnImageHandler</c>. Every existing
+    /// <c>DnnImageHandler.ashx?mode=…</c> URL therefore keeps working unchanged.
+    /// </para>
+    /// <para>Imaging moved from <c>System.Drawing</c> to ImageSharp.</para>
+    /// </remarks>
     public class DnnImageHandler : ImageHandler
     {
         /// <summary>
@@ -96,9 +112,10 @@ namespace DotNetNuke.Services.GeneratedImage
         {
             get
             {
-                var emptyBmp = new Bitmap(1, 1, PixelFormat.Format1bppIndexed);
-                emptyBmp.MakeTransparent();
-                this.ContentType = ImageFormat.Png;
+                // The GDI+ version made a 1x1 Format1bppIndexed bitmap and called MakeTransparent();
+                // a 1x1 fully transparent RGBA pixel is the same thing without the palette dance.
+                var emptyBmp = new Image<Rgba32>(1, 1, new Rgba32(0, 0, 0, 0));
+                this.ContentType = PngFormat.Instance;
 
                 if (string.IsNullOrEmpty(this.defaultImageFile))
                 {
@@ -107,7 +124,7 @@ namespace DotNetNuke.Services.GeneratedImage
 
                 try
                 {
-                    var fullFilePath = HttpContext.Current.Server.MapPath(this.defaultImageFile);
+                    var fullFilePath = HttpContextSource.MapPath(this.defaultImageFile);
 
                     if (!File.Exists(fullFilePath) || !IsAllowedFilePathImage(this.defaultImageFile))
                     {
@@ -117,9 +134,11 @@ namespace DotNetNuke.Services.GeneratedImage
                     var fi = new System.IO.FileInfo(this.defaultImageFile);
                     this.ContentType = GetImageFormat(fi.Extension);
 
-                    using (var stream = new FileStream(fullFilePath, FileMode.Open))
+                    using (var stream = new FileStream(fullFilePath, FileMode.Open, FileAccess.Read))
                     {
-                        return Image.FromStream(stream, true);
+                        var image = Image.Load(stream);
+                        emptyBmp.Dispose();
+                        return image;
                     }
                 }
                 catch (Exception ex)
@@ -144,8 +163,8 @@ namespace DotNetNuke.Services.GeneratedImage
             string format = string.IsNullOrEmpty(parameters["format"]) ? "jpg" : parameters["format"].ToLowerInvariant();
 
             // Lets retrieve the color
-            Color color = string.IsNullOrEmpty(parameters["color"]) ? Color.White : (parameters["color"].StartsWith("#", StringComparison.Ordinal) ? ColorTranslator.FromHtml(parameters["color"]) : Color.FromName(parameters["color"]));
-            Color backColor = string.IsNullOrEmpty(parameters["backcolor"]) ? Color.White : (parameters["backcolor"].StartsWith("#", StringComparison.Ordinal) ? ColorTranslator.FromHtml(parameters["backcolor"]) : Color.FromName(parameters["backcolor"]));
+            Color color = ParseColor(parameters["color"]);
+            Color backColor = ParseColor(parameters["backcolor"]);
 
             // Do we have a border ?
             int border = string.IsNullOrEmpty(parameters["border"]) ? 0 : Convert.ToInt32(parameters["border"], CultureInfo.InvariantCulture);
@@ -190,7 +209,7 @@ namespace DotNetNuke.Services.GeneratedImage
 
                         IFileInfo photoFile;
                         this.ContentType = !uppTrans.TryGetPhotoFile(out photoFile)
-                            ? ImageFormat.Gif
+                            ? GifFormat.Instance
                             : GetImageFormat(photoFile?.Extension ?? "jpg");
 
                         this.ImageTransforms.Add(uppTrans);
@@ -258,7 +277,7 @@ namespace DotNetNuke.Services.GeneratedImage
                         if (!string.IsNullOrEmpty(filePath))
                         {
                             filePath = filePath.Trim();
-                            var fullFilePath = HttpContext.Current.Server.MapPath(filePath);
+                            var fullFilePath = HttpContextSource.MapPath(filePath);
                             if (!File.Exists(fullFilePath) || !IsAllowedFilePathImage(filePath))
                             {
                                 return this.GetEmptyImageInfo();
@@ -302,9 +321,18 @@ namespace DotNetNuke.Services.GeneratedImage
                         break;
 
                     default:
-                        string imageTransformClass = ConfigurationManager.AppSettings["DnnImageHandler." + mode];
+                        var imageHandlerOptions = ConfigurationSource.GetOptions<ImageHandlerOptions>(ImageHandlerOptions.SectionName);
+                        if (!imageHandlerOptions.Transforms.TryGetValue(mode, out var imageTransformClass) ||
+                            string.IsNullOrEmpty(imageTransformClass))
+                        {
+                            // Honor the legacy flat "DnnImageHandler.<mode>" application setting too,
+                            // so installations that configured a custom transform that way keep working.
+                            imageTransformClass = Config.GetSetting("DnnImageHandler." + mode);
+                        }
+
                         string[] imageTransformClassParts = imageTransformClass.Split(',');
-                        var asm = Assembly.LoadFrom($@"{this.appStatus.ApplicationMapPath}\bin\{imageTransformClassParts[1].Trim()}.dll");
+                        var assemblyPath = Path.Combine(this.appStatus.ApplicationMapPath, "bin", $"{imageTransformClassParts[1].Trim()}.dll");
+                        var asm = Assembly.LoadFrom(assemblyPath);
                         var t = asm.GetType(imageTransformClassParts[0].Trim());
                         var imageTransform = (ImageTransform)ActivatorUtilities.GetServiceOrCreateInstance(this.serviceProvider, t);
 
@@ -478,12 +506,40 @@ namespace DotNetNuke.Services.GeneratedImage
             }
 
             // We start the chain with an empty image
-            var emptyImage = new Bitmap(1, 1);
+            using (var emptyImage = new Image<Rgba32>(1, 1))
             using (var ms = new MemoryStream())
             {
-                emptyImage.Save(ms, this.ContentType);
+                emptyImage.Save(ms, GetEncoder(this.ContentType));
                 return new ImageInfo(ms.ToArray());
             }
+        }
+
+        /// <summary>
+        /// Parses a <c>color</c>/<c>backcolor</c> query-string value. Replaces
+        /// <c>ColorTranslator.FromHtml</c> (for <c>#rrggbb</c>) and <c>Color.FromName</c> (for named
+        /// colors) with ImageSharp's single parser, which understands both. An unparseable value
+        /// falls back to white, as <c>Color.FromName</c>'s unknown-name result effectively did.
+        /// </summary>
+        private static Color ParseColor(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return Color.White;
+            }
+
+            return Color.TryParse(value, out var parsed) ? parsed : Color.White;
+        }
+
+        /// <summary>Returns the ImageSharp encoder for the requested output format.</summary>
+        private static IImageEncoder GetEncoder(IImageFormat format)
+        {
+            return format switch
+            {
+                GifFormat => new GifEncoder(),
+                BmpFormat => new BmpEncoder(),
+                JpegFormat => new JpegEncoder(),
+                _ => new PngEncoder(),
+            };
         }
 
         private static bool IsAllowedFilePathImage(string filePath)
@@ -537,23 +593,31 @@ namespace DotNetNuke.Services.GeneratedImage
             return dimension;
         }
 
-        private static ImageFormat GetImageFormat(string extension)
+        /// <summary>
+        /// Maps a file extension onto the ImageSharp format to encode the response with. Replaces
+        /// the <c>System.Drawing.Imaging.ImageFormat</c> switch.
+        /// </summary>
+        /// <remarks>
+        /// ImageSharp has no ICO encoder, so <c>.ico</c> is served as PNG — which is what GDI+
+        /// effectively did too, since it had no ICO encoder either and fell back to PNG bytes.
+        /// </remarks>
+        private static IImageFormat GetImageFormat(string extension)
         {
-            switch (extension.ToLowerInvariant())
+            switch (extension.TrimStart('.').ToLowerInvariant())
             {
                 case "jpg":
                 case "jpeg":
-                    return ImageFormat.Jpeg;
+                    return JpegFormat.Instance;
                 case "bmp":
-                    return ImageFormat.Bmp;
+                    return BmpFormat.Instance;
                 case "gif":
-                    return ImageFormat.Gif;
+                    return GifFormat.Instance;
                 case "png":
-                    return ImageFormat.Png;
+                    return PngFormat.Instance;
                 case "ico":
-                    return ImageFormat.Icon;
+                    return PngFormat.Instance;
                 default:
-                    return ImageFormat.Png;
+                    return PngFormat.Instance;
             }
         }
 
@@ -582,7 +646,8 @@ namespace DotNetNuke.Services.GeneratedImage
 
         private void ReadSettings()
         {
-            var settings = ConfigurationManager.AppSettings["DnnImageHandler"];
+            var settings = ConfigurationSource.GetOptions<ImageHandlerOptions>(ImageHandlerOptions.SectionName).Settings
+                           ?? Config.GetSetting("DnnImageHandler");
             if (string.IsNullOrEmpty(settings))
             {
                 return;

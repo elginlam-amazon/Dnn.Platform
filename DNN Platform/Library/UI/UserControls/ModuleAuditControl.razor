@@ -1,0 +1,211 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Globalization
+@using System.Text.RegularExpressions
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+
+<div class="dnnModuleAuditControl">
+    @if (!string.IsNullOrEmpty(this.errorMessage))
+    {
+        <div class="dnnFormMessage dnnFormError">@this.errorMessage</div>
+    }
+    <p><span class="SubHead">@this.CreatedByText</span></p>
+    <p><span class="SubHead">@this.UpdatedByText</span></p>
+</div>
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "ModuleAuditControl.ascx";
+
+    private static readonly Regex CheckDateColumnRegex = new Regex(@"^-?\d+$", RegexOptions.Compiled);
+
+    private string systemUser;
+    private string errorMessage;
+    private EntityInfo model;
+    private bool loaded;
+
+    /// <summary>Gets the text rendered for the creation audit information.</summary>
+    public string CreatedByText { get; private set; } = string.Empty;
+
+    /// <summary>Gets the text rendered for the last update audit information.</summary>
+    public string UpdatedByText { get; private set; } = string.Empty;
+
+    /// <summary>Gets or sets the creation date to display.</summary>
+    [Parameter]
+    public string CreatedDate { private get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the user that created the entity.</summary>
+    [Parameter]
+    public string CreatedByUser { private get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the user that last modified the entity.</summary>
+    [Parameter]
+    public string LastModifiedByUser { private get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the last modification date to display.</summary>
+    [Parameter]
+    public string LastModifiedDate { private get; set; } = string.Empty;
+
+    /// <summary>Sets the entity the audit information is displayed for.</summary>
+    [Parameter]
+    public BaseEntityInfo Entity
+    {
+        get => null;
+
+        set
+        {
+            if (value != null)
+            {
+                this.model = new EntityInfo
+                {
+                    CreatedByUserID = value.CreatedByUserID,
+                    CreatedOnDate = value.CreatedOnDate,
+                    LastModifiedByUserID = value.LastModifiedByUserID,
+                    LastModifiedOnDate = value.LastModifiedOnDate,
+                };
+            }
+            else
+            {
+                this.model = null;
+            }
+        }
+    }
+
+    /// <summary>Gets or sets the resource file the audit captions are localized from.</summary>
+    [Parameter]
+    public string LocalResourceFile { get; set; }
+
+    /// <summary>Gets the display mode requested through the query string.</summary>
+    private string DisplayMode => (this.Request?.Query["Display"].ToString() ?? string.Empty).ToLowerInvariant();
+
+    /// <summary>Gets the effective resource file of this control.</summary>
+    private string ResourceFile =>
+        string.IsNullOrEmpty(this.LocalResourceFile)
+            ? "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName
+            : this.LocalResourceFile;
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        try
+        {
+            if (this.model != null)
+            {
+                this.CreatedByUser = this.model.CreatedByUserID.ToString(CultureInfo.CurrentCulture);
+                this.CreatedDate = this.model.CreatedOnDate.ToString(CultureInfo.CurrentCulture);
+                this.LastModifiedByUser = this.model.LastModifiedByUserID.ToString(CultureInfo.CurrentCulture);
+                this.LastModifiedDate = this.model.LastModifiedOnDate.ToString(CultureInfo.CurrentCulture);
+            }
+
+            // check to see if updated check is redundant
+            var isCreatorAndUpdater = this.CreatedByUser == this.LastModifiedByUser &&
+                Globals.NumberMatchRegex.IsMatch(this.CreatedByUser) && Globals.NumberMatchRegex.IsMatch(this.LastModifiedByUser);
+
+            this.systemUser = Localization.GetString("SystemUser", this.ResourceFile);
+            var displayMode = this.DisplayMode;
+            if (displayMode != "editor" && displayMode != "settings")
+            {
+                this.ShowCreatedString();
+                this.ShowUpdatedString(isCreatorAndUpdater);
+            }
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+    }
+
+    /// <summary>Builds the creation audit text.</summary>
+    private void ShowCreatedString()
+    {
+        if (CheckDateColumnRegex.IsMatch(this.CreatedByUser))
+        {
+            if (int.Parse(this.CreatedByUser, CultureInfo.CurrentCulture) == Null.NullInteger)
+            {
+                this.CreatedByUser = this.systemUser;
+            }
+            else
+            {
+                // contains a UserID
+                var userInfo = UserController.GetUserById(PortalController.Instance.GetCurrentSettings().PortalId, int.Parse(this.CreatedByUser, CultureInfo.CurrentCulture));
+                if (userInfo != null)
+                {
+                    this.CreatedByUser = userInfo.DisplayName;
+                }
+            }
+        }
+
+        var createdString = Localization.GetString("CreatedBy", this.ResourceFile);
+        this.CreatedByText = string.Format(CultureInfo.CurrentCulture, createdString, this.CreatedByUser, this.CreatedDate);
+    }
+
+    /// <summary>Builds the last update audit text.</summary>
+    /// <param name="isCreatorAndUpdater">Whether the creating and the updating user are the same.</param>
+    private void ShowUpdatedString(bool isCreatorAndUpdater)
+    {
+        // check to see if audit contains update information
+        if (string.IsNullOrEmpty(this.LastModifiedDate))
+        {
+            return;
+        }
+
+        if (CheckDateColumnRegex.IsMatch(this.LastModifiedByUser))
+        {
+            if (isCreatorAndUpdater)
+            {
+                this.LastModifiedByUser = this.CreatedByUser;
+            }
+            else if (int.Parse(this.LastModifiedByUser, CultureInfo.CurrentCulture) == Null.NullInteger)
+            {
+                this.LastModifiedByUser = this.systemUser;
+            }
+            else
+            {
+                // contains a UserID
+                var userInfo = UserController.GetUserById(PortalController.Instance.GetCurrentSettings().PortalId, int.Parse(this.LastModifiedByUser, CultureInfo.CurrentCulture));
+                if (userInfo != null)
+                {
+                    this.LastModifiedByUser = userInfo.DisplayName;
+                }
+            }
+        }
+
+        var updatedByString = Localization.GetString("UpdatedBy", this.ResourceFile);
+        this.UpdatedByText = string.Format(CultureInfo.CurrentCulture, updatedByString, this.LastModifiedByUser, this.LastModifiedDate);
+    }
+
+    /// <summary>The audit information of the entity the control displays.</summary>
+    private sealed class EntityInfo
+    {
+        /// <summary>Gets or sets the id of the creating user.</summary>
+        public int CreatedByUserID { get; set; }
+
+        /// <summary>Gets or sets the creation date.</summary>
+        public DateTime CreatedOnDate { get; set; }
+
+        /// <summary>Gets or sets the id of the last modifying user.</summary>
+        public int LastModifiedByUserID { get; set; }
+
+        /// <summary>Gets or sets the last modification date.</summary>
+        public DateTime LastModifiedOnDate { get; set; }
+    }
+}

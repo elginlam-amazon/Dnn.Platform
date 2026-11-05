@@ -11,6 +11,7 @@ namespace DotNetNuke.Services.Localization.Internal
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Entities.Portals;
 
     internal class LocalizationImpl : ILocalization
@@ -30,7 +31,7 @@ namespace DotNetNuke.Services.Localization.Internal
 
             var values = cultureCodes.ToList();
 
-            foreach (string langHeader in HttpContextSource.Current.Request.UserLanguages ?? [])
+            foreach (string langHeader in HttpContextSource.Current?.Request.GetUserLanguages() ?? [])
             {
                 string lang = langHeader;
 

@@ -1,0 +1,189 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Threading.Tasks
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+<div>
+    @if (!string.IsNullOrEmpty(this.errorMessage))
+    {
+        <div class="dnnFormMessage dnnFormError">@this.errorMessage</div>
+    }
+    <input type="image"
+           id="@this.ImageId"
+           tabindex="-1"
+           src="@(this.IsExpanded ? this.MinImageUrl : this.MaxImageUrl)"
+           alt="@this.Text"
+           aria-expanded="@(this.IsExpanded ? "true" : "false")"
+           aria-controls="@this.Section"
+           @onclick="this.ToggleAsync" />&nbsp;
+    <span id="@this.LabelId"
+          class="@this.CssClass"
+          style="cursor: pointer"
+          @onclick="this.ToggleAsync">@this.Text</span>
+</div>
+@if (this.IncludeRule)
+{
+    <div>
+        <hr size="1" />
+    </div>
+}
+@if (this.ChildContent is not null && this.IsExpanded)
+{
+    <div id="@this.Section">
+        @this.ChildContent
+    </div>
+}
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "SectionHeadControl.ascx";
+
+    private string instanceId = "sectionHead_" + Guid.NewGuid().ToString("N");
+    private string errorMessage;
+    private bool isExpanded = true;
+    private bool localized;
+
+    /// <summary>Gets or sets cssClass determines the Css Class used for the Title Text.</summary>
+    /// <value>A string representing the name of the css class.</value>
+    [Parameter]
+    public string CssClass { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether there is a horizontal rule displayed under the header text.
+    /// </summary>
+    /// <value>A string representing true or false.</value>
+    [Parameter]
+    public bool IncludeRule { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether isExpanded determines whether the section is expanded or collapsed.</summary>
+    /// <value>Boolean value that determines whether the panel is expanded (true)
+    /// or collapsed (false).  The default is true.</value>
+    /// <remarks>
+    /// The Web Forms control round-tripped this state through
+    /// <c>DNNClientAPI.MinMaxContentVisibile</c>; a Blazor component keeps the state itself and
+    /// publishes every change through <see cref="IsExpandedChanged"/>.
+    /// </remarks>
+    [Parameter]
+    public bool IsExpanded
+    {
+        get => this.isExpanded;
+        set => this.isExpanded = value;
+    }
+
+    /// <summary>Gets or sets the callback raised whenever the section is expanded or collapsed.</summary>
+    [Parameter]
+    public EventCallback<bool> IsExpandedChanged { get; set; }
+
+    /// <summary>Gets or sets javaScript is the name of the javascript function implementation.</summary>
+    /// <value>A string representing the name of the javascript function implementation.</value>
+    [Parameter]
+    public string JavaScript { get; set; } = "__dnn_SectionMaxMin";
+
+    /// <summary>
+    /// Gets or sets the MaxImageUrl is the url of the image displayed when the contained panel is
+    /// collapsed.
+    /// </summary>
+    /// <value>A string representing the url of the Max Image.</value>
+    [Parameter]
+    public string MaxImageUrl { get; set; } = "images/plus.gif";
+
+    /// <summary>
+    /// Gets or sets the MinImageUrl is the url of the image displayed when the contained panel is
+    /// expanded.
+    /// </summary>
+    /// <value>A string representing the url of the Min Image.</value>
+    [Parameter]
+    public string MinImageUrl { get; set; } = "images/minus.gif";
+
+    /// <summary>
+    /// Gets or sets the ResourceKey is the key used to identify the Localization Resource for the
+    /// title text.
+    /// </summary>
+    /// <value>A string representing the ResourceKey.</value>
+    [Parameter]
+    public string ResourceKey { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Section is the Id of the DHTML object  that contains the section content
+    /// title text.
+    /// </summary>
+    /// <value>A string representing the Section.</value>
+    [Parameter]
+    public string Section { get; set; }
+
+    /// <summary>Gets or sets the Text is the name or title of the section.</summary>
+    /// <value>A string representing the Title Text.</value>
+    [Parameter]
+    public string Text { get; set; }
+
+    /// <summary>Gets or sets the resource file the title is localized from.</summary>
+    [Parameter]
+    public string LocalResourceFile { get; set; }
+
+    /// <summary>Gets or sets the content of the section, which is shown while the section is expanded.</summary>
+    /// <remarks>
+    /// Replaces the <c>Parent.FindControl(Section)</c> lookup: in Blazor the collapsible content is
+    /// nested inside the section head instead of being found by id in the control tree. Consumers
+    /// that keep their content outside the control can still react to
+    /// <see cref="IsExpandedChanged"/>.
+    /// </remarks>
+    [Parameter]
+    public RenderFragment ChildContent { get; set; }
+
+    /// <summary>Gets the <c>id</c> attribute rendered on the expand/collapse button.</summary>
+    public string ImageId => this.instanceId + "_imgIcon";
+
+    /// <summary>Gets the <c>id</c> attribute rendered on the title.</summary>
+    public string LabelId => this.instanceId + "_lblTitle";
+
+    /// <summary>Gets the effective resource file of this control.</summary>
+    private string ResourceFile =>
+        string.IsNullOrEmpty(this.LocalResourceFile)
+            ? "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName
+            : this.LocalResourceFile;
+
+    /// <summary>Assign the localized title, replacing the render time <c>resourcekey</c> attribute walk.</summary>
+    /// <param name="e">The event args.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.localized)
+        {
+            return;
+        }
+
+        this.localized = true;
+
+        try
+        {
+            if (!string.IsNullOrEmpty(this.ResourceKey))
+            {
+                var localizedText = Localization.GetString(this.ResourceKey, this.ResourceFile);
+                if (!string.IsNullOrEmpty(localizedText))
+                {
+                    this.Text = localizedText;
+                }
+            }
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+    }
+
+    /// <summary>Expands or collapses the section.</summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>This is the port of <c>imgIcon_Click</c>.</remarks>
+    protected async Task ToggleAsync()
+    {
+        this.isExpanded = !this.isExpanded;
+        await this.IsExpandedChanged.InvokeAsync(this.isExpanded);
+    }
+}

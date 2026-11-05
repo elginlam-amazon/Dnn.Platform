@@ -1,0 +1,245 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Globalization
+@using DotNetNuke.Common
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Utilities
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="dnnLabel">
+    @if (!string.IsNullOrEmpty(this.errorMessage))
+    {
+        <div class="dnnFormMessage dnnFormError">@this.errorMessage</div>
+    }
+    <label id="@this.labelElementId" for="@this.AssociatedClientId">
+        <span id="@this.LabelId" class="@this.CssClass" style="@this.LabelStyle">@this.Text</span>
+    </label>
+    @if (this.HasHelp)
+    {
+        <a href="javascript:void(0);" tabindex="-1" class="dnnFormHelp" aria-label="Help" @onclick="this.ToggleHelpAsync" @onclick:preventDefault="true"></a>
+    }
+    @if (this.HasHelp && this.HelpVisible)
+    {
+        <div class="dnnTooltip">
+            <div class="dnnFormHelpContent dnnClear">
+                <span class="dnnHelpText">@this.HelpText</span>
+                <a href="javascript:void(0);" class="pinHelp" aria-label="Pin" @onclick="this.PinHelp" @onclick:preventDefault="true"></a>
+            </div>
+        </div>
+    }
+    else if (!this.HasHelp && !string.IsNullOrEmpty(this.NoHelpLabelText))
+    {
+        <span class="dnnNoHelpLabel">@this.NoHelpLabelText</span>
+    }
+</div>
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "LabelControl.ascx";
+
+    private static readonly ILog Logger = LoggerSource.Instance.GetLogger(typeof(LabelControl));
+
+    private string labelElementId = "label_" + Guid.NewGuid().ToString("N");
+    private string errorMessage;
+    private bool helpPinned;
+    private bool localized;
+
+    /// <summary>Gets or sets controlName is the ID of the control that is associated with the label.</summary>
+    /// <value>A string representing the id of the associated control.</value>
+    [Parameter]
+    public string ControlName { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associate control ID format, combined used with ControlName for controls
+    ///  which have child edit control and want that child control focus when click label.
+    /// </summary>
+    [Parameter]
+    public string AssociateFormat { get; set; }
+
+    /// <summary>Gets or sets css style applied to the rendered label.</summary>
+    /// <value>A string representing css class name.</value>
+    [Parameter]
+    public string CssClass { get; set; }
+
+    /// <summary>Gets or sets helpKey is the Resource Key for the Help Text.</summary>
+    /// <value>A string representing the Resource Key for the Help Text.</value>
+    [Parameter]
+    public string HelpKey { get; set; }
+
+    /// <summary>Gets or sets helpText is value of the Help Text if no ResourceKey is provided.</summary>
+    /// <value>A string representing the Text.</value>
+    [Parameter]
+    public string HelpText { get; set; }
+
+    /// <summary>Gets or sets the text rendered in place of the help tooltip when there is no help text.</summary>
+    [Parameter]
+    public string NoHelpLabelText { get; set; }
+
+    /// <summary>Gets or sets resourceKey is the Resource Key for the Label Text.</summary>
+    /// <value>A string representing the Resource Key for the Label Text.</value>
+    [Parameter]
+    public string ResourceKey { get; set; }
+
+    /// <summary>Gets or sets suffix is Optional Text that appears after the Localized Label Text.</summary>
+    /// <value>A string representing the Optional Text.</value>
+    [Parameter]
+    public string Suffix { get; set; }
+
+    /// <summary>Gets or sets text is value of the Label Text if no ResourceKey is provided.</summary>
+    /// <value>A string representing the Text.</value>
+    [Parameter]
+    public string Text { get; set; }
+
+    /// <summary>Gets or sets the CSS width of the rendered label.</summary>
+    /// <value>A CSS length (this was a Web Forms <c>Unit</c>).</value>
+    [Parameter]
+    public string Width { get; set; }
+
+    /// <summary>Gets or sets the identifier of this control, which is the fallback for <see cref="ResourceKey"/>.</summary>
+    /// <remarks>Replaces <c>Control.ID</c>, which the control used as its default resource key.</remarks>
+    [Parameter]
+    public string ID { get; set; }
+
+    /// <summary>Gets or sets the resource file the label and help text are localized from.</summary>
+    [Parameter]
+    public string LocalResourceFile { get; set; }
+
+    /// <summary>Gets the <c>id</c> attribute rendered on the label text element.</summary>
+    public string LabelId => string.IsNullOrEmpty(this.ID) ? this.labelElementId + "_text" : this.ID + "_text";
+
+    /// <summary>Gets a value indicating whether there is help text to show.</summary>
+    public bool HasHelp => !string.IsNullOrEmpty(this.HelpText);
+
+    /// <summary>Gets a value indicating whether the help tooltip is currently shown.</summary>
+    public bool HelpVisible { get; private set; }
+
+    /// <summary>Gets the client id the rendered <c>label</c> points its <c>for</c> attribute at.</summary>
+    private string AssociatedClientId
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(this.ControlName))
+            {
+                return null;
+            }
+
+            // The Web Forms version resolved the client id through Parent.FindControl(ControlName);
+            // in Blazor the rendered element id is the control name itself.
+            return string.IsNullOrEmpty(this.AssociateFormat)
+                ? this.ControlName
+                : string.Format(CultureInfo.InvariantCulture, this.AssociateFormat, this.ControlName);
+        }
+    }
+
+    /// <summary>Gets the inline style applied to the rendered label text.</summary>
+    private string LabelStyle =>
+        string.IsNullOrEmpty(this.Width) ? null : "width:" + this.Width;
+
+    /// <summary>Gets the effective resource file of this control.</summary>
+    private string ResourceFile =>
+        string.IsNullOrEmpty(this.LocalResourceFile)
+            ? "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName
+            : this.LocalResourceFile;
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+        try
+        {
+            this.RegisterClientDependencies();
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>This is the port of the Web Forms <c>OnPreRender</c> localization pass.</remarks>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.localized)
+        {
+            return;
+        }
+
+        this.localized = true;
+
+        // get the localised text
+        if (string.IsNullOrEmpty(this.ResourceKey))
+        {
+            // Set Resource Key to the ID of the control
+            this.ResourceKey = this.ID;
+        }
+
+        if (!string.IsNullOrEmpty(this.ResourceKey))
+        {
+            var localText = Localization.GetString(this.ResourceKey, this.ResourceFile);
+            if (!string.IsNullOrEmpty(localText))
+            {
+                this.Text = localText + this.Suffix;
+            }
+            else
+            {
+                this.Text += this.Suffix;
+            }
+        }
+
+        // Set Help Key to the Resource Key plus ".Help"
+        if (string.IsNullOrEmpty(this.HelpKey))
+        {
+            this.HelpKey = this.ResourceKey + ".Help";
+        }
+
+        var helpText = Localization.GetString(this.HelpKey, this.ResourceFile);
+        if ((!string.IsNullOrEmpty(helpText)) || string.IsNullOrEmpty(this.HelpText))
+        {
+            this.HelpText = helpText;
+        }
+    }
+
+    /// <summary>Shows or hides the help tooltip, replacing the <c>__dnn_Help_OnClick()</c> client script.</summary>
+    /// <returns>A task representing the operation.</returns>
+    private System.Threading.Tasks.Task ToggleHelpAsync()
+    {
+        this.HelpVisible = !this.HelpVisible;
+        this.helpPinned = this.helpPinned && this.HelpVisible;
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    /// <summary>Pins the help tooltip open, replacing the <c>pinHelp</c> client script.</summary>
+    private void PinHelp()
+    {
+        this.helpPinned = !this.helpPinned;
+        this.HelpVisible = this.helpPinned || this.HelpVisible;
+    }
+
+    /// <summary>Registers the client side dependencies of the help tooltip.</summary>
+    private void RegisterClientDependencies()
+    {
+        var context = HttpContextSource.Current;
+        if (context is null)
+        {
+            // Client resources can only be collected while a request is in flight; on the
+            // interactive render of a circuit they were already written by the initial render.
+            Logger.Debug("LabelControl: no HTTP request in flight, skipping client resource registration.");
+            return;
+        }
+
+        JavaScript.RegisterClientReference(context, ClientAPI.ClientNamespaceReferences.dnn);
+        JavaScript.RequestRegistration(CommonJs.DnnPlugins);
+
+        // The Web Forms control had this registration commented out; it is kept commented out here.
+        ////ClientResourceManager.RegisterScript(context, "~/Resources/Shared/Scripts/initTooltips.js");
+    }
+}

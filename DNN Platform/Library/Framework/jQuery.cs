@@ -8,19 +8,18 @@ namespace DotNetNuke.Framework
     using System.Globalization;
     using System.IO;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.Caching;
-    using System.Web.UI;
 
+    using DataCache = DotNetNuke.UI.Utilities.DataCache;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Framework.JavaScriptLibraries;
     using DotNetNuke.Internal.SourceGenerators;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Localization;
-
-    using DataCache = DotNetNuke.UI.Utilities.DataCache;
+    using DotNetNuke.UI.Utilities;
     using Globals = DotNetNuke.Common.Globals;
+    using Microsoft.AspNetCore.Http;
 
 #pragma warning disable 618
     /// <summary>Manages requests to add jQuery to a page.</summary>
@@ -83,11 +82,17 @@ namespace DotNetNuke.Framework
         }
 
         /// <summary>Active the page with keep alive, so that authentication will not expire.</summary>
-        /// <param name="page">The page instance.</param>
-        public static void KeepAlive(Page page)
+        /// <param name="context">The HTTP context of the current request.</param>
+        /// <remarks>
+        /// The <c>page</c> parameter was a <c>System.Web.UI.Page</c>; the current page is now identified
+        /// by the request, from which the <see cref="IClientApiPage"/> that emits the script block is
+        /// resolved.
+        /// </remarks>
+        public static void KeepAlive(HttpContext context)
         {
+            var clientApiPage = ClientApiPageAccessor.GetPage(context, nameof(KeepAlive));
             var cookieTimeout = Config.GetAuthCookieTimeout();
-            if (cookieTimeout <= 0 || page.ClientScript.IsClientScriptBlockRegistered("PageKeepAlive"))
+            if (cookieTimeout <= 0 || clientApiPage == null || clientApiPage.IsClientScriptBlockRegistered("PageKeepAlive"))
             {
                 return;
             }
@@ -101,7 +106,7 @@ namespace DotNetNuke.Framework
 
             var seconds = ((cookieTimeout * 60) - 30) * 1000; // ping server 30 seconds before cookie is time out.
             var scriptBlock = string.Format(CultureInfo.InvariantCulture, "(function($){{setInterval(function(){{$.get(location.href)}}, {1});}}(jQuery));", Globals.ApplicationPath, seconds);
-            ScriptManager.RegisterClientScriptBlock(page, page.GetType(), "PageKeepAlive", scriptBlock, true);
+            clientApiPage.RegisterClientScriptBlock(clientApiPage.GetType(), "PageKeepAlive", scriptBlock);
         }
 
         private static bool GetSettingAsBoolean(string key, bool defaultValue)
@@ -109,7 +114,7 @@ namespace DotNetNuke.Framework
             bool retValue = defaultValue;
             try
             {
-                object setting = HttpContext.Current.Items[key];
+                object setting = DotNetNuke.Common.HttpContextSource.Current?.Items[key];
                 if (setting != null)
                 {
                     retValue = Convert.ToBoolean(setting, CultureInfo.InvariantCulture);

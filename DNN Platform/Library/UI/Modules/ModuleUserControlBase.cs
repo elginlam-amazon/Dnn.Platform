@@ -4,23 +4,31 @@
 namespace DotNetNuke.UI.Modules
 {
     using System.IO;
-    using System.Web.UI;
 
     using DotNetNuke.Services.Localization;
+
+    using Microsoft.AspNetCore.Components;
 
     /// <summary>
     /// ModuleUserControlBase is a base class for Module Controls that inherits from the
     /// UserControl base class.  As with all ModuleControl base classes it implements
     /// IModuleControl.
     /// </summary>
-    public class ModuleUserControlBase : UserControl, IModuleControl
+    /// <remarks>
+    /// Was a <c>System.Web.UI.UserControl</c>; it is now a DNN skinning component
+    /// (<see cref="DnnComponentBase"/>), which provides the control-tree surface
+    /// (<c>ID</c>/<c>Visible</c>/<c>Controls</c>/<c>FindControl</c>), the
+    /// <c>OnInit</c>/<c>OnLoad</c>/<c>OnPreRender</c> lifecycle and the <c>Request</c> the WebForms
+    /// base class provided.
+    /// </remarks>
+    public class ModuleUserControlBase : DnnComponentBase, IModuleControl
     {
         private string localResourceFile;
         private ModuleInstanceContext moduleContext;
 
         /// <summary>Gets the underlying base control for this ModuleControl.</summary>
-        /// <returns>A String.</returns>
-        public Control Control => this;
+        /// <returns>This component.</returns>
+        public IComponent Control => this;
 
         /// <summary>Gets the Path for this control (used primarily for UserControls).</summary>
         /// <returns>A String.</returns>
@@ -43,7 +51,7 @@ namespace DotNetNuke.UI.Modules
                 string fileRoot;
                 if (string.IsNullOrEmpty(this.localResourceFile))
                 {
-                    fileRoot = Path.Combine(this.ControlPath, Localization.LocalResourceDirectory + "/" + this.ID);
+                    fileRoot = Path.Combine(this.ControlPath, Localization.LocalResourceDirectory + "/" + (this.ID ?? this.ControlName));
                 }
                 else
                 {

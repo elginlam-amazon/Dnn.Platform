@@ -4,7 +4,6 @@
 namespace DotNetNuke.UI.WebControls
 {
     using System;
-    using System.Web.UI;
 
     using DotNetNuke.Entities.Portals;
 

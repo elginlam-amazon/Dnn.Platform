@@ -9,10 +9,10 @@ namespace DotNetNuke.Services.Upgrade
     using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Net;
     using System.Security.Cryptography;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
     using System.Xml;
     using System.Xml.XPath;
 
@@ -23,6 +23,7 @@ namespace DotNetNuke.Services.Upgrade
     using DotNetNuke.Abstractions.Security.Permissions;
     using DotNetNuke.Application;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
     using DotNetNuke.Entities.Controllers;
@@ -47,6 +48,8 @@ namespace DotNetNuke.Services.Upgrade
     using DotNetNuke.Services.Upgrade.InternalController.Steps;
     using DotNetNuke.Services.Upgrade.Internals;
     using DotNetNuke.Web.Client.ClientResourceManagement;
+
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -408,18 +411,18 @@ namespace DotNetNuke.Services.Upgrade
                 string childPath = string.Empty;
                 string domain = string.Empty;
 
-                if (HttpContext.Current != null)
+                if (HttpContextSource.Current != null)
                 {
-                    domain = Globals.GetDomainName(HttpContext.Current.Request, true).ToLowerInvariant().Replace("/install", string.Empty);
+                    domain = Globals.GetDomainName(HttpContextSource.Current.Request, true).ToLowerInvariant().Replace("/install", string.Empty);
                 }
 
                 DnnInstallLogger.InstallLogInfo(Localization.GetString("LogStart", Localization.GlobalResourceFile) + "AddPortal:" + domain);
                 string portalName = XmlUtils.GetNodeValue(node.CreateNavigator(), "portalname");
                 if (status)
                 {
-                    if (HttpContext.Current != null)
+                    if (HttpContextSource.Current != null)
                     {
-                        HtmlUtils.WriteFeedback(HttpContext.Current.Response, indent, "Creating Site: " + portalName + "<br>");
+                        HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, indent, "Creating Site: " + portalName + "<br>");
                     }
                 }
 
@@ -496,9 +499,9 @@ namespace DotNetNuke.Services.Upgrade
                                 {
                                     if (status)
                                     {
-                                        if (HttpContext.Current != null)
+                                        if (HttpContextSource.Current != null)
                                         {
-                                            HtmlUtils.WriteFeedback(HttpContext.Current.Response, indent, "Creating Site Alias: " + portalAlias.InnerText + "<br>");
+                                            HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, indent, "Creating Site Alias: " + portalAlias.InnerText + "<br>");
                                         }
                                     }
 
@@ -521,9 +524,9 @@ namespace DotNetNuke.Services.Upgrade
             {
                 Logger.UpgradeAddPortalException(ex);
 
-                if (HttpContext.Current != null)
+                if (HttpContextSource.Current != null)
                 {
-                    HtmlUtils.WriteFeedback(HttpContext.Current.Response, indent, "<font color='red'>Error!</font> " + ex.Message + ex.StackTrace + "<br>");
+                    HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, indent, "<font color='red'>Error!</font> " + ex.Message + ex.StackTrace + "<br>");
                     DnnInstallLogger.InstallLogError(ex);
                 }
 
@@ -590,7 +593,7 @@ namespace DotNetNuke.Services.Upgrade
             string exceptions = string.Empty;
             if (writeFeedback)
             {
-                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 2, "Cleaning Up Files: " + stringVersion);
+                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 2, "Cleaning Up Files: " + stringVersion);
             }
 
             string listFile = $@"{Globals.InstallMapPath}Cleanup\{stringVersion}.txt";
@@ -623,7 +626,7 @@ namespace DotNetNuke.Services.Upgrade
 
             if (writeFeedback)
             {
-                HtmlUtils.WriteSuccessError(HttpContext.Current.Response, string.IsNullOrEmpty(exceptions));
+                HtmlUtils.WriteSuccessError(HttpContextSource.Current.Response, string.IsNullOrEmpty(exceptions));
             }
 
             return exceptions;
@@ -804,7 +807,7 @@ namespace DotNetNuke.Services.Upgrade
             {
                 if (writeFeedback)
                 {
-                    HtmlUtils.WriteFeedback(HttpContext.Current.Response, 0, "Configuring SuperUser:<br>");
+                    HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 0, "Configuring SuperUser:<br>");
                 }
 
                 // Parse the SuperUsers nodes
@@ -912,7 +915,7 @@ namespace DotNetNuke.Services.Upgrade
             {
                 if (writeFeedback)
                 {
-                    HtmlUtils.WriteFeedback(HttpContext.Current.Response, 0, "Loading Host Settings:<br>");
+                    HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 0, "Loading Host Settings:<br>");
                 }
 
                 // Need to clear the cache to pick up new HostSettings from the SQLDataProvider script
@@ -935,7 +938,7 @@ namespace DotNetNuke.Services.Upgrade
                             }
                         }
 
-                        string domainName = Globals.GetDomainName(HttpContext.Current.Request);
+                        string domainName = Globals.GetDomainName(HttpContextSource.Current.Request);
 
                         switch (settingName)
                         {
@@ -985,7 +988,7 @@ namespace DotNetNuke.Services.Upgrade
             // Output feedback line
             if (writeFeedback)
             {
-                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 0, "Installing Version: " + Globals.FormatVersion(version) + "<br>");
+                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 0, "Installing Version: " + Globals.FormatVersion(version) + "<br>");
             }
 
             // Parse the script nodes
@@ -1043,7 +1046,7 @@ namespace DotNetNuke.Services.Upgrade
                 InstallFiles(xmlDoc, true);
 
                 // Run any addition scripts in the Scripts folder
-                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 0, "Executing Additional Scripts:<br>");
+                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 0, "Executing Additional Scripts:<br>");
                 ExecuteScripts(strProviderPath);
 
                 // Install optional resources if present
@@ -1065,7 +1068,7 @@ namespace DotNetNuke.Services.Upgrade
                 string culture = installConfig.InstallCulture;
                 if (!culture.Equals("en-us", StringComparison.OrdinalIgnoreCase))
                 {
-                    string installFolder = HttpContext.Current.Server.MapPath("~/Install/language");
+                    string installFolder = HttpContextSource.MapPath("~/Install/language");
                     string lpAndTemplates = $@"{installFolder}\installlanguage.resources";
 
                     if (File.Exists(lpAndTemplates))
@@ -1083,20 +1086,20 @@ namespace DotNetNuke.Services.Upgrade
                         if (node != null)
                         {
                             // add item to identity install from install wizard.
-                            if (HttpContext.Current != null)
+                            if (HttpContextSource.Current != null)
                             {
-                                HttpContext.Current.Items.Add("InstallFromWizard", true);
+                                HttpContextSource.Current.Items.Add("InstallFromWizard", true);
                             }
 
                             var portalHost = superUsers[0] as UserInfo;
                             int portalId = AddPortal(node, true, 2, portalHost);
                             if (portalId > -1)
                             {
-                                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 2, "<font color='green'>Successfully Installed Site " + portalId + ":</font><br>");
+                                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 2, "<font color='green'>Successfully Installed Site " + portalId + ":</font><br>");
                             }
                             else
                             {
-                                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 2, "<font color='red'>Site failed to install:Error!</font><br>");
+                                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 2, "<font color='red'>Site failed to install:Error!</font><br>");
                             }
                         }
                     }
@@ -1108,11 +1111,14 @@ namespace DotNetNuke.Services.Upgrade
             else
             {
                 // 500 Error - Redirect to ErrorPage
-                if (HttpContext.Current != null)
+                var errorContext = HttpContextSource.Current;
+                if (errorContext != null && !errorContext.Response.HasStarted)
                 {
-                    string url = "~/ErrorPage.aspx?status=500&error=" + errorMessage;
-                    HttpContext.Current.Response.Clear();
-                    HttpContext.Current.Server.Transfer(url);
+                    // ASP.NET Core has no Server.Transfer; redirecting to the error page is the
+                    // equivalent observable behaviour.
+                    string url = DotNetNuke.Common.ErrorPage.BuildUrl(500, errorMessage);
+                    errorContext.Response.Clear();
+                    errorContext.Response.Redirect(Globals.ResolveUrl(url));
                 }
             }
         }
@@ -1130,7 +1136,7 @@ namespace DotNetNuke.Services.Upgrade
             {
                 if (writeFeedback)
                 {
-                    HtmlUtils.WriteFeedback(HttpContext.Current.Response, 0, "Loading Host Files:<br>");
+                    HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 0, "Loading Host Files:<br>");
                 }
 
                 ParseFiles(node, Null.NullInteger);
@@ -1139,7 +1145,7 @@ namespace DotNetNuke.Services.Upgrade
             // Synchronise Host Folder
             if (writeFeedback)
             {
-                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 0, "Synchronizing Host Files:<br>");
+                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 0, "Synchronizing Host Files:<br>");
             }
 
             FolderManager.Instance.Synchronize(Null.NullInteger, string.Empty, true, true);
@@ -1151,7 +1157,7 @@ namespace DotNetNuke.Services.Upgrade
             bool success = Null.NullBoolean;
             if (writeFeedback)
             {
-                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 2, "Installing Package File " + Path.GetFileNameWithoutExtension(file) + ": ");
+                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 2, "Installing Package File " + Path.GetFileNameWithoutExtension(file) + ": ");
             }
 
             bool deleteTempFolder = true;
@@ -1183,7 +1189,7 @@ namespace DotNetNuke.Services.Upgrade
                             manifestWriter.Write(LegacyUtil.CreateSkinManifest(file, packageType, tempInstallFolder));
                         }
 
-                        installer = new Installer(tempInstallFolder, manifestFile, HttpContext.Current.Request.MapPath("."), true);
+                        installer = new Installer(tempInstallFolder, manifestFile, HttpContextSource.ApplicationPhysicalPath, true);
 
                         // Set the Repair flag to true for Batch Install
                         installer.InstallerInfo.RepairInstall = true;
@@ -1212,7 +1218,7 @@ namespace DotNetNuke.Services.Upgrade
 
             if (writeFeedback)
             {
-                HtmlUtils.WriteSuccessError(HttpContext.Current.Response, success);
+                HtmlUtils.WriteSuccessError(HttpContextSource.Current.Response, success);
             }
 
             if (success)
@@ -1286,7 +1292,7 @@ namespace DotNetNuke.Services.Upgrade
             DnnInstallLogger.InstallLogInfo(Localization.GetString("LogStart", Localization.GlobalResourceFile) + "InstallPackages:" + packageType);
             if (writeFeedback)
             {
-                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 0, "Installing Optional " + packageType + "s:<br>");
+                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 0, "Installing Optional " + packageType + "s:<br>");
             }
 
             string installPackagePath = Globals.ApplicationMapPath + "\\Install\\" + packageType;
@@ -1444,7 +1450,7 @@ namespace DotNetNuke.Services.Upgrade
             string exceptions = string.Empty;
             if (writeFeedback)
             {
-                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 2, Localization.GetString("ApplicationUpgrades", Localization.GlobalResourceFile) + " : " + GetStringVersionWithRevision(version));
+                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 2, Localization.GetString("ApplicationUpgrades", Localization.GlobalResourceFile) + " : " + GetStringVersionWithRevision(version));
             }
 
             try
@@ -1485,7 +1491,7 @@ namespace DotNetNuke.Services.Upgrade
 
             if (writeFeedback)
             {
-                HtmlUtils.WriteSuccessError(HttpContext.Current.Response, string.IsNullOrEmpty(exceptions));
+                HtmlUtils.WriteSuccessError(HttpContextSource.Current.Response, string.IsNullOrEmpty(exceptions));
             }
 
             return exceptions;
@@ -1498,7 +1504,7 @@ namespace DotNetNuke.Services.Upgrade
             DnnInstallLogger.InstallLogInfo(Localization.GetString("LogStart", Localization.GlobalResourceFile) + "UpdateConfig:" + stringVersion);
             if (writeFeedback)
             {
-                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 2, $"Updating Config Files: {stringVersion}");
+                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 2, $"Updating Config Files: {stringVersion}");
             }
 
             string strExceptions = UpdateConfig(providerPath, Globals.InstallMapPath + "Config\\" + stringVersion + ".config", version, "Core Upgrade");
@@ -1513,7 +1519,7 @@ namespace DotNetNuke.Services.Upgrade
 
             if (writeFeedback)
             {
-                HtmlUtils.WriteSuccessError(HttpContext.Current.Response, string.IsNullOrEmpty(strExceptions));
+                HtmlUtils.WriteSuccessError(HttpContextSource.Current.Response, string.IsNullOrEmpty(strExceptions));
             }
 
             return strExceptions;
@@ -1615,7 +1621,7 @@ namespace DotNetNuke.Services.Upgrade
         public static void UpgradeDNN(string providerPath, Version dataBaseVersion)
         {
             DnnInstallLogger.InstallLogInfo(Localization.GetString("LogStart", Localization.GlobalResourceFile) + "UpgradeDNN:" + Globals.FormatVersion(ApplicationVersion));
-            HtmlUtils.WriteFeedback(HttpContext.Current.Response, 0, "Upgrading to Version: " + Globals.FormatVersion(ApplicationVersion) + "<br/>");
+            HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 0, "Upgrading to Version: " + Globals.FormatVersion(ApplicationVersion) + "<br/>");
 
             // Process the Upgrade Script files
             var versions = new List<Version>();
@@ -1654,7 +1660,7 @@ namespace DotNetNuke.Services.Upgrade
             DataProvider.Instance().SetCorePackageVersions();
 
             // perform general application upgrades
-            HtmlUtils.WriteFeedback(HttpContext.Current.Response, 0, "Performing General Upgrades<br>");
+            HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 0, "Performing General Upgrades<br>");
             DnnInstallLogger.InstallLogInfo(Localization.GetString("GeneralUpgrades", Localization.GlobalResourceFile));
             UpgradeApplication();
 
@@ -1741,7 +1747,7 @@ namespace DotNetNuke.Services.Upgrade
                     var newsletterSubscribeEmail = hostSettingsService.GetString("NewsletterSubscribeEmail");
                     if (!string.IsNullOrEmpty(newsletterSubscribeEmail))
                     {
-                        url += "&email=" + HttpUtility.UrlEncode(newsletterSubscribeEmail);
+                        url += "&email=" + WebUtility.UrlEncode(newsletterSubscribeEmail);
                     }
 
                     var portals = portalController.GetPortals();
@@ -1916,22 +1922,27 @@ namespace DotNetNuke.Services.Upgrade
             // DNN-9394: when upgrade from old version which use MVC version below than 5, it may have saved the antiforgery cookie
             // with a different cookie name which join the root path even equals to "/", then it will cause API request failed.
             // we need remove the cookie during upgrade process.
-            var appPath = HttpRuntime.AppDomainAppVirtualPath;
-            if (appPath != "/" || HttpContext.Current == null)
+            var appPath = HttpContextSource.ApplicationVirtualPath;
+            if (appPath != "/" || HttpContextSource.Current == null)
             {
                 return false;
             }
 
             var cookieSuffix = Convert.ToBase64String(Encoding.UTF8.GetBytes(appPath)).Replace('+', '.').Replace('/', '-').Replace('=', '_');
             var cookieName = $"__RequestVerificationToken_{cookieSuffix}";
-            var invalidCookie = HttpContext.Current.Request.Cookies[cookieName];
-            if (invalidCookie == null)
+            var cookieContext = HttpContextSource.CurrentOrThrow;
+            if (!cookieContext.Request.Cookies.ContainsKey(cookieName))
             {
                 return false;
             }
 
-            invalidCookie.Expires = DateTime.Now.AddYears(-1);
-            HttpContext.Current.Response.Cookies.Add(invalidCookie);
+            // ASP.NET Core cookies are immutable strings on the request, so the stale cookie is
+            // expired by writing an already-expired Set-Cookie for the same name, which is what
+            // setting Expires in the past on the HttpCookie used to achieve.
+            cookieContext.Response.Cookies.Append(
+                cookieName,
+                string.Empty,
+                new CookieOptions { Expires = DateTimeOffset.Now.AddYears(-1) });
 
             return true;
         }
@@ -1945,7 +1956,7 @@ namespace DotNetNuke.Services.Upgrade
             DnnInstallLogger.InstallLogInfo(Localization.GetString("LogStart", Localization.GlobalResourceFile) + "ExecuteScript:" + scriptFile);
             if (writeFeedback)
             {
-                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 2, Localization.GetString("ExecutingScript", Localization.GlobalResourceFile) + ":" + Path.GetFileName(scriptFile));
+                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 2, Localization.GetString("ExecutingScript", Localization.GlobalResourceFile) + ":" + Path.GetFileName(scriptFile));
             }
 
             // read script file for installation
@@ -1986,7 +1997,7 @@ namespace DotNetNuke.Services.Upgrade
             string resourcesFile = Path.GetFileName(scriptFile);
             if (!string.IsNullOrEmpty(resourcesFile))
             {
-                HtmlUtils.WriteScriptSuccessError(HttpContext.Current.Response, string.IsNullOrEmpty(exceptions), resourcesFile.Replace($".{DefaultProvider}", ".log.resources"));
+                HtmlUtils.WriteScriptSuccessError(HttpContextSource.Current.Response, string.IsNullOrEmpty(exceptions), resourcesFile.Replace($".{DefaultProvider}", ".log.resources"));
             }
 
             return exceptions;
@@ -2012,7 +2023,7 @@ namespace DotNetNuke.Services.Upgrade
             {
                 if (writeFeedback)
                 {
-                    HtmlUtils.WriteFeedback(HttpContext.Current.Response, 0, "Installing MemberRole Provider:<br>");
+                    HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 0, "Installing MemberRole Provider:<br>");
                 }
 
                 // Install Common
@@ -2120,9 +2131,9 @@ namespace DotNetNuke.Services.Upgrade
 
             HostController.Instance.Update(FipsCompilanceAssembliesCheckedKey, currentVersion);
 
-            if (HttpContext.Current != null)
+            if (HttpContextSource.Current != null)
             {
-                Globals.Redirect(HttpContext.Current.Request.RawUrl, true);
+                Globals.Redirect(HttpContextSource.Current.Request.GetRawUrl(), true);
             }
         }
 
@@ -2439,7 +2450,7 @@ namespace DotNetNuke.Services.Upgrade
         {
             if (writeFeedback)
             {
-                HtmlUtils.WriteFeedback(HttpContext.Current.Response, 2, $"Executing Script: {scriptFile}<br>");
+                HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 2, $"Executing Script: {scriptFile}<br>");
             }
 
             var exceptions = DataProvider.Instance().ExecuteScript(FileSystemUtils.ReadFile($"{providerPath}{scriptFile}.sql"));

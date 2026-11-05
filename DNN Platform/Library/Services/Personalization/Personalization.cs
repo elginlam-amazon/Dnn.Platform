@@ -5,7 +5,6 @@ namespace DotNetNuke.Services.Personalization
 {
     using System;
     using System.Globalization;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Security;
     using DotNetNuke.Common;
@@ -239,7 +238,7 @@ namespace DotNetNuke.Services.Personalization
         public static Mode GetUserMode()
         {
             Mode mode;
-            if (HttpContextSource.Current?.Request.IsAuthenticated == true)
+            if (HttpContextSource.Current?.User?.Identity?.IsAuthenticated == true)
             {
                 mode = PortalSettings.Current.DefaultControlPanelMode;
                 string setting = Convert.ToString(Personalization.GetProfile("Usability", "UserMode" + PortalController.Instance.GetCurrentSettings().PortalId), CultureInfo.InvariantCulture);
@@ -266,15 +265,20 @@ namespace DotNetNuke.Services.Personalization
 
         private static PersonalizationInfo LoadProfile(PersonalizationController personalizationController)
         {
-            HttpContext context = HttpContext.Current;
+            // There is no ambient request on ASP.NET Core; resolve it through the seam. This
+            // throws rather than silently returning an empty profile, because a caller that
+            // silently got an empty profile would lose the user's personalization.
+            var context = HttpContextSource.CurrentOrThrow;
 
             // First try and load Personalization object from the Context
-            var personalization = (PersonalizationInfo)context.Items["Personalization"];
+            context.Items.TryGetValue("Personalization", out var personalizationItem);
+            var personalization = (PersonalizationInfo)personalizationItem;
 
             // If the Personalization object is nothing load it and store it in the context for future calls
             if (personalization == null)
             {
-                var portalSettings = (PortalSettings)context.Items["PortalSettings"];
+                var portalSettings = PortalSettings.Current
+                    ?? throw new InvalidOperationException("The portal settings have not been resolved for the current request, so personalization cannot be loaded.");
 
                 // load the user info object
                 UserInfo userInfo = UserController.Instance.GetCurrentUserInfo();
@@ -284,7 +288,7 @@ namespace DotNetNuke.Services.Personalization
                 personalization = personalizationController.LoadProfile(userInfo.UserID, portalSettings.PortalId);
 
                 // store it in the context
-                context.Items.Add("Personalization", personalization);
+                context.Items["Personalization"] = personalization;
             }
 
             return personalization;

@@ -9,7 +9,6 @@ namespace DotNetNuke.Services.Cache
     using System.IO;
     using System.Security.Cryptography;
     using System.Text;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -164,7 +163,7 @@ namespace DotNetNuke.Services.Cache
         {
             // cache key may contain characters invalid for a filename - this method creates a valid filename
             byte[] fileNameBytes = Encoding.ASCII.GetBytes(cacheKey);
-            using (var sha256 = new SHA256CryptoServiceProvider())
+            using (var sha256 = System.Security.Cryptography.SHA256.Create())
             {
                 fileNameBytes = sha256.ComputeHash(fileNameBytes);
                 string finalFileName = ByteArrayToString(fileNameBytes);

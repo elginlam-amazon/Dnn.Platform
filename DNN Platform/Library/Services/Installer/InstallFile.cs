@@ -248,11 +248,20 @@ namespace DotNetNuke.Services.Installer
             // remove [app_code] token
             this.Path = this.Path.Replace("[app_code]", string.Empty);
 
-            // remove starting "\"
-            if (this.Path.StartsWith(@"\", StringComparison.Ordinal))
+            // remove starting "\" or "/"
+            if (this.Path.StartsWith(@"\", StringComparison.Ordinal) || this.Path.StartsWith("/", StringComparison.Ordinal))
             {
                 this.Path = this.Path.Substring(1);
             }
+
+            // DNN manifests and zip entries use the Windows "\" separator. Path is combined with
+            // physical paths (see FullName/BackupPath/TempFileName), and on Linux a backslash is a
+            // legal file-name character rather than a separator, so "DesktopModules\Admin\Foo"
+            // would silently resolve to a single non-existent directory. Normalize to the local
+            // separator so installs work on every platform.
+            this.Path = this.Path
+                .Replace('\\', System.IO.Path.DirectorySeparatorChar)
+                .Replace('/', System.IO.Path.DirectorySeparatorChar);
         }
 
         /// <summary>The ReadZip method reads the zip stream and parses the ZipEntry metadata.</summary>

@@ -194,66 +194,66 @@ namespace DotNetNuke.Entities.Portals
             }
             else
             {
-                crmVersion = settings.GetValueOrDefault("CrmVersion", this.hostSettingsService.GetInteger("CrmVersion"));
+                crmVersion = GetSetting(settings, "CrmVersion", this.hostSettingsService.GetInteger("CrmVersion"));
             }
 
-            portalSettings.AllowUserUICulture = settings.GetValueOrDefault("AllowUserUICulture", false);
+            portalSettings.AllowUserUICulture = GetSetting(settings, "AllowUserUICulture", false);
             portalSettings.CdfVersion = crmVersion;
-            portalSettings.ContentLocalizationEnabled = settings.GetValueOrDefault("ContentLocalizationEnabled", false);
-            portalSettings.DefaultAdminContainer = settings.GetValueOrDefault("DefaultAdminContainer", this.hostSettings.DefaultAdminContainer);
-            portalSettings.DefaultAdminSkin = settings.GetValueOrDefault("DefaultAdminSkin", this.hostSettings.DefaultAdminSkin);
-            portalSettings.DefaultIconLocation = settings.GetValueOrDefault("DefaultIconLocation", "icons/sigma");
-            portalSettings.DefaultModuleId = settings.GetValueOrDefault("defaultmoduleid", Null.NullInteger);
-            portalSettings.DefaultModuleActionMenu = settings.GetValueOrDefault("DefaultModuleActionMenu", "~/admin/Menus/ModuleActions/ModuleActions.ascx");
-            portalSettings.DefaultPortalContainer = settings.GetValueOrDefault("DefaultPortalContainer", this.hostSettings.DefaultPortalContainer);
-            portalSettings.DefaultPortalSkin = settings.GetValueOrDefault("DefaultPortalSkin", this.hostSettings.DefaultPortalSkin);
-            portalSettings.DefaultTabId = settings.GetValueOrDefault("defaulttabid", Null.NullInteger);
-            portalSettings.EnableBrowserLanguage = settings.GetValueOrDefault("EnableBrowserLanguage", this.hostSettings.EnableBrowserLanguage);
-            portalSettings.EnableCompositeFiles = settings.GetValueOrDefault("EnableCompositeFiles", false);
-            portalSettings.EnablePopUps = settings.GetValueOrDefault("EnablePopUps", true);
-            portalSettings.HideLoginControl = settings.GetValueOrDefault("HideLoginControl", false);
-            portalSettings.EnableSkinWidgets = settings.GetValueOrDefault("EnableSkinWidgets", true);
-            portalSettings.ShowCookieConsent = settings.GetValueOrDefault("ShowCookieConsent", false);
-            portalSettings.CookieMoreLink = settings.GetValueOrDefault("CookieMoreLink", Null.NullString);
-            portalSettings.EnableUrlLanguage = settings.GetValueOrDefault("EnableUrlLanguage", this.hostSettings.EnableUrlLanguage);
-            portalSettings.HideFoldersEnabled = settings.GetValueOrDefault("HideFoldersEnabled", true);
-            portalSettings.InlineEditorEnabled = settings.GetValueOrDefault("InlineEditorEnabled", true);
-            portalSettings.AllowJsInHtmlModule = settings.GetValueOrDefault("AllowJsInHtmlModule", true);
-            portalSettings.AllowJsInModuleHeaders = settings.GetValueOrDefault("AllowJsInModuleHeaders", true);
-            portalSettings.AllowJsInModuleFooters = settings.GetValueOrDefault("AllowJsInModuleFooters", true);
-            portalSettings.SearchIncludeCommon = settings.GetValueOrDefault("SearchIncludeCommon", this.hostSettings.SearchIncludeCommon);
-            portalSettings.SearchIncludeNumeric = settings.GetValueOrDefault("SearchIncludeNumeric", this.hostSettings.SearchIncludeNumeric);
-            portalSettings.SearchIncludedTagInfoFilter = settings.GetValueOrDefault("SearchIncludedTagInfoFilter", this.hostSettings.SearchIncludedTagInfoFilter);
-            portalSettings.SearchMaxWordlLength = settings.GetValueOrDefault("MaxSearchWordLength", this.hostSettings.SearchMaxWordLength);
-            portalSettings.SearchMinWordlLength = settings.GetValueOrDefault("MinSearchWordLength", this.hostSettings.SearchMinWordLength);
-            portalSettings.SSLSetup = (Abstractions.Security.SiteSslSetup)settings.GetValueOrDefault("SSLSetup", (int)Abstractions.Security.SiteSslSetup.Off);
-            portalSettings.SSLEnforced = settings.GetValueOrDefault("SSLEnforced", false);
-            portalSettings.SSLURL = settings.GetValueOrDefault("SSLURL", Null.NullString);
-            portalSettings.STDURL = settings.GetValueOrDefault("STDURL", Null.NullString);
-            portalSettings.EnableRegisterNotification = settings.GetValueOrDefault("EnableRegisterNotification", true);
-            portalSettings.EnableUnapprovedPasswordReminderNotification = settings.GetValueOrDefault("EnableUnapprovedPasswordReminderNotification", true);
-            portalSettings.DefaultAuthProvider = settings.GetValueOrDefault("DefaultAuthProvider", "DNN");
-            portalSettings.SMTPConnectionLimit = settings.GetValueOrDefault("SMTPConnectionLimit", 2);
-            portalSettings.SMTPMaxIdleTime = settings.GetValueOrDefault("SMTPMaxIdleTime", 100000);
+            portalSettings.ContentLocalizationEnabled = GetSetting(settings, "ContentLocalizationEnabled", false);
+            portalSettings.DefaultAdminContainer = GetSetting(settings, "DefaultAdminContainer", this.hostSettings.DefaultAdminContainer);
+            portalSettings.DefaultAdminSkin = GetSetting(settings, "DefaultAdminSkin", this.hostSettings.DefaultAdminSkin);
+            portalSettings.DefaultIconLocation = GetSetting(settings, "DefaultIconLocation", "icons/sigma");
+            portalSettings.DefaultModuleId = GetSetting(settings, "defaultmoduleid", Null.NullInteger);
+            portalSettings.DefaultModuleActionMenu = GetSetting(settings, "DefaultModuleActionMenu", "~/admin/Menus/ModuleActions/ModuleActions.ascx");
+            portalSettings.DefaultPortalContainer = GetSetting(settings, "DefaultPortalContainer", this.hostSettings.DefaultPortalContainer);
+            portalSettings.DefaultPortalSkin = GetSetting(settings, "DefaultPortalSkin", this.hostSettings.DefaultPortalSkin);
+            portalSettings.DefaultTabId = GetSetting(settings, "defaulttabid", Null.NullInteger);
+            portalSettings.EnableBrowserLanguage = GetSetting(settings, "EnableBrowserLanguage", this.hostSettings.EnableBrowserLanguage);
+            portalSettings.EnableCompositeFiles = GetSetting(settings, "EnableCompositeFiles", false);
+            portalSettings.EnablePopUps = GetSetting(settings, "EnablePopUps", true);
+            portalSettings.HideLoginControl = GetSetting(settings, "HideLoginControl", false);
+            portalSettings.EnableSkinWidgets = GetSetting(settings, "EnableSkinWidgets", true);
+            portalSettings.ShowCookieConsent = GetSetting(settings, "ShowCookieConsent", false);
+            portalSettings.CookieMoreLink = GetSetting(settings, "CookieMoreLink", Null.NullString);
+            portalSettings.EnableUrlLanguage = GetSetting(settings, "EnableUrlLanguage", this.hostSettings.EnableUrlLanguage);
+            portalSettings.HideFoldersEnabled = GetSetting(settings, "HideFoldersEnabled", true);
+            portalSettings.InlineEditorEnabled = GetSetting(settings, "InlineEditorEnabled", true);
+            portalSettings.AllowJsInHtmlModule = GetSetting(settings, "AllowJsInHtmlModule", true);
+            portalSettings.AllowJsInModuleHeaders = GetSetting(settings, "AllowJsInModuleHeaders", true);
+            portalSettings.AllowJsInModuleFooters = GetSetting(settings, "AllowJsInModuleFooters", true);
+            portalSettings.SearchIncludeCommon = GetSetting(settings, "SearchIncludeCommon", this.hostSettings.SearchIncludeCommon);
+            portalSettings.SearchIncludeNumeric = GetSetting(settings, "SearchIncludeNumeric", this.hostSettings.SearchIncludeNumeric);
+            portalSettings.SearchIncludedTagInfoFilter = GetSetting(settings, "SearchIncludedTagInfoFilter", this.hostSettings.SearchIncludedTagInfoFilter);
+            portalSettings.SearchMaxWordlLength = GetSetting(settings, "MaxSearchWordLength", this.hostSettings.SearchMaxWordLength);
+            portalSettings.SearchMinWordlLength = GetSetting(settings, "MinSearchWordLength", this.hostSettings.SearchMinWordLength);
+            portalSettings.SSLSetup = (Abstractions.Security.SiteSslSetup)GetSetting(settings, "SSLSetup", (int)Abstractions.Security.SiteSslSetup.Off);
+            portalSettings.SSLEnforced = GetSetting(settings, "SSLEnforced", false);
+            portalSettings.SSLURL = GetSetting(settings, "SSLURL", Null.NullString);
+            portalSettings.STDURL = GetSetting(settings, "STDURL", Null.NullString);
+            portalSettings.EnableRegisterNotification = GetSetting(settings, "EnableRegisterNotification", true);
+            portalSettings.EnableUnapprovedPasswordReminderNotification = GetSetting(settings, "EnableUnapprovedPasswordReminderNotification", true);
+            portalSettings.DefaultAuthProvider = GetSetting(settings, "DefaultAuthProvider", "DNN");
+            portalSettings.SMTPConnectionLimit = GetSetting(settings, "SMTPConnectionLimit", 2);
+            portalSettings.SMTPMaxIdleTime = GetSetting(settings, "SMTPMaxIdleTime", 100000);
 
             portalSettings.ControlPanelSecurity = PortalSettings.ControlPanelPermission.ModuleEditor;
-            var setting = settings.GetValueOrDefault("ControlPanelSecurity", string.Empty);
+            var setting = GetSetting(settings, "ControlPanelSecurity", string.Empty);
             if (setting.Equals("TAB", StringComparison.OrdinalIgnoreCase))
             {
                 portalSettings.ControlPanelSecurity = PortalSettings.ControlPanelPermission.TabEditor;
             }
 
             portalSettings.DefaultControlPanelMode = PortalSettings.Mode.View;
-            setting = settings.GetValueOrDefault("ControlPanelMode", string.Empty);
+            setting = GetSetting(settings, "ControlPanelMode", string.Empty);
             if (setting.Equals("EDIT", StringComparison.OrdinalIgnoreCase))
             {
                 portalSettings.DefaultControlPanelMode = PortalSettings.Mode.Edit;
             }
 
-            setting = settings.GetValueOrDefault("ControlPanelVisibility", string.Empty);
+            setting = GetSetting(settings, "ControlPanelVisibility", string.Empty);
             portalSettings.DefaultControlPanelVisibility = !setting.Equals("MIN", StringComparison.OrdinalIgnoreCase);
 
-            setting = settings.GetValueOrDefault("TimeZone", string.Empty);
+            setting = GetSetting(settings, "TimeZone", string.Empty);
             if (!string.IsNullOrEmpty(setting))
             {
                 var timeZone = TimeZoneInfo.FindSystemTimeZoneById(setting);
@@ -263,26 +263,26 @@ namespace DotNetNuke.Entities.Portals
                 }
             }
 
-            setting = settings.GetValueOrDefault("DataConsentActive", "False");
+            setting = GetSetting(settings, "DataConsentActive", "False");
             portalSettings.DataConsentActive = bool.Parse(setting);
-            setting = settings.GetValueOrDefault("DataConsentTermsLastChange", string.Empty);
+            setting = GetSetting(settings, "DataConsentTermsLastChange", string.Empty);
             if (!string.IsNullOrEmpty(setting))
             {
                 portalSettings.DataConsentTermsLastChange = DateTime.Parse(setting, CultureInfo.InvariantCulture);
             }
 
-            setting = settings.GetValueOrDefault("DataConsentConsentRedirect", "-1");
+            setting = GetSetting(settings, "DataConsentConsentRedirect", "-1");
             portalSettings.DataConsentConsentRedirect = int.Parse(setting, CultureInfo.InvariantCulture);
-            setting = settings.GetValueOrDefault("DataConsentUserDeleteAction", "0");
+            setting = GetSetting(settings, "DataConsentUserDeleteAction", "0");
             portalSettings.DataConsentUserDeleteAction = (PortalSettings.UserDeleteAction)int.Parse(setting, CultureInfo.InvariantCulture);
-            setting = settings.GetValueOrDefault("DataConsentDelay", "1");
+            setting = GetSetting(settings, "DataConsentDelay", "1");
             portalSettings.DataConsentDelay = int.Parse(setting, CultureInfo.InvariantCulture);
-            setting = settings.GetValueOrDefault("DataConsentDelayMeasurement", "d");
+            setting = GetSetting(settings, "DataConsentDelayMeasurement", "d");
             portalSettings.DataConsentDelayMeasurement = setting;
-            setting = settings.GetValueOrDefault("AllowedExtensionsWhitelist", this.hostSettingsService.GetString("DefaultEndUserExtensionWhitelist"));
+            setting = GetSetting(settings, "AllowedExtensionsWhitelist", this.hostSettingsService.GetString("DefaultEndUserExtensionWhitelist"));
             portalSettings.AllowedExtensionsWhitelist = new FileExtensionWhitelist(setting);
 
-            setting = settings.GetValueOrDefault("CspHeaderMode", "OFF");
+            setting = GetSetting(settings, "CspHeaderMode", "OFF");
             switch (setting.ToUpperInvariant())
             {
                 case "ON":
@@ -296,9 +296,30 @@ namespace DotNetNuke.Entities.Portals
                     break;
             }
 
-            portalSettings.CspHeaderFixed = settings.GetValueOrDefault("CspHeaderFixed", false);
-            portalSettings.CspHeader = settings.GetValueOrDefault("CspHeader", "style-src 'unsafe-inline'; object-src 'none'; frame-ancestors 'none';");
-            portalSettings.CspReportingHeader = settings.GetValueOrDefault("CspReportingHeader", string.Empty);
+            portalSettings.CspHeaderFixed = GetSetting(settings, "CspHeaderFixed", false);
+            portalSettings.CspHeader = GetSetting(settings, "CspHeader", "style-src 'unsafe-inline'; object-src 'none'; frame-ancestors 'none';");
+            portalSettings.CspReportingHeader = GetSetting(settings, "CspReportingHeader", string.Empty);
+        }
+
+        /// <summary>
+        /// Reads a portal setting, converting it to <typeparamref name="T"/> and falling back to
+        /// <paramref name="defaultValue"/> when it is absent or empty.
+        /// </summary>
+        /// <remarks>
+        /// This calls DNN's own <see cref="DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault{T}(System.Collections.IDictionary, string, T)"/>
+        /// explicitly. On modern .NET the BCL added
+        /// <c>System.Collections.Generic.CollectionExtensions.GetValueOrDefault</c>, which makes the
+        /// extension-method call ambiguous (and silently returns <see cref="string"/> rather than
+        /// converting) for a <c>Dictionary&lt;string, string&gt;</c>.
+        /// </remarks>
+        /// <typeparam name="T">The setting's type.</typeparam>
+        /// <param name="settings">The portal settings dictionary.</param>
+        /// <param name="key">The setting name.</param>
+        /// <param name="defaultValue">The value to use when the setting is not present.</param>
+        /// <returns>The converted setting value.</returns>
+        private static T GetSetting<T>(System.Collections.IDictionary settings, string key, T defaultValue)
+        {
+            return DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(settings, key, defaultValue);
         }
 
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]

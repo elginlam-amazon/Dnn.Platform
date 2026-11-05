@@ -8,11 +8,12 @@ namespace DotNetNuke.Security
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
+    using System.Net;
+    using System.Security.Claims;
     using System.Security.Cryptography;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.Security;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
@@ -24,12 +25,14 @@ namespace DotNetNuke.Security
     using DotNetNuke.Entities.Users.Social;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Internal.SourceGenerators;
+    using DotNetNuke.Security.Authentication;
     using DotNetNuke.Security.Cookies;
     using DotNetNuke.Services.Cryptography;
-
-    using Microsoft.Extensions.DependencyInjection;
-
     using ICryptographyProvider = DotNetNuke.Abstractions.Security.ICryptographyProvider;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Http.Extensions;
+    using Microsoft.AspNetCore.Http.Features;
+    using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A variety of security-related utility functions.</summary>
     public partial class PortalSecurity
@@ -108,6 +111,7 @@ namespace DotNetNuke.Security
         private readonly IPortalController portalController;
         private readonly IApplicationStatusInfo appStatus;
         private readonly IPortalGroupController portalGroupController;
+        private readonly IAuthenticationCookieService authenticationCookieService;
 
         /// <summary>Initializes a new instance of the <see cref="PortalSecurity"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.4. Please use overload with ListController. Scheduled removal in v12.0.0.")]
@@ -137,6 +141,7 @@ namespace DotNetNuke.Security
             this.portalController = portalController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IPortalController>();
             this.appStatus = appStatus ?? Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
             this.portalGroupController = portalGroupController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IPortalGroupController>();
+            this.authenticationCookieService = Globals.GetCurrentServiceProvider().GetRequiredService<IAuthenticationCookieService>();
         }
 
         /// <summary>
@@ -214,7 +219,8 @@ namespace DotNetNuke.Security
         public static void ForceSecureConnection()
         {
             // get current url
-            var url = HttpContext.Current.Request.Url.ToString();
+            var context = HttpContextSource.CurrentOrThrow;
+            var url = context.Request.GetDisplayUrl();
 
             // if unsecure connection
             if (url.StartsWith("http://", StringComparison.InvariantCultureIgnoreCase))
@@ -233,7 +239,7 @@ namespace DotNetNuke.Security
                 }
 
                 // redirect to secure connection
-                HttpContext.Current.Response.Redirect(url, true);
+                context.Response.Redirect(url);
             }
         }
 
@@ -271,13 +277,13 @@ namespace DotNetNuke.Security
 
                 if (string.IsNullOrEmpty(cookieDomain))
                 {
-                    cookieDomain = FormsAuthentication.CookieDomain;
+                    cookieDomain = AuthenticationCookieService.Current.CookieDomain;
                 }
             }
             else
             {
                 // set cookie domain to be consistent with domain specification in web.config
-                cookieDomain = FormsAuthentication.CookieDomain;
+                cookieDomain = AuthenticationCookieService.Current.CookieDomain;
             }
 
             return cookieDomain;
@@ -349,7 +355,8 @@ namespace DotNetNuke.Security
         /// <returns><see langword="true"/> if user belongs to the specified role; otherwise, <see langword="false"/>.</returns>
         public static bool IsInRole(string role)
         {
-            if (!string.IsNullOrEmpty(role) && role == Globals.glbRoleUnauthUserName && !HttpContext.Current.Request.IsAuthenticated)
+            if (!string.IsNullOrEmpty(role) && role == Globals.glbRoleUnauthUserName &&
+                HttpContextSource.Current?.User?.Identity?.IsAuthenticated != true)
             {
                 return true;
             }
@@ -442,9 +449,8 @@ namespace DotNetNuke.Security
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         public string CreateKey(int numBytes)
         {
-            using var rng = new RNGCryptoServiceProvider();
             var buff = new byte[numBytes];
-            rng.GetBytes(buff);
+            RandomNumberGenerator.Fill(buff);
             return BytesToHexString(buff);
         }
 
@@ -543,7 +549,7 @@ namespace DotNetNuke.Security
             if ((filterType & FilterFlag.NoMarkup) == FilterFlag.NoMarkup && IncludesMarkup(tempInput))
 #pragma warning restore CS0618 // Type or member is obsolete
             {
-                tempInput = HttpUtility.HtmlEncode(tempInput);
+                tempInput = WebUtility.HtmlEncode(tempInput);
             }
 
 #pragma warning disable CS0618 // Type or member is obsolete
@@ -693,77 +699,111 @@ namespace DotNetNuke.Security
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         public void SignIn(UserInfo user, bool createPersistentCookie)
         {
-            if (PortalController.IsMemberOfPortalGroup(this.portalController, user.PortalID) || createPersistentCookie)
+            this.SignInAsync(user, createPersistentCookie).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Signs the provided user in and sets a persistent login cookie if needed.
+        /// </summary>
+        /// <param name="user">The user info.</param>
+        /// <param name="createPersistentCookie">if set to <see langword="true"/> [create persistent cookie].</param>
+        /// <returns>A task that completes once the authentication cookie has been issued.</returns>
+        /// <remarks>
+        /// <para>
+        /// Forms authentication no longer exists: the user is signed in with cookie
+        /// authentication and a claims principal (name, user id, portal id and one role claim
+        /// per DNN role), so <c>HttpContext.User</c>, <c>[Authorize(Roles = …)]</c> and
+        /// <c>User.IsInRole</c> all keep working.
+        /// </para>
+        /// <para>
+        /// DNN's server-side record of every issued cookie (the <c>AuthCookie</c> table, which
+        /// lets a sign-out invalidate a cookie that is still in a browser) is preserved: a
+        /// one-time token is registered with <see cref="AuthCookieController"/> and travels in
+        /// the cookie as the <see cref="DnnAuthenticationDefaults.AuthTokenClaimType"/> claim.
+        /// </para>
+        /// </remarks>
+        [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
+        public async Task SignInAsync(UserInfo user, bool createPersistentCookie)
+        {
+            if (user is null)
             {
-                // Create a custom auth cookie
+                throw new ArgumentNullException(nameof(user));
+            }
 
-                // first, create the authentication ticket
-                var authenticationTicket = createPersistentCookie
-                    ? new FormsAuthenticationTicket(user.Username, true, Config.GetPersistentCookieTimeout(this.appStatus))
-                    : new FormsAuthenticationTicket(user.Username, false, Config.GetAuthCookieTimeout(this.appStatus));
+            var context = HttpContextSource.CurrentOrThrow;
+            var isPortalGroupMember = PortalController.IsMemberOfPortalGroup(this.portalController, user.PortalID);
 
-                // encrypt it
-                var encryptedAuthTicket = FormsAuthentication.Encrypt(authenticationTicket);
+            var timeoutMinutes = createPersistentCookie
+                ? Config.GetPersistentCookieTimeout(this.appStatus)
+                : Config.GetAuthCookieTimeout(this.appStatus);
+            var expiration = DateTime.Now.AddMinutes(timeoutMinutes);
 
-                // Create a new Cookie
-                var authCookie = new HttpCookie(FormsAuthentication.FormsCookieName, encryptedAuthTicket)
+            var cookieDomain = isPortalGroupMember
+                ? GetCookieDomain(this.portalController, this.appStatus, this.portalGroupController, user.PortalID)
+                : null;
+
+            // Register the cookie server-side so that it can be invalidated later.
+            var authToken = Guid.NewGuid().ToString("N");
+            AuthCookieController.Instance.Update(authToken, expiration.ToUniversalTime(), user.UserID);
+
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.UserID.ToString(CultureInfo.InvariantCulture)),
+                new Claim(DnnAuthenticationDefaults.PortalIdClaimType, user.PortalID.ToString(CultureInfo.InvariantCulture)),
+                new Claim(DnnAuthenticationDefaults.AuthTokenClaimType, authToken),
+            };
+
+            if (!string.IsNullOrEmpty(user.Email))
+            {
+                claims.Add(new Claim(ClaimTypes.Email, user.Email));
+            }
+
+            if (!string.IsNullOrEmpty(user.DisplayName))
+            {
+                claims.Add(new Claim(DnnAuthenticationDefaults.DisplayNameClaimType, user.DisplayName));
+            }
+
+            if (user.IsSuperUser)
+            {
+                claims.Add(new Claim(DnnAuthenticationDefaults.SuperUserClaimType, bool.TrueString));
+            }
+
+            foreach (var role in user.Roles ?? Array.Empty<string>())
+            {
+                if (!string.IsNullOrEmpty(role))
                 {
-                    Expires = authenticationTicket.Expiration,
-                    Domain = GetCookieDomain(this.portalController, this.appStatus, this.portalGroupController, user.PortalID),
-                    Path = FormsAuthentication.FormsCookiePath,
-                    Secure = FormsAuthentication.RequireSSL,
-                };
-
-                if (HttpContext.Current.Response.Cookies[FormsAuthentication.FormsCookieName] != null)
-                {
-                    HttpContext.Current.Response.Cookies.Remove(FormsAuthentication.FormsCookieName);
-                }
-
-                HttpContext.Current.Response.Cookies.Set(authCookie);
-                AuthCookieController.Instance.Update(authCookie.Value, authCookie.Expires.ToUniversalTime(), user.UserID);
-
-                if (PortalController.IsMemberOfPortalGroup(this.portalController, user.PortalID))
-                {
-                    var domain = GetCookieDomain(this.portalController, this.appStatus, this.portalGroupController, user.PortalID);
-                    var siteGroupCookie = new HttpCookie("SiteGroup", domain)
-                    {
-                        Expires = authenticationTicket.Expiration,
-                        Domain = domain,
-                        Path = FormsAuthentication.FormsCookiePath,
-                        Secure = FormsAuthentication.RequireSSL,
-                    };
-
-                    HttpContext.Current.Response.Cookies.Set(siteGroupCookie);
+                    claims.Add(new Claim(ClaimTypes.Role, role));
                 }
             }
-            else
-            {
-                if (HttpContext.Current.Response.Cookies[FormsAuthentication.FormsCookieName] != null)
-                {
-                    HttpContext.Current.Response.Cookies.Remove(FormsAuthentication.FormsCookieName);
-                }
 
-                FormsAuthentication.SetAuthCookie(user.Username, false);
-                var authCookie = HttpContext.Current.Response.Cookies[FormsAuthentication.FormsCookieName];
-                if (!string.IsNullOrEmpty(authCookie?.Value))
-                {
-                    var t = FormsAuthentication.Decrypt(authCookie.Value);
-                    if (t != null)
+            await this.authenticationCookieService.SignInAsync(context, user.Username, createPersistentCookie, claims, cookieDomain);
+
+            if (isPortalGroupMember && !string.IsNullOrEmpty(cookieDomain))
+            {
+                // The portal group's shared-domain marker, read on sign-out.
+                context.Response.Cookies.Append(
+                    DnnAuthenticationDefaults.SiteGroupCookieName,
+                    cookieDomain,
+                    new CookieOptions
                     {
-                        AuthCookieController.Instance.Update(authCookie.Value, t.Expiration.ToUniversalTime(), user.UserID);
-                    }
-                }
+                        Expires = expiration,
+                        Domain = cookieDomain,
+                        Path = this.authenticationCookieService.CookiePath,
+                        Secure = this.authenticationCookieService.RequireSsl,
+                        HttpOnly = true,
+                        SameSite = SameSiteMode.Lax,
+                    });
             }
 
             if (user.IsSuperUser)
             {
                 // save userinfo object in context to ensure Personalization is saved correctly
-                HttpContext.Current.Items["UserInfo"] = user;
-                DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<LogRequestContext>()?.AddToLogContext("UserId", user?.UserID ?? Null.NullInteger);
+                context.Items[DnnAuthenticationDefaults.UserInfoContextKey] = user;
+                DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<LogRequestContext>()?.AddToLogContext("UserId", user.UserID);
             }
 
             // Identity the Login is processed by system.
-            HttpContext.Current.Items["DNN_UserSignIn"] = true;
+            context.Items[DnnAuthenticationDefaults.UserSignInContextKey] = true;
         }
 
         /// <summary>
@@ -772,103 +812,67 @@ namespace DotNetNuke.Security
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         public void SignOut()
         {
-            InvalidateAspNetSession(HttpContext.Current);
+            this.SignOutAsync().GetAwaiter().GetResult();
+        }
 
-            var currentAuthCookie = HttpContext.Current.Request.Cookies[FormsAuthentication.FormsCookieName];
-            if (currentAuthCookie != null)
+        /// <summary>
+        /// Signs the current user out.
+        /// </summary>
+        /// <returns>A task that completes once the authentication cookie has been expired.</returns>
+        [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
+        public async Task SignOutAsync()
+        {
+            var context = HttpContextSource.CurrentOrThrow;
+
+            InvalidateSession(context);
+
+            // This will prevent next requests from being authenticated if using the same cookie.
+            var authToken = context.User?.FindFirst(DnnAuthenticationDefaults.AuthTokenClaimType)?.Value;
+            if (!string.IsNullOrEmpty(authToken))
             {
-                // This will prevent next requests from being authenticated if using smae cookie
-                AuthCookieController.Instance.Update(currentAuthCookie.Value, OldExpiryTime, Null.NullInteger);
+                AuthCookieController.Instance.Update(authToken, OldExpiryTime, Null.NullInteger);
             }
 
-            // Log User Off from Cookie Authentication System
-            var domainCookie = HttpContext.Current.Request.Cookies["SiteGroup"];
-            if (domainCookie == null)
-            {
-                // Forms Authentication's Logout
-                FormsAuthentication.SignOut();
-            }
-            else
-            {
-                // clear custom domain cookie
-                var domain = domainCookie.Value;
+            // Log the user off from the cookie authentication system.
+            await this.authenticationCookieService.SignOutAsync(context);
 
-                // Create a new Cookie
-                var str = string.Empty;
-                if (HttpContext.Current.Request.Browser["supportsEmptyStringInCookieValue"] == "false")
-                {
-                    str = "NoCookie";
-                }
-
-                var authCookie = new HttpCookie(FormsAuthentication.FormsCookieName, str)
+            // When the portal belongs to a portal group the cookies were issued on the shared
+            // authentication domain, so they have to be expired on that same domain.
+            var domain = context.Request.Cookies[DnnAuthenticationDefaults.SiteGroupCookieName];
+            if (!string.IsNullOrEmpty(domain))
+            {
+                var sharedDomainOptions = new CookieOptions
                 {
                     Expires = OldExpiryTime,
                     Domain = domain,
-                    Path = FormsAuthentication.FormsCookiePath,
-                    Secure = FormsAuthentication.RequireSSL,
+                    Path = this.authenticationCookieService.CookiePath,
+                    Secure = this.authenticationCookieService.RequireSsl,
                 };
 
-                HttpContext.Current.Response.Cookies.Set(authCookie);
-
-                var siteGroupCookie = new HttpCookie("SiteGroup", str)
-                {
-                    Expires = OldExpiryTime,
-                    Domain = domain,
-                    Path = FormsAuthentication.FormsCookiePath,
-                    Secure = FormsAuthentication.RequireSSL,
-                };
-
-                HttpContext.Current.Response.Cookies.Set(siteGroupCookie);
+                context.Response.Cookies.Delete(this.authenticationCookieService.CookieName, sharedDomainOptions);
+                context.Response.Cookies.Delete(DnnAuthenticationDefaults.SiteGroupCookieName, sharedDomainOptions);
             }
 
             // Remove current userinfo from context items
-            HttpContext.Current.Items.Remove("UserInfo");
+            context.Items.Remove(DnnAuthenticationDefaults.UserInfoContextKey);
             DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<LogRequestContext>()?.AddToLogContext("UserId", Null.NullInteger);
 
-            // remove language cookie
-            var httpCookie = HttpContext.Current.Response.Cookies["language"];
-            if (httpCookie != null)
-            {
-                httpCookie.Value = string.Empty;
-            }
-
-            // remove authentication type cookie
-            var cookie = HttpContext.Current.Response.Cookies["authentication"];
-            if (cookie != null)
-            {
-                cookie.Value = string.Empty;
-            }
+            // remove language cookie and authentication type cookie
+            context.Response.Cookies.Delete("language");
+            context.Response.Cookies.Delete("authentication");
 
             // expire cookies
-            cookie = HttpContext.Current.Response.Cookies["portalaliasid"];
-            if (cookie != null)
-            {
-                cookie.Value = null;
-                cookie.Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/";
-                cookie.Expires = DateTime.Now.AddYears(-30);
-            }
-
-            cookie = HttpContext.Current.Response.Cookies["portalroles"];
-            if (cookie != null)
-            {
-                cookie.Value = null;
-                cookie.Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/";
-                cookie.Expires = DateTime.Now.AddYears(-30);
-            }
+            var applicationPath = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/";
+            var expiredOptions = new CookieOptions { Path = applicationPath, Expires = DateTime.Now.AddYears(-30) };
+            context.Response.Cookies.Delete("portalaliasid", expiredOptions);
+            context.Response.Cookies.Delete("portalroles", expiredOptions);
 
             // clear any authentication provider tokens that match *UserToken convention e.g. FacebookUserToken ,TwitterUserToken, LiveUserToken and GoogleUserToken
-            var authCookies = HttpContext.Current.Request.Cookies.AllKeys;
-            foreach (var authCookie in authCookies)
+            foreach (var authCookie in context.Request.Cookies.Keys)
             {
                 if (authCookie.EndsWith("UserToken", StringComparison.OrdinalIgnoreCase))
                 {
-                    var auth = HttpContext.Current.Response.Cookies[authCookie];
-                    if (auth != null)
-                    {
-                        auth.Value = null;
-                        auth.Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/";
-                        auth.Expires = DateTime.Now.AddYears(-30);
-                    }
+                    context.Response.Cookies.Delete(authCookie, expiredOptions);
                 }
             }
         }
@@ -1071,15 +1075,26 @@ namespace DotNetNuke.Security
             if (tempInput.Contains("&gt;") || tempInput.Contains("&lt;") || tempInput.Contains("&#"))
             {
                 // text is encoded, so decode and try again
-                tempInput = HttpUtility.HtmlDecode(tempInput);
+                tempInput = WebUtility.HtmlDecode(tempInput);
                 tempInput = RxListStrings.Aggregate(tempInput, (current, s) => s.Replace(current, replacement));
 
                 // Re-encode
-                tempInput = HttpUtility.HtmlEncode(tempInput);
+                tempInput = WebUtility.HtmlEncode(tempInput);
             }
             else
             {
                 tempInput = RxListStrings.Aggregate(tempInput, (current, s) => s.Replace(current, replacement));
+            }
+
+            // Final pass: when the input actually carries markup, hand it to the platform's
+            // HTML sanitizer (HtmlSanitizer 9.x, via HtmlUtils) so that script elements,
+            // inline event handlers and javascript: URLs are removed by a real HTML parser
+            // rather than by pattern matching alone. Plain text is left untouched, which keeps
+            // the callers that compare filtered input against the original (user names, for
+            // instance) behaving exactly as before.
+            if (IncludesMarkup(tempInput))
+            {
+                tempInput = HtmlUtils.CleanOutOfJavascript(tempInput);
             }
 
             return tempInput;
@@ -1134,14 +1149,28 @@ namespace DotNetNuke.Security
             return StripTagsRegex.IsMatch(strInput);
         }
 
-        private static void InvalidateAspNetSession(HttpContext context)
+        /// <summary>Clears the current session so that a new one is issued.</summary>
+        /// <param name="context">The current request.</param>
+        /// <remarks>
+        /// ASP.NET Core sessions have no <c>Abandon</c>: clearing the session and dropping the
+        /// session cookie is the equivalent, and it is a no-op when the host has not enabled
+        /// session state at all.
+        /// </remarks>
+        private static void InvalidateSession(HttpContext context)
         {
-            if (context.Session != null && !context.Session.IsNewSession)
+            if (context.Features.Get<ISessionFeature>() is null)
             {
-                // invalidate existing session so a new one is created
-                context.Session.Clear();
-                context.Session.Abandon();
+                // Session state is not enabled for this application.
+                return;
             }
+
+            var session = context.Session;
+            if (session is null || !session.IsAvailable)
+            {
+                return;
+            }
+
+            session.Clear();
         }
     }
 }

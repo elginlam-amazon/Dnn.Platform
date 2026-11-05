@@ -8,7 +8,7 @@ namespace DotNetNuke.Prompt
     using System.Linq;
     using System.Reflection;
     using System.Text.RegularExpressions;
-    using System.Web.Caching;
+    using DotNetNuke.Services.Cache;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Prompt;

@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.Search.Internals
 {
-    using System.Collections.Generic;
     using System.Globalization;
     using System.IO;
     using System.Linq;
@@ -12,37 +11,49 @@ namespace DotNetNuke.Services.Search.Internals
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Services.Search.Entities;
     using Lucene.Net.Analysis;
+    using Lucene.Net.Analysis.Core;
+    using Lucene.Net.Analysis.En;
+    using Lucene.Net.Analysis.Miscellaneous;
     using Lucene.Net.Analysis.Standard;
+    using Lucene.Net.Analysis.Util;
 
     /// <summary>This is responsible for the filters chain that analyzes search documents/queries.</summary>
     internal class SynonymAnalyzer : Analyzer
     {
         /// <inheritdoc />
-        public override TokenStream TokenStream(string fieldName, TextReader reader)
+        protected override TokenStreamComponents CreateComponents(string fieldName, TextReader reader)
         {
             var stops = GetStopWords();
             var wordLengthMinMax = SearchHelper.Instance.GetSearchMinMaxLength();
+
+            var tokenizer = new StandardTokenizer(Constants.LuceneVersion, reader);
 
             // Note: the order of filtering is important for both operation and performane, so we try to make it work faster
             // Also, note that filters are applied from the innermost outwards.
             // According to Lucene's documentaiton the StopFilter performs a case-sensitive lookup of each token in a set of stop
             // words. It relies on being fed already lowercased tokens. Therefore, DO NOT reverse the order of these filters.
-            return
-                new PorterStemFilter(// stemming filter
-                    new ASCIIFoldingFilter(// accents filter
+            TokenStream filter =
+                new PorterStemFilter( // stemming filter
+                    new ASCIIFoldingFilter( // accents filter
                         new SynonymFilter(
                             new StopFilter(
-                                true,
+                                Constants.LuceneVersion,
                                 new LowerCaseFilter(
+                                    Constants.LuceneVersion,
                                     new LengthFilter(
+                                        Constants.LuceneVersion,
                                         new StandardFilter(
-                                            new StandardTokenizer(Constants.LuceneVersion, reader)),
+                                            Constants.LuceneVersion,
+                                            tokenizer),
                                         wordLengthMinMax.Item1,
                                         wordLengthMinMax.Item2)),
-                                stops))));
+                                stops)),
+                        false));
+
+            return new TokenStreamComponents(tokenizer, filter);
         }
 
-        private static ISet<string> GetStopWords()
+        private static CharArraySet GetStopWords()
         {
             int portalId;
             string cultureCode;
@@ -75,8 +86,8 @@ namespace DotNetNuke.Services.Search.Internals
                 // TODO Use cache from InternalSearchController
                 var cultureInfo = new CultureInfo(cultureCode ?? "en-US");
                 var strArray = searchStopWords.StopWords.Split(',').Select(s => s.ToLower(cultureInfo)).ToArray();
-                var set = new CharArraySet(strArray.Length, false);
-                set.AddAll(strArray);
+                var set = new CharArraySet(Constants.LuceneVersion, strArray.Length, false);
+                set.UnionWith(strArray);
                 stops = CharArraySet.UnmodifiableSet(set);
             }
 

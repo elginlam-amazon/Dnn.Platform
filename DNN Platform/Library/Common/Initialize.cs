@@ -4,12 +4,9 @@
 namespace DotNetNuke.Common
 {
     using System;
-    using System.Globalization;
     using System.IO;
-    using System.Reflection;
-    using System.Threading;
-    using System.Web;
-    using System.Web.Hosting;
+    using System.Runtime.InteropServices;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -25,22 +22,48 @@ namespace DotNetNuke.Common
     using DotNetNuke.Services.Log.EventLog;
     using DotNetNuke.Services.Scheduling;
     using DotNetNuke.Services.Upgrade;
+
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
-    using Microsoft.Win32;
 
     using SchedulerMode = DotNetNuke.Abstractions.Application.SchedulerMode;
 
     /// <summary>The Object to initialize application.</summary>
+    /// <remarks>
+    /// <para>
+    /// On .NET Framework this type was driven by <c>Global.asax</c> and an <c>HttpModule</c>:
+    /// <c>Application_Start</c> called <see cref="Init()"/> and <c>Application_End</c> called
+    /// <see cref="LogEnd()"/>. On modern .NET the host drives it instead:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>Call <see cref="InitializeApplicationAsync"/> once from startup (e.g. from an <c>IHostedService.StartAsync</c>) to run the application-start sequence.</description></item>
+    /// <item><description>Call <see cref="Init(HttpContext)"/> from request middleware so the first request still gets the install/upgrade redirect, exactly as the old module did.</description></item>
+    /// <item><description>Call <see cref="LogEnd(string)"/> from <c>IHostApplicationLifetime.ApplicationStopping</c>; there is no <c>HttpRuntime</c>/<c>HostingEnvironment.ShutdownReason</c> on modern .NET.</description></item>
+    /// </list>
+    /// </remarks>
     public partial class Initialize
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<Initialize>();
         private static readonly object InitializeLock = new object();
         private static bool alreadyInitialized;
 
+        /// <summary>Runs the application-start sequence if it has not run yet.</summary>
+        /// <remarks>
+        /// Safe to call when there is no current request; this is the entry point startup code
+        /// should use. Returns the virtual path the caller should redirect to when the site needs
+        /// to be installed or upgraded, otherwise <see cref="string.Empty"/>.
+        /// </remarks>
+        /// <returns>A redirect virtual path, or an empty string.</returns>
+        public static string Init()
+        {
+            return Init(HttpContextSource.Current);
+        }
+
         /// <summary>Inits the app.</summary>
-        /// <param name="app">The app.</param>
-        public static void Init(HttpApplication app)
+        /// <param name="context">The current request context, or <see langword="null"/> when initializing outside of a request.</param>
+        /// <returns>The redirect virtual path that was applied, or an empty string when none was needed.</returns>
+        public static string Init(HttpContext context)
         {
             string redirect;
             var status = Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>().Status;
@@ -48,7 +71,7 @@ namespace DotNetNuke.Common
             // Check if app is initialised
             if (alreadyInitialized && status == UpgradeStatus.None)
             {
-                return;
+                return string.Empty;
             }
 
             lock (InitializeLock)
@@ -56,17 +79,43 @@ namespace DotNetNuke.Common
                 // Double-Check if app was initialised by another request
                 if (alreadyInitialized && status == UpgradeStatus.None)
                 {
-                    return;
+                    return string.Empty;
                 }
 
                 // Initialize ...
-                redirect = InitializeApp(app, ref alreadyInitialized);
+                redirect = InitializeApp(context, ref alreadyInitialized);
             }
 
-            if (!string.IsNullOrEmpty(redirect))
+            if (!string.IsNullOrEmpty(redirect) && context != null && !context.Response.HasStarted)
             {
-                app.Response.Redirect(redirect, true);
+                context.Response.Redirect(ResolveApplicationUrl(redirect));
             }
+
+            return redirect ?? string.Empty;
+        }
+
+        /// <summary>Runs the application-start sequence from startup, off the startup thread.</summary>
+        /// <returns>A task that completes when the application-start sequence has finished.</returns>
+        /// <remarks>
+        /// The sequence (version check, globals, server activity, scheduler start, APPLICATION_START
+        /// event log, Application_Start event queue messages, service route registration) can block
+        /// for a long time, so it must not run inline on the host's startup path. Any failure is
+        /// logged rather than taking the host down, which matches the .NET Framework behaviour where
+        /// an initialization failure produced an error page rather than a dead worker process.
+        /// </remarks>
+        public static Task InitializeApplicationAsync()
+        {
+            return Task.Run(() =>
+            {
+                try
+                {
+                    Init(null);
+                }
+                catch (Exception exc)
+                {
+                    Exceptions.LogException(exc);
+                }
+            });
         }
 
         /// <summary>LogStart logs the Application Start Event.</summary>
@@ -80,62 +129,28 @@ namespace DotNetNuke.Common
             LogController.Instance.AddLog(log);
         }
 
-        /// <summary>LogEnd logs the Application Start Event.</summary>
+        /// <summary>LogEnd logs the Application Shutting Down Event.</summary>
+        /// <remarks>
+        /// Call this from <c>IHostApplicationLifetime.ApplicationStopping</c>. Modern .NET has no
+        /// <c>HostingEnvironment.ShutdownReason</c> and no <c>HttpRuntime</c>, so there is no
+        /// shutdown reason to report; use <see cref="LogEnd(string)"/> when the caller knows one.
+        /// </remarks>
         public static void LogEnd()
         {
+            LogEnd("The application is shutting down (IHostApplicationLifetime.ApplicationStopping).");
+        }
+
+        /// <summary>LogEnd logs the Application Shutting Down Event.</summary>
+        /// <param name="shutdownDetail">A human readable description of why the application is shutting down.</param>
+        public static void LogEnd(string shutdownDetail)
+        {
+            if (string.IsNullOrEmpty(shutdownDetail))
+            {
+                shutdownDetail = "The application is shutting down.";
+            }
+
             try
             {
-                ApplicationShutdownReason shutdownReason = HostingEnvironment.ShutdownReason;
-                string shutdownDetail;
-                switch (shutdownReason)
-                {
-                    case ApplicationShutdownReason.BinDirChangeOrDirectoryRename:
-                        shutdownDetail = "The AppDomain shut down because of a change to the Bin folder or files contained in it.";
-                        break;
-                    case ApplicationShutdownReason.BrowsersDirChangeOrDirectoryRename:
-                        shutdownDetail = "The AppDomain shut down because of a change to the App_Browsers folder or files contained in it.";
-                        break;
-                    case ApplicationShutdownReason.ChangeInGlobalAsax:
-                        shutdownDetail = "The AppDomain shut down because of a change to Global.asax.";
-                        break;
-                    case ApplicationShutdownReason.ChangeInSecurityPolicyFile:
-                        shutdownDetail = "The AppDomain shut down because of a change in the code access security policy file.";
-                        break;
-                    case ApplicationShutdownReason.CodeDirChangeOrDirectoryRename:
-                        shutdownDetail = "The AppDomain shut down because of a change to the App_Code folder or files contained in it.";
-                        break;
-                    case ApplicationShutdownReason.ConfigurationChange:
-                        shutdownDetail = "The AppDomain shut down because of a change to the application level configuration.";
-                        break;
-                    case ApplicationShutdownReason.HostingEnvironment:
-                        shutdownDetail = "The AppDomain shut down because of the hosting environment.";
-                        break;
-                    case ApplicationShutdownReason.HttpRuntimeClose:
-                        shutdownDetail = "The AppDomain shut down because of a call to Close.";
-                        break;
-                    case ApplicationShutdownReason.IdleTimeout:
-                        shutdownDetail = "The AppDomain shut down because of the maximum allowed idle time limit.";
-                        break;
-                    case ApplicationShutdownReason.InitializationError:
-                        shutdownDetail = "The AppDomain shut down because of an AppDomain initialization error.";
-                        break;
-                    case ApplicationShutdownReason.MaxRecompilationsReached:
-                        shutdownDetail = "The AppDomain shut down because of the maximum number of dynamic recompiles of resources limit.";
-                        break;
-                    case ApplicationShutdownReason.PhysicalApplicationPathChanged:
-                        shutdownDetail = "The AppDomain shut down because of a change to the physical path for the application.";
-                        break;
-                    case ApplicationShutdownReason.ResourcesDirChangeOrDirectoryRename:
-                        shutdownDetail = "The AppDomain shut down because of a change to the App_GlobalResources folder or files contained in it.";
-                        break;
-                    case ApplicationShutdownReason.UnloadAppDomainCalled:
-                        shutdownDetail = "The AppDomain shut down because of a call to UnloadAppDomain.";
-                        break;
-                    default:
-                        shutdownDetail = "Shutdown reason: " + shutdownReason;
-                        break;
-                }
-
                 var log = new LogInfo
                 {
                     BypassBuffering = true,
@@ -144,37 +159,7 @@ namespace DotNetNuke.Common
                 log.AddProperty("Shutdown Details", shutdownDetail);
                 LogController.Instance.AddLog(log);
 
-                // enhanced shutdown logging
-                if (typeof(HttpRuntime).InvokeMember(
-                        "_theRuntime",
-                        BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.GetField,
-                        null,
-                        null,
-                        null,
-                        CultureInfo.InvariantCulture) is not HttpRuntime runtime)
-                {
-                    Logger.InitializeApplicationShuttingDown(shutdownDetail);
-                }
-                else
-                {
-                    var shutDownMessage = runtime.GetType().InvokeMember(
-                        "_shutDownMessage",
-                        BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.GetField,
-                        null,
-                        runtime,
-                        null,
-                        CultureInfo.InvariantCulture) as string;
-
-                    var shutDownStack = runtime.GetType().InvokeMember(
-                        "_shutDownStack",
-                        BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.GetField,
-                        null,
-                        runtime,
-                        null,
-                        CultureInfo.InvariantCulture) as string;
-
-                    Logger.InitializeApplicationShuttingDownWithInfo(shutdownDetail, shutDownMessage, shutDownStack);
-                }
+                Logger.InitializeApplicationShuttingDown(shutdownDetail);
             }
             catch (Exception exc)
             {
@@ -189,14 +174,14 @@ namespace DotNetNuke.Common
             }
         }
 
-        /// <summary>Tests whether this request should be processed in an HttpModule.</summary>
+        /// <summary>Tests whether this request should be processed in the DNN request pipeline.</summary>
         /// <param name="request">The Http request.</param>
         /// <param name="allowUnknownExtensions">When false only .aspx, .asmx, .ashx, .svg are checked for Http Module processing.</param>
         /// <param name="checkOmitFromRewriteProcessing">A value indicating whether to check for "omit from rewrite" processing.</param>
-        /// <returns>A value indicating whether the request should be processed in an HttpModule.</returns>
+        /// <returns>A value indicating whether the request should be processed in the DNN request pipeline.</returns>
         public static bool ProcessHttpModule(HttpRequest request, bool allowUnknownExtensions, bool checkOmitFromRewriteProcessing)
         {
-            var localPath = request.Url.LocalPath;
+            var localPath = GetLocalPath(request);
             if (localPath.EndsWith("webresource.axd", StringComparison.OrdinalIgnoreCase)
                     || localPath.EndsWith("scriptresource.axd", StringComparison.OrdinalIgnoreCase)
                     || localPath.EndsWith("captcha.aspx", StringComparison.OrdinalIgnoreCase)
@@ -216,7 +201,7 @@ namespace DotNetNuke.Common
                 return false;
             }
 
-            return !checkOmitFromRewriteProcessing || !RewriterUtils.OmitFromRewriteProcessing(request.Url.LocalPath);
+            return !checkOmitFromRewriteProcessing || !RewriterUtils.OmitFromRewriteProcessing(localPath);
         }
 
         /// <summary>Attempts to run scheduled tasks when "Request Method" is used in the scheduler.</summary>
@@ -234,8 +219,23 @@ namespace DotNetNuke.Common
                     {
                         Logger.InitializeRunningSchedule(hostSettings.SchedulerMode);
                         var scheduler = SchedulingProvider.Instance();
-                        var requestScheduleThread = new Thread(scheduler.ExecuteTasks) { IsBackground = true };
-                        requestScheduleThread.Start();
+
+                        // The .NET Framework implementation started a background Thread per poll.
+                        // Task.Run queues the poll on the thread pool instead; ExecuteTasks is a
+                        // no-op when the SchedulerHostedService dispatch loop is already running,
+                        // so a request poll can never create a second, competing loop.
+                        _ = Task.Run(() =>
+                        {
+                            try
+                            {
+                                scheduler.ExecuteTasks();
+                            }
+                            catch (Exception exc)
+                            {
+                                Exceptions.LogException(exc);
+                            }
+                        });
+
                         SchedulingProvider.ScheduleLastPolled = DateTime.Now;
                     }
                 }
@@ -265,12 +265,22 @@ namespace DotNetNuke.Common
             if (hostSettings.SchedulerMode == SchedulerMode.TimerMethod)
             {
                 Logger.InitializeRunningSchedule(hostSettings.SchedulerMode);
-                var newThread = new Thread(scheduler.Start)
+
+                // The .NET Framework implementation created a named background "Scheduler Thread"
+                // here. On modern .NET SchedulerHostedService owns the dispatch loop; this call
+                // starts it immediately if the hosted service has not picked it up yet, and is a
+                // no-op when a loop is already active.
+                _ = Task.Run(() =>
                 {
-                    IsBackground = true,
-                    Name = "Scheduler Thread",
-                };
-                newThread.Start();
+                    try
+                    {
+                        scheduler.Start();
+                    }
+                    catch (Exception exc)
+                    {
+                        Exceptions.LogException(exc);
+                    }
+                });
             }
         }
 
@@ -278,13 +288,37 @@ namespace DotNetNuke.Common
         public static void StopScheduler()
         {
             // stop scheduled jobs
-            SchedulingProvider.Instance().Halt("Stopped by Application_End");
+            SchedulingProvider.Instance().Halt("Stopped by application shutdown");
         }
 
-        private static string CheckVersion(HttpApplication app)
+        private static string GetLocalPath(HttpRequest request)
         {
-            HttpServerUtility server = app.Server;
+            if (request == null)
+            {
+                return string.Empty;
+            }
 
+            return request.Path.HasValue ? request.Path.Value : string.Empty;
+        }
+
+        /// <summary>Expands a DNN application-relative ("~/") virtual path into a rooted one.</summary>
+        /// <param name="virtualPath">The virtual path.</param>
+        /// <returns>A rooted virtual path.</returns>
+        private static string ResolveApplicationUrl(string virtualPath)
+        {
+            if (string.IsNullOrEmpty(virtualPath) || !virtualPath.StartsWith("~/", StringComparison.Ordinal))
+            {
+                return virtualPath;
+            }
+
+            var applicationPath = HttpContextSource.ApplicationVirtualPath ?? string.Empty;
+            applicationPath = applicationPath.TrimEnd('/');
+
+            return applicationPath + virtualPath.Substring(1);
+        }
+
+        private static string CheckVersion(HttpContext context)
+        {
             bool autoUpgrade = Config.GetSetting("AutoUpgrade") == null || bool.Parse(Config.GetSetting("AutoUpgrade"));
             bool useWizard = Config.GetSetting("UseInstallWizard") == null || bool.Parse(Config.GetSetting("UseInstallWizard"));
 
@@ -300,7 +334,7 @@ namespace DotNetNuke.Common
                     }
                     else
                     {
-                        CreateUnderConstructionPage(server);
+                        CreateUnderConstructionPage();
                         retValue = "~/Install/UnderConstruction.htm";
                         LoggerMessages.InitializeUnderConstructionPageShownBecauseInstallationNeeded(Logger);
                     }
@@ -313,7 +347,7 @@ namespace DotNetNuke.Common
                     }
                     else
                     {
-                        CreateUnderConstructionPage(server);
+                        CreateUnderConstructionPage();
                         retValue = "~/Install/UnderConstruction.htm";
                         LoggerMessages.InitializeUnderConstructionPageShownBecauseUpgradeNeeded(Logger);
                     }
@@ -328,28 +362,25 @@ namespace DotNetNuke.Common
                     if (!isInstalled && (useWizard || autoUpgrade))
                     {
                         // app has never been installed, and either Wizard or Autoupgrade is configured
-                        CreateUnderConstructionPage(server);
+                        CreateUnderConstructionPage();
                         retValue = "~/Install/UnderConstruction.htm";
                         Logger.InitializeUnderConstructionPageShownBecauseNoWorkingDatabaseConnection();
                     }
-                    else
+                    else if (context != null)
                     {
                         // 500 Error - Redirect to ErrorPage
-                        if (HttpContext.Current != null)
+                        if (!isInstalled)
                         {
-                            if (!isInstalled)
-                            {
-                                Logger.InitializeConnectionToTheDatabaseHasFailedTheApplicationIsNotInstalledYetA500ErrorPageWillBeShown();
-                            }
-                            else
-                            {
-                                Logger.InitializeConnectionToTheDatabaseHasFailedHoweverTheApplicationIsAlreadyCompletelyInstalledA500ErrorPageWillBeShown();
-                            }
-
-                            string url = "~/ErrorPage.aspx?status=500&error=Site Unavailable&error2=Connection To The Database Failed";
-                            HttpContext.Current.Response.Clear();
-                            HttpContext.Current.Server.Transfer(url);
+                            Logger.InitializeConnectionToTheDatabaseHasFailedTheApplicationIsNotInstalledYetA500ErrorPageWillBeShown();
                         }
+                        else
+                        {
+                            Logger.InitializeConnectionToTheDatabaseHasFailedHoweverTheApplicationIsAlreadyCompletelyInstalledA500ErrorPageWillBeShown();
+                        }
+
+                        // ASP.NET Core has no Server.Transfer; a redirect to the error page is the
+                        // equivalent observable behaviour for the browser.
+                        retValue = DotNetNuke.Common.ErrorPage.BuildUrl(500, "Site Unavailable", "Connection To The Database Failed");
                     }
 
                     break;
@@ -358,15 +389,14 @@ namespace DotNetNuke.Common
             return retValue;
         }
 
-        private static void CreateUnderConstructionPage(HttpServerUtility server)
+        private static void CreateUnderConstructionPage()
         {
             // create an UnderConstruction page if it does not exist already
-            if (!File.Exists(server.MapPath("~/Install/UnderConstruction.htm")))
+            var target = HttpContextSource.MapPath("~/Install/UnderConstruction.htm");
+            var template = HttpContextSource.MapPath("~/Install/UnderConstruction.template.htm");
+            if (!File.Exists(target) && File.Exists(template))
             {
-                if (File.Exists(server.MapPath("~/Install/UnderConstruction.template.htm")))
-                {
-                    File.Copy(server.MapPath("~/Install/UnderConstruction.template.htm"), server.MapPath("~/Install/UnderConstruction.htm"));
-                }
+                File.Copy(template, target);
             }
         }
 
@@ -375,78 +405,56 @@ namespace DotNetNuke.Common
             return DataProvider.Instance().GetDatabaseEngineVersion();
         }
 
+        /// <summary>Gets the version of the .NET runtime the application is executing on.</summary>
+        /// <returns>The runtime version.</returns>
+        /// <remarks>
+        /// The .NET Framework implementation read the <c>NDP\v4\Full</c> "Release" DWORD out of the
+        /// Windows registry because <see cref="Environment.Version"/> always reported 4.0.x. On
+        /// modern .NET <see cref="Environment.Version"/> reports the real runtime version on every
+        /// platform, so the registry probe (which is Windows-only and would throw or silently
+        /// mis-report on Linux) is gone.
+        /// </remarks>
         private static Version GetNETFrameworkVersion()
         {
-            // Obtain the .NET Framework version, 9.4.0 and later requires .NET 4.7.2 or later
-            var version = Environment.Version.ToString(2);
-
-            // If unknown version return as is.
-            if (version != "4.0")
+            var version = Environment.Version;
+            if (version.Major > 0)
             {
-                return new Version(version);
+                return new Version(version.Major, version.Minor, Math.Max(version.Build, 0));
             }
 
-            // Otherwise utilize release DWORD from registry to determine version
-            // Reference List: https://docs.microsoft.com/en-us/dotnet/framework/migration-guide/versions-and-dependencies
-            var release = GetDotNet4ReleaseNumberFromRegistry();
-            if (release >= 533320)
+            // Environment.Version should never be unset; fall back to parsing the framework
+            // description (e.g. ".NET 10.0.0") rather than returning a bogus version.
+            var description = RuntimeInformation.FrameworkDescription ?? string.Empty;
+            foreach (var token in description.Split(' '))
             {
-                return new Version("4.8.1");
-            }
-
-            if (release >= 528040)
-            {
-                return new Version("4.8");
-            }
-
-            if (release >= 461808)
-            {
-                return new Version("4.7.2");
-            }
-
-            return new Version(version);
-        }
-
-        private static int GetDotNet4ReleaseNumberFromRegistry()
-        {
-            try
-            {
-                using (var ndpKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32)
-                    .OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full\"))
+                if (Version.TryParse(token, out var parsed))
                 {
-                    if (ndpKey?.GetValue("Release") != null)
-                    {
-                        return (int)ndpKey.GetValue("Release");
-                    }
+                    return parsed;
                 }
             }
-            catch (Exception)
-            {
-                // ignore
-            }
 
-            return -1;
+            throw new InvalidOperationException($"Unable to determine the .NET runtime version from '{description}'.");
         }
 
-        private static string InitializeApp(HttpApplication app, ref bool initialized)
+        private static string InitializeApp(HttpContext context, ref bool initialized)
         {
-            var request = app.Request;
+            var request = context?.Request;
 
-            Logger.InitializeRequest(request.Url.LocalPath);
+            Logger.InitializeRequest(GetLocalPath(request));
 
             // Don't process some of the AppStart methods if we are installing
-            if (IsUpgradeOrInstallRequest(app.Request))
+            if (request != null && IsUpgradeOrInstallRequest(request))
             {
-                // NET Framework version is needed by Upgrade
+                // NET runtime version is needed by Upgrade
                 Globals.NETFrameworkVersion = GetNETFrameworkVersion();
-                Globals.IISAppName = request.ServerVariables["APPL_MD_PATH"];
+                Globals.IISAppName = GetApplicationName();
                 Globals.OperatingSystemVersion = Environment.OSVersion.Version;
 
                 return Null.NullString;
             }
 
-                // Check whether the current App Version is the same as the DB Version
-            var redirect = CheckVersion(app);
+            // Check whether the current App Version is the same as the DB Version
+            var redirect = CheckVersion(context);
             if (!string.IsNullOrEmpty(redirect) || InstallBlocker.Instance.IsInstallInProgress())
             {
                 return redirect;
@@ -455,7 +463,7 @@ namespace DotNetNuke.Common
             LoggerMessages.InitializeApplicationInitializing(Logger);
 
             // Set globals
-            Globals.IISAppName = request.ServerVariables["APPL_MD_PATH"];
+            Globals.IISAppName = GetApplicationName();
             Globals.OperatingSystemVersion = Environment.OSVersion.Version;
             Globals.NETFrameworkVersion = GetNETFrameworkVersion();
             Globals.DatabaseEngineVersion = GetDatabaseEngineVersion();
@@ -480,7 +488,10 @@ namespace DotNetNuke.Common
             ServicesRoutingManager.RegisterServiceRoutes();
 
             // Set Flag so we can determine the first Page Request after Application Start
-            app.Context.Items.Add("FirstRequest", true);
+            if (context != null)
+            {
+                context.Items["FirstRequest"] = true;
+            }
 
             LoggerMessages.InitializeApplicationInitialized(Logger);
 
@@ -489,9 +500,20 @@ namespace DotNetNuke.Common
             return redirect;
         }
 
+        /// <summary>
+        /// Gets the name that identifies this application within a web farm, previously read from
+        /// the <c>APPL_MD_PATH</c> server variable (which modern .NET does not expose).
+        /// </summary>
+        /// <returns>The application's virtual path, which is what <see cref="Entities.Host.ServerController"/> uses it for.</returns>
+        private static string GetApplicationName()
+        {
+            var applicationPath = HttpContextSource.ApplicationVirtualPath;
+            return string.IsNullOrEmpty(applicationPath) ? "/" : applicationPath;
+        }
+
         private static bool IsUpgradeOrInstallRequest(HttpRequest request)
         {
-            var url = request.Url.LocalPath;
+            var url = GetLocalPath(request);
 
             return url.EndsWith("/install.aspx", StringComparison.OrdinalIgnoreCase)
                 || url.Contains("/upgradewizard.aspx", StringComparison.OrdinalIgnoreCase)

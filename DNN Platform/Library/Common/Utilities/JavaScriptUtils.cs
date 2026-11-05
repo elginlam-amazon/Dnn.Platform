@@ -5,28 +5,29 @@
 namespace DotNetNuke.Common.Utilities
 {
     using System;
-    using System.Web.UI;
 
     using DotNetNuke.Framework;
+
+    using Microsoft.AspNetCore.Http;
 
     public class JavaScriptUtils : ServiceLocator<IJavaScriptUtils, JavaScriptUtils>, IJavaScriptUtils
     {
         /// <inheritdoc />
-        public void RegisterJavascriptVariable(string variableName, object value, Page page, Type type)
+        /// <remarks>
+        /// The WebForms version chose between <c>ScriptManager.RegisterStartupScript</c> and
+        /// <c>Page.ClientScript.RegisterStartupScript</c> so that the script survived an MS AJAX partial
+        /// postback. There are no partial postbacks on ASP.NET Core, so there is a single path: the
+        /// startup script is registered on the request's <see cref="DotNetNuke.UI.Utilities.IClientApiPage"/>,
+        /// which is the seam that emits per-page client script.
+        /// </remarks>
+        public void RegisterJavascriptVariable(string variableName, object value, HttpContext context, Type type)
         {
             var valueAsJson = Json.Serialize(value);
 
             var script = $"var {variableName} = {valueAsJson};";
 
-            if (ScriptManager.GetCurrent(page) != null)
-            {
-                // respect MS AJAX
-                ScriptManager.RegisterStartupScript(page, type, variableName, script, true);
-            }
-            else
-            {
-                page.ClientScript.RegisterStartupScript(type, variableName, script, true);
-            }
+            var page = ClientApiPageAccessor.GetPage(context, nameof(this.RegisterJavascriptVariable));
+            page?.RegisterStartupScript(type, variableName, script, true);
         }
 
         /// <inheritdoc />

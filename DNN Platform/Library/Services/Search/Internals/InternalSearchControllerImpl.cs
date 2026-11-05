@@ -7,11 +7,10 @@ namespace DotNetNuke.Services.Search.Internals
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
+    using System.Net;
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading;
-    using System.Web;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
@@ -24,16 +23,15 @@ namespace DotNetNuke.Services.Search.Internals
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Search.Controllers;
     using DotNetNuke.Services.Search.Entities;
+    using Localization = DotNetNuke.Services.Localization.Localization;
     using Lucene.Net.Documents;
     using Lucene.Net.Index;
     using Lucene.Net.Search;
-
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
-
-    using Localization = DotNetNuke.Services.Localization.Localization;
 
     /// <summary>  The Impl Controller class for Lucene.</summary>
     internal class InternalSearchControllerImpl : IInternalSearchController
@@ -278,7 +276,7 @@ namespace DotNetNuke.Services.Search.Internals
 
         private static NumericRangeQuery<int> NumericValueQuery(string numericName, int numericVal)
         {
-            return NumericRangeQuery.NewIntRange(numericName, numericVal, numericVal, true, true);
+            return NumericRangeQuery.NewInt32Range(numericName, numericVal, numericVal, true, true);
         }
 
         /// <summary>Add Field to Doc when supplied fieldValue > 0.</summary>
@@ -286,7 +284,7 @@ namespace DotNetNuke.Services.Search.Internals
         {
             if (fieldValue > 0)
             {
-                doc.Add(new NumericField(fieldTag, Field.Store.YES, true).SetIntValue(fieldValue));
+                doc.Add(new Int32Field(fieldTag, fieldValue, Field.Store.YES));
             }
         }
 
@@ -388,7 +386,7 @@ namespace DotNetNuke.Services.Search.Internals
             // If not decoded, decode and strip again. Becareful with recursive
             if (!decoded)
             {
-                strippedString = StripTagsRetainAttributes(HttpUtility.HtmlDecode(strippedString), attributesList, true, retainSpace);
+                strippedString = StripTagsRetainAttributes(WebUtility.HtmlDecode(strippedString), attributesList, true, retainSpace);
             }
 
             return strippedString;
@@ -553,11 +551,11 @@ namespace DotNetNuke.Services.Search.Internals
         {
             // mandatory fields
             doc.Add(new Field(Constants.UniqueKeyTag, SearchHelper.Instance.StripTagsNoAttributes(searchDocument.UniqueKey, true), Field.Store.YES, Field.Index.NOT_ANALYZED));
-            doc.Add(new NumericField(Constants.PortalIdTag, Field.Store.YES, true).SetIntValue(searchDocument.PortalId));
-            doc.Add(new NumericField(Constants.SearchTypeTag, Field.Store.YES, true).SetIntValue(searchDocument.SearchTypeId));
+            doc.Add(new Int32Field(Constants.PortalIdTag, searchDocument.PortalId, Field.Store.YES));
+            doc.Add(new Int32Field(Constants.SearchTypeTag, searchDocument.SearchTypeId, Field.Store.YES));
             doc.Add(!string.IsNullOrEmpty(searchDocument.CultureCode)
-                        ? new NumericField(Constants.LocaleTag, Field.Store.YES, true).SetIntValue(Localization.GetCultureLanguageID(searchDocument.CultureCode))
-                        : new NumericField(Constants.LocaleTag, Field.Store.YES, true).SetIntValue(-1));
+                        ? new Int32Field(Constants.LocaleTag, Localization.GetCultureLanguageID(searchDocument.CultureCode), Field.Store.YES)
+                        : new Int32Field(Constants.LocaleTag, -1, Field.Store.YES));
 
             if (!string.IsNullOrEmpty(searchDocument.Title))
             {
@@ -639,7 +637,7 @@ namespace DotNetNuke.Services.Search.Internals
 
             foreach (var kvp in searchDocument.NumericKeys)
             {
-                doc.Add(new NumericField(SearchHelper.Instance.StripTagsNoAttributes(Constants.NumericKeyPrefixTag + kvp.Key, true), Field.Store.YES, true).SetIntValue(kvp.Value));
+                doc.Add(new Int32Field(SearchHelper.Instance.StripTagsNoAttributes(Constants.NumericKeyPrefixTag + kvp.Key, true), kvp.Value, Field.Store.YES));
             }
 
             bool tagBoostApplied = false;
@@ -685,13 +683,14 @@ namespace DotNetNuke.Services.Search.Internals
             }
 
             doc.Add(
-                new NumericField(Constants.ModifiedTimeTag, Field.Store.YES, true)
-                .SetLongValue(
+                new Int64Field(
+                    Constants.ModifiedTimeTag,
                     long.Parse(
                         searchDocument.ModifiedTimeUtc.ToString(
                             Constants.DateTimeFormat,
                             CultureInfo.InvariantCulture),
-                        CultureInfo.InvariantCulture)));
+                        CultureInfo.InvariantCulture),
+                    Field.Store.YES));
 
             if (sb.Length > 0)
             {

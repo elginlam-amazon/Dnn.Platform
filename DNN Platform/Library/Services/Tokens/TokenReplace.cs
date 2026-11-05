@@ -5,8 +5,8 @@ namespace DotNetNuke.Services.Tokens
 {
     using System.Collections;
     using System.Data;
-    using System.Web;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Entities.Modules;
@@ -270,7 +270,8 @@ namespace DotNetNuke.Services.Tokens
 
         private void DetermineUser(UserInfo user)
         {
-            this.AccessingUser = HttpContext.Current != null ? (UserInfo)HttpContext.Current.Items["UserInfo"] : new UserInfo();
+            var context = HttpContextSource.Current;
+            this.AccessingUser = context != null ? (UserInfo)context.Items["UserInfo"] : new UserInfo();
             this.User = user ?? this.AccessingUser;
         }
 

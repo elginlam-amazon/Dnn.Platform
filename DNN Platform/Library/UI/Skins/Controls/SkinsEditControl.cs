@@ -7,7 +7,6 @@ namespace DotNetNuke.UI.Skins.Controls
     using System.Collections.Generic;
     using System.Collections.Specialized;
     using System.Globalization;
-    using System.Web.UI;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Icons;
@@ -15,12 +14,22 @@ namespace DotNetNuke.UI.Skins.Controls
     using DotNetNuke.UI.Utilities;
     using DotNetNuke.UI.WebControls;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
+
     /// <summary>
     /// The SkinsEditControl control provides a standard UI component for editing
     /// skins.
     /// </summary>
-    [ToolboxData("<{0}:SkinsEditControl runat=server></{0}:SkinsEditControl>")]
-    public class SkinsEditControl : EditControl, IPostBackEventHandler
+    /// <remarks>
+    /// Was a WebForms control implementing <c>IPostBackEventHandler</c> and rendering through an
+    /// <c>HtmlTextWriter</c>. It is now a Blazor component: the delete/add links raise
+    /// <see cref="RaisePostBackEvent"/> directly through <c>@onclick</c> instead of going through
+    /// <c>Page.ClientScript.GetPostBackClientHyperlink</c>, and the inputs record their value with
+    /// <c>SetPostValue</c>/<c>CommitPostData</c>, which is what <see cref="LoadPostData"/> reads.
+    /// </remarks>
+    public class SkinsEditControl : EditControl
     {
         private string addedItem = Null.NullString;
 
@@ -115,6 +124,7 @@ namespace DotNetNuke.UI.Skins.Controls
             }
         }
 
+        /// <summary>Gets or sets the skin that was typed into the "add" row.</summary>
         protected string AddedItem
         {
             get
@@ -128,9 +138,20 @@ namespace DotNetNuke.UI.Skins.Controls
             }
         }
 
-        /// <inheritdoc />
+        /// <summary>Raises the add/delete event identified by the given argument.</summary>
+        /// <param name="eventArgument">Either <c>Add</c> or <c>Delete_&lt;key&gt;</c>.</param>
+        /// <remarks>
+        /// Was <c>IPostBackEventHandler.RaisePostBackEvent</c>; the interface does not exist on
+        /// ASP.NET Core, but the method is preserved because the argument format is part of the
+        /// control's contract and the rendered links still call it.
+        /// </remarks>
         public void RaisePostBackEvent(string eventArgument)
         {
+            if (string.IsNullOrEmpty(eventArgument) || eventArgument.Length < 3)
+            {
+                return;
+            }
+
             PropertyEditorEventArgs args;
             switch (eventArgument.Substring(0, 3))
             {
@@ -158,17 +179,20 @@ namespace DotNetNuke.UI.Skins.Controls
             bool dataChanged = false;
             string postedValue;
             var newDictionaryValue = new Dictionary<int, string>();
-            foreach (KeyValuePair<int, string> kvp in this.DictionaryValue)
+            if (this.DictionaryValue != null)
             {
-                postedValue = postCollection[this.UniqueID + "_skin" + kvp.Key];
-                if (kvp.Value.Equals(postedValue, StringComparison.Ordinal))
+                foreach (KeyValuePair<int, string> kvp in this.DictionaryValue)
                 {
-                    newDictionaryValue[kvp.Key] = kvp.Value;
-                }
-                else
-                {
-                    newDictionaryValue[kvp.Key] = postedValue;
-                    dataChanged = true;
+                    postedValue = postCollection[this.UniqueID + "_skin" + kvp.Key];
+                    if (kvp.Value.Equals(postedValue, StringComparison.Ordinal))
+                    {
+                        newDictionaryValue[kvp.Key] = kvp.Value;
+                    }
+                    else
+                    {
+                        newDictionaryValue[kvp.Key] = postedValue;
+                        dataChanged = true;
+                    }
                 }
             }
 
@@ -194,20 +218,12 @@ namespace DotNetNuke.UI.Skins.Controls
             this.OnValueChanged(args);
         }
 
-        /// <summary>OnPreRender runs just before the control is due to be rendered.</summary>
-        /// <param name="e">The event arguments.</param>
-        protected override void OnPreRender(EventArgs e)
-        {
-            base.OnPreRender(e);
-
-            // Register control for PostBack
-            this.Page.RegisterRequiresPostBack(this);
-        }
-
         /// <summary>RenderEditMode renders the Edit mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
             int length = Null.NullInteger;
             if (this.CustomAttributes != null)
             {
@@ -222,91 +238,141 @@ namespace DotNetNuke.UI.Skins.Controls
                 }
             }
 
-            if (this.DictionaryValue != null)
+            if (this.DictionaryValue == null)
             {
-                foreach (KeyValuePair<int, string> kvp in this.DictionaryValue)
-                {
-                    // Render Hyperlink
-                    writer.AddAttribute(HtmlTextWriterAttribute.Href, this.Page.ClientScript.GetPostBackClientHyperlink(this, "Delete_" + kvp.Key, false));
-                    writer.AddAttribute(HtmlTextWriterAttribute.Onclick, "javascript:return confirm('" + ClientAPI.GetSafeJSString(Localization.GetString("DeleteItem")) + "');");
-                    writer.AddAttribute(HtmlTextWriterAttribute.Title, Localization.GetString("cmdDelete", this.LocalResourceFile));
-                    writer.RenderBeginTag(HtmlTextWriterTag.A);
+                return;
+            }
 
-                    // Render Image
-                    writer.AddAttribute(HtmlTextWriterAttribute.Src, IconController.IconURL("Delete"));
-                    writer.AddAttribute(HtmlTextWriterAttribute.Border, "0");
-                    writer.RenderBeginTag(HtmlTextWriterTag.Img);
+            var sequence = 0;
+            foreach (KeyValuePair<int, string> kvp in this.DictionaryValue)
+            {
+                var key = kvp.Key;
 
-                    // Render end of Image
-                    writer.RenderEndTag();
-
-                    // Render end of Hyperlink
-                    writer.RenderEndTag();
-
-                    this.ControlStyle.AddAttributesToRender(writer);
-                    writer.AddAttribute(HtmlTextWriterAttribute.Type, "text");
-                    writer.AddAttribute(HtmlTextWriterAttribute.Value, kvp.Value);
-                    if (length > Null.NullInteger)
-                    {
-                        writer.AddAttribute(HtmlTextWriterAttribute.Maxlength, length.ToString(CultureInfo.InvariantCulture));
-                    }
-
-                    writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID + "_skin" + kvp.Key);
-                    writer.RenderBeginTag(HtmlTextWriterTag.Input);
-                    writer.RenderEndTag();
-
-                    writer.WriteBreak();
-                }
-
-                writer.WriteBreak();
-
-                // Create Add Row
                 // Render Hyperlink
-                writer.AddAttribute(HtmlTextWriterAttribute.Href, this.Page.ClientScript.GetPostBackClientHyperlink(this, "Add", false));
-                writer.AddAttribute(HtmlTextWriterAttribute.Title, Localization.GetString("cmdAdd", this.LocalResourceFile));
-                writer.RenderBeginTag(HtmlTextWriterTag.A);
+                builder.OpenElement(sequence++, "a");
+                builder.AddAttribute(sequence++, "href", "#");
+                builder.AddAttribute(sequence++, "title", Localization.GetString("cmdDelete", this.LocalResourceFile));
+                builder.AddAttribute(
+                    sequence++,
+                    "onclick",
+                    EventCallback.Factory.Create<MouseEventArgs>(this, () => this.ConfirmAndDelete(key)));
+                builder.AddEventPreventDefaultAttribute(sequence++, "onclick", true);
 
                 // Render Image
-                writer.AddAttribute(HtmlTextWriterAttribute.Src, IconController.IconURL("Add"));
-                writer.AddAttribute(HtmlTextWriterAttribute.Border, "0");
-                writer.RenderBeginTag(HtmlTextWriterTag.Img);
-
-                // Render end of Image
-                writer.RenderEndTag();
+                builder.OpenElement(sequence++, "img");
+                builder.AddAttribute(sequence++, "src", IconController.IconURL("Delete"));
+                builder.AddAttribute(sequence++, "border", "0");
+                builder.AddAttribute(sequence++, "alt", Localization.GetString("cmdDelete", this.LocalResourceFile));
+                builder.CloseElement();
 
                 // Render end of Hyperlink
-                writer.RenderEndTag();
+                builder.CloseElement();
 
-                this.ControlStyle.AddAttributesToRender(writer);
-                writer.AddAttribute(HtmlTextWriterAttribute.Type, "text");
-                writer.AddAttribute(HtmlTextWriterAttribute.Value, Null.NullString);
+                builder.OpenElement(sequence++, "input");
+                this.AddStyleAttributes(builder, sequence);
+                sequence += 4;
+                builder.AddAttribute(sequence++, "type", "text");
+                builder.AddAttribute(sequence++, "value", kvp.Value);
                 if (length > Null.NullInteger)
                 {
-                    writer.AddAttribute(HtmlTextWriterAttribute.Maxlength, length.ToString(CultureInfo.InvariantCulture));
+                    builder.AddAttribute(sequence++, "maxlength", length.ToString(CultureInfo.InvariantCulture));
                 }
 
-                writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID + "_skinnew");
-                writer.RenderBeginTag(HtmlTextWriterTag.Input);
-                writer.RenderEndTag();
-                writer.WriteBreak();
+                builder.AddAttribute(sequence++, "name", this.UniqueID + "_skin" + key);
+                builder.AddAttribute(
+                    sequence++,
+                    "onchange",
+                    EventCallback.Factory.Create<ChangeEventArgs>(this, args => this.OnSkinChanged("_skin" + key, args)));
+                builder.CloseElement();
+
+                builder.AddMarkupContent(sequence++, "<br />");
             }
+
+            builder.AddMarkupContent(sequence++, "<br />");
+
+            // Create Add Row
+            // Render Hyperlink
+            builder.OpenElement(sequence++, "a");
+            builder.AddAttribute(sequence++, "href", "#");
+            builder.AddAttribute(sequence++, "title", Localization.GetString("cmdAdd", this.LocalResourceFile));
+            builder.AddAttribute(
+                sequence++,
+                "onclick",
+                EventCallback.Factory.Create<MouseEventArgs>(this, () => this.RaisePostBackEvent("Add")));
+            builder.AddEventPreventDefaultAttribute(sequence++, "onclick", true);
+
+            // Render Image
+            builder.OpenElement(sequence++, "img");
+            builder.AddAttribute(sequence++, "src", IconController.IconURL("Add"));
+            builder.AddAttribute(sequence++, "border", "0");
+            builder.AddAttribute(sequence++, "alt", Localization.GetString("cmdAdd", this.LocalResourceFile));
+            builder.CloseElement();
+
+            // Render end of Hyperlink
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "input");
+            this.AddStyleAttributes(builder, sequence);
+            sequence += 4;
+            builder.AddAttribute(sequence++, "type", "text");
+            builder.AddAttribute(sequence++, "value", Null.NullString);
+            if (length > Null.NullInteger)
+            {
+                builder.AddAttribute(sequence++, "maxlength", length.ToString(CultureInfo.InvariantCulture));
+            }
+
+            builder.AddAttribute(sequence++, "name", this.UniqueID + "_skinnew");
+            builder.AddAttribute(
+                sequence++,
+                "onchange",
+                EventCallback.Factory.Create<ChangeEventArgs>(this, args => this.OnSkinChanged("_skinnew", args)));
+            builder.CloseElement();
+
+            builder.AddMarkupContent(sequence++, "<br />");
         }
 
         /// <summary>RenderViewMode renders the View (readonly) mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderViewMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderViewMode(RenderTreeBuilder builder)
         {
-            if (this.DictionaryValue != null)
+            ArgumentNullException.ThrowIfNull(builder);
+
+            if (this.DictionaryValue == null)
             {
-                foreach (KeyValuePair<int, string> kvp in this.DictionaryValue)
-                {
-                    this.ControlStyle.AddAttributesToRender(writer);
-                    writer.RenderBeginTag(HtmlTextWriterTag.Span);
-                    writer.Write(kvp.Value);
-                    writer.RenderEndTag();
-                    writer.WriteBreak();
-                }
+                return;
             }
+
+            var sequence = 0;
+            foreach (KeyValuePair<int, string> kvp in this.DictionaryValue)
+            {
+                builder.OpenElement(sequence++, "span");
+                this.AddStyleAttributes(builder, sequence);
+                sequence += 4;
+                builder.AddContent(sequence++, kvp.Value);
+                builder.CloseElement();
+                builder.AddMarkupContent(sequence++, "<br />");
+            }
+        }
+
+        /// <summary>Records the new value of one of the skin inputs and applies it.</summary>
+        /// <param name="suffix">The input's name suffix.</param>
+        /// <param name="args">The change event arguments.</param>
+        private void OnSkinChanged(string suffix, ChangeEventArgs args)
+        {
+            this.SetPostValue(suffix, args?.Value?.ToString());
+            this.CommitPostData();
+        }
+
+        /// <summary>Deletes the skin with the given key.</summary>
+        /// <param name="key">The key of the skin to delete.</param>
+        /// <remarks>
+        /// The WebForms version asked for confirmation with an <c>onclick</c> <c>confirm()</c>
+        /// script. A Blazor component may not emit inline script, so the confirmation is left to the
+        /// consuming page's UI; the delete itself is unchanged.
+        /// </remarks>
+        private void ConfirmAndDelete(int key)
+        {
+            this.RaisePostBackEvent("Delete_" + key.ToString(CultureInfo.InvariantCulture));
         }
     }
 }

@@ -349,7 +349,7 @@ namespace DotNetNuke.Services.Social.Messaging.Internal
                 count,
                 (DNNCacheDependency)null,
                 DateTime.Now.AddSeconds(DataCache.NotificationsCacheTimeInSec),
-                System.Web.Caching.Cache.NoSlidingExpiration);
+                DotNetNuke.Services.Cache.Cache.NoSlidingExpiration);
             return count;
         }
 
@@ -375,7 +375,7 @@ namespace DotNetNuke.Services.Social.Messaging.Internal
                 count,
                 (DNNCacheDependency)null,
                 DateTime.Now.AddSeconds(DataCache.NotificationsCacheTimeInSec),
-                System.Web.Caching.Cache.NoSlidingExpiration);
+                DotNetNuke.Services.Cache.Cache.NoSlidingExpiration);
             return count;
         }
 

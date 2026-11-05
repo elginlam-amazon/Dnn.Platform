@@ -3,18 +3,19 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.Tokens
 {
-    using System.Web.UI;
+    using Microsoft.AspNetCore.Http;
 
     public class HtmlTokenReplace : TokenReplace
     {
         /// <summary>Initializes a new instance of the <see cref="HtmlTokenReplace"/> class.</summary>
-        /// <param name="page">The page on which the module is rendering.</param>
-        public HtmlTokenReplace(Page page)
+        /// <param name="context">The request the module is rendering on.</param>
+        /// <remarks>Was <c>HtmlTokenReplace(System.Web.UI.Page)</c>; the token sources register client resources per request now.</remarks>
+        public HtmlTokenReplace(HttpContext context)
             : base(Scope.DefaultSettings)
         {
-            this.AddPropertySource("css", new CssPropertyAccess(page));
-            this.AddPropertySource("js", new JavaScriptPropertyAccess(page));
-            this.AddPropertySource("javascript", new JavaScriptPropertyAccess(page));
+            this.AddPropertySource("css", new CssPropertyAccess(context));
+            this.AddPropertySource("js", new JavaScriptPropertyAccess(context));
+            this.AddPropertySource("javascript", new JavaScriptPropertyAccess(context));
             this.AddPropertySource("antiforgerytoken", new AntiForgeryTokenPropertyAccess());
         }
     }

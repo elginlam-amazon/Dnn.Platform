@@ -5,13 +5,21 @@
 namespace DotNetNuke.Entities.Modules
 {
     using System.Collections.Generic;
-    using System.Web.UI;
 
     using DotNetNuke.Services.Tokens;
     using DotNetNuke.UI.Modules;
 
+    using Microsoft.AspNetCore.Components;
+
     public interface ICustomTokenProvider
     {
-        IDictionary<string, IPropertyAccess> GetTokens(Page page, ModuleInstanceContext moduleContext);
+        /// <summary>Gets the custom tokens contributed for the current page/module.</summary>
+        /// <param name="page">
+        /// The component rendering the page. This was a <c>System.Web.UI.Page</c>; on ASP.NET
+        /// Core the hosting page is a Blazor component, so the component contract replaces it.
+        /// </param>
+        /// <param name="moduleContext">The module instance context.</param>
+        /// <returns>The tokens, keyed by token name.</returns>
+        IDictionary<string, IPropertyAccess> GetTokens(IComponent page, ModuleInstanceContext moduleContext);
     }
 }

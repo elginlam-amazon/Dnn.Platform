@@ -3,9 +3,7 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.Authentication
 {
-    using System;
     using System.Diagnostics.CodeAnalysis;
-    using System.Web;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
@@ -13,17 +11,33 @@ namespace DotNetNuke.Services.Authentication
     using DotNetNuke.Services.UserRequest;
 
     /// <summary>
-    /// The AuthenticationLoginBase class provides a bas class for Authentication
-    /// Login controls.
+    /// The AuthenticationLoginBase class provides a base class for Authentication
+    /// Login components.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This was a <c>System.Web.UI.UserControl</c> on ASP.NET; it is now a Blazor component base
+    /// (through <see cref="UserModuleBase"/>, which derives from
+    /// <c>Microsoft.AspNetCore.Components.ComponentBase</c>).
+    /// </para>
+    /// <para>
+    /// <b>Blazor Server:</b> <c>HttpContext</c> is <see langword="null"/> during interactive
+    /// (SignalR) rendering, so every value that comes from the request — here the client IP
+    /// address — is read once in <see cref="OnInitialized"/> and kept in a field. Never read it
+    /// from an <c>@onclick</c> handler.
+    /// </para>
+    /// </remarks>
     public abstract partial class AuthenticationLoginBase : UserModuleBase
     {
+        private string ipAddress;
+
         /// <summary>Initializes a new instance of the <see cref="AuthenticationLoginBase"/> class.</summary>
         protected AuthenticationLoginBase()
         {
             this.RedirectURL = Null.NullString;
             this.AuthenticationType = Null.NullString;
             this.Mode = AuthMode.Login;
+            this.ipAddress = Null.NullString;
         }
 
         [SuppressMessage("Microsoft.Design", "CA1711:IdentifiersShouldNotHaveIncorrectSuffix", Justification = "Breaking change")]
@@ -36,14 +50,23 @@ namespace DotNetNuke.Services.Authentication
         public abstract bool Enabled { get; }
 
         /// <summary>Gets the IP address associated with the request.</summary>
+        /// <remarks>
+        /// Captured during initial (static) rendering, because the HTTP request is not available
+        /// once the component is interactive. When the component was never initialized within a
+        /// request (for example when the type is instantiated purely to read
+        /// <see cref="Enabled"/>), the value is resolved on demand through the seam instead.
+        /// </remarks>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         public string IPAddress
         {
             get
             {
-                var controller = UserRequestIPAddressController.Instance;
-                var request = new HttpRequestWrapper(HttpContext.Current.Request);
-                return controller.GetUserRequestIPAddress(request);
+                if (!string.IsNullOrEmpty(this.ipAddress))
+                {
+                    return this.ipAddress;
+                }
+
+                return UserRequestIPAddressController.Instance.GetUserRequestIPAddress();
             }
         }
 
@@ -64,11 +87,20 @@ namespace DotNetNuke.Services.Authentication
         /// <summary>Gets or sets the Redirect Url for this control.</summary>
         public string RedirectURL { get; set; }
 
-        /// <inheritdoc cref="IUserRequestIPAddressController.GetUserRequestIPAddress(System.Web.HttpRequestBase)"/>
+        /// <inheritdoc cref="IUserRequestIPAddressController.GetUserRequestIPAddress(Microsoft.AspNetCore.Http.HttpRequest)"/>
         [DnnDeprecated(9, 2, 0, "Use UserRequestIPAddressController.Instance.GetUserRequestIPAddress")]
         public static partial string GetIPAddress()
         {
-            return UserRequestIPAddressController.Instance.GetUserRequestIPAddress(new HttpRequestWrapper(HttpContext.Current.Request));
+            return UserRequestIPAddressController.Instance.GetUserRequestIPAddress();
+        }
+
+        /// <inheritdoc />
+        protected override void OnInitialized()
+        {
+            base.OnInitialized();
+
+            // Capture everything that depends on the HTTP request while there still is one.
+            this.ipAddress = UserRequestIPAddressController.Instance.GetUserRequestIPAddress();
         }
 
         protected virtual void OnUserAuthenticated(UserAuthenticatedEventArgs ea)

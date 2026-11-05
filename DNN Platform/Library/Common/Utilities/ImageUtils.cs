@@ -4,13 +4,26 @@
 namespace DotNetNuke.Common.Utilities
 {
     using System;
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
-    using System.Drawing.Imaging;
     using System.IO;
 
     using DotNetNuke.Services.FileSystem.Internal;
 
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.Formats;
+    using SixLabors.ImageSharp.Formats.Bmp;
+    using SixLabors.ImageSharp.Formats.Gif;
+    using SixLabors.ImageSharp.Formats.Jpeg;
+    using SixLabors.ImageSharp.Formats.Png;
+    using SixLabors.ImageSharp.PixelFormats;
+    using SixLabors.ImageSharp.Processing;
+
+    /// <summary>Image helpers.</summary>
+    /// <remarks>
+    /// Ported from <c>System.Drawing</c> to ImageSharp. <see cref="Size"/> is now
+    /// <see cref="SixLabors.ImageSharp.Size"/>, and <see cref="CreateJPG"/> takes an ImageSharp
+    /// image. <c>GetEncoderInfo</c> (which returned a GDI+ <c>ImageCodecInfo</c>) is replaced by
+    /// <see cref="GetEncoder"/>, which returns the ImageSharp encoder for a MIME type.
+    /// </remarks>
     public class ImageUtils
     {
         /// <summary>return height of image.</summary>
@@ -18,10 +31,8 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>The image size in pixels.</returns>
         public static Size GetSize(string sPath)
         {
-            Image g = Image.FromFile(sPath);
-            Size s = g.Size;
-            g.Dispose();
-            return s;
+            var info = Image.Identify(sPath);
+            return new Size(info.Width, info.Height);
         }
 
         /// <summary>return height of image.</summary>
@@ -29,10 +40,7 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>The image height in pixels.</returns>
         public static int GetHeight(string sPath)
         {
-            Image g = Image.FromFile(sPath);
-            int h = g.Height;
-            g.Dispose();
-            return h;
+            return Image.Identify(sPath).Height;
         }
 
         /// <summary>return width of image.</summary>
@@ -40,10 +48,7 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>The image width in pixels.</returns>
         public static int GetWidth(string sPath)
         {
-            Image g = Image.FromFile(sPath);
-            int w = g.Width;
-            g.Dispose();
-            return w;
+            return Image.Identify(sPath).Width;
         }
 
         /// <summary>return height of image.</summary>
@@ -51,10 +56,7 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>The image height in pixels.</returns>
         public static int GetHeightFromStream(Stream sFile)
         {
-            Image g = Image.FromStream(sFile, true);
-            int h = g.Height;
-            g.Dispose();
-            return h;
+            return Image.Identify(sFile).Height;
         }
 
         /// <summary>width of image.</summary>
@@ -62,10 +64,7 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>The image width in pixels.</returns>
         public static int GetWidthFromStream(Stream sFile)
         {
-            Image g = Image.FromStream(sFile, true);
-            int w = g.Width;
-            g.Dispose();
-            return w;
+            return Image.Identify(sFile).Width;
         }
 
         /// <summary>create an image.</summary>
@@ -73,11 +72,8 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>The path of the created image.</returns>
         public static string CreateImage(string sFile)
         {
-            Image g = Image.FromFile(sFile);
-            int h = g.Height;
-            int w = g.Width;
-            g.Dispose();
-            return CreateImage(sFile, h, w);
+            var info = Image.Identify(sFile);
+            return CreateImage(sFile, info.Height, info.Width);
         }
 
         /// <summary>create an image.</summary>
@@ -142,16 +138,24 @@ namespace DotNetNuke.Common.Utilities
             return sFile;
         }
 
+        /// <summary>Scales an image down to fit the given bounds and returns it as a stream.</summary>
+        /// <param name="stream">The source image.</param>
+        /// <param name="intHeight">The maximum height.</param>
+        /// <param name="intWidth">The maximum width.</param>
+        /// <param name="extension">The file extension, which selects the output format.</param>
+        /// <returns>A stream holding the encoded image. The caller owns it.</returns>
+        /// <remarks>
+        /// The GDI+ "create a canvas, white-fill it for non-PNG, draw the source scaled into it"
+        /// sequence becomes a single ImageSharp mutation. The output format is still chosen from the
+        /// extension, so a PNG stays a PNG (and keeps its alpha) and a GIF stays a GIF. The original
+        /// 24bpp substitution for indexed source formats is no longer needed: ImageSharp decodes
+        /// into RGBA regardless of how the file stored its pixels.
+        /// </remarks>
         public static Stream CreateImage(Stream stream, int intHeight, int intWidth, string extension)
         {
-            using (var original = new Bitmap(stream))
+            using (var original = Image.Load<Rgba32>(stream))
             {
                 int imgHeight, imgWidth;
-                PixelFormat format = original.PixelFormat;
-                if (format.ToString().Contains("Indexed"))
-                {
-                    format = PixelFormat.Format24bppRgb;
-                }
 
                 int newHeight = intHeight;
                 int newWidth = intWidth;
@@ -180,66 +184,61 @@ namespace DotNetNuke.Common.Utilities
 
                 imgSize = new Size(imgWidth, imgHeight);
 
-                using (var newImg = new Bitmap(imgWidth, imgHeight, format))
+                var isPng = extension.Equals(".png", StringComparison.OrdinalIgnoreCase);
+                using (var newImg = new Image<Rgba32>(imgSize.Width, imgSize.Height))
                 {
-                    newImg.SetResolution(original.HorizontalResolution, original.VerticalResolution);
+                    // Replaces newImg.SetResolution(original.Horizontal/VerticalResolution).
+                    newImg.Metadata.HorizontalResolution = original.Metadata.HorizontalResolution;
+                    newImg.Metadata.VerticalResolution = original.Metadata.VerticalResolution;
+                    newImg.Metadata.ResolutionUnits = original.Metadata.ResolutionUnits;
 
-                    using (Graphics canvas = Graphics.FromImage(newImg))
+                    using (var scaled = original.Clone(ctx => ctx.Resize(new ResizeOptions
                     {
-                        canvas.SmoothingMode = SmoothingMode.None;
-                        canvas.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                        canvas.PixelOffsetMode = PixelOffsetMode.HighQuality;
-
-                        if (!extension.Equals(".png", StringComparison.OrdinalIgnoreCase))
+                        Size = imgSize,
+                        Mode = ResizeMode.Stretch,
+                        Sampler = KnownResamplers.Bicubic,
+                    })))
+                    {
+                        newImg.Mutate(ctx =>
                         {
-                            canvas.Clear(Color.White);
-                            canvas.FillRectangle(Brushes.White, 0, 0, imgSize.Width, imgSize.Height);
-                        }
+                            // Everything but PNG gets a white background, as the original did,
+                            // because those formats cannot carry transparency.
+                            if (!isPng)
+                            {
+                                ctx.BackgroundColor(Color.White);
+                            }
 
-                        canvas.DrawImage(original, 0, 0, imgSize.Width, imgSize.Height);
-
-                        ////newImg.Save
-                        ImageFormat imgFormat = ImageFormat.Bmp;
-                        if (extension.Equals(".png", StringComparison.OrdinalIgnoreCase))
-                        {
-                            imgFormat = ImageFormat.Png;
-                        }
-                        else if (extension.Equals(".gif", StringComparison.OrdinalIgnoreCase))
-                        {
-                            imgFormat = ImageFormat.Gif;
-                        }
-                        else if (extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase))
-                        {
-                            imgFormat = ImageFormat.Jpeg;
-                        }
-
-                        var content = new MemoryStream();
-                        newImg.Save(content, imgFormat);
-                        return content;
+                            ctx.DrawImage(scaled, new Point(0, 0), 1f);
+                        });
                     }
+
+                    var content = new MemoryStream();
+                    newImg.Save(content, GetEncoderFromExtension(extension));
+                    content.Position = 0;
+                    return content;
                 }
             }
         }
 
         /// <summary>create a JPG image.</summary>
         /// <param name="sFile">name of image.</param>
-        /// <param name="img">bitmap of image.</param>
+        /// <param name="img">the image.</param>
         /// <param name="compressionLevel">image quality.</param>
         /// <returns>The path of the created image.</returns>
-        public static string CreateJPG(string sFile, Bitmap img, int compressionLevel)
+        /// <remarks>
+        /// The <c>img</c> parameter is now an ImageSharp <see cref="Image"/> rather than a
+        /// <c>System.Drawing.Bitmap</c>. The original's redundant "draw the bitmap onto itself"
+        /// step is dropped because it was a no-op; the JPEG quality parameter is honored through
+        /// <see cref="JpegEncoder.Quality"/> instead of an <c>EncoderParameter</c>. As before, the
+        /// image is disposed and unexpected save failures are suppressed.
+        /// </remarks>
+        public static string CreateJPG(string sFile, Image img, int compressionLevel)
         {
-            Graphics bmpOutput = Graphics.FromImage(img);
-            bmpOutput.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            bmpOutput.SmoothingMode = SmoothingMode.HighQuality;
-            var compressionRectange = new Rectangle(0, 0, img.Width, img.Height);
+            if (img == null)
+            {
+                throw new ArgumentNullException(nameof(img));
+            }
 
-            bmpOutput.DrawImage(img, compressionRectange);
-
-            ImageCodecInfo myImageCodecInfo = GetEncoderInfo("image/jpeg");
-            Encoder myEncoder = Encoder.Quality;
-            var myEncoderParameters = new EncoderParameters(1);
-            var myEncoderParameter = new EncoderParameter(myEncoder, compressionLevel);
-            myEncoderParameters.Param[0] = myEncoderParameter;
             if (File.Exists(sFile))
             {
                 File.Delete(sFile);
@@ -247,7 +246,7 @@ namespace DotNetNuke.Common.Utilities
 
             try
             {
-                img.Save(sFile, myImageCodecInfo, myEncoderParameters);
+                img.Save(sFile, new JpegEncoder { Quality = Math.Clamp(compressionLevel, 1, 100) });
             }
             catch (Exception)
             {
@@ -255,7 +254,6 @@ namespace DotNetNuke.Common.Utilities
             }
 
             img.Dispose();
-            bmpOutput.Dispose();
             return sFile;
         }
 
@@ -267,63 +265,69 @@ namespace DotNetNuke.Common.Utilities
         public static MemoryStream CreateImageForDB(Stream sFile, int intHeight, int intWidth)
         {
             var newStream = new MemoryStream();
-            Image g = Image.FromStream(sFile);
-            int imgHeight, imgWidth;
-
-            if (intHeight > 0 & intWidth > 0)
+            using (var g = Image.Load<Rgba32>(sFile))
             {
-                int newHeight = intHeight;
-                int newWidth = intWidth;
-                if (g.Width > newWidth | g.Height > newHeight)
+                int imgHeight, imgWidth;
+
+                if (intHeight > 0 & intWidth > 0)
                 {
-                    Size imgSize = NewImageSize(g.Width, g.Height, newWidth, newHeight);
-                    imgHeight = imgSize.Height;
-                    imgWidth = imgSize.Width;
+                    int newHeight = intHeight;
+                    int newWidth = intWidth;
+                    if (g.Width > newWidth | g.Height > newHeight)
+                    {
+                        Size imgSize = NewImageSize(g.Width, g.Height, newWidth, newHeight);
+                        imgHeight = imgSize.Height;
+                        imgWidth = imgSize.Width;
+                    }
+                    else
+                    {
+                        imgHeight = g.Height;
+                        imgWidth = g.Width;
+                    }
                 }
                 else
                 {
-                    imgHeight = g.Height;
                     imgWidth = g.Width;
+                    imgHeight = g.Height;
+                }
+
+                using (var imgOutput1 = g.Clone(ctx => ctx.Resize(new ResizeOptions
+                {
+                    Size = new Size(imgWidth, imgHeight),
+                    Mode = ResizeMode.Stretch,
+                    Sampler = KnownResamplers.Bicubic,
+                })))
+                {
+                    // This method is explicitly "for DB" storage as JPEG at quality 90, which is
+                    // what the original EncoderParameter asked GDI+ for.
+                    imgOutput1.Save(newStream, new JpegEncoder { Quality = 90 });
                 }
             }
-            else
-            {
-                imgWidth = g.Width;
-                imgHeight = g.Height;
-            }
 
-            var imgOutput1 = new Bitmap(g, imgWidth, imgHeight);
-            Graphics bmpOutput = Graphics.FromImage(imgOutput1);
-            bmpOutput.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            bmpOutput.SmoothingMode = SmoothingMode.HighQuality;
-            var compressionRectange = new Rectangle(0, 0, imgWidth, imgHeight);
-            bmpOutput.DrawImage(g, compressionRectange);
-            ImageCodecInfo myImageCodecInfo = GetEncoderInfo("image/jpeg");
-            Encoder myEncoder = Encoder.Quality;
-            var myEncoderParameters = new EncoderParameters(1);
-            var myEncoderParameter = new EncoderParameter(myEncoder, 90);
-            myEncoderParameters.Param[0] = myEncoderParameter;
-            imgOutput1.Save(newStream, myImageCodecInfo, myEncoderParameters);
-            g.Dispose();
-            imgOutput1.Dispose();
-            bmpOutput.Dispose();
             return newStream;
         }
 
-        /// <summary>return the appropriate encoded for the mime-type of the image being created.</summary>
-        /// <param name="myMimeType">mime type (e.g jpg/png).</param>
-        /// <returns>The <see cref="ImageCodecInfo"/> or <see langword="null"/>.</returns>
-        public static ImageCodecInfo GetEncoderInfo(string myMimeType)
+        /// <summary>return the appropriate encoder for the mime-type of the image being created.</summary>
+        /// <param name="myMimeType">mime type (e.g <c>image/jpeg</c>).</param>
+        /// <returns>The <see cref="IImageEncoder"/> or <see langword="null"/> when the MIME type is unknown.</returns>
+        /// <remarks>
+        /// Replaces <c>GetEncoderInfo</c>, which looked a GDI+ <c>ImageCodecInfo</c> up by MIME
+        /// type. The lookup is now against ImageSharp's format manager, so it covers exactly the
+        /// formats ImageSharp can actually write.
+        /// </remarks>
+        public static IImageEncoder GetEncoder(string myMimeType)
         {
             try
             {
-                int i;
-                ImageCodecInfo[] encoders = ImageCodecInfo.GetImageEncoders();
-                for (i = 0; i <= (encoders.Length - 1); i++)
+                var configuration = SixLabors.ImageSharp.Configuration.Default;
+                foreach (var format in configuration.ImageFormats)
                 {
-                    if (encoders[i].MimeType == myMimeType)
+                    foreach (var mimeType in format.MimeTypes)
                     {
-                        return encoders[i];
+                        if (string.Equals(mimeType, myMimeType, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return configuration.ImageFormatsManager.GetEncoder(format);
+                        }
                     }
                 }
 
@@ -350,6 +354,29 @@ namespace DotNetNuke.Common.Utilities
             var newSize = new Size(newWidth, newHeight);
 
             return newSize;
+        }
+
+        /// <summary>Selects the encoder matching a file extension, replacing the <c>ImageFormat</c> switch.</summary>
+        private static IImageEncoder GetEncoderFromExtension(string extension)
+        {
+            if (extension.Equals(".png", StringComparison.OrdinalIgnoreCase))
+            {
+                return new PngEncoder();
+            }
+
+            if (extension.Equals(".gif", StringComparison.OrdinalIgnoreCase))
+            {
+                return new GifEncoder();
+            }
+
+            if (extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
+            {
+                return new JpegEncoder();
+            }
+
+            // The original defaulted to ImageFormat.Bmp for anything else.
+            return new BmpEncoder();
         }
     }
 }

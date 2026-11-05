@@ -5,10 +5,10 @@ namespace DotNetNuke.UI.Modules
 {
     using System;
     using System.Globalization;
-    using System.Threading;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Internal;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
@@ -31,9 +31,9 @@ namespace DotNetNuke.UI.Modules
         {
             get
             {
-                if (!string.IsNullOrEmpty(this.Request.Params["UserId"]))
+                if (!string.IsNullOrEmpty(this.Request.GetValue("UserId")))
                 {
-                    return int.Parse(this.Request.Params["UserId"], CultureInfo.InvariantCulture);
+                    return int.Parse(this.Request.GetValue("UserId"), CultureInfo.InvariantCulture);
                 }
 
                 return UserController.Instance.GetCurrentUserInfo().UserID;
@@ -55,22 +55,18 @@ namespace DotNetNuke.UI.Modules
         /// <inheritdoc />
         protected override void OnInit(EventArgs e)
         {
-            if (string.IsNullOrEmpty(this.Request.Params["UserId"]) &&
+            if (string.IsNullOrEmpty(this.Request.GetValue("UserId")) &&
                             (this.ModuleContext.PortalSettings.ActiveTab.TabID == this.ModuleContext.PortalSettings.UserTabId
                                 || this.ModuleContext.PortalSettings.ActiveTab.ParentId == this.ModuleContext.PortalSettings.UserTabId))
             {
-                try
-                {
-                    // Clicked on breadcrumb - don't know which user
-                    var redirectUrl = this.Request.IsAuthenticated
-                        ? this.NavigationManager.NavigateURL(this.ModuleContext.PortalSettings.ActiveTab.TabID, string.Empty, "UserId=" + this.ModuleContext.PortalSettings.UserId.ToString(CultureInfo.InvariantCulture))
-                        : this.GetRedirectUrl();
-                    this.Response.Redirect(redirectUrl, true);
-                }
-                catch (ThreadAbortException)
-                {
-                    Thread.ResetAbort();
-                }
+                // Clicked on breadcrumb - don't know which user.
+                // The WebForms version swallowed the ThreadAbortException Response.Redirect raised;
+                // on ASP.NET Core Redirect only writes the 302 and returns, so the method returns.
+                var redirectUrl = this.Request.IsAuthenticated()
+                    ? this.NavigationManager.NavigateURL(this.ModuleContext.PortalSettings.ActiveTab.TabID, string.Empty, "UserId=" + this.ModuleContext.PortalSettings.UserId.ToString(CultureInfo.InvariantCulture))
+                    : this.GetRedirectUrl();
+                this.Response.Redirect(redirectUrl, true);
+                return;
             }
 
             base.OnInit(e);

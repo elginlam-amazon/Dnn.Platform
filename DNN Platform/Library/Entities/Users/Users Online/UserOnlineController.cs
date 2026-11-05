@@ -6,7 +6,6 @@ namespace DotNetNuke.Entities.Users
     using System;
     using System.Collections;
     using System.Globalization;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -14,6 +13,7 @@ namespace DotNetNuke.Entities.Users
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Internal.SourceGenerators;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.Logging;
 
     using MembershipProvider = DotNetNuke.Security.Membership.MembershipProvider;
@@ -26,6 +26,12 @@ namespace DotNetNuke.Entities.Users
         private static readonly MembershipProvider MemberProvider = MembershipProvider.Instance();
         private static readonly object Locker = new object();
         private static readonly string CacheKey = "OnlineUserList";
+
+        /// <summary>The <see cref="HttpContext.Items"/> key marking that this request has already been tracked.</summary>
+        private const string CheckedUsersOnlineCookieKey = "CheckedUsersOnlineCookie";
+
+        private static string CookiePath =>
+            !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/";
 
         /// <summary>Clears the cached Users Online Information.</summary>
         public void ClearUserList()
@@ -93,24 +99,34 @@ namespace DotNetNuke.Entities.Users
         /// <summary>Tracks an online User.</summary>
         public void TrackUsers()
         {
-            HttpContext context = HttpContext.Current;
+            var context = HttpContextSource.Current;
+            if (context == null)
+            {
+                // Nothing to track: there is no request in flight (background thread, scheduler
+                // or Blazor Server circuit).
+                return;
+            }
 
             // Have we already done the work for this request?
-            if (context.Items["CheckedUsersOnlineCookie"] != null)
+            if (context.Items.ContainsKey(CheckedUsersOnlineCookieKey))
             {
                 return;
             }
             else
             {
-                context.Items["CheckedUsersOnlineCookie"] = "true";
+                context.Items[CheckedUsersOnlineCookieKey] = "true";
             }
 
-            if (context.Request.IsAuthenticated)
+            if (context.User?.Identity?.IsAuthenticated == true)
             {
                 this.TrackAuthenticatedUser(context);
             }
-            else if (context.Request.Browser.Cookies)
+            else
             {
+                // The legacy code gated this on Request.Browser.Cookies, which came from the
+                // .browser capability files; those do not exist on ASP.NET Core. Every browser
+                // that matters supports cookies, and the tracking cookie round-trip itself is
+                // what actually detects support, so track unconditionally.
                 this.TrackAnonymousUser(context);
             }
         }
@@ -145,8 +161,8 @@ namespace DotNetNuke.Entities.Users
         /// <param name="context">An HttpContext Object.</param>
         private void TrackAnonymousUser(HttpContext context)
         {
-            string cookieName = "DotNetNukeAnonymous";
-            var portalSettings = (PortalSettings)context.Items["PortalSettings"];
+            const string cookieName = "DotNetNukeAnonymous";
+            var portalSettings = GetPortalSettings(context);
             if (portalSettings == null)
             {
                 return;
@@ -157,21 +173,16 @@ namespace DotNetNuke.Entities.Users
             string userID;
 
             // Check if the Tracking cookie exists
-            HttpCookie cookie = context.Request.Cookies[cookieName];
+            var hasCookie = context.Request.Cookies.TryGetValue(cookieName, out var cookieValue);
 
             // Track Anonymous User
-            if (cookie == null)
+            if (!hasCookie)
             {
                 // Create a temporary userId
                 userID = Guid.NewGuid().ToString();
 
                 // Create a new cookie
-                cookie = new HttpCookie(cookieName, userID)
-                {
-                    Expires = DateTime.Now.AddMinutes(20),
-                    Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-                };
-                context.Response.Cookies.Add(cookie);
+                AppendTrackingCookie(context, cookieName, userID);
 
                 // Create a user
                 user = new AnonymousUserInfo
@@ -191,17 +202,17 @@ namespace DotNetNuke.Entities.Users
             }
             else
             {
-                if (cookie.Value == null)
+                if (string.IsNullOrEmpty(cookieValue))
                 {
                     // Expire the cookie, there is something wrong with it
-                    context.Response.Cookies[cookieName].Expires = new DateTime(1999, 10, 12);
+                    context.Response.Cookies.Delete(cookieName, new CookieOptions { Path = CookiePath, });
 
                     // No need to do anything else
                     return;
                 }
 
                 // Get userID out of cookie
-                userID = cookie.Value;
+                userID = cookieValue;
 
                 // Find the cookie in the user list
                 if (userList[userID] == null)
@@ -217,12 +228,7 @@ namespace DotNetNuke.Entities.Users
                 user.LastActiveDate = DateTime.Now;
 
                 // Reset the expiration on the cookie
-                cookie = new HttpCookie(cookieName, userID)
-                {
-                    Expires = DateTime.Now.AddMinutes(20),
-                    Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-                };
-                context.Response.Cookies.Add(cookie);
+                AppendTrackingCookie(context, cookieName, userID);
             }
         }
 
@@ -231,7 +237,7 @@ namespace DotNetNuke.Entities.Users
         private void TrackAuthenticatedUser(HttpContext context)
         {
             // Retrieve Portal Settings
-            var portalSettings = (PortalSettings)context.Items["PortalSettings"];
+            var portalSettings = GetPortalSettings(context);
 
             if (portalSettings == null)
             {
@@ -260,6 +266,27 @@ namespace DotNetNuke.Entities.Users
 
             userList[objUserInfo.UserID.ToString(CultureInfo.InvariantCulture)] = user;
             this.SetUserList(userList);
+        }
+
+        /// <summary>Gets the portal (tenant) resolved for the current request.</summary>
+        private static PortalSettings GetPortalSettings(HttpContext context)
+        {
+            return context.Items.TryGetValue(PortalController.PortalSettingsContextKey, out var settings)
+                ? settings as PortalSettings
+                : null;
+        }
+
+        /// <summary>Writes (or refreshes) the 20-minute anonymous tracking cookie.</summary>
+        private static void AppendTrackingCookie(HttpContext context, string cookieName, string userId)
+        {
+            context.Response.Cookies.Append(
+                cookieName,
+                userId,
+                new CookieOptions
+                {
+                    Expires = DateTimeOffset.Now.AddMinutes(20),
+                    Path = CookiePath,
+                });
         }
     }
 }

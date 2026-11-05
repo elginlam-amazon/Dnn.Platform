@@ -3,7 +3,7 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Entities.Modules.Communications
 {
-    using System.Web.UI;
+    using Microsoft.AspNetCore.Components;
 
     /// <summary>Specifies communications between modules. There are listeners and communicators.</summary>
     public class ModuleCommunicate
@@ -15,8 +15,13 @@ namespace DotNetNuke.Entities.Modules.Communications
         public ModuleListeners ModuleListeners { get; } = new ModuleListeners();
 
         /// <summary>Loads the communicator.</summary>
-        /// <param name="ctrl">The control.</param>
-        public void LoadCommunicator(Control ctrl)
+        /// <param name="ctrl">The module component to inspect.</param>
+        /// <remarks>
+        /// The parameter was a <c>System.Web.UI.Control</c>. DNN modules are Blazor components
+        /// now, so the Blazor component contract <see cref="IComponent"/> replaces it; the method
+        /// only ever type-tested the instance for the two communication interfaces.
+        /// </remarks>
+        public void LoadCommunicator(IComponent ctrl)
         {
             // Check and see if the module implements IModuleCommunicator
             if (ctrl is IModuleCommunicator communicator)

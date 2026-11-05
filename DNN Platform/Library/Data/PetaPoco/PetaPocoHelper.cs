@@ -7,7 +7,9 @@ namespace DotNetNuke.Data.PetaPoco
     using System;
     using System.Collections.Generic;
     using System.Data;
-    using System.Data.SqlClient;
+    using System.Data.Common;
+
+    using Microsoft.Data.SqlClient;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Instrumentation;
@@ -17,7 +19,7 @@ namespace DotNetNuke.Data.PetaPoco
 
     public static class PetaPocoHelper
     {
-        private const string SqlProviderName = "System.Data.SqlClient";
+        private static readonly DbProviderFactory SqlProviderFactory = SqlClientFactory.Instance;
 
         private static readonly ILogger Logger = DnnLoggingController.GetLogger(typeof(PetaPocoHelper));
 
@@ -28,7 +30,7 @@ namespace DotNetNuke.Data.PetaPoco
 
         public static void ExecuteNonQuery(string connectionString, CommandType type, int timeoutSec, string sql, params object[] args)
         {
-            using (var database = new Database(connectionString, SqlProviderName) { EnableAutoSelect = false })
+            using (var database = new Database(connectionString, SqlProviderFactory) { EnableAutoSelect = false })
             {
                 if (type == CommandType.StoredProcedure)
                 {
@@ -142,7 +144,7 @@ namespace DotNetNuke.Data.PetaPoco
 
         public static IDataReader ExecuteReader(string connectionString, CommandType type, int timeoutSec, string sql, params object[] args)
         {
-            var database = new Database(connectionString, SqlProviderName) { EnableAutoSelect = false, };
+            var database = new Database(connectionString, SqlProviderFactory) { EnableAutoSelect = false, };
 
             if (type == CommandType.StoredProcedure)
             {
@@ -177,7 +179,7 @@ namespace DotNetNuke.Data.PetaPoco
 
         public static T ExecuteScalar<T>(string connectionString, CommandType type, int timeoutSec, string sql, params object[] args)
         {
-            using (var database = new Database(connectionString, SqlProviderName) { EnableAutoSelect = false })
+            using (var database = new Database(connectionString, SqlProviderFactory) { EnableAutoSelect = false })
             {
                 if (type == CommandType.StoredProcedure)
                 {
@@ -210,7 +212,7 @@ namespace DotNetNuke.Data.PetaPoco
         // ReSharper disable once InconsistentNaming
         public static void ExecuteSQL(string connectionString, string sql, int timeoutSec)
         {
-            using (var database = new Database(connectionString, SqlProviderName) { EnableAutoSelect = false })
+            using (var database = new Database(connectionString, SqlProviderFactory) { EnableAutoSelect = false })
             {
                 if (timeoutSec > 0)
                 {

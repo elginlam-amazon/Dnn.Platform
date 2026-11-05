@@ -5,6 +5,7 @@ namespace DotNetNuke.Security.Profile
 {
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Entities.Users;
+    using DotNetNuke.Framework;
 
     public abstract class ProfileProvider
     {
@@ -13,7 +14,10 @@ namespace DotNetNuke.Security.Profile
         // return the provider
         public static ProfileProvider Instance()
         {
-            return ComponentFactory.GetComponent<ProfileProvider>();
+            // Prefer the application's dependency-injection container. The legacy
+            // ComponentFactory registration (populated from the provider configuration)
+            // remains the fallback so that third-party providers keep working.
+            return ServiceLocator.GetService<ProfileProvider>() ?? ComponentFactory.GetComponent<ProfileProvider>();
         }
 
         public abstract void GetUserProfile(ref UserInfo user);

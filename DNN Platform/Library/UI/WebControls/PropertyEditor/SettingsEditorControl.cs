@@ -7,14 +7,11 @@ namespace DotNetNuke.UI.WebControls
     using System.Collections;
     using System.ComponentModel;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Extensions;
 
     /// <summary>The SettingsEditorControl control provides an Editor to edit DotNetNuke Settings.</summary>
-    [ToolboxData("<{0}:SettingsEditorControl runat=server></{0}:SettingsEditorControl>")]
     public class SettingsEditorControl : PropertyEditorControl
     {
         /// <summary>Initializes a new instance of the <see cref="SettingsEditorControl"/> class.</summary>
@@ -51,14 +48,14 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void AddEditorRow(Table table, object obj)
+        protected override void AddEditorRow(PropertyEditorTable table, object obj)
         {
             var info = (SettingInfo)obj;
             this.AddEditorRow(table, info.Name, new SettingsEditorInfoAdapter(this.DataSource, obj, this.ID));
         }
 
         /// <inheritdoc />
-        protected override void AddEditorRow(Panel container, object obj)
+        protected override void AddEditorRow(PropertyEditorPanel container, object obj)
         {
             var info = (SettingInfo)obj;
             this.AddEditorRow(container, info.Name, new SettingsEditorInfoAdapter(this.DataSource, obj, this.ID));
@@ -68,7 +65,7 @@ namespace DotNetNuke.UI.WebControls
         protected override void AddEditorRow(object obj)
         {
             var info = (SettingInfo)obj;
-            this.AddEditorRow(this, info.Name, new SettingsEditorInfoAdapter(this.DataSource, obj, this.ID));
+            this.AddEditorRow(this.GetRootPanel(), info.Name, new SettingsEditorInfoAdapter(this.DataSource, obj, this.ID));
         }
 
         /// <summary>GetRowVisibility determines the Visibility of a row in the table.</summary>

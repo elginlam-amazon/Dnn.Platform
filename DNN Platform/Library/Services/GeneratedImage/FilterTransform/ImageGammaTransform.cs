@@ -5,8 +5,9 @@
 namespace DotNetNuke.Services.GeneratedImage.FilterTransform
 {
     using System;
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
+
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
 
     /// <summary>Gamma ImageTransform class.</summary>
     public class ImageGammaTransform : ImageTransform
@@ -30,33 +31,33 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
         /// <summary>Processes an input image applying a gamma image transformation.</summary>
         /// <param name="image">Input image.</param>
         /// <returns>Image result after image transformation.</returns>
+        /// <remarks>
+        /// The 256-entry gamma lookup table and its exact rounding are preserved; only the pixel
+        /// access moved from <c>Bitmap.GetPixel</c>/<c>SetPixel</c> to ImageSharp's pixel rows.
+        /// </remarks>
         public override Image ProcessImage(Image image)
         {
-            var temp = (Bitmap)image;
-            var bmap = (Bitmap)temp.Clone();
-            Color c;
-            byte[] gammaArray = new byte[256];
+            var bmap = image.CloneAs<Rgba32>();
+            var gammaArray = new byte[256];
             for (var i = 0; i < 256; ++i)
             {
                 gammaArray[i] = (byte)Math.Min(255, (int)((255.0 * Math.Pow(i / 255.0, 1.0 / this.Gamma)) + 0.5));
             }
 
-            for (var i = 0; i < bmap.Width; i++)
+            bmap.ProcessPixelRows(accessor =>
             {
-                for (var j = 0; j < bmap.Height; j++)
+                for (var j = 0; j < accessor.Height; j++)
                 {
-                    c = bmap.GetPixel(i, j);
-                    bmap.SetPixel(
-                        i,
-                        j,
-                        Color.FromArgb(
-                            gammaArray[c.R],
-                            gammaArray[c.G],
-                            gammaArray[c.B]));
+                    var row = accessor.GetRowSpan(j);
+                    for (var i = 0; i < row.Length; i++)
+                    {
+                        var c = row[i];
+                        row[i] = new Rgba32(gammaArray[c.R], gammaArray[c.G], gammaArray[c.B], byte.MaxValue);
+                    }
                 }
-            }
+            });
 
-            return (Image)bmap.Clone();
+            return bmap;
         }
     }
 }

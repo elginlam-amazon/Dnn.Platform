@@ -5,14 +5,20 @@
 namespace DotNetNuke.ExtensionPoints
 {
     using System;
-    using System.ComponentModel;
-    using System.IO;
-    using System.Web.UI;
 
-    [DefaultProperty("Text")]
-    [ToolboxData("<{0}:UserControlExtensionControl runat=server></{0}:UserControlExtensionControl>")]
+    /// <summary>Renders the user-control extension points registered for a module/group.</summary>
+    /// <remarks>
+    /// Was a WebForms control that called <c>Page.LoadControl</c> in <c>OnInit</c> and added the
+    /// result to <c>Controls</c>. It now records the control sources in <c>OnInit</c> and
+    /// <see cref="DefaultExtensionControl"/> renders them through <c>DynamicComponent</c>; the
+    /// action dispatch below is unchanged apart from reading the captured component instances.
+    /// </remarks>
     public class UserControlExtensionControl : DefaultExtensionControl
     {
+        /// <summary>Dispatches the bind action to every loaded extension control.</summary>
+        /// <param name="portalId">The portal id.</param>
+        /// <param name="tabId">The tab id.</param>
+        /// <param name="moduleId">The module id.</param>
         public void BindAction(int portalId, int tabId, int moduleId)
         {
             foreach (var control in this.Controls)
@@ -25,6 +31,10 @@ namespace DotNetNuke.ExtensionPoints
             }
         }
 
+        /// <summary>Dispatches the save action to every loaded extension control.</summary>
+        /// <param name="portalId">The portal id.</param>
+        /// <param name="tabId">The tab id.</param>
+        /// <param name="moduleId">The module id.</param>
         public void SaveAction(int portalId, int tabId, int moduleId)
         {
             foreach (var control in this.Controls)
@@ -37,6 +47,10 @@ namespace DotNetNuke.ExtensionPoints
             }
         }
 
+        /// <summary>Dispatches the cancel action to every loaded extension control.</summary>
+        /// <param name="portalId">The portal id.</param>
+        /// <param name="tabId">The tab id.</param>
+        /// <param name="moduleId">The module id.</param>
         public void CancelAction(int portalId, int tabId, int moduleId)
         {
             foreach (var control in this.Controls)
@@ -71,9 +85,7 @@ namespace DotNetNuke.ExtensionPoints
 
         private void LoadControl(IUserControlExtensionPoint extension)
         {
-            var control = this.Page.LoadControl(extension.UserControlSrc);
-            control.ID = Path.GetFileNameWithoutExtension(extension.UserControlSrc);
-            this.Controls.Add(control);
+            this.ControlSources.Add(extension.UserControlSrc);
         }
     }
 }

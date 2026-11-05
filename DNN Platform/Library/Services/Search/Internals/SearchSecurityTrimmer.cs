@@ -5,6 +5,7 @@ namespace DotNetNuke.Services.Search.Internals
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
 
     using DotNetNuke.Services.Search.Entities;
@@ -14,7 +15,7 @@ namespace DotNetNuke.Services.Search.Internals
 
     internal delegate bool SecurityCheckerDelegate(Document luceneResult, SearchQuery searchQuery);
 
-    internal class SearchSecurityTrimmer : Collector
+    internal class SearchSecurityTrimmer : ICollector
     {
         private readonly SecurityCheckerDelegate securityChecker;
         private readonly IndexSearcher searcher;
@@ -39,7 +40,7 @@ namespace DotNetNuke.Services.Search.Internals
         }
 
         /// <inheritdoc />
-        public override bool AcceptsDocsOutOfOrder
+        public bool AcceptsDocsOutOfOrder
         {
             get { return false; }
         }
@@ -71,27 +72,27 @@ namespace DotNetNuke.Services.Search.Internals
         }
 
         /// <inheritdoc />
-        public override void SetNextReader(IndexReader reader, int docBase)
+        public void SetNextReader(AtomicReaderContext context)
         {
-            this.docBase = docBase;
+            this.docBase = context.DocBase;
         }
 
         /// <inheritdoc />
-        public override void SetScorer(Scorer scorer)
+        public void SetScorer(Scorer scorer)
         {
             this.scorer = scorer;
         }
 
         /// <inheritdoc />
-        public override void Collect(int doc)
+        public void Collect(int doc)
         {
-            this.hitDocs.Add(new ScoreDoc(doc + this.docBase, this.scorer.Score()));
+            this.hitDocs.Add(new ScoreDoc(doc + this.docBase, this.scorer.GetScore()));
         }
 
         private static string GetStringFromField(Document doc, SortField sortField)
         {
             var field = doc.GetField(sortField.Field);
-            return field == null ? string.Empty : field.StringValue;
+            return field == null ? string.Empty : field.GetStringValue(CultureInfo.InvariantCulture);
         }
 
         private static long GetLongFromField(Document doc, SortField sortField)
@@ -103,7 +104,7 @@ namespace DotNetNuke.Services.Search.Internals
             }
 
             long data;
-            if (long.TryParse(field.StringValue, out data) && data >= 0)
+            if (long.TryParse(field.GetStringValue(CultureInfo.InvariantCulture), out data) && data >= 0)
             {
                 return data;
             }
@@ -136,37 +137,37 @@ namespace DotNetNuke.Services.Search.Internals
                 else
                 {
                     var field = fields[0];
-                    if (field.Type is SortField.INT or SortField.LONG)
+                    if (field.Type is SortFieldType.INT32 or SortFieldType.INT64)
                     {
-                        if (field.Reverse)
+                        if (field.IsReverse)
                         {
                             tempDocs = this.hitDocs.Select(d => new { SDoc = d, Document = this.searcher.Doc(d.Doc) })
                                        .OrderByDescending(rec => GetLongFromField(rec.Document, field))
-                                       .ThenByDescending(rec => rec.Document.Boost)
+                                       .ThenBy(rec => rec.SDoc.Doc)
                                        .Select(rec => rec.SDoc);
                         }
                         else
                         {
                             tempDocs = this.hitDocs.Select(d => new { SDoc = d, Document = this.searcher.Doc(d.Doc) })
                                        .OrderBy(rec => GetLongFromField(rec.Document, field))
-                                       .ThenByDescending(rec => rec.Document.Boost)
+                                       .ThenBy(rec => rec.SDoc.Doc)
                                        .Select(rec => rec.SDoc);
                         }
                     }
                     else
                     {
-                        if (field.Reverse)
+                        if (field.IsReverse)
                         {
                             tempDocs = this.hitDocs.Select(d => new { SDoc = d, Document = this.searcher.Doc(d.Doc) })
                                            .OrderByDescending(rec => GetStringFromField(rec.Document, field))
-                                           .ThenByDescending(rec => rec.Document.Boost)
+                                           .ThenBy(rec => rec.SDoc.Doc)
                                            .Select(rec => rec.SDoc);
                         }
                         else
                         {
                             tempDocs = this.hitDocs.Select(d => new { SDoc = d, Document = this.searcher.Doc(d.Doc) })
                                        .OrderBy(rec => GetStringFromField(rec.Document, field))
-                                       .ThenByDescending(rec => rec.Document.Boost)
+                                       .ThenBy(rec => rec.SDoc.Doc)
                                        .Select(rec => rec.SDoc);
                         }
                     }

@@ -6,7 +6,6 @@ namespace DotNetNuke.UI.WebControls
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Web.UI;
 
     /// <summary>A collection of PageHierarchyData objects.</summary>
     public class NavDataPageHierarchicalEnumerable : ArrayList, IHierarchicalEnumerable, IList<NavDataPageHierarchyData>

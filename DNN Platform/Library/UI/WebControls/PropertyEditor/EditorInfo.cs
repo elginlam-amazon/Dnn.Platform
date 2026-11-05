@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.UI.WebControls
 {
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Lists;

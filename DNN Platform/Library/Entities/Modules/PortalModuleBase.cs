@@ -10,8 +10,6 @@ namespace DotNetNuke.Entities.Modules
     using System.IO;
     using System.Text.RegularExpressions;
     using System.Threading;
-    using System.Web;
-    using System.Web.UI;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -24,6 +22,8 @@ namespace DotNetNuke.Entities.Modules
     using DotNetNuke.Services.Localization;
     using DotNetNuke.UI.Modules;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Html;
     using Microsoft.Extensions.Logging;
 
     /// <summary>
@@ -33,7 +33,21 @@ namespace DotNetNuke.Entities.Modules
     /// The PortalModuleBase class defines portal specific properties
     /// that are used by the portal framework to correctly display portal modules.
     /// </summary>
-    public partial class PortalModuleBase : UserControlBase, IModuleControl
+    /// <remarks>
+    /// This was a <c>System.Web.UI.UserControl</c>. It is now a Blazor component base (through
+    /// <see cref="UserControlBase"/>, which derives from <c>ComponentBase</c>). Every public
+    /// member is preserved; the WebForms-only concepts map as follows:
+    /// <list type="bullet">
+    /// <item><description><c>Control</c>/<c>ContainerControl</c> are now <c>IComponent</c>. The container is supplied by the enclosing container component as a cascading value named <c>ModuleContainer</c>.</description></item>
+    /// <item><description><c>OnInit</c>/<c>OnLoad</c> are still the overridable hooks for derived module controls, but they are now invoked from <c>OnInitialized</c>/<c>OnParametersSet</c>.</description></item>
+    /// <item><description><c>TemplateSourceDirectory</c>/<c>ID</c> no longer exist; <see cref="ControlPath"/> is derived from the module's registered control source and <see cref="ControlName"/>/<see cref="LocalResourceFile"/> from the component type name.</description></item>
+    /// <item><description><c>IHtmlString</c> results are now <c>IHtmlContent</c>.</description></item>
+    /// </list>
+    /// HttpContext is <see langword="null"/> during interactive (SignalR) rendering, so anything
+    /// derived from the request must be read in <c>OnInitialized</c> and captured in a field —
+    /// never from an <c>@onclick</c> handler.
+    /// </remarks>
+    public partial class PortalModuleBase : UserControlBase, IModuleControl, IDisposable
     {
         protected static readonly Regex FileInfoRegex = new Regex(
             @"\.([a-z]{2,3}\-[0-9A-Z]{2,4}(-[A-Z]{2})?)(\.(Host|Portal-\d+))?\.resx$",
@@ -45,9 +59,19 @@ namespace DotNetNuke.Entities.Modules
         private string localResourceFile;
         private ModuleInstanceContext moduleContext;
 
+        /// <summary>
+        /// Gets or sets the container component this module is rendered inside.
+        /// </summary>
+        /// <remarks>
+        /// The legacy implementation walked the WebForms control tree looking for the
+        /// <c>"ctr" + ModuleId</c> control. Blazor has no server-side control tree to walk, so the
+        /// container component cascades itself under the name <c>ModuleContainer</c> and this
+        /// property receives it.
+        /// </remarks>
         [Browsable(false)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        public Control ContainerControl => Globals.FindControlRecursive(this, "ctr" + this.ModuleId);
+        [CascadingParameter(Name = "ModuleContainer")]
+        public Microsoft.AspNetCore.Components.IComponent ContainerControl { get; set; }
 
         /// <summary>Gets a value indicating whether the user is in the Administrator role.</summary>
         public bool EditMode => this.ModuleContext.EditMode;
@@ -81,12 +105,35 @@ namespace DotNetNuke.Entities.Modules
         public Hashtable Settings => this.ModuleContext.Settings;
 
         /// <summary>Gets the underlying base control for this ModuleControl.</summary>
-        /// <returns>A String.</returns>
-        public Control Control => this;
+        /// <returns>This component.</returns>
+        public Microsoft.AspNetCore.Components.IComponent Control => this;
 
         /// <summary>Gets the Path for this control (used primarily for UserControls).</summary>
         /// <returns>A String.</returns>
-        public string ControlPath => this.TemplateSourceDirectory + "/";
+        /// <remarks>
+        /// Replaces <c>Control.TemplateSourceDirectory</c>, which was the virtual directory of the
+        /// <c>.ascx</c> file. The equivalent information on ASP.NET Core is the module control
+        /// source registered for this module, falling back to the module's DesktopModule folder.
+        /// </remarks>
+        public string ControlPath
+        {
+            get
+            {
+                var controlSource = this.ModuleContext?.Configuration?.ModuleControl?.ControlSrc;
+                if (!string.IsNullOrEmpty(controlSource))
+                {
+                    var normalized = controlSource.Replace('\\', '/');
+                    var lastSlash = normalized.LastIndexOf('/');
+                    if (lastSlash > 0)
+                    {
+                        return normalized.Substring(0, lastSlash + 1);
+                    }
+                }
+
+                var folderName = this.ModuleContext?.Configuration?.DesktopModule?.FolderName;
+                return string.IsNullOrEmpty(folderName) ? "/" : $"~/DesktopModules/{folderName}/";
+            }
+        }
 
         /// <summary>Gets the Name for this control.</summary>
         /// <returns>A String.</returns>
@@ -197,7 +244,9 @@ namespace DotNetNuke.Entities.Modules
                 string fileRoot;
                 if (string.IsNullOrEmpty(this.localResourceFile))
                 {
-                    fileRoot = Path.Combine(this.ControlPath, Localization.LocalResourceDirectory + "/" + this.ID);
+                    // Control.ID has no Blazor equivalent; the component type name is what the
+                    // .ascx file (and therefore its .resx) was named after.
+                    fileRoot = Path.Combine(this.ControlPath, Localization.LocalResourceDirectory + "/" + this.GetType().Name);
                 }
                 else
                 {
@@ -221,6 +270,13 @@ namespace DotNetNuke.Entities.Modules
         /// The Dependency Service.
         /// </value>
         protected IServiceProvider DependencyProvider => this.serviceScopeContainer.Value.ServiceScope.ServiceProvider;
+
+        /// <summary>
+        /// Gets the ID of the active tab, or <see cref="Null.NullInteger"/> when there is no
+        /// resolved portal context (for example during interactive Blazor rendering, where
+        /// <c>HttpContext</c> is <see langword="null"/>).
+        /// </summary>
+        private int ActiveTabId => this.PortalSettings?.ActiveTab?.TabID ?? Null.NullInteger;
 
         [Browsable(false)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -270,9 +326,8 @@ namespace DotNetNuke.Entities.Modules
         }
 
         /// <inheritdoc />
-        public override void Dispose()
+        public void Dispose()
         {
-            base.Dispose();
             this.Dispose(true);
             GC.SuppressFinalize(this);
         }
@@ -322,19 +377,23 @@ namespace DotNetNuke.Entities.Modules
         }
 
         /// <inheritdoc />
-        protected override void OnInit(EventArgs e)
+        /// <remarks>Replaces the WebForms <c>Init</c> phase; <see cref="UserControlBase.OnInit(EventArgs)"/> is raised by the base class.</remarks>
+        protected override void OnInitialized()
         {
-            this.tracelLogger.PortalModuleBaseOnInitStart(this.PortalSettings.ActiveTab.TabID, this.ModuleId, this.GetType());
-            base.OnInit(e);
-            this.tracelLogger.PortalModuleBaseOnInitEnd(this.PortalSettings.ActiveTab.TabID, this.ModuleId, this.GetType());
+            var activeTabId = this.ActiveTabId;
+            this.tracelLogger.PortalModuleBaseOnInitStart(activeTabId, this.ModuleId, this.GetType());
+            base.OnInitialized();
+            this.tracelLogger.PortalModuleBaseOnInitEnd(activeTabId, this.ModuleId, this.GetType());
         }
 
         /// <inheritdoc />
-        protected override void OnLoad(EventArgs e)
+        /// <remarks>Replaces the WebForms <c>Load</c> phase; <see cref="UserControlBase.OnLoad(EventArgs)"/> is raised by the base class.</remarks>
+        protected override void OnParametersSet()
         {
-            this.tracelLogger.PortalModuleBaseOnLoadStart(this.PortalSettings.ActiveTab.TabID, this.ModuleId, this.GetType());
-            base.OnLoad(e);
-            this.tracelLogger.PortalModuleBaseOnLoadEnd(this.PortalSettings.ActiveTab.TabID, this.ModuleId, this.GetType());
+            var activeTabId = this.ActiveTabId;
+            this.tracelLogger.PortalModuleBaseOnLoadStart(activeTabId, this.ModuleId, this.GetType());
+            base.OnParametersSet();
+            this.tracelLogger.PortalModuleBaseOnLoadEnd(activeTabId, this.ModuleId, this.GetType());
         }
 
         /// <summary>Helper method that can be used to add an ActionEventHandler to the Skin for this Module Control.</summary>
@@ -368,14 +427,14 @@ namespace DotNetNuke.Entities.Modules
         /// <summary>Gets the HTML associated with the <paramref name="key"/> in this control's <see cref="LocalResourceFile"/>.</summary>
         /// <param name="key">The resource key.</param>
         /// <returns>The localized text as HTML.</returns>
-        protected IHtmlString LocalizeHtml(string key)
+        protected IHtmlContent LocalizeHtml(string key)
             => new HtmlString(Localization.GetString(key, this.LocalResourceFile));
 
         /// <summary>Gets the text associated with the <paramref name="key"/> in this control's <see cref="LocalResourceFile"/>.</summary>
         /// <param name="key">The resource key.</param>
         /// <param name="addDoubleQuotes">A value that indicates whether double quotation marks will be included around the encoded string.</param>
         /// <returns>The localized text encoded as a JavaScript string.</returns>
-        protected IHtmlString LocalizeJsString(string key, bool addDoubleQuotes = false)
+        protected IHtmlContent LocalizeJsString(string key, bool addDoubleQuotes = false)
             => HtmlUtils.JavaScriptStringEncode(Localization.GetString(key, this.LocalResourceFile), addDoubleQuotes);
     }
 }

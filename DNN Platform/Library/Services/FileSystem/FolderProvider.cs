@@ -206,7 +206,7 @@ namespace DotNetNuke.Services.FileSystem
             {
                 var virtualPath = provider.Attributes["providerPath"] + SettingsControlId;
 
-                if (File.Exists(System.Web.HttpContext.Current.Server.MapPath(virtualPath)))
+                if (File.Exists(HttpContextSource.MapPath(virtualPath)))
                 {
                     return virtualPath;
                 }

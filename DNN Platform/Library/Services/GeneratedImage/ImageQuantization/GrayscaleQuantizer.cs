@@ -5,8 +5,9 @@
 namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
 {
     using System;
-    using System.Collections;
-    using System.Drawing;
+    using System.Collections.Generic;
+
+    using SixLabors.ImageSharp;
 
     /// <summary>A <see cref="PaletteQuantizer"/> for grayscale.</summary>
     [CLSCompliant(false)]
@@ -15,7 +16,7 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
         /// <summary>Initializes a new instance of the <see cref="GrayscaleQuantizer"/> class.</summary>
         /// <remarks>Palette quantization only requires a single quantization step.</remarks>
         public GrayscaleQuantizer()
-            : base(new ArrayList())
+            : base(new List<Color>())
         {
             this._colors = new Color[256];
 
@@ -37,11 +38,11 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
                 // Otherwise, use your favorite color reduction algorithm
                 // and an optimum palette for that algorithm generated here.
                 // For example, a color histogram, or a median cut palette.
-                this._colors[i] = Color.FromArgb(
-                    (int)alpha,
-                    (int)intensity,
-                    (int)intensity,
-                    (int)intensity);
+                this._colors[i] = Color.FromRgba(
+                    (byte)intensity,
+                    (byte)intensity,
+                    (byte)intensity,
+                    (byte)alpha);
             }
         }
 

@@ -5,13 +5,15 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Collections.Specialized;
-    using System.Web.UI;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
 
     /// <summary>
     /// The TrueFalseEditControl control provides a standard UI component for editing
     /// true/false (boolean) properties.
     /// </summary>
-    [ToolboxData("<{0}:CheckEditControl runat=server></{0}:CheckEditControl>")]
     public class CheckEditControl : TrueFalseEditControl
     {
         /// <summary>Initializes a new instance of the <see cref="CheckEditControl"/> class.</summary>
@@ -23,6 +25,8 @@ namespace DotNetNuke.UI.WebControls
         /// <inheritdoc />
         public override bool LoadPostData(string postDataKey, NameValueCollection postCollection)
         {
+            ArgumentNullException.ThrowIfNull(postCollection);
+
             string postedValue = postCollection[postDataKey];
             bool boolValue = false;
             if (!(postedValue == null || postedValue == string.Empty))
@@ -40,48 +44,61 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            base.OnPreRender(e);
-            if (this.Page != null && this.EditMode == PropertyEditorMode.Edit)
-            {
-                this.Page.RegisterRequiresPostBack(this);
-            }
-        }
+            ArgumentNullException.ThrowIfNull(builder);
 
-        /// <inheritdoc />
-        protected override void RenderEditMode(HtmlTextWriter writer)
-        {
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "checkbox");
+            builder.OpenElement(0, "input");
+            builder.AddAttribute(1, "type", "checkbox");
             if (this.BooleanValue)
             {
-                writer.AddAttribute(HtmlTextWriterAttribute.Checked, "checked");
-                writer.AddAttribute(HtmlTextWriterAttribute.Value, "1");
+                builder.AddAttribute(2, "checked", "checked");
+                builder.AddAttribute(3, "value", "1");
             }
             else
             {
-                writer.AddAttribute(HtmlTextWriterAttribute.Value, string.Empty);
+                builder.AddAttribute(3, "value", string.Empty);
             }
 
-            writer.AddAttribute("onclick", "this.value = this.checked ? '1' : '';");
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Id, this.ClientID);
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.RenderEndTag();
+            builder.AddAttribute(4, "name", this.UniqueID);
+            builder.AddAttribute(5, "id", this.ClientID);
+            builder.AddAttribute(6, "aria-label", this.Name);
+            builder.AddAttribute(7, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnCheckedChanged));
+            builder.CloseElement();
         }
 
         /// <inheritdoc />
-        protected override void RenderViewMode(HtmlTextWriter writer)
+        protected override void RenderViewMode(RenderTreeBuilder builder)
         {
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "checkbox");
+            ArgumentNullException.ThrowIfNull(builder);
+
+            builder.OpenElement(0, "input");
+            builder.AddAttribute(1, "type", "checkbox");
             if (this.BooleanValue)
             {
-                writer.AddAttribute(HtmlTextWriterAttribute.Checked, "checked");
+                builder.AddAttribute(2, "checked", "checked");
             }
 
-            writer.AddAttribute(HtmlTextWriterAttribute.Disabled, "disabled");
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.RenderEndTag();
+            builder.AddAttribute(3, "disabled", "disabled");
+            builder.AddAttribute(4, "aria-label", this.Name);
+            builder.CloseElement();
+        }
+
+        /// <summary>Handles a change of the checkbox.</summary>
+        /// <param name="args">The change event arguments.</param>
+        /// <remarks>
+        /// A checkbox only posted a value when it was checked, which is what the
+        /// <c>onclick="this.value = this.checked ? '1' : '';"</c> handler of the Web Forms version
+        /// arranged for. Blazor reports <c>checked</c> for a checkbox, so the boolean is mapped back
+        /// onto the same <c>"1"</c>/empty value that <see cref="LoadPostData"/> expects.
+        /// </remarks>
+        private void OnCheckedChanged(ChangeEventArgs args)
+        {
+            var isChecked = args.Value is bool boolValue
+                ? boolValue
+                : !string.IsNullOrEmpty(args.Value?.ToString());
+            this.SetPostValue(string.Empty, isChecked ? "1" : string.Empty);
+            this.CommitPostData();
         }
     }
 }

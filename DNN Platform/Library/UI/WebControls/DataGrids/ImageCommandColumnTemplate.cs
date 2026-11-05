@@ -5,14 +5,24 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Common.Utilities;
-    using DotNetNuke.UI.Utilities;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Web;
 
     /// <summary>The ImageCommandColumnTemplate provides a Template for the ImageCommandColumn.</summary>
-    public class ImageCommandColumnTemplate : ITemplate
+    /// <remarks>
+    /// Was an <c>ITemplate</c> that instantiated a <c>HyperLink</c>, an <c>ImageButton</c> or a
+    /// <c>LinkButton</c> into the cell and bound it through its <c>DataBinding</c> event. It now
+    /// renders the anchor or the button itself; the command the buttons used to bubble up the
+    /// control tree is raised on the owning grid through
+    /// <see cref="DNNDataGrid.RaiseItemCommand"/>, and the confirmation prompt
+    /// <c>ClientAPI.AddButtonConfirm</c> attached is rendered as the very same inline
+    /// <c>onclick</c> attribute.
+    /// </remarks>
+    public class ImageCommandColumnTemplate : IGridTemplate
     {
         /// <summary>Initializes a new instance of the <see cref="ImageCommandColumnTemplate"/> class.</summary>
         public ImageCommandColumnTemplate()
@@ -80,92 +90,30 @@ namespace DotNetNuke.UI.WebControls
         public bool Visible { get; set; } = true;
 
         /// <summary>Gets or sets an flag that indicates whether the buttons are visible.</summary>
-        /// <value>A Boolean.</value>
+        /// <value>A String.</value>
         public string VisibleField { get; set; }
 
-        /// <summary>InstantiateIn instantiates the template (implementation of ITemplate).</summary>
-        /// <param name="container">The parent container (DataGridItem).</param>
-        public void InstantiateIn(Control container)
+        /// <inheritdoc />
+        public RenderFragment Render(DataGridCell cell)
         {
+            ArgumentNullException.ThrowIfNull(cell);
+
             switch (this.ItemType)
             {
                 case ListItemType.Item:
                 case ListItemType.AlternatingItem:
                 case ListItemType.SelectedItem:
                 case ListItemType.EditItem:
-                    if (this.EditMode == ImageCommandColumnEditMode.URL)
-                    {
-                        var hypLink = new HyperLink();
-                        hypLink.ToolTip = this.Text;
-                        if (!string.IsNullOrEmpty(this.ImageURL) && this.ShowImage)
-                        {
-                            var img = new Image();
-                            if (this.DesignMode)
-                            {
-                                img.ImageUrl = this.ImageURL.Replace("~/", "../../");
-                            }
-                            else
-                            {
-                                img.ImageUrl = this.ImageURL;
-                            }
-
-                            hypLink.Controls.Add(img);
-                            img.ToolTip = this.Text;
-                        }
-                        else
-                        {
-                            hypLink.Text = this.Text;
-                        }
-
-                        hypLink.DataBinding += this.Item_DataBinding;
-                        container.Controls.Add(hypLink);
-                    }
-                    else
-                    {
-                        if (!string.IsNullOrEmpty(this.ImageURL) && this.ShowImage)
-                        {
-                            var colIcon = new ImageButton();
-                            if (this.DesignMode)
-                            {
-                                colIcon.ImageUrl = this.ImageURL.Replace("~/", "../../");
-                            }
-                            else
-                            {
-                                colIcon.ImageUrl = this.ImageURL;
-                            }
-
-                            colIcon.ToolTip = this.Text;
-                            if (!string.IsNullOrEmpty(this.OnClickJS))
-                            {
-                                ClientAPI.AddButtonConfirm(colIcon, this.OnClickJS);
-                            }
-
-                            colIcon.CommandName = this.CommandName;
-                            colIcon.DataBinding += this.Item_DataBinding;
-                            container.Controls.Add(colIcon);
-                        }
-
-                        if (!string.IsNullOrEmpty(this.Text) && !this.ShowImage)
-                        {
-                            var colLink = new LinkButton();
-                            colLink.ToolTip = this.Text;
-                            if (!string.IsNullOrEmpty(this.OnClickJS))
-                            {
-                                ClientAPI.AddButtonConfirm(colLink, this.OnClickJS);
-                            }
-
-                            colLink.CommandName = this.CommandName;
-                            colLink.Text = this.Text;
-                            colLink.DataBinding += this.Item_DataBinding;
-                            container.Controls.Add(colLink);
-                        }
-                    }
-
-                    break;
+                    return this.EditMode == ImageCommandColumnEditMode.URL
+                        ? this.RenderHyperLink(cell)
+                        : this.RenderCommand(cell);
                 case ListItemType.Footer:
                 case ListItemType.Header:
-                    container.Controls.Add(new LiteralControl(this.Text));
-                    break;
+                    cell.Text = this.Text;
+                    var text = this.Text;
+                    return builder => builder.AddMarkupContent(0, text);
+                default:
+                    return static builder => { };
             }
         }
 
@@ -176,7 +124,7 @@ namespace DotNetNuke.UI.WebControls
             bool isVisible;
             if (!string.IsNullOrEmpty(this.VisibleField))
             {
-                isVisible = Convert.ToBoolean(DataBinder.Eval(container.DataItem, this.VisibleField), CultureInfo.InvariantCulture);
+                isVisible = Convert.ToBoolean(GridDataBinder.Eval(container?.DataItem, this.VisibleField), CultureInfo.InvariantCulture);
             }
             else
             {
@@ -193,55 +141,114 @@ namespace DotNetNuke.UI.WebControls
             int keyValue = Null.NullInteger;
             if (!string.IsNullOrEmpty(this.KeyField))
             {
-                keyValue = Convert.ToInt32(DataBinder.Eval(container.DataItem, this.KeyField), CultureInfo.InvariantCulture);
+                keyValue = Convert.ToInt32(GridDataBinder.Eval(container?.DataItem, this.KeyField), CultureInfo.InvariantCulture);
             }
 
             return keyValue;
         }
 
-        /// <summary>Item_DataBinding runs when an Item of type ListItemType.Item is being data-bound.</summary>
-        /// <param name="sender"> The object that triggers the event.</param>
-        /// <param name="e">An EventArgs object.</param>
-        private void Item_DataBinding(object sender, EventArgs e)
+        private string GetImageUrl() =>
+            this.DesignMode ? this.ImageURL.Replace("~/", "../../") : this.ImageURL;
+
+        private RenderFragment RenderHyperLink(DataGridCell cell)
         {
-            DataGridItem container;
-            int keyValue = Null.NullInteger;
-            if (this.EditMode == ImageCommandColumnEditMode.URL)
+            var keyValue = this.GetValue(cell.Item);
+            var url = !string.IsNullOrEmpty(this.NavigateURLFormatString)
+                ? string.Format(CultureInfo.InvariantCulture, this.NavigateURLFormatString, keyValue)
+                : keyValue.ToString(CultureInfo.InvariantCulture);
+            var showImage = !string.IsNullOrEmpty(this.ImageURL) && this.ShowImage;
+            var imageUrl = showImage ? this.GetImageUrl() : null;
+            var text = this.Text;
+
+            return builder =>
             {
-                var hypLink = (HyperLink)sender;
-                container = (DataGridItem)hypLink.NamingContainer;
-                keyValue = this.GetValue(container);
-                if (!string.IsNullOrEmpty(this.NavigateURLFormatString))
+                builder.OpenElement(0, "a");
+                builder.AddAttribute(1, "href", url);
+                if (!string.IsNullOrEmpty(text))
                 {
-                    hypLink.NavigateUrl = string.Format(CultureInfo.InvariantCulture, this.NavigateURLFormatString, keyValue);
+                    builder.AddAttribute(2, "title", text);
+                }
+
+                if (showImage)
+                {
+                    builder.OpenElement(3, "img");
+                    builder.AddAttribute(4, "src", imageUrl);
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        builder.AddAttribute(5, "title", text);
+                        builder.AddAttribute(6, "alt", text);
+                    }
+
+                    builder.CloseElement();
                 }
                 else
                 {
-                    hypLink.NavigateUrl = keyValue.ToString(CultureInfo.InvariantCulture);
-                }
-            }
-            else
-            {
-                // Bind Image Button
-                if (!string.IsNullOrEmpty(this.ImageURL) && this.ShowImage)
-                {
-                    var colIcon = (ImageButton)sender;
-                    container = (DataGridItem)colIcon.NamingContainer;
-                    keyValue = this.GetValue(container);
-                    colIcon.CommandArgument = keyValue.ToString(CultureInfo.InvariantCulture);
-                    colIcon.Visible = this.GetIsVisible(container);
+                    builder.AddContent(7, text);
                 }
 
-                if (!string.IsNullOrEmpty(this.Text) && !this.ShowImage)
+                builder.CloseElement();
+            };
+        }
+
+        private RenderFragment RenderCommand(DataGridCell cell)
+        {
+            var keyValue = this.GetValue(cell.Item);
+            var commandArgument = keyValue.ToString(CultureInfo.InvariantCulture);
+            var isVisible = this.GetIsVisible(cell.Item);
+            var showImage = !string.IsNullOrEmpty(this.ImageURL) && this.ShowImage;
+            var showLink = !string.IsNullOrEmpty(this.Text) && !this.ShowImage;
+            var imageUrl = showImage ? this.GetImageUrl() : null;
+            var text = this.Text;
+            var onClick = EventCallback.Factory.Create<MouseEventArgs>(
+                this,
+                () => this.RaiseCommandAsync(cell, commandArgument));
+
+            return builder =>
+            {
+                if (!isVisible)
                 {
-                    // Bind Link Button
-                    var colLink = (LinkButton)sender;
-                    container = (DataGridItem)colLink.NamingContainer;
-                    keyValue = this.GetValue(container);
-                    colLink.CommandArgument = keyValue.ToString(CultureInfo.InvariantCulture);
-                    colLink.Visible = this.GetIsVisible(container);
+                    return;
                 }
+
+                if (showImage)
+                {
+                    builder.OpenElement(0, "input");
+                    builder.AddAttribute(1, "type", "image");
+                    builder.AddAttribute(2, "src", imageUrl);
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        builder.AddAttribute(3, "title", text);
+                        builder.AddAttribute(4, "alt", text);
+                    }
+
+                    builder.AddAttribute(6, "onclick", onClick);
+                    builder.CloseElement();
+                }
+
+                if (showLink)
+                {
+                    builder.OpenElement(7, "button");
+                    builder.AddAttribute(8, "type", "button");
+                    builder.AddAttribute(9, "title", text);
+                    builder.AddAttribute(11, "onclick", onClick);
+                    builder.AddContent(12, text);
+                    builder.CloseElement();
+                }
+            };
+        }
+
+        private Task RaiseCommandAsync(DataGridCell cell, string commandArgument)
+        {
+            var args = new DataGridCommandEventArgs(cell.Item, this, this.CommandName, commandArgument);
+            if (cell.Grid == null)
+            {
+                return Task.CompletedTask;
             }
+
+            // The WebForms column attached the confirmation prompt as an inline onclick through
+            // ClientAPI.AddButtonConfirm. A Blazor element cannot carry both an inline onclick and a
+            // handler, so the very same prompt is issued through the grid's JS interop instead.
+            return cell.Grid.RaiseItemCommandAsync(args, this.OnClickJS);
         }
     }
 }

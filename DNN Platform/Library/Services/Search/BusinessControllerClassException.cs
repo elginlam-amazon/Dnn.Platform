@@ -30,8 +30,10 @@ public class BusinessControllerClassException : Exception
     }
 
     /// <inheritdoc />
+#pragma warning disable SYSLIB0051 // Kept for API compatibility: the formatter-based
     protected BusinessControllerClassException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
     }
+#pragma warning restore SYSLIB0051
 }

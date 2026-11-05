@@ -13,7 +13,6 @@ namespace DotNetNuke.Entities.Portals
     using System.Linq;
     using System.Security.Cryptography;
     using System.Text;
-    using System.Web;
     using System.Xml;
     using System.Xml.Linq;
     using System.Xml.XPath;
@@ -51,6 +50,7 @@ namespace DotNetNuke.Entities.Portals
     using DotNetNuke.Services.Search.Entities;
     using DotNetNuke.Web.Client;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -64,6 +64,15 @@ namespace DotNetNuke.Entities.Portals
     /// </remarks>
     public partial class PortalController : ServiceLocator<IPortalController, PortalController>, IPortalController
     {
+        /// <summary>
+        /// The <see cref="HttpContext.Items"/> key under which the portal (tenant) resolved for
+        /// the current request is stored. Tenant resolution is request-scoped — never static.
+        /// </summary>
+        public const string PortalSettingsContextKey = "PortalSettings";
+
+        /// <summary>The <see cref="HttpContext.Items"/> key marking a portal creation in progress.</summary>
+        public const string CreatingPortalIdKey = "CreatingPortalId";
+
         protected const string HttpContextKeyPortalSettingsDictionary = "PortalSettingsDictionary{0}{1}";
 
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<PortalController>();
@@ -1196,9 +1205,10 @@ namespace DotNetNuke.Entities.Portals
                 return language;
             }
 
-            if (context.Request.QueryString["language"] != null)
+            var queryStringLanguage = context.Request.Query["language"].ToString();
+            if (!string.IsNullOrEmpty(queryStringLanguage))
             {
-                return context.Request.QueryString["language"];
+                return queryStringLanguage;
             }
 
             var portalSettings = GetCurrentPortalSettingsInternal();
@@ -1209,9 +1219,11 @@ namespace DotNetNuke.Entities.Portals
 
             // PortalSettings IS Nothing - probably means we haven't set it yet (in Begin Request)
             // so try detecting the user's cookie
-            if (context.Request["language"] != null)
+            // Legacy Request["language"] searched the query string, then the form, then cookies.
+            var requestLanguage = GetRequestLanguage(context.Request);
+            if (!string.IsNullOrEmpty(requestLanguage))
             {
-                language = context.Request["language"];
+                language = requestLanguage;
                 isDefaultLanguage = false;
             }
 
@@ -1375,9 +1387,10 @@ namespace DotNetNuke.Entities.Portals
             int portalId = CreatePortal(this.hostSettings, portalName, homeDirectory, template.CultureCode);
 
             // Log the portal if into http context, if exception occurred in next step, we can remove the portal which is not really created.
-            if (HttpContext.Current != null)
+            var creatingPortalContext = HttpContextSource.Current;
+            if (creatingPortalContext != null)
             {
-                HttpContext.Current.Items.Add("CreatingPortalId", portalId);
+                creatingPortalContext.Items[CreatingPortalIdKey] = portalId;
             }
 
             string message = Null.NullString;
@@ -1422,10 +1435,7 @@ namespace DotNetNuke.Entities.Portals
             }
 
             // remove the portal id from http context as there is no exception.
-            if (HttpContext.Current != null && HttpContext.Current.Items.Contains("CreatingPortalId"))
-            {
-                HttpContext.Current.Items.Remove("CreatingPortalId");
-            }
+            HttpContextSource.Current?.Items.Remove(CreatingPortalIdKey);
 
             return portalId;
         }
@@ -1448,9 +1458,10 @@ namespace DotNetNuke.Entities.Portals
             int portalId = CreatePortal(this.hostSettings, portalName, homeDirectory, template.CultureCode);
 
             // Log the portal if into http context, if exception occurred in next step, we can remove the portal which is not really created.
-            if (HttpContext.Current != null)
+            var creatingPortalContext = HttpContextSource.Current;
+            if (creatingPortalContext != null)
             {
-                HttpContext.Current.Items.Add("CreatingPortalId", portalId);
+                creatingPortalContext.Items[CreatingPortalIdKey] = portalId;
             }
 
             string message = Null.NullString;
@@ -1507,10 +1518,7 @@ namespace DotNetNuke.Entities.Portals
             }
 
             // remove the portal id from http context as there is no exception.
-            if (HttpContext.Current != null && HttpContext.Current.Items.Contains("CreatingPortalId"))
-            {
-                HttpContext.Current.Items.Remove("CreatingPortalId");
-            }
+            HttpContextSource.Current?.Items.Remove(CreatingPortalIdKey);
 
             return portalId;
         }
@@ -2220,13 +2228,41 @@ namespace DotNetNuke.Entities.Portals
 
         private static PortalSettings GetCurrentPortalSettingsInternal()
         {
-            PortalSettings objPortalSettings = null;
-            if (HttpContext.Current != null)
+            // Per-request (tenant) resolution. The active portal is resolved once per request by
+            // the URL-rewriting middleware and stashed in HttpContext.Items under
+            // PortalSettingsContextKey. It is deliberately NOT cached in a static field: a static
+            // would leak one portal's settings into another portal's request.
+            var items = HttpContextSource.Current?.Items;
+            if (items != null && items.TryGetValue(PortalSettingsContextKey, out var settings))
             {
-                objPortalSettings = (PortalSettings)HttpContext.Current.Items["PortalSettings"];
+                return settings as PortalSettings;
             }
 
-            return objPortalSettings;
+            return null;
+        }
+
+        /// <summary>
+        /// The ASP.NET Core replacement for the legacy <c>Request["language"]</c> indexer, which
+        /// searched the query string, then the form, then the cookies.
+        /// </summary>
+        private static string GetRequestLanguage(HttpRequest request)
+        {
+            var value = request.Query["language"].ToString();
+            if (!string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            if (request.HasFormContentType)
+            {
+                value = request.Form["language"].ToString();
+                if (!string.IsNullOrEmpty(value))
+                {
+                    return value;
+                }
+            }
+
+            return request.Cookies.TryGetValue("language", out var cookieValue) ? cookieValue : null;
         }
 
         private static PortalInfo GetPortalInternal(PortalController portalController, int portalId, string cultureCode)
@@ -2372,7 +2408,7 @@ namespace DotNetNuke.Entities.Portals
 
         private static Dictionary<string, string> GetPortalSettingsDictionary(IHostSettings hostSettings, IApplicationStatusInfo appStatus, int portalId, string cultureCode)
         {
-            var httpContext = HttpContext.Current;
+            var httpContext = HttpContextSource.Current;
 
             if (string.IsNullOrEmpty(cultureCode) && portalId > -1)
             {
@@ -2382,9 +2418,9 @@ namespace DotNetNuke.Entities.Portals
             // Get PortalSettings from Context or from cache
             var dictionaryKey = string.Format(CultureInfo.InvariantCulture, HttpContextKeyPortalSettingsDictionary, portalId, cultureCode);
             Dictionary<string, string> dictionary = null;
-            if (httpContext != null)
+            if (httpContext != null && httpContext.Items.TryGetValue(dictionaryKey, out var cachedDictionary))
             {
-                dictionary = httpContext.Items[dictionaryKey] as Dictionary<string, string>;
+                dictionary = cachedDictionary as Dictionary<string, string>;
             }
 
             if (dictionary == null)
@@ -2417,9 +2453,9 @@ namespace DotNetNuke.Entities.Portals
 
             // Lookup culturecode but cache it in the HttpContext for performance
             var activeLanguageKey = $"ActivePortalLanguage{portalId}";
-            if (httpContext != null)
+            if (httpContext != null && httpContext.Items.TryGetValue(activeLanguageKey, out var cachedCultureCode))
             {
-                cultureCode = (string)httpContext.Items[activeLanguageKey];
+                cultureCode = cachedCultureCode as string;
             }
 
             if (string.IsNullOrEmpty(cultureCode))
@@ -2453,7 +2489,7 @@ namespace DotNetNuke.Entities.Portals
                     DataCache.ClearPortalCache(portalId, false);
                     DataCache.RemoveCache(DataCache.PortalDictionaryCacheKey);
 
-                    var httpContext = HttpContext.Current;
+                    var httpContext = HttpContextSource.Current;
                     if (httpContext != null)
                     {
                         var cultureCodeForKey = GetActivePortalLanguageFromHttpContext(hostSettings, appStatus, httpContext, portalId);

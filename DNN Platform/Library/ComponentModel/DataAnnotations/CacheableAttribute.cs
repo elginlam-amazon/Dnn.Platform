@@ -4,9 +4,9 @@
 namespace DotNetNuke.ComponentModel.DataAnnotations
 {
     using System;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Services.Cache;
 
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
     public class CacheableAttribute : Attribute

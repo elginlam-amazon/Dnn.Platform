@@ -4,20 +4,20 @@
 namespace DotNetNuke.Services.Exceptions
 {
     using System;
+    using System.Net;
     using System.Reflection;
     using System.Runtime.Serialization;
-    using System.Web;
     using System.Xml.Serialization;
 
     using DotNetNuke.Application;
+    using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Framework.Providers;
     using DotNetNuke.Instrumentation;
-
     using Microsoft.Extensions.Logging;
-
     using Newtonsoft.Json;
 
     /// <summary>Base Portal Exception.</summary>
@@ -52,6 +52,7 @@ namespace DotNetNuke.Services.Exceptions
 
         /// <summary>Initializes a new instance of the <see cref="BasePortalException"/> class.</summary>
         /// <inheritdoc cref="Exception(SerializationInfo, StreamingContext)"/>
+#pragma warning disable SYSLIB0051 // Formatter-based serialization is obsolete; ctor retained for binary-compatible public surface.
         protected BasePortalException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
@@ -78,6 +79,7 @@ namespace DotNetNuke.Services.Exceptions
             this.message = info.GetString("m_Message");
             this.source = info.GetString("m_Source");
         }
+#pragma warning restore SYSLIB0051
 
         [XmlIgnore]
         [JsonIgnore]
@@ -129,7 +131,7 @@ namespace DotNetNuke.Services.Exceptions
             // If an error occurs getting the context then set the variables to -1
             try
             {
-                var context = HttpContext.Current;
+                var context = HttpContextSource.Current;
                 var portalSettings = PortalController.Instance.GetCurrentSettings();
                 Exception innerException = new WrappedException(this.message, this);
                 while (innerException.InnerException != null)
@@ -170,14 +172,15 @@ namespace DotNetNuke.Services.Exceptions
 
                 if (context != null)
                 {
-                    this.RawURL = HttpUtility.HtmlEncode(context.Request.RawUrl);
-                    this.AbsoluteURL = HttpUtility.HtmlEncode(context.Request.Url.AbsolutePath);
-                    if (context.Request.UrlReferrer != null)
+                    this.RawURL = WebUtility.HtmlEncode(context.Request.GetRawUrl());
+                    this.AbsoluteURL = WebUtility.HtmlEncode(context.Request.Path.Value ?? string.Empty);
+                    var referrer = context.Request.Headers["Referer"].ToString();
+                    if (!string.IsNullOrEmpty(referrer))
                     {
-                        this.AbsoluteURLReferrer = HttpUtility.HtmlEncode(context.Request.UrlReferrer.AbsoluteUri);
+                        this.AbsoluteURLReferrer = WebUtility.HtmlEncode(referrer);
                     }
 
-                    this.UserAgent = HttpUtility.HtmlEncode(context.Request.UserAgent ?? string.Empty);
+                    this.UserAgent = WebUtility.HtmlEncode(context.Request.Headers["User-Agent"].ToString() ?? string.Empty);
                 }
                 else
                 {

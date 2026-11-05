@@ -22,7 +22,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
     using Lucene.Net.Documents;
     using Lucene.Net.Index;
-    using Lucene.Net.QueryParsers;
+    using Lucene.Net.QueryParsers.Classic;
     using Lucene.Net.Search;
 
     using Microsoft.Extensions.DependencyInjection;
@@ -49,7 +49,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
         private const string EmptyCustomAnalyzer = "";
         private const string InvalidCustomAnalyzer = "Lucene.Net.Analysis.Cn.ChineseInvalidAnalyzer";
-        private const string ValidCustomAnalyzer = "Lucene.Net.Analysis.Cn.ChineseAnalyzer, Lucene.Net.Contrib.Analyzers";
+        private const string ValidCustomAnalyzer = "Lucene.Net.Analysis.Cn.ChineseAnalyzer, Lucene.Net.Analysis.Common";
         private const int DefaultSearchRetryTimes = 5;
 
         // Arrange

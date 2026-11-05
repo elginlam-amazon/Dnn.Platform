@@ -8,9 +8,9 @@ namespace DotNetNuke.Services.Scheduling
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Security.Principal;
     using System.Text;
     using System.Threading;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Collections.Internal;
     using DotNetNuke.Common.Utilities;
@@ -44,6 +44,20 @@ namespace DotNetNuke.Services.Scheduling
             private static readonly TimeSpan LockTimeout = TimeSpan.FromSeconds(45);
             private static readonly ReaderWriterLockSlim StatusLock = new ReaderWriterLockSlim();
             private static readonly char[] ServerSeparator = [',',];
+
+            /// <summary>
+            /// Guards <see cref="FireEventsAsync"/>. Replaces the <c>lock (ScheduleQueue)</c> the
+            /// .NET Framework implementation used, because a <c>lock</c> cannot be held across an
+            /// <c>await</c> and the dispatch loop now awaits instead of calling <c>Thread.Sleep</c>.
+            /// </summary>
+            private static readonly SemaphoreSlim FireEventsLock = new SemaphoreSlim(1, 1);
+
+            /// <summary>
+            /// 1 while a scheduler dispatch loop (<see cref="RunSchedulerLoopAsync"/>) is active, 0
+            /// otherwise. The loop is normally owned by <see cref="SchedulerHostedService"/>; this
+            /// flag keeps a later call to <see cref="Start"/> from starting a second, competing loop.
+            /// </summary>
+            private static int loopActive;
 
             // This is the heart of the scheduler mechanism.
             // This class manages running new events according
@@ -86,8 +100,6 @@ namespace DotNetNuke.Services.Scheduling
                 ScheduleQueue = new SharedList<ScheduleItem>(lockStrategy);
                 ScheduleInProgress = new SharedList<ScheduleHistoryItem>(lockStrategy);
             }
-
-            private delegate void AddToScheduleInProgressDelegate(ScheduleHistoryItem item);
 
             /// <summary>Gets tracks how many threads we have free to work with at any given time.</summary>
             public static int FreeThreads
@@ -185,9 +197,23 @@ namespace DotNetNuke.Services.Scheduling
                 }
             }
 
+            /// <summary>Dispatches every due item in the schedule queue to a process group.</summary>
+            /// <remarks>
+            /// Synchronous entry point kept for the (internal) call sites that are not themselves
+            /// async, e.g. <see cref="RunEventSchedule"/>'s synchronous wrapper. Prefer
+            /// <see cref="FireEventsAsync"/>.
+            /// </remarks>
             public static void FireEvents()
             {
-                // This method uses a thread pool to
+                FireEventsAsync(CancellationToken.None).GetAwaiter().GetResult();
+            }
+
+            /// <summary>Dispatches every due item in the schedule queue to a process group.</summary>
+            /// <param name="cancellationToken">Cancelled when the host is shutting down.</param>
+            /// <returns>A task that completes once the whole queue snapshot has been considered.</returns>
+            public static async Task FireEventsAsync(CancellationToken cancellationToken)
+            {
+                // This method uses the thread pool (via ProcessGroup) to
                 // call the SchedulerClient methods that need
                 // to be called.
 
@@ -197,7 +223,8 @@ namespace DotNetNuke.Services.Scheduling
                 // Pass in the ScheduleItem to the ProcessGroup
                 // so the ProcessGroup can pass it around for
                 // logging and notifications.
-                lock (ScheduleQueue)
+                await FireEventsLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
                 {
                     var scheduleList = new List<ScheduleItem>();
                     using (ScheduleQueue.GetReadLock(LockTimeout))
@@ -213,7 +240,7 @@ namespace DotNetNuke.Services.Scheduling
 
                     foreach (ScheduleItem scheduleItem in scheduleList)
                     {
-                        if (!KeepRunning)
+                        if (!KeepRunning || cancellationToken.IsCancellationRequested)
                         {
                             return;
                         }
@@ -239,11 +266,15 @@ namespace DotNetNuke.Services.Scheduling
                                 }
                             }
 
-                            var delegateFunc = new AddToScheduleInProgressDelegate(AddToScheduleInProgress);
                             var scheduleHistoryItem = new ScheduleHistoryItem(scheduleItem);
                             scheduleHistoryItem.StartDate = DateTime.Now;
-                            delegateFunc.BeginInvoke(scheduleHistoryItem, null, null);
-                            Thread.Sleep(1000);
+
+                            // The .NET Framework implementation used Delegate.BeginInvoke here, which
+                            // modern .NET does not support. Task.Run reproduces the same semantics:
+                            // the "in progress" bookkeeping happens on a thread-pool thread while
+                            // this method goes on to queue the work item one second later.
+                            _ = Task.Run(() => AddToScheduleInProgress(scheduleHistoryItem), CancellationToken.None);
+                            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
 
                             CoreScheduler.processGroup[processGroup].AddQueueUserWorkItem(scheduleItem);
 
@@ -255,6 +286,10 @@ namespace DotNetNuke.Services.Scheduling
                             LogWhyTaskNotRun(scheduleItem);
                         }
                     }
+                }
+                finally
+                {
+                    FireEventsLock.Release();
                 }
             }
 
@@ -404,6 +439,15 @@ namespace DotNetNuke.Services.Scheduling
             /// <param name="sourceOfHalt">Initiator of Halt.</param>
             public static void Halt(string sourceOfHalt)
             {
+                HaltAsync(sourceOfHalt, CancellationToken.None).GetAwaiter().GetResult();
+            }
+
+            /// <summary>Halt the Scheduler, waiting for the dispatch loop to drain.</summary>
+            /// <param name="sourceOfHalt">Initiator of Halt.</param>
+            /// <param name="cancellationToken">Cancelled when the host is shutting down.</param>
+            /// <returns>A task that completes once the scheduler reports <see cref="ScheduleStatus.STOPPED"/> or the 120 second grace period elapses.</returns>
+            public static async Task HaltAsync(string sourceOfHalt, CancellationToken cancellationToken)
+            {
                 // should do nothing if the scheduler havn't start yet.
                 var currentStatus = GetScheduleStatus();
                 if (currentStatus == ScheduleStatus.NOT_SET || currentStatus == ScheduleStatus.STOPPED)
@@ -418,7 +462,7 @@ namespace DotNetNuke.Services.Scheduling
 
                 KeepRunning = false;
 
-                // wait for up to 120 seconds for thread
+                // wait for up to 120 seconds for the dispatch loop
                 // to shut down
                 for (int i = 0; i <= 120; i++)
                 {
@@ -427,7 +471,7 @@ namespace DotNetNuke.Services.Scheduling
                         return;
                     }
 
-                    Thread.Sleep(1000);
+                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
                 }
 
                 activeThreadCount = 0;
@@ -580,6 +624,15 @@ namespace DotNetNuke.Services.Scheduling
 
             public static void RunEventSchedule(EventName eventName)
             {
+                RunEventScheduleAsync(eventName, CancellationToken.None).GetAwaiter().GetResult();
+            }
+
+            /// <summary>Runs every schedule item attached to <paramref name="eventName"/>.</summary>
+            /// <param name="eventName">The event that fired.</param>
+            /// <param name="cancellationToken">Cancelled when the host is shutting down.</param>
+            /// <returns>A task that completes when the event-triggered queue has drained.</returns>
+            public static async Task RunEventScheduleAsync(EventName eventName, CancellationToken cancellationToken)
+            {
                 try
                 {
                     var log = new LogInfo { LogTypeKey = "SCHEDULE_FIRED_FROM_EVENT" };
@@ -600,18 +653,18 @@ namespace DotNetNuke.Services.Scheduling
                         // Fire off the events that need running.
                         if (GetScheduleQueueCount() > 0)
                         {
-                            FireEvents();
+                            await FireEventsAsync(cancellationToken).ConfigureAwait(false);
                         }
 
                         if (writerTimeouts > 20 || readerTimeouts > 20)
                         {
                             // Wait for 10 minutes so we don't fill up the logs
-                            Thread.Sleep(TimeSpan.FromMinutes(10));
+                            await Task.Delay(TimeSpan.FromMinutes(10), cancellationToken).ConfigureAwait(false);
                         }
                         else
                         {
                             // Wait for 10 seconds to avoid cpu overutilization
-                            Thread.Sleep(TimeSpan.FromSeconds(10));
+                            await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
                         }
 
                         if (GetScheduleQueueCount() == 0)
@@ -619,6 +672,11 @@ namespace DotNetNuke.Services.Scheduling
                             return;
                         }
                     }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // The host is shutting down; let the caller (the hosted service) observe it.
+                    throw;
                 }
                 catch (Exception exc)
                 {
@@ -657,12 +715,40 @@ namespace DotNetNuke.Services.Scheduling
                 }
             }
 
+            /// <summary>Runs the scheduler dispatch loop on the calling thread until <see cref="KeepRunning"/> is cleared.</summary>
+            /// <remarks>
+            /// Synchronous entry point preserved for <see cref="DNNScheduler.Start"/> /
+            /// <see cref="DNNScheduler.ExecuteTasks"/>. The loop is normally owned by
+            /// <see cref="SchedulerHostedService"/>; if that loop is already active this call
+            /// returns immediately rather than starting a second, competing loop.
+            /// </remarks>
             public static void Start()
             {
+                RunSchedulerLoopAsync(CancellationToken.None).GetAwaiter().GetResult();
+            }
+
+            /// <summary>The scheduler dispatch loop.</summary>
+            /// <param name="stoppingToken">The host's shutdown token.</param>
+            /// <returns>A task that completes when the loop exits.</returns>
+            /// <remarks>
+            /// This is the migrated form of the .NET Framework <c>Start()</c> loop that ran on a
+            /// dedicated <see cref="Thread"/>: every <c>Thread.Sleep</c> became
+            /// <see cref="Task.Delay(TimeSpan, CancellationToken)"/> and the shutdown signal is the
+            /// host's <paramref name="stoppingToken"/> in addition to the legacy
+            /// <see cref="KeepRunning"/> flag. The <see cref="ScheduleStatus"/> state machine and
+            /// the N-process-group concurrency model are unchanged.
+            /// </remarks>
+            public static async Task RunSchedulerLoopAsync(CancellationToken stoppingToken)
+            {
+                // Only one dispatch loop may be active. The hosted service owns it; a later
+                // SchedulingProvider.Start()/ExecuteTasks() call must not spawn a rival loop.
+                if (Interlocked.CompareExchange(ref loopActive, 1, 0) != 0)
+                {
+                    return;
+                }
+
                 try
                 {
-                    AppDomain.CurrentDomain.SetPrincipalPolicy(PrincipalPolicy.WindowsPrincipal);
-
                     activeThreadCount = 0;
 
                     // This is where the action begins.
@@ -674,7 +760,7 @@ namespace DotNetNuke.Services.Scheduling
                         LogController.Instance.AddLog(log);
                     }
 
-                    while (KeepRunning)
+                    while (KeepRunning && !stoppingToken.IsCancellationRequested)
                     {
                         try
                         {
@@ -685,7 +771,7 @@ namespace DotNetNuke.Services.Scheduling
                                     return;
                                 }
 
-                                Thread.Sleep(1000);
+                                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
                                 continue;
                             }
 
@@ -712,9 +798,7 @@ namespace DotNetNuke.Services.Scheduling
                             // and we don't have to refresh the queue, continue
                             // to loop.
                             // refreshQueueSchedule can get set to true near bottom of loop
-                            // not sure why R# thinks it is always false
-                            // ReSharper disable once ConditionIsAlwaysTrueOrFalse
-                            while (FreeThreads > 0 && !refreshQueueSchedule && KeepRunning && !forceReloadSchedule)
+                            while (FreeThreads > 0 && !refreshQueueSchedule && KeepRunning && !forceReloadSchedule && !stoppingToken.IsCancellationRequested)
                             {
                                 // Fire off the events that need running.
                                 if (SchedulingProvider.SchedulerMode == SchedulerMode.TIMER_METHOD)
@@ -730,7 +814,7 @@ namespace DotNetNuke.Services.Scheduling
                                 // the shared resource.
                                 if (GetScheduleQueueCount() > 0)
                                 {
-                                    FireEvents();
+                                    await FireEventsAsync(stoppingToken).ConfigureAwait(false);
                                 }
 
                                 if (KeepThreadAlive == false)
@@ -744,7 +828,7 @@ namespace DotNetNuke.Services.Scheduling
                                     // Wait for 10 minutes so we don't fill up the logs
                                     if (KeepRunning)
                                     {
-                                        Thread.Sleep(TimeSpan.FromMinutes(10));
+                                        await Task.Delay(TimeSpan.FromMinutes(10), stoppingToken).ConfigureAwait(false);
                                     }
                                     else
                                     {
@@ -756,7 +840,7 @@ namespace DotNetNuke.Services.Scheduling
                                     // Wait for 10 seconds to avoid cpu overutilization
                                     if (KeepRunning)
                                     {
-                                        Thread.Sleep(TimeSpan.FromSeconds(10));
+                                        await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken).ConfigureAwait(false);
                                     }
                                     else
                                     {
@@ -775,12 +859,12 @@ namespace DotNetNuke.Services.Scheduling
 
                             // There are no available threads, all threads are being
                             // used.  Wait 10 seconds until one is available
-                            if (KeepRunning)
+                            if (KeepRunning && !stoppingToken.IsCancellationRequested)
                             {
                                 if (refreshQueueSchedule == false)
                                 {
                                     SetScheduleStatus(ScheduleStatus.WAITING_FOR_OPEN_THREAD);
-                                    Thread.Sleep(10000); // sleep for 10 seconds
+                                    await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken).ConfigureAwait(false);
                                 }
                             }
                             else
@@ -788,17 +872,25 @@ namespace DotNetNuke.Services.Scheduling
                                 return;
                             }
                         }
+                        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                        {
+                            // Shutdown. Rethrow so the hosted service reports a clean stop; the
+                            // finally block below still records the STOPPED status and log entry.
+                            throw;
+                        }
                         catch (Exception exc)
                         {
                             Exceptions.Exceptions.ProcessSchedulerException(exc);
 
                             // sleep for 10 minutes
-                            Thread.Sleep(600000);
+                            await Task.Delay(TimeSpan.FromMinutes(10), stoppingToken).ConfigureAwait(false);
                         }
                     }
                 }
                 finally
                 {
+                    Interlocked.Exchange(ref loopActive, 0);
+
                     if (SchedulingProvider.SchedulerMode == SchedulerMode.TIMER_METHOD || SchedulingProvider.SchedulerMode == SchedulerMode.DISABLED)
                     {
                         SetScheduleStatus(ScheduleStatus.STOPPED);

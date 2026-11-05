@@ -33,7 +33,7 @@ namespace DotNetNuke.Tests.Core.Services.Search.Internals
                 const string SettingValueColumnName = "SettingValue";
                 const string SettingIsSecureColumnName = "SettingIsSecure";
                 const string CustomAnalyzerCacheKeyName = "Search_CustomAnalyzer";
-                const string CzechAnalyzerTypeName = "Lucene.Net.Analysis.Cz.CzechAnalyzer, Lucene.Net.Contrib.Analyzers";
+                const string CzechAnalyzerTypeName = "Lucene.Net.Analysis.Cz.CzechAnalyzer, Lucene.Net.Analysis.Common";
                 var mockData = MockComponentProvider.CreateDataProvider();
                 var hostSettings = new DataTable(HostSettingsTableName);
                 var nameCol = hostSettings.Columns.Add(SettingNameColumnName);

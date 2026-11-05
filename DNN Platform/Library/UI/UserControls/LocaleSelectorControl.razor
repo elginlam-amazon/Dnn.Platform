@@ -1,0 +1,206 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using System.Threading.Tasks
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Services.Personalization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="dnnFormRadioButtons">
+    @foreach (var item in this.viewTypeItems)
+    {
+        <label>
+            <input type="radio"
+                   name="@this.ViewTypeGroupName"
+                   value="@item.Value"
+                   checked="@item.Selected"
+                   @onchange="@(() => this.OnViewTypeChangedAsync(item.Value))" />
+            @item.Text
+        </label>
+    }
+</div>
+<select id="@this.LanguageSelectorId" class="le_languages" @onchange="this.OnCultureChangedAsync">
+    @foreach (var item in this.languageItems)
+    {
+        <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+    }
+</select>
+@((MarkupString)(this.Status ?? string.Empty))
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "LocaleSelectorControl.ascx";
+
+    private readonly List<ListItem> viewTypeItems = new List<ListItem>();
+    private readonly List<ListItem> languageItems = new List<ListItem>();
+
+    private string instanceId = "localeSelector_" + Guid.NewGuid().ToString("N");
+    private string viewType = string.Empty;
+    private string selectedCultureCode;
+    private bool loaded;
+
+    /// <summary>Gets the culture code that is currently selected.</summary>
+    public string CultureCode => this.selectedCultureCode ?? string.Empty;
+
+    /// <summary>Gets or sets the status markup rendered below the selector.</summary>
+    /// <remarks>Replaces the <c>litStatus</c> literal.</remarks>
+    [Parameter]
+    public string Status { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the selected culture changes.</summary>
+    [Parameter]
+    public EventCallback<string> CultureCodeChanged { get; set; }
+
+    /// <summary>Gets or sets the resource file the captions are localized from.</summary>
+    [Parameter]
+    public string LocalResourceFile { get; set; }
+
+    /// <summary>Gets the <c>id</c> attribute of the language drop down.</summary>
+    public string LanguageSelectorId => this.instanceId + "_ddlPortalDefaultLanguage";
+
+    /// <summary>Gets the <c>name</c> attribute shared by the view type radio buttons.</summary>
+    public string ViewTypeGroupName => this.instanceId + "_rbViewType";
+
+    /// <summary>Gets the display type of the culture names.</summary>
+    private CultureDropDownTypes DisplayType
+    {
+        get
+        {
+            switch (this.ViewType)
+            {
+                case "NATIVE":
+                    return CultureDropDownTypes.NativeName;
+                case "ENGLISH":
+                    return CultureDropDownTypes.EnglishName;
+                default:
+                    return CultureDropDownTypes.NativeName;
+            }
+        }
+    }
+
+    /// <summary>Gets the current view type, falling back to the user's profile and then to native names.</summary>
+    private string ViewType
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(this.viewType))
+            {
+                this.viewType = Convert.ToString(Personalization.GetProfile("LanguageEnabler", string.Format(CultureInfo.InvariantCulture, "ViewType{0}", this.PortalSettings.PortalId)), CultureInfo.InvariantCulture);
+            }
+
+            if (string.IsNullOrEmpty(this.viewType))
+            {
+                this.viewType = "NATIVE";
+            }
+
+            return this.viewType;
+        }
+    }
+
+    /// <summary>Gets the effective resource file of this control.</summary>
+    private string ResourceFile =>
+        string.IsNullOrEmpty(this.LocalResourceFile)
+            ? "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName
+            : this.LocalResourceFile;
+
+    /// <summary>Loads the list of selectable languages.</summary>
+    /// <remarks>
+    /// Was <c>Localization.LoadCultureDropDownList(this.ddlPortalDefaultLanguage, …)</c>, which
+    /// filled a Web Forms <c>DropDownList</c>. The items are now built from the enabled locales of
+    /// the portal and rendered by this component.
+    /// </remarks>
+    public void BindDefaultLanguageSelector()
+    {
+        this.languageItems.Clear();
+
+        var enabledLanguages = LocaleController.Instance.GetLocales(this.PortalSettings.PortalId);
+        foreach (var kvp in enabledLanguages)
+        {
+            this.languageItems.Add(new ListItem(Localization.GetLocaleName(kvp.Value.Code, this.DisplayType), kvp.Value.Code));
+        }
+
+        var defaultLanguage = this.selectedCultureCode ?? this.PortalSettings.DefaultLanguage;
+        var selected = this.languageItems.FindByValue(defaultLanguage);
+        if (selected is null && this.languageItems.Count > 0)
+        {
+            selected = this.languageItems[0];
+        }
+
+        this.languageItems.ClearSelection();
+        if (selected is not null)
+        {
+            selected.Selected = true;
+            this.selectedCultureCode = selected.Value;
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        var item = new ListItem(Localization.GetString("NativeName.Text", this.ResourceFile), "NATIVE");
+        this.viewTypeItems.Add(item);
+        if (this.ViewType == "NATIVE")
+        {
+            item.Selected = true;
+        }
+
+        item = new ListItem(Localization.GetString("EnglishName.Text", this.ResourceFile), "ENGLISH");
+        this.viewTypeItems.Add(item);
+        if (this.ViewType == "ENGLISH")
+        {
+            item.Selected = true;
+        }
+
+        this.BindDefaultLanguageSelector();
+    }
+
+    /// <summary>Handles a change of the view type (native vs. English culture names).</summary>
+    /// <param name="value">The new view type.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnViewTypeChangedAsync(string value)
+    {
+        this.viewType = value;
+        this.viewTypeItems.ClearSelection();
+        var selected = this.viewTypeItems.FindByValue(value);
+        if (selected is not null)
+        {
+            selected.Selected = true;
+        }
+
+        // The culture names are formatted differently now, so the list must be rebuilt.
+        this.BindDefaultLanguageSelector();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles a change of the selected culture.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnCultureChangedAsync(ChangeEventArgs args)
+    {
+        this.selectedCultureCode = args?.Value?.ToString();
+        this.languageItems.ClearSelection();
+        var selected = this.languageItems.FindByValue(this.selectedCultureCode);
+        if (selected is not null)
+        {
+            selected.Selected = true;
+        }
+
+        await this.CultureCodeChanged.InvokeAsync(this.selectedCultureCode);
+    }
+}

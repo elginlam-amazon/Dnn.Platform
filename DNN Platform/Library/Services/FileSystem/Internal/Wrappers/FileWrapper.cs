@@ -11,8 +11,6 @@ using System.Threading.Tasks;
 
 using DotNetNuke.ComponentModel;
 
-using SchwabenCode.QuickIO;
-
 /// <summary>The default <see cref="IFile"/> implementation.</summary>
 public class FileWrapper : ComponentBase<IFile, FileWrapper>, IFile
 {
@@ -32,7 +30,7 @@ public class FileWrapper : ComponentBase<IFile, FileWrapper>, IFile
     /// <inheritdoc />
     public async Task DeleteAsync(string path)
     {
-        await QuickIOFile.DeleteAsync(path);
+        await Task.Run(() => File.Delete(path));
     }
 
     /// <inheritdoc />
@@ -44,7 +42,7 @@ public class FileWrapper : ComponentBase<IFile, FileWrapper>, IFile
     /// <inheritdoc />
     public async Task<bool> ExistsAsync(string path)
     {
-        return await QuickIOFile.ExistsAsync(path);
+        return await Task.Run(() => File.Exists(path));
     }
 
     /// <inheritdoc />
@@ -56,7 +54,7 @@ public class FileWrapper : ComponentBase<IFile, FileWrapper>, IFile
     /// <inheritdoc />
     public async Task<FileAttributes> GetAttributesAsync(string path)
     {
-        return await QuickIOFile.GetAttributesAsync(path);
+        return await Task.Run(() => File.GetAttributes(path));
     }
 
     /// <inheritdoc />
@@ -68,7 +66,7 @@ public class FileWrapper : ComponentBase<IFile, FileWrapper>, IFile
     /// <inheritdoc />
     public async Task<DateTime> GetLastWriteTimeAsync(string path)
     {
-        return await QuickIOFile.GetLastWriteTimeAsync(path);
+        return await Task.Run(() => File.GetLastWriteTime(path));
     }
 
     /// <inheritdoc />
@@ -82,7 +80,7 @@ public class FileWrapper : ComponentBase<IFile, FileWrapper>, IFile
     public async Task MoveAsync(string sourceFileName, string destFileName)
     {
         await EnsureFileFolderExistsAsync(destFileName);
-        await QuickIOFile.MoveAsync(sourceFileName, destFileName);
+        await Task.Run(() => File.Move(sourceFileName, destFileName));
     }
 
     /// <inheritdoc />
@@ -96,7 +94,7 @@ public class FileWrapper : ComponentBase<IFile, FileWrapper>, IFile
     public async Task CopyAsync(string sourceFileName, string destinationFileName, bool overwrite)
     {
         await EnsureFileFolderExistsAsync(destinationFileName);
-        await QuickIOFile.CopyAsync(sourceFileName, destinationFileName, overwrite);
+        await Task.Run(() => File.Copy(sourceFileName, destinationFileName, overwrite));
     }
 
     /// <inheritdoc />
@@ -114,7 +112,7 @@ public class FileWrapper : ComponentBase<IFile, FileWrapper>, IFile
     /// <inheritdoc />
     public async Task<byte[]> ReadAllBytesAsync(string path)
     {
-        return await new QuickIOFileInfo(path).ReadAllBytesAsync();
+        return await File.ReadAllBytesAsync(path);
     }
 
     /// <inheritdoc />
@@ -126,7 +124,7 @@ public class FileWrapper : ComponentBase<IFile, FileWrapper>, IFile
     /// <inheritdoc />
     public async Task SetAttributesAsync(string path, FileAttributes fileAttributes)
     {
-        await QuickIOFile.SetAttributesAsync(path, fileAttributes);
+        await Task.Run(() => File.SetAttributes(path, fileAttributes));
     }
 
     /// <inheritdoc />
@@ -154,9 +152,9 @@ public class FileWrapper : ComponentBase<IFile, FileWrapper>, IFile
     private static async Task EnsureFileFolderExistsAsync(string filePath)
     {
         var directoryName = Path.GetDirectoryName(filePath);
-        if (!string.IsNullOrEmpty(directoryName) && !await QuickIODirectory.ExistsAsync(directoryName))
+        if (!string.IsNullOrEmpty(directoryName) && !await Task.Run(() => Directory.Exists(directoryName)))
         {
-            await QuickIODirectory.CreateAsync(directoryName);
+            await Task.Run(() => Directory.CreateDirectory(directoryName));
         }
     }
 }

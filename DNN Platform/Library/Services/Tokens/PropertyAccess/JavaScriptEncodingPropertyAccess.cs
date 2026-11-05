@@ -5,9 +5,7 @@
 namespace DotNetNuke.Services.Tokens;
 
 using System.Globalization;
-using System.Net;
-using System.Web;
-using System.Web.Util;
+using System.Text.Encodings.Web;
 
 using DotNetNuke.Entities.Users;
 
@@ -38,6 +36,9 @@ public class JavaScriptEncodingPropertyAccess(IPropertyAccess implementation) : 
             accessLevel,
             ref propertyNotFound);
 
-        return HttpUtility.JavaScriptStringEncode(result);
+        // System.Web.HttpUtility.JavaScriptStringEncode is replaced by
+        // System.Text.Encodings.Web.JavaScriptEncoder on modern .NET. Neither adds surrounding
+        // quotes; the null-to-empty behaviour of the old API is preserved explicitly.
+        return result is null ? string.Empty : JavaScriptEncoder.Default.Encode(result);
     }
 }

@@ -4,7 +4,6 @@
 namespace DotNetNuke.Entities.Urls
 {
     using System;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
@@ -13,6 +12,7 @@ namespace DotNetNuke.Entities.Urls
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>Abstract class to allow derived classes of different implementations of Url Rewriter.</summary>
@@ -50,9 +50,15 @@ namespace DotNetNuke.Entities.Urls
         /// <summary>Gets the portal controller.</summary>
         protected IPortalController PortalController { get; }
 
-        internal abstract void RewriteUrl(object sender, EventArgs e);
+        /// <summary>Rewrites the URL of the supplied request.</summary>
+        /// <param name="context">The current HTTP context.</param>
+        /// <remarks>
+        /// Replaces the legacy <c>(object sender, EventArgs e)</c> HttpModule event-handler shape:
+        /// on ASP.NET Core the rewriter is driven by middleware, which has the context in hand.
+        /// </remarks>
+        internal abstract void RewriteUrl(HttpContext context);
 
-        protected static void AutoAddAlias(IHostSettings hostSettings, IPortalAliasService portalAliasService, HttpContextBase context)
+        protected static void AutoAddAlias(IHostSettings hostSettings, IPortalAliasService portalAliasService, HttpContext context)
         {
             var portalId = hostSettings.HostPortalId;
 
@@ -64,14 +70,11 @@ namespace DotNetNuke.Entities.Urls
                 portalAliasInfo.PortalId = portalId;
                 portalAliasService.AddPortalAlias(portalAliasInfo);
 
-                context.Response.Redirect(context.Request.Url.ToString(), true);
+                // Response.Redirect(url, endResponse: true) has no Core equivalent; the 302 is
+                // written and the caller must stop processing the request (the rewriter middleware
+                // short-circuits after this).
+                context.Response.Redirect(context.Request.GetUrl().ToString());
             }
-        }
-
-        protected static void AutoAddAlias(HttpContext context)
-        {
-            var serviceProvider = context.GetScope().ServiceProvider;
-            AutoAddAlias(serviceProvider.GetRequiredService<IHostSettings>(), serviceProvider.GetRequiredService<IPortalAliasService>(), new HttpContextWrapper(context));
         }
 
         protected static bool CanAutoAddPortalAlias(IHostSettingsService hostSettingsService, IPortalController portalController)
@@ -88,7 +91,9 @@ namespace DotNetNuke.Entities.Urls
                 serviceProvider.GetRequiredService<IPortalController>());
         }
 
-        protected void AutoAddAlias(HttpContextBase context) => AutoAddAlias(this.HostSettings, this.PortalAliasService, context);
+        /// <summary>Adds an alias for the host portal using the current request's domain name.</summary>
+        /// <param name="context">The current HTTP context.</param>
+        protected void AutoAddAlias(HttpContext context) => AutoAddAlias(this.HostSettings, this.PortalAliasService, context);
 
         protected bool AutoAddPortalAliasEnabled() => CanAutoAddPortalAlias(this.HostSettingsService, this.PortalController);
     }

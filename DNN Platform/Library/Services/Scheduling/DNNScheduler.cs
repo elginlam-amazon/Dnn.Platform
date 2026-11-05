@@ -8,6 +8,7 @@ namespace DotNetNuke.Services.Scheduling
     using System.Collections.Generic;
     using System.Linq;
     using System.Threading;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.ComponentModel;
@@ -238,10 +239,14 @@ namespace DotNetNuke.Services.Scheduling
         {
             if (Enabled)
             {
-                var newThread = new Thread(this.Start) { IsBackground = true };
-                newThread.Start();
+                // The .NET Framework implementation created a background Thread here. On modern
+                // .NET the dispatch loop is owned by SchedulerHostedService; Task.Run kicks it off
+                // on the thread pool for the cases where this provider API is called directly
+                // (e.g. ReStart from the Schedule admin page). RunSchedulerLoopAsync is a no-op
+                // when a loop is already active, so no second, competing loop can be created.
+                _ = Task.Run(() => Scheduler.CoreScheduler.RunSchedulerLoopAsync(CancellationToken.None));
 
-                // wait for up to 30 seconds for thread
+                // wait for up to 30 seconds for the dispatch loop
                 // to start up
                 for (int i = 0; i <= 30; i++)
                 {
@@ -250,7 +255,7 @@ namespace DotNetNuke.Services.Scheduling
                         return;
                     }
 
-                    Thread.Sleep(1000);
+                    Task.Delay(TimeSpan.FromSeconds(1)).GetAwaiter().GetResult();
                 }
             }
         }

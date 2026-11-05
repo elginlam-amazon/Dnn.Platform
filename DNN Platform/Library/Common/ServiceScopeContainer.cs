@@ -4,7 +4,6 @@
 namespace DotNetNuke.Common
 {
     using System;
-    using System.Web;
 
     using DotNetNuke.Common.Extensions;
     using Microsoft.Extensions.DependencyInjection;
@@ -26,7 +25,7 @@ namespace DotNetNuke.Common
         /// <summary>    Gets a value indicating whether true if the <see cref="ServiceScope"/> should be disposed.</summary>
         public bool ShouldDispose { get; }
 
-        /// <summary>    Get the service scope from <see cref="HttpContext"/> or create a new scope from <see cref="Globals.DependencyProvider"/> when the scope doesn't exists.</summary>
+        /// <summary>    Get the service scope from <see cref="Microsoft.AspNetCore.Http.HttpContext"/> or create a new scope from <see cref="Globals.DependencyProvider"/> when the scope doesn't exists.</summary>
         /// <returns>The service scope container.</returns>
         public static ServiceScopeContainer GetRequestOrCreateScope()
         {

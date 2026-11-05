@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -6,16 +6,15 @@ namespace DotNetNuke.Entities.Urls
 {
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
     using System.Data;
     using System.Globalization;
     using System.Linq;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Options;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
     using DotNetNuke.Entities.Portals;
@@ -24,6 +23,8 @@ namespace DotNetNuke.Entities.Urls
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Services.ClientCapability;
     using DotNetNuke.Services.Exceptions;
+
+    using Microsoft.AspNetCore.Http;
 
     using NewBrowserTypes = DotNetNuke.Abstractions.Urls.BrowserTypes;
 #pragma warning disable CS0618 // Type or member is obsolete
@@ -39,9 +40,15 @@ namespace DotNetNuke.Entities.Urls
         private const string DisableMobileRedirectQueryStringName = "nomo";
 
         // google uses the same name nomo=1 means do not redirect to mobile
-        // set the web.config AppSettings for the mobile view cookie name
-        private static readonly string MobileViewSiteCookieName = ConfigurationManager.AppSettings[name: "MobileViewSiteCookieName"] ?? "dnn_IsMobile";
-        private static readonly string DisableMobileViewCookieName = ConfigurationManager.AppSettings[name: "DisableMobileViewSiteCookieName"] ?? "dnn_NoMobile";
+        // The mobile view cookie names come from the "MobileRedirect" configuration section (what
+        // used to be the MobileViewSiteCookieName / DisableMobileViewSiteCookieName appSettings).
+        // They are resolved per use rather than in a static initializer, because a class library
+        // has no configuration until the host has built it.
+        private static string MobileViewSiteCookieName =>
+            ConfigurationSource.GetOptions<MobileRedirectOptions>(MobileRedirectOptions.SectionName).MobileViewSiteCookieName;
+
+        private static string DisableMobileViewCookieName =>
+            ConfigurationSource.GetOptions<MobileRedirectOptions>(MobileRedirectOptions.SectionName).DisableMobileViewSiteCookieName;
 
         // <summary>Gets the Friendly URL Settings for the given portal.</summary>
         public static FriendlyUrlSettings GetCurrentSettings(int portalId)
@@ -303,26 +310,29 @@ namespace DotNetNuke.Entities.Urls
         /// <param name="response">The response.</param>
         /// <param name="settings">The URL settings.</param>
         /// <returns>The browser type.</returns>
-        [DnnDeprecated(10, 2, 2, "Use overload taking HttpRequestBase")]
+        [DnnDeprecated(10, 2, 2, "Use overload taking HttpContext")]
         public static partial OldBrowserTypes GetBrowserType(HttpRequest request, HttpResponse response, FriendlyUrlSettings settings)
-            => GetBrowserType(new HttpRequestWrapper(request), new HttpResponseWrapper(response), settings).ToDeprecatedBrowserTypes();
+            => GetBrowserType(request?.HttpContext ?? response?.HttpContext, settings).ToDeprecatedBrowserTypes();
 
         /// <summary>Gets the browser type for the request.</summary>
-        /// <param name="request">The request.</param>
-        /// <param name="response">The response.</param>
+        /// <param name="context">The current HTTP context.</param>
         /// <param name="settings">The URL settings.</param>
         /// <returns>The browser type.</returns>
-        public static NewBrowserTypes GetBrowserType(HttpRequestBase request, HttpResponseBase response, FriendlyUrlSettings settings)
+        public static NewBrowserTypes GetBrowserType(HttpContext context, FriendlyUrlSettings settings)
         {
             var browserType = NewBrowserTypes.Normal;
-            if (request != null && settings != null)
+            if (context?.Request != null && settings != null)
             {
+                var request = context.Request;
+                var response = context.Response;
                 bool isCookieSet = false;
                 bool isMobile = false;
-                if (CanUseMobileDevice(request, response))
+                if (CanUseMobileDevice(context))
                 {
-                    HttpCookie viewMobileCookie = response.Cookies[MobileViewSiteCookieName];
-                    if (viewMobileCookie != null && bool.TryParse(viewMobileCookie.Value, out isMobile))
+                    // ASP.NET Core exposes no read-back of response cookies, so the already-set
+                    // value is read from the request cookies (same semantics for a round trip).
+                    var hasViewMobileCookie = request.Cookies.TryGetValue(MobileViewSiteCookieName, out var viewMobileCookieValue);
+                    if (hasViewMobileCookie && bool.TryParse(viewMobileCookieValue, out isMobile))
                     {
                         isCookieSet = true;
                     }
@@ -338,15 +348,10 @@ namespace DotNetNuke.Entities.Urls
                             }
 
                             // Store the result as a cookie.
-                            if (viewMobileCookie == null)
-                            {
-                                response.Cookies.Add(new HttpCookie(MobileViewSiteCookieName, isMobile.ToString())
-                                    { Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/" });
-                            }
-                            else
-                            {
-                                viewMobileCookie.Value = isMobile.ToString();
-                            }
+                            response.Cookies.Append(
+                                MobileViewSiteCookieName,
+                                isMobile.ToString(),
+                                new CookieOptions { Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/" });
                         }
                     }
                     else
@@ -381,43 +386,41 @@ namespace DotNetNuke.Entities.Urls
             return uniqueUrl;
         }
 
-        internal static bool CanUseMobileDevice(HttpRequestBase request, HttpResponseBase response)
+        internal static bool CanUseMobileDevice(HttpContext context)
         {
+            var request = context.Request;
+            var response = context.Response;
+            var cookiePath = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/";
             var canUseMobileDevice = true;
             int val;
-            if (int.TryParse(request.QueryString[DisableMobileRedirectQueryStringName], out val))
+            if (int.TryParse(request.Query[DisableMobileRedirectQueryStringName], out val))
             {
                 // the nomo value is in the querystring
                 if (val == 1)
                 {
                     // no, can't do it
                     canUseMobileDevice = false;
-                    var cookie = new HttpCookie(DisableMobileViewCookieName)
-                    {
-                        Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-                    };
-                    response.Cookies.Set(cookie);
+                    response.Cookies.Append(
+                        DisableMobileViewCookieName,
+                        string.Empty,
+                        new CookieOptions { Path = cookiePath });
                 }
                 else
                 {
                     // check for disable mobile view cookie name
-                    var cookie = request.Cookies[DisableMobileViewCookieName];
-
-                    if (cookie != null)
+                    if (request.Cookies.ContainsKey(DisableMobileViewCookieName))
                     {
                         // if exists, expire cookie to allow redirect
-                        cookie = new HttpCookie(DisableMobileViewCookieName)
-                        {
-                            Expires = DateTime.Now.AddMinutes(-1),
-                            Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-                        };
-                        response.Cookies.Set(cookie);
+                        response.Cookies.Append(
+                            DisableMobileViewCookieName,
+                            string.Empty,
+                            new CookieOptions { Expires = DateTime.Now.AddMinutes(-1), Path = cookiePath });
                     }
 
                     // check the DotNetNuke cookies for allowed
                     // check for cookie
-                    if (request.Cookies[DisableMobileRedirectCookieName] != null
-                        && request.Cookies[DisableRedirectPresistCookieName] != null)
+                    if (request.Cookies.ContainsKey(DisableMobileRedirectCookieName)
+                        && request.Cookies.ContainsKey(DisableRedirectPresistCookieName))
                     {
                         // cookies exist, can't use mobile device
                         canUseMobileDevice = false;
@@ -427,9 +430,7 @@ namespace DotNetNuke.Entities.Urls
             else
             {
                 // look for disable mobile view cookie
-                var cookie = request.Cookies[DisableMobileViewCookieName];
-
-                if (cookie != null)
+                if (request.Cookies.ContainsKey(DisableMobileViewCookieName))
                 {
                     canUseMobileDevice = false;
                 }
@@ -450,7 +451,14 @@ namespace DotNetNuke.Entities.Urls
 
         private static bool IsMobileClient()
         {
-            return (HttpContext.Current.Request.Browser != null) && (ClientCapabilityProvider.Instance() != null) && ClientCapabilityProvider.CurrentClientCapability.IsMobile;
+            // HttpBrowserCapabilities (Request.Browser) does not exist on ASP.NET Core; the
+            // equivalent pre-condition is simply that there is a request carrying a user agent
+            // for the client-capability provider to inspect.
+            var request = HttpContextSource.Current?.Request;
+            return request != null
+                   && !string.IsNullOrEmpty(request.Headers.UserAgent.ToString())
+                   && (ClientCapabilityProvider.Instance() != null)
+                   && ClientCapabilityProvider.CurrentClientCapability.IsMobile;
         }
 
         private static void CheckIllegalChars(string illegalChars, ref string ch, ref bool replacedUnwantedChars)

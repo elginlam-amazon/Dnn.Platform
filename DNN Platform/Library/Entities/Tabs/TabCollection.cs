@@ -43,6 +43,7 @@ namespace DotNetNuke.Entities.Tabs
         /// <summary>Initializes a new instance of the <see cref="TabCollection"/> class.</summary>
         /// <param name="info">The serialization info.</param>
         /// <param name="context">The streaming context.</param>
+        [Obsolete("Formatter-based serialization is obsolete and should not be used. See https://aka.ms/dotnet-warnings/SYSLIB0051", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
         public TabCollection(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {

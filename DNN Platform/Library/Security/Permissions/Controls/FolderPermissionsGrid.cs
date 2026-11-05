@@ -10,8 +10,6 @@ namespace DotNetNuke.Security.Permissions.Controls
     using System.Globalization;
     using System.Linq;
     using System.Text;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Security.Permissions;
     using DotNetNuke.Common;
@@ -119,13 +117,6 @@ namespace DotNetNuke.Security.Permissions.Controls
         {
             this.FolderPermissions = new FolderPermissionCollection(FolderPermissionController.GetFolderPermissionsCollectionByFolder(this.PortalId, this.FolderPath));
             this.permissionCollection = null;
-        }
-
-        /// <inheritdoc />
-        protected override void CreateChildControls()
-        {
-            base.CreateChildControls();
-            this.rolePermissionsGrid.ItemDataBound += RolePermissionsGrid_ItemDataBound;
         }
 
         /// <inheritdoc />
@@ -334,21 +325,17 @@ namespace DotNetNuke.Security.Permissions.Controls
             return FolderPermissionController.ImplicitRoles(portalId).Any(r => r.RoleID == roleId);
         }
 
-        private static void RolePermissionsGrid_ItemDataBound(object sender, DataGridItemEventArgs e)
+        /// <inheritdoc />
+        /// <remarks>
+        /// Replaces the <c>RolePermissionsGrid_ItemDataBound</c> handler this grid attached in
+        /// <c>CreateChildControls</c> (which hid the delete button of the implicit roles by walking
+        /// the bound row's control tree). Both conditions -- the base grid's and this one's -- still
+        /// apply, exactly as they did when both handlers were attached.
+        /// </remarks>
+        protected override bool GetRoleActionsVisible(int roleId)
         {
-            var item = e.Item;
-
-            if (item.ItemType is ListItemType.Item or ListItemType.AlternatingItem or ListItemType.SelectedItem)
-            {
-                var roleId = int.Parse(((DataRowView)item.DataItem)[0].ToString(), CultureInfo.InvariantCulture);
-                if (IsImplicitRole(PortalSettings.Current.PortalId, roleId))
-                {
-                    if (item.Controls.Cast<Control>().Last().Controls[0] is ImageButton actionImage)
-                    {
-                        actionImage.Visible = false;
-                    }
-                }
-            }
+            return base.GetRoleActionsVisible(roleId)
+                && !IsImplicitRole(PortalSettings.Current.PortalId, roleId);
         }
 
         /// <summary>Parse the Permission Keys used to persist the Permissions in the ViewState.</summary>

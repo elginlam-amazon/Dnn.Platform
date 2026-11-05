@@ -5,10 +5,11 @@
 namespace DotNetNuke.UI.Modules
 {
     using System.IO;
-    using System.Web.UI;
 
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Services.Localization;
+
+    using Microsoft.AspNetCore.Components;
 
     public abstract class BaseModuleControlFactory : IModuleControlFactory
     {
@@ -19,10 +20,10 @@ namespace DotNetNuke.UI.Modules
         public abstract bool SupportsControl(ModuleInfo moduleConfiguration, string controlSrc);
 
         /// <inheritdoc />
-        public abstract Control CreateControl(TemplateControl containerControl, string controlKey, string controlSrc);
+        public abstract IComponent CreateControl(IComponent containerControl, string controlKey, string controlSrc);
 
         /// <inheritdoc />
-        public abstract Control CreateModuleControl(TemplateControl containerControl, ModuleInfo moduleConfiguration);
+        public abstract IComponent CreateModuleControl(IComponent containerControl, ModuleInfo moduleConfiguration);
 
         /// <inheritdoc />
         public virtual ModuleControlBase CreateModuleControl(ModuleInfo moduleConfiguration)
@@ -38,6 +39,6 @@ namespace DotNetNuke.UI.Modules
         }
 
         /// <inheritdoc />
-        public abstract Control CreateSettingsControl(TemplateControl containerControl, ModuleInfo moduleConfiguration, string controlSrc);
+        public abstract IComponent CreateSettingsControl(IComponent containerControl, ModuleInfo moduleConfiguration, string controlSrc);
     }
 }

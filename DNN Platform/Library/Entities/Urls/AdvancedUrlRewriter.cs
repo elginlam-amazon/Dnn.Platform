@@ -11,27 +11,28 @@ namespace DotNetNuke.Entities.Urls
     using System.Globalization;
     using System.IO;
     using System.Linq;
-    using System.Security.Principal;
+    using System.Net;
+    using System.Security.Claims;
     using System.Text.RegularExpressions;
     using System.Threading;
-    using System.Web;
-    using System.Web.Configuration;
-    using System.Web.Security;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Application;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Internal;
+    using DotNetNuke.Common.Options;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Controllers;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Tabs;
-    using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Security.Authentication;
+    using DotNetNuke.Security.Cookies;
     using DotNetNuke.Services.EventQueue;
-
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>The advanced URL rewriter.</summary>
@@ -45,6 +46,22 @@ namespace DotNetNuke.Entities.Urls
         : UrlRewriterBase(hostSettings, portalAliasService, hostSettingsService, portalController)
     {
         private const string ProductName = "AdvancedUrlRewriter";
+
+        /// <summary>
+        /// The <see cref="HttpContext.Items"/> key under which the rewriter buffers response body
+        /// text it produced (error pages, client-side redirect pages). ASP.NET Core forbids
+        /// synchronous writes to the response body, so the content is buffered here and flushed
+        /// asynchronously by <see cref="DnnUrlRewriterMiddleware"/>.
+        /// </summary>
+        internal const string PendingOutputKey = "UrlRewrite:PendingOutput";
+
+        /// <summary>
+        /// The <see cref="HttpContext.Items"/> key set when the rewriter has fully handled the
+        /// request and the rest of the pipeline must not run. This replaces the legacy
+        /// <c>Response.End()</c> / <c>Response.Redirect(url, endResponse: true)</c> calls, which
+        /// aborted the thread on ASP.NET Framework.
+        /// </summary>
+        internal const string RequestCompletedKey = "UrlRewrite:RequestCompleted";
         private static readonly Regex DefaultPageRegex = new Regex(@"(?<!(\?.+))/" + Globals.glbDefaultPage, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
         private static readonly Regex AumDebugRegex = new Regex(@"(&|\?)_aumdebug=[A-Z]+(?:&|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
         private static readonly Regex RewritePathRx = new Regex("(?:&(?<parm>.[^&]+)=$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -210,23 +227,30 @@ namespace DotNetNuke.Entities.Urls
         }
 
         /// <inheritdoc />
-        internal override void RewriteUrl(object sender, EventArgs e)
+        /// <summary>Rewrites the URL of the supplied request. This is the rewriter's entry point.</summary>
+        /// <param name="context">The current HTTP context.</param>
+        /// <remarks>
+        /// On ASP.NET Framework this was an <c>HttpApplication.BeginRequest</c> handler and the
+        /// <c>sender</c> was the <c>HttpApplication</c>. On ASP.NET Core it is driven by
+        /// <see cref="DnnUrlRewriterMiddleware"/>, which passes the context directly.
+        /// </remarks>
+        internal override void RewriteUrl(HttpContext context)
         {
             Guid parentTraceId = Guid.Empty;
             const bool debug = true;
             bool failedInitialization = false;
             bool ignoreForInstall = false;
-            var app = (HttpApplication)sender;
+            var request = context.Request;
             try
             {
                 // 875 : completely ignore install/upgrade requests immediately
-                ignoreForInstall = IgnoreRequestForInstall(app.Request);
+                ignoreForInstall = IgnoreRequestForInstall(request);
 
                 if (ignoreForInstall == false)
                 {
                     this.settings = new FriendlyUrlSettings(-1);
 
-                    SecurityCheck(app);
+                    SecurityCheck(context);
                 }
             }
             catch (Exception ex)
@@ -234,33 +258,24 @@ namespace DotNetNuke.Entities.Urls
                 // exception handling for advanced Url Rewriting requests
                 failedInitialization = true;
                 DotNetNuke.Services.Exceptions.Exceptions.LogException(ex);
-                if (app.Context != null)
-                {
-                    ShowDebugData(app.Context, app.Request.Url.AbsoluteUri, null, ex);
-                    var action = new UrlAction(app.Request) { Action = ActionType.Output404 };
-                    Handle404OrException(this.settings, app.Context, ex, action, false, debug);
-                }
-                else
-                {
-                    throw;
-                }
+                ShowDebugData(context, request.GetUrl().AbsoluteUri, null, ex);
+                var action = new UrlAction(request) { Action = ActionType.Output404 };
+                Handle404OrException(this.settings, context, ex, action, false, debug);
             }
 
             if (!failedInitialization && !ignoreForInstall)
             {
                 // if made it through there and not installing, go to next call.  Not in exception catch because it implements it's own top-level exception handling
-                var request = app.Context.Request;
-
                 // 829 : change constructor to stop using physical path
                 var result = new UrlAction(request)
                 {
-                    IsSecureConnection = request.IsSecureConnection,
+                    IsSecureConnection = request.IsHttps,
                     IsSSLOffloaded = UrlUtils.IsSslOffloadEnabled(request),
-                    RawUrl = request.RawUrl,
+                    RawUrl = request.GetRawUrl(),
                 };
                 this.ProcessRequest(
-                    app.Context,
-                    app.Context.Request.Url,
+                    context,
+                    request.GetUrl(),
                     Host.UseFriendlyUrls,
                     result,
                     this.settings,
@@ -429,9 +444,9 @@ namespace DotNetNuke.Entities.Urls
                     browser = result.BrowserType.ToString();
                 }
 
-                if (context.Items.Contains("PortalSettings"))
+                if (context.Items.ContainsKey(Portals.PortalController.PortalSettingsContextKey))
                 {
-                    var ps = (PortalSettings)context.Items["PortalSettings"];
+                    var ps = (PortalSettings)context.Items[Portals.PortalController.PortalSettingsContextKey];
                     if (ps != null)
                     {
                         portalSettings = ps.PortalId.ToString(CultureInfo.InvariantCulture);
@@ -442,7 +457,7 @@ namespace DotNetNuke.Entities.Urls
                     }
                 }
 
-                response.AppendHeader(
+                response.Headers.Append(
                     "X-" + ProductName + "-Debug",
                     string.Format(
                         CultureInfo.InvariantCulture,
@@ -459,14 +474,14 @@ namespace DotNetNuke.Entities.Urls
                 {
                     foreach (string msg in result.DebugMessages)
                     {
-                        response.AppendHeader("X-" + ProductName + "-Debug-" + msgNum.ToString("00", CultureInfo.InvariantCulture), msg);
+                        response.Headers.Append("X-" + ProductName + "-Debug-" + msgNum.ToString("00", CultureInfo.InvariantCulture), msg);
                         msgNum++;
                     }
                 }
 
                 if (ex != null)
                 {
-                    response.AppendHeader("X-" + ProductName + "-Ex", ex.Message);
+                    response.Headers.Append("X-" + ProductName + "-Ex", ex.Message);
                 }
             }
         }
@@ -519,7 +534,9 @@ namespace DotNetNuke.Entities.Urls
                         };
                         PortalAliasController.Instance.AddPortalAlias(portalAliasInfo);
 
-                        context.Response.Redirect(context.Request.Url.ToString(), true);
+                        context.Response.Redirect(context.Request.GetUrl().ToString());
+                        CompleteRequest(context);
+                        return;
                     }
                 }
             }
@@ -528,24 +545,25 @@ namespace DotNetNuke.Entities.Urls
             {
                 HttpRequest request = context.Request;
                 HttpResponse response = context.Response;
-                HttpServerUtility server = context.Server;
 
                 const string errorPageHtmlHeader = @"<html><head><title>{0}</title></head><body>";
                 const string errorPageHtmlFooter = @"</body></html>";
                 var errorPageHtml = new StringWriter();
-                CustomErrorsSection ceSection = null;
+                CustomErrorsOptions customErrors = null;
 
                 // 876 : security catch for custom error reading
                 try
                 {
-                    ceSection = (CustomErrorsSection)WebConfigurationManager.GetSection("system.web/customErrors");
+                    // Replaces the <system.web><customErrors> section read; the error-page
+                    // configuration now comes from the "CustomErrors" options section.
+                    customErrors = ConfigurationSource.GetOptions<CustomErrorsOptions>(CustomErrorsOptions.SectionName);
                 }
 
                 // ReSharper disable once EmptyGeneralCatchClause
                 catch (Exception)
                 {
-                    // on some medium trust environments, this will throw an exception for trying to read the custom Errors
-                    // do nothing
+                    // if the error-page configuration cannot be read, fall back to the ASP.NET
+                    // default (RemoteOnly) by leaving customErrors null
                 }
 
                 /* 454 new 404/500 error handling routine */
@@ -556,7 +574,7 @@ namespace DotNetNuke.Entities.Urls
                 bool isPostback = false;
                 if (settings != null)
                 {
-                    if (request.RequestType == "POST")
+                    if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase))
                     {
                         isPostback = true;
                     }
@@ -611,7 +629,7 @@ namespace DotNetNuke.Entities.Urls
                             try
                             {
                                 // 944 : check the original Url in case the requested Url has been rewritten before discovering it's a 404 error
-                                string requestedUrl = request.Url.ToString();
+                                string requestedUrl = request.GetUrl().ToString();
                                 if (result != null && !string.IsNullOrEmpty(result.OriginalPath))
                                 {
                                     requestedUrl = result.OriginalPath;
@@ -628,7 +646,7 @@ namespace DotNetNuke.Entities.Urls
                             catch (Exception regexEx)
                             {
                                 // .some type of exception : output in response header, and go back to using the tabid
-                                response.AppendHeader("X-UrlRewriter-404Exception", regexEx.Message);
+                                response.Headers.Append("X-UrlRewriter-404Exception", regexEx.Message);
                             }
                         }
 
@@ -664,7 +682,7 @@ namespace DotNetNuke.Entities.Urls
                                 reason = result.Reason.ToString();
                             }
 
-                            response.AppendHeader(
+                            response.Headers.Append(
                                 errRH,
                                 string.Format(
                                     CultureInfo.InvariantCulture,
@@ -681,9 +699,8 @@ namespace DotNetNuke.Entities.Urls
 
                             if (!isPostback)
                             {
-                                response.ClearContent();
+                                response.Clear();
                                 response.StatusCode = statusCode;
-                                response.Status = status;
                             }
                             else
                             {
@@ -698,10 +715,10 @@ namespace DotNetNuke.Entities.Urls
                             PortalSettings ps = null;
                             if (context != null && context.Items != null)
                             {
-                                if (context.Items.Contains("PortalSettings"))
+                                if (context.Items.ContainsKey(Portals.PortalController.PortalSettingsContextKey))
                                 {
-                                    ps = (PortalSettings)context.Items["PortalSettings"];
-                                    context.Items.Remove("PortalSettings"); // nix it from the context
+                                    ps = (PortalSettings)context.Items[Portals.PortalController.PortalSettingsContextKey];
+                                    context.Items.Remove(Portals.PortalController.PortalSettingsContextKey); // nix it from the context
                                     DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<LogRequestContext>()?.AddToLogContext("PortalId", Null.NullInteger);
                                 }
                             }
@@ -777,14 +794,15 @@ namespace DotNetNuke.Entities.Urls
                             if (ps != null)
                             {
                                 // re-add the context items portal settings back in
-                                context.Items.Add("PortalSettings", ps);
+                                context.Items.Add(Portals.PortalController.PortalSettingsContextKey, ps);
                                 DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<LogRequestContext>()?.AddToLogContext("PortalId", ps.PortalId);
                             }
 
                             if (redirect)
                             {
                                 errUrl = TestableGlobals.Instance.NavigateURL();
-                                response.Redirect(errUrl, true); // redirect and end response.
+                                response.Redirect(errUrl); // redirect and end response.
+                                CompleteRequest(context);
 
                                 // It will mean the user will have to postback again, but it will work the second time
                             }
@@ -794,24 +812,27 @@ namespace DotNetNuke.Entities.Urls
                                 {
                                     // execute a server transfer to the default.aspx?tabid=xx url
                                     // 767 : object not set error on extensionless 404 errors
-                                    if (context.User == null)
+                                    if (context.User?.Identity == null)
                                     {
                                         context.User = GetCurrentPrincipal(context);
                                     }
 
-                                    response.TrySkipIisCustomErrors = true;
-
-                                    // 881 : spoof the basePage object so that the client dependency framework
-                                    // is satisfied it's working with a page-based handler
-                                    IHttpHandler spoofPage = new CDefault();
-                                    context.Handler = spoofPage;
-                                    server.Transfer("~/" + errUrl, true);
+                                    // Response.TrySkipIisCustomErrors has no ASP.NET Core
+                                    // counterpart: IIS no longer replaces a response that already
+                                    // has a body (configure <httpErrors existingResponse="PassThrough" />
+                                    // in web.config for the ASP.NET Core Module instead).
+                                    // Likewise there is no HttpContext.Handler to spoof: the
+                                    // client-dependency framework's page-handler requirement went
+                                    // away with WebForms.
+                                    // Server.Transfer re-executes a URL in-process and ends the
+                                    // current response; on ASP.NET Core the equivalent is to
+                                    // rewrite the request path and let the rest of the pipeline
+                                    // produce the error page under the status code set above.
+                                    RewriterUtils.RewriteUrl(context, "~/" + errUrl);
                                 }
                                 else
                                 {
-                                    context.RewritePath("~/Default.aspx", false);
-                                    response.TrySkipIisCustomErrors = true;
-                                    response.Status = "404 Not Found";
+                                    RewriterUtils.RewriteUrl(context, "~/Default.aspx");
                                     response.StatusCode = 404;
                                 }
                             }
@@ -824,23 +845,24 @@ namespace DotNetNuke.Entities.Urls
                         // process the error on the external Url by rewriting to the external url
                         if (!string.IsNullOrEmpty(errUrl))
                         {
-                            response.ClearContent();
-                            response.TrySkipIisCustomErrors = true;
+                            response.Clear();
                             string reason = "Not Found";
                             if (result != null)
                             {
                                 reason = result.Reason.ToString();
                             }
 
-                            response.AppendHeader(errRH, string.Format(CultureInfo.InvariantCulture, errRV, "Url", errUrl, reason));
+                            response.Headers.Append(errRH, string.Format(CultureInfo.InvariantCulture, errRV, "Url", errUrl, reason));
                             if (reason404 != null)
                             {
-                                response.AppendHeader("X-Url-Master-404-Data", reason404);
+                                response.Headers.Append("X-Url-Master-404-Data", reason404);
                             }
 
                             response.StatusCode = statusCode;
-                            response.Status = status;
-                            server.Transfer("~/" + errUrl, true);
+
+                            // Server.Transfer equivalent: rewrite onto the error URL and let the
+                            // pipeline render it with the status code set above.
+                            RewriterUtils.RewriteUrl(context, "~/" + errUrl);
                         }
                         else
                         {
@@ -862,11 +884,10 @@ namespace DotNetNuke.Entities.Urls
 
                             if (!string.IsNullOrEmpty(errRH) && !string.IsNullOrEmpty(reason))
                             {
-                                response.AppendHeader(errRH, reason);
+                                response.Headers.Append(errRH, reason);
                             }
 
                             response.StatusCode = statusCode;
-                            response.Status = status;
                         }
                     }
                 }
@@ -878,14 +899,12 @@ namespace DotNetNuke.Entities.Urls
                         // don't restate the requested Url to prevent cross site scripting
                         errorPageHtml.Write("404 Not Found<br>The requested Url does not return any valid content.");
                         response.StatusCode = 404;
-                        response.Status = "404 Not Found";
                     }
                     else
                     {
                         // error, especially if invalid result object
                         errorPageHtml.Write("500 Server Error<br><div style='font-weight:bolder'>An error occured during processing : if possible, check the event log of the server</div>");
                         response.StatusCode = 500;
-                        response.Status = "500 Internal Server Error";
                         if (result != null)
                         {
                             result.Action = ActionType.Output500;
@@ -897,14 +916,14 @@ namespace DotNetNuke.Entities.Urls
                 {
                     if (context != null)
                     {
-                        if (context.Items.Contains("UrlRewrite:Exception") == false)
+                        if (context.Items.ContainsKey("UrlRewrite:Exception") == false)
                         {
                             context.Items.Add("UrlRewrite:Exception", ex.Message);
                             context.Items.Add("UrlRewrite:StackTrace", ex.StackTrace);
                         }
                     }
 
-                    if (ceSection is { Mode: CustomErrorsMode.Off, })
+                    if (customErrors is { Mode: CustomErrorsMode.Off, })
                     {
                         errorPageHtml.Write(errorPageHtmlHeader);
                         errorPageHtml.Write($"<div style='font-weight:bolder'>Exception:</div><div>{ex.Message}</div>");
@@ -915,7 +934,7 @@ namespace DotNetNuke.Entities.Urls
                         {
                             if (errUrl != null && errUrl.StartsWith("~", StringComparison.Ordinal))
                             {
-                                errUrl = VirtualPathUtility.ToAbsolute(errUrl);
+                                errUrl = RewriterUtils.ResolveUrl(HttpContextSource.ApplicationVirtualPath, errUrl);
                             }
                         }
                         finally
@@ -935,9 +954,9 @@ namespace DotNetNuke.Entities.Urls
                 string errorPageHtmlBody = errorPageHtml.ToString();
                 if (errorPageHtmlBody.Length > 0)
                 {
-                    response.Write(errorPageHtmlHeader);
-                    response.Write(errorPageHtmlBody);
-                    response.Write(errorPageHtmlFooter);
+                    WriteOutput(context, errorPageHtmlHeader);
+                    WriteOutput(context, errorPageHtmlBody);
+                    WriteOutput(context, errorPageHtmlFooter);
                 }
 
                 if (ex != null)
@@ -947,31 +966,65 @@ namespace DotNetNuke.Entities.Urls
             }
         }
 
-        private static GenericPrincipal GetCurrentPrincipal(HttpContext context)
+        /// <summary>Gets the principal for the current request, validating DNN's persisted auth cookie.</summary>
+        /// <param name="context">The current HTTP context.</param>
+        /// <returns>The authenticated principal, or an anonymous principal when the request is not (or no longer) authenticated.</returns>
+        /// <remarks>
+        /// The legacy implementation decrypted the <c>FormsAuthentication</c> cookie by hand. On
+        /// ASP.NET Core the cookie authentication handler has already done that by the time the
+        /// rewriter runs (<c>UseAuthentication()</c> precedes this middleware), so
+        /// <see cref="HttpContext.User"/> is authoritative. The only extra check DNN needs is
+        /// that the ticket's auth token has not been revoked server-side by a sign-out, which is
+        /// what the <c>AuthCookie</c> table records.
+        /// </remarks>
+        private static ClaimsPrincipal GetCurrentPrincipal(HttpContext context)
         {
-            // Extract the forms authentication cookie
-            var authCookie = context.Request.Cookies[FormsAuthentication.FormsCookieName];
-            var currentPrincipal = new GenericPrincipal(new GenericIdentity(string.Empty), []);
-
-            try
+            var anonymousPrincipal = new ClaimsPrincipal(new ClaimsIdentity());
+            var currentUser = context.User;
+            if (currentUser?.Identity?.IsAuthenticated != true)
             {
-                if (authCookie != null)
-                {
-                    var authTicket = FormsAuthentication.Decrypt(authCookie.Value);
-                    if (authTicket is { Expired: false, })
-                    {
-                        var roles = authTicket.UserData.Split('|');
-                        var id = new FormsIdentity(authTicket);
-                        currentPrincipal = new GenericPrincipal(id, roles);
-                    }
-                }
-            }
-            catch (Exception)
-            {
-                // do nothing here.
+                return anonymousPrincipal;
             }
 
-            return currentPrincipal;
+            var authTokenClaim = currentUser.FindFirst(DnnAuthenticationDefaults.AuthTokenClaimType);
+            if (authTokenClaim == null)
+            {
+                // the cookie was not issued by DNN's cookie service, so there is nothing to revoke
+                return currentUser;
+            }
+
+            var persistedCookie = AuthCookieController.Instance.Find(authTokenClaim.Value);
+            if (persistedCookie == null || persistedCookie.ExpiresOn < DateTime.UtcNow)
+            {
+                // the cookie has been signed out or has expired server-side
+                return anonymousPrincipal;
+            }
+
+            return currentUser;
+        }
+
+        /// <summary>Buffers response body content for the middleware to flush asynchronously.</summary>
+        /// <param name="context">The current HTTP context.</param>
+        /// <param name="content">The content to append.</param>
+        private static void WriteOutput(HttpContext context, string content)
+        {
+            if (context == null || string.IsNullOrEmpty(content))
+            {
+                return;
+            }
+
+            context.Items.TryGetValue(PendingOutputKey, out var existing);
+            context.Items[PendingOutputKey] = (existing as string ?? string.Empty) + content;
+        }
+
+        /// <summary>Marks the request as fully handled, so the rest of the pipeline is skipped.</summary>
+        /// <param name="context">The current HTTP context.</param>
+        private static void CompleteRequest(HttpContext context)
+        {
+            if (context != null)
+            {
+                context.Items[RequestCompletedKey] = true;
+            }
         }
 
         private static bool CheckForDebug(HttpRequest request, NameValueCollection queryStringCol, bool debugEnabled)
@@ -990,7 +1043,13 @@ namespace DotNetNuke.Entities.Urls
                 {
                     if (request != null)
                     {
-                        debugValue = request.Params.Get("HTTP_" + debugToken.ToUpperInvariant());
+                        // Request.Params merged QueryString/Form/Cookies/ServerVariables; the
+                        // "HTTP_<NAME>" form is the server-variable spelling of a request header.
+                        debugValue = request.Headers[debugToken].ToString();
+                        if (string.IsNullOrEmpty(debugValue))
+                        {
+                            debugValue = request.GetValue(debugToken);
+                        }
                     }
 
                     if (debugValue == null)
@@ -1053,17 +1112,17 @@ namespace DotNetNuke.Entities.Urls
                                     var portalSettings = new PortalSettings(result.TabId, result.PortalAlias);
                                     if (context != null)
                                     {
-                                        context.Items.Add("PortalSettings", portalSettings);
+                                        context.Items.Add(Portals.PortalController.PortalSettingsContextKey, portalSettings);
                                         DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<LogRequestContext>()?.AddToLogContext("PortalId", portalSettings.PortalId);
                                         result.Reason = RedirectReason.File_Url;
                                         string fileUrl = Globals.LinkClick(tab.Url, tab.TabID, -1);
-                                        context.Items.Remove("PortalSettings");
+                                        context.Items.Remove(Portals.PortalController.PortalSettingsContextKey);
                                         DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<LogRequestContext>()?.AddToLogContext("PortalId", Null.NullInteger);
 
                                         // take back out again, because it will be done further downstream
                                         // do a check to make sure we're not repeating the Url again, because the tabid is set, but we don't want to touch
                                         // a linkclick url
-                                        if (!result.OriginalPathNoAlias.EndsWith(HttpUtility.UrlDecode(fileUrl), true, CultureInfo.InvariantCulture))
+                                        if (!result.OriginalPathNoAlias.EndsWith(WebUtility.UrlDecode(fileUrl), true, CultureInfo.InvariantCulture))
                                         {
                                             redirectUrl = fileUrl;
                                         }
@@ -1097,7 +1156,7 @@ namespace DotNetNuke.Entities.Urls
                                     if (request != null)
                                     {
                                         // get the rewrite or requested path in a clean format, suitable for input to the friendly url provider
-                                        cleanPath = RewriteController.GetRewriteOrRequestedPath(result, request.Url);
+                                        cleanPath = RewriteController.GetRewriteOrRequestedPath(result, request.GetUrl());
 
                                         // 727 prevent redirectLoop with do301 in querystring
                                         if (result.Action == ActionType.Redirect301 ||
@@ -1105,7 +1164,7 @@ namespace DotNetNuke.Entities.Urls
                                         {
                                             cleanPath = RedirectTokens.RemoveAnyRedirectTokens(
                                                 cleanPath,
-                                                request.QueryString);
+                                                request.GetQueryString());
                                         }
 
                                         // get the redirect Url from the friendly url provider using the tab, path and settings
@@ -1178,10 +1237,10 @@ namespace DotNetNuke.Entities.Urls
                                     if (response != null)
                                     {
                                         // perform a 301 redirect to the external url of the tab
-                                        response.AppendHeader(
+                                        response.Headers.Append(
                                             "X-Redirect-Reason",
                                             result.Reason.ToString().Replace("_", " ") + " Requested");
-                                        response.RedirectPermanent(result.FinalUrl);
+                                        response.Redirect(result.FinalUrl, true);
                                     }
                                 }
                                 else
@@ -1191,7 +1250,7 @@ namespace DotNetNuke.Entities.Urls
                                         if (response != null)
                                         {
                                             // perform a 301 redirect to the external url of the tab
-                                            response.AppendHeader(
+                                            response.Headers.Append(
                                                 "X-Redirect-Reason",
                                                 result.Reason.ToString().Replace("_", " ") + " Requested");
                                             response.Redirect(result.FinalUrl);
@@ -1496,13 +1555,15 @@ namespace DotNetNuke.Entities.Urls
         {
             try
             {
-                string physicalPath = request.PhysicalPath;
-                string requestedDomain = request.Url.Host;
+                string physicalPath = HttpContextSource.MapPath(request.Path.Value);
+                string requestedDomain = request.Host.Host;
                 string refererPath = null, refererDomain = null;
-                if (request.UrlReferrer != null)
+                var refererHeader = request.Headers.Referer.ToString();
+                if (!string.IsNullOrEmpty(refererHeader))
                 {
-                    refererDomain = request.UrlReferrer.Host;
-                    refererPath = request.UrlReferrer.LocalPath;
+                    var referer = new Uri(refererHeader);
+                    refererDomain = referer.Host;
+                    refererPath = referer.LocalPath;
                 }
 
                 return IgnoreRequestForInstall(physicalPath, refererPath, requestedDomain, refererDomain);
@@ -1538,7 +1599,7 @@ namespace DotNetNuke.Entities.Urls
                 // ignore all install requests
                 retVal = true;
             }
-            else if (request != null && request.Path.EndsWith("imagechallenge.captcha.aspx", StringComparison.InvariantCultureIgnoreCase))
+            else if (request != null && request.Path.Value.EndsWith("imagechallenge.captcha.aspx", StringComparison.InvariantCultureIgnoreCase))
             {
                 retVal = true;
             }
@@ -1854,12 +1915,12 @@ namespace DotNetNuke.Entities.Urls
                             // if the incoming request doesn't match the 'most friendly' url, a 301 Moved Permanently status is returned, along with the friendly url
                             // check the bestFriendlyUrl against either the url, or rawUrl (with and without host)
                             // in each case, the aumdebug parameter will be searched for and replaced
-                            var urlDecode = HttpUtility.UrlDecode(requestedUrl);
+                            var urlDecode = WebUtility.UrlDecode(requestedUrl);
                             if (urlDecode != null)
                             {
                                 string rawUrlWithHost = StripDebugParameter(urlDecode.ToLowerInvariant());
 
-                                ////string rawUrlWithHost = StripDebugParameter(System.Web.HttpUtility.UrlDecode(scheme + requestUri.Host + requestUri.PathAndQuery).ToLowerInvariant());
+                                ////string rawUrlWithHost = StripDebugParameter(System.Web.WebUtility.UrlDecode(scheme + requestUri.Host + requestUri.PathAndQuery).ToLowerInvariant());
                                 string rawUrlWithHostNoScheme = StripDebugParameter(rawUrlWithHost.Replace(scheme, string.Empty));
                                 string bestFriendlyNoScheme = StripDebugParameter(bestFriendlyUrl.ToLowerInvariant().Replace(scheme, string.Empty));
                                 string requestedPathNoScheme = StripDebugParameter(requestUri.AbsoluteUri.Replace(scheme, string.Empty).ToLowerInvariant());
@@ -1899,10 +1960,10 @@ namespace DotNetNuke.Entities.Urls
 
                                 if (!(bestFriendlyNoScheme == requestedPathNoScheme
                                       || bestFriendlyNoScheme == rawUrlWithHost
-                                      || HttpUtility.UrlDecode(bestFriendlyNoScheme) == rawUrlWithHost
+                                      || WebUtility.UrlDecode(bestFriendlyNoScheme) == rawUrlWithHost
                                       || bestFriendlyNoScheme == rawUrlWithHostNoScheme
-                                      || bestFriendlyNoScheme == HttpUtility.UrlDecode(requestedPathNoScheme)
-                                      || HttpUtility.UrlDecode(bestFriendlyNoScheme) == HttpUtility.UrlDecode(requestedPathNoScheme)
+                                      || bestFriendlyNoScheme == WebUtility.UrlDecode(requestedPathNoScheme)
+                                      || WebUtility.UrlDecode(bestFriendlyNoScheme) == WebUtility.UrlDecode(requestedPathNoScheme)
                                       || bestFriendlyNoScheme == rawUrlLowerCase))
                                 {
                                     redirected = true;
@@ -1918,7 +1979,7 @@ namespace DotNetNuke.Entities.Urls
                                     result.DebugMessages.Add("Compared :" + bestFriendlyNoScheme + " [generated] -> " + requestedPathNoScheme + " [requested with no scheme]");
                                     result.DebugMessages.Add("Compared :" + bestFriendlyNoScheme + " [generated] -> " + rawUrlWithHost + " [requested with host and scheme]");
                                     result.DebugMessages.Add("Compared :" + bestFriendlyNoScheme + " [generated] -> " + rawUrlWithHostNoScheme + " [requested with host, no scheme]");
-                                    result.DebugMessages.Add("Compared :" + bestFriendlyNoScheme + " [generated] -> " + HttpUtility.UrlDecode(requestedPathNoScheme) + " [requested and decoded]");
+                                    result.DebugMessages.Add("Compared :" + bestFriendlyNoScheme + " [generated] -> " + WebUtility.UrlDecode(requestedPathNoScheme) + " [requested and decoded]");
                                     result.DebugMessages.Add("Compared :" + bestFriendlyNoScheme + " [generated] -> " + rawUrlLowerCase + " [requested raw Url]");
                                 }
                             }
@@ -1941,7 +2002,7 @@ namespace DotNetNuke.Entities.Urls
                     // Thanks Etienne for the fix for Diacritic Characters Terminal Loop!
                     // if the url contains url encoded characters, they appear here uppercase -> %C3%83%C2
                     // decode the url to get back the original character and do proper casing comparison
-                    string urlDecodedRedirectPath = HttpUtility.UrlDecode(redirectPathOnly);
+                    string urlDecodedRedirectPath = WebUtility.UrlDecode(redirectPathOnly);
 
                     // check for wrong case redirection
                     if (urlDecodedRedirectPath != null && (settings.RedirectWrongCase && !string.Equals(urlDecodedRedirectPath, urlDecodedRedirectPath.ToLowerInvariant(), StringComparison.Ordinal)))
@@ -2200,20 +2261,24 @@ namespace DotNetNuke.Entities.Urls
             return url;
         }
 
-        private static void SecurityCheck(HttpApplication app)
+        private static void SecurityCheck(HttpContext context)
         {
-            HttpRequest request = app.Request;
-            HttpServerUtility server = app.Server;
+            HttpRequest request = context.Request;
 
             // 675 : unnecessarily strict url validation
             // URL validation
             // check for ".." escape characters commonly used by hackers to traverse the folder tree on the server
             // the application should always use the exact relative location of the resource it is requesting
-            var strURL = request.Url.AbsolutePath;
-            var strDoubleDecodeURL = server.UrlDecode(server.UrlDecode(request.Url.AbsolutePath)) ?? string.Empty;
-            if (UrlSlashesRegex.IsMatch(strURL) || UrlSlashesRegex.IsMatch(strDoubleDecodeURL))
+            // HttpServerUtility.UrlDecode has no Core counterpart; WebUtility.UrlDecode is the
+            // documented replacement and performs the same double-decode check.
+            var absolutePath = request.GetUrl().AbsolutePath;
+            var strDoubleDecodeURL = WebUtility.UrlDecode(WebUtility.UrlDecode(absolutePath)) ?? string.Empty;
+            if (UrlSlashesRegex.IsMatch(absolutePath) || UrlSlashesRegex.IsMatch(strDoubleDecodeURL))
             {
-                throw new HttpException(404, "Not Found");
+                // There is no System.Web HttpException on ASP.NET Core. The rewriter's own
+                // exception type carries the same meaning and is turned into a 404 by the
+                // caller's catch block.
+                throw new IllegalRequestException("Not Found");
             }
         }
 
@@ -2232,8 +2297,8 @@ namespace DotNetNuke.Entities.Urls
 
             HttpRequest request = context.Request;
             HttpResponse response = context.Response;
-            string requestType = request.RequestType;
-            NameValueCollection queryStringCol = request.QueryString;
+            string requestType = request.Method;
+            NameValueCollection queryStringCol = request.GetQueryString();
 
             try
             {
@@ -2328,7 +2393,7 @@ namespace DotNetNuke.Entities.Urls
                 }
 
                 // check to see if a post request
-                if (request.RequestType == "POST")
+                if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase))
                 {
                     postRequest = true;
                 }
@@ -2352,8 +2417,8 @@ namespace DotNetNuke.Entities.Urls
                 {
                     // not correct alias for portal : will be redirected
                     // perform a 301 redirect if one has already been found
-                    response.AppendHeader("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
-                    response.RedirectPermanent(result.FinalUrl, false);
+                    response.Headers.Append("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
+                    response.Redirect(result.FinalUrl, true);
                     finished = true;
                 }
 
@@ -2400,8 +2465,8 @@ namespace DotNetNuke.Entities.Urls
                     {
                         // not correct alias for tab : will be redirected
                         // perform a 301 redirect if one has already been found
-                        response.AppendHeader("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
-                        response.RedirectPermanent(result.FinalUrl, false);
+                        response.Headers.Append("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
+                        response.Redirect(result.FinalUrl, true);
                         finished = true;
                     }
                 }
@@ -2477,8 +2542,8 @@ namespace DotNetNuke.Entities.Urls
                     if (result.Action == ActionType.Redirect302Now)
                     {
                         // performs a 302 redirect if requested
-                        response.AppendHeader("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
-                        response.Redirect(result.FinalUrl, false);
+                        response.Headers.Append("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
+                        response.Redirect(result.FinalUrl);
                         finished = true;
                     }
                     else
@@ -2488,8 +2553,8 @@ namespace DotNetNuke.Entities.Urls
                             finished = true;
 
                             // perform a 301 redirect if one has already been found
-                            response.AppendHeader("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
-                            response.RedirectPermanent(result.FinalUrl, false);
+                            response.Headers.Append("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
+                            response.Redirect(result.FinalUrl, true);
                         }
                     }
                 }
@@ -2520,15 +2585,15 @@ namespace DotNetNuke.Entities.Urls
                         switch (result.Action)
                         {
                             case ActionType.Redirect301:
-                                response.AppendHeader("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
-                                response.RedirectPermanent(result.FinalUrl);
+                                response.Headers.Append("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
+                                response.Redirect(result.FinalUrl, true);
                                 break;
                             case ActionType.Redirect302:
-                                response.AppendHeader("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
+                                response.Headers.Append("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
                                 response.Redirect(result.FinalUrl);
                                 break;
                             case ActionType.Output404:
-                                response.AppendHeader("X-Result-Reason", result.Reason.ToString().Replace("_", " "));
+                                response.Headers.Append("X-Result-Reason", result.Reason.ToString().Replace("_", " "));
                                 Handle404OrException(settings, context, null, result, true, showDebug);
                                 break;
                         }
@@ -2552,7 +2617,7 @@ namespace DotNetNuke.Entities.Urls
                     else
                     {
                         finished = true;
-                        response.AppendHeader("X-Result-Reason", result.Reason.ToString().Replace("_", " "));
+                        response.Headers.Append("X-Result-Reason", result.Reason.ToString().Replace("_", " "));
 
                         if (showDebug)
                         {
@@ -2584,7 +2649,7 @@ namespace DotNetNuke.Entities.Urls
                             // show the 404 page if configured
                             result.Action = ActionType.Output404;
                             result.Reason = RedirectReason.Requested_404;
-                            response.AppendHeader("X-Result-Reason", result.Reason.ToString().Replace("_", " "));
+                            response.Headers.Append("X-Result-Reason", result.Reason.ToString().Replace("_", " "));
                             Handle404OrException(settings, context, null, result, true, showDebug);
                         }
                         else
@@ -2608,9 +2673,9 @@ namespace DotNetNuke.Entities.Urls
                             }
 
                             int portalHomeTabId = portalSettings.HomeTabId;
-                            if (context != null && portalSettings != null && !context.Items.Contains("PortalSettings"))
+                            if (context != null && portalSettings != null && !context.Items.ContainsKey(Portals.PortalController.PortalSettingsContextKey))
                             {
-                                context.Items.Add("PortalSettings", portalSettings);
+                                context.Items.Add(Portals.PortalController.PortalSettingsContextKey, portalSettings);
                                 DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<LogRequestContext>()?.AddToLogContext("PortalId", portalSettings.PortalId);
 
                                 // load PortalSettings and HostSettings dictionaries into current context
@@ -2636,13 +2701,13 @@ namespace DotNetNuke.Entities.Urls
                                                 /*
                                                     string debugMsg = "{0}, {1}, {2}, {3}, {4}";
                                                     string productVer = System.Reflection.Assembly.GetExecutingAssembly().GetName(false).Version.ToString();
-                                                    response.AppendHeader("X-" + prodName + "-Debug", string.Format(debugMsg, requestUri.AbsoluteUri, result.FinalUrl, result.RewritePath, result.Action, productVer));
+                                                    response.Headers.Append("X-" + prodName + "-Debug", string.Format(debugMsg, requestUri.AbsoluteUri, result.FinalUrl, result.RewritePath, result.Action, productVer));
                                                      */
                                                 ShowDebugData(context, fullUrl, result, null);
                                             }
 
-                                            response.AppendHeader("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
-                                            response.RedirectPermanent(result.FinalUrl);
+                                            response.Headers.Append("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
+                                            response.Redirect(result.FinalUrl, true);
                                             finished = true;
                                         }
                                         else
@@ -2653,32 +2718,32 @@ namespace DotNetNuke.Entities.Urls
                                                 response.Clear();
 
                                                 // add a refresh header to the response
-                                                response.AddHeader("Refresh", "0;URL=" + result.FinalUrl);
+                                                response.Headers.Append("Refresh", "0;URL=" + result.FinalUrl);
 
                                                 // add the clientside javascript redirection script
-                                                var finalUrl = HttpUtility.HtmlEncode(result.FinalUrl);
-                                                response.Write("<html><head><title></title>");
-                                                response.Write(@"<!-- <script language=""javascript"">window.location.replace(""" + finalUrl + @""")</script> -->");
-                                                response.Write("</head><body><div><a href='" + finalUrl + "'>" + finalUrl + "</a></div></body></html>");
+                                                var finalUrl = WebUtility.HtmlEncode(result.FinalUrl);
+                                                WriteOutput(context, "<html><head><title></title>");
+                                                WriteOutput(context, @"<!-- <script language=""javascript"">window.location.replace(""" + finalUrl + @""")</script> -->");
+                                                WriteOutput(context, "</head><body><div><a href='" + finalUrl + "'>" + finalUrl + "</a></div></body></html>");
                                                 if (showDebug)
                                                 {
                                                     /*
                                                         string debugMsg = "{0}, {1}, {2}, {3}, {4}";
                                                         string productVer = System.Reflection.Assembly.GetExecutingAssembly().GetName(false).Version.ToString();
-                                                        response.AppendHeader("X-" + prodName + "-Debug", string.Format(debugMsg, requestUri.AbsoluteUri, result.FinalUrl, result.RewritePath, result.Action, productVer));
+                                                        response.Headers.Append("X-" + prodName + "-Debug", string.Format(debugMsg, requestUri.AbsoluteUri, result.FinalUrl, result.RewritePath, result.Action, productVer));
                                                          */
                                                     ShowDebugData(context, fullUrl, result, null);
                                                 }
 
                                                 // send the response
                                                 // 891 : reinstate the response.end to stop the entire page loading
-                                                response.End();
+                                                CompleteRequest(context);
                                                 finished = true;
                                             }
                                             else
                                             {
-                                                response.AppendHeader("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
-                                                response.RedirectPermanent(result.FinalUrl);
+                                                response.Headers.Append("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
+                                                response.Redirect(result.FinalUrl, true);
                                                 finished = true;
                                             }
                                         }
@@ -2694,14 +2759,14 @@ namespace DotNetNuke.Entities.Urls
                                     {
                                         if (result.Action == ActionType.Redirect301)
                                         {
-                                            response.AppendHeader("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
-                                            response.RedirectPermanent(result.FinalUrl, false);
+                                            response.Headers.Append("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
+                                            response.Redirect(result.FinalUrl, true);
                                             finished = true;
                                         }
                                         else if (result.Action == ActionType.Redirect302)
                                         {
-                                            response.AppendHeader("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
-                                            response.Redirect(result.FinalUrl, false);
+                                            response.Headers.Append("X-Redirect-Reason", result.Reason.ToString().Replace("_", " ") + " Requested");
+                                            response.Redirect(result.FinalUrl);
                                             finished = true;
                                         }
                                     }
@@ -2779,7 +2844,7 @@ namespace DotNetNuke.Entities.Urls
                             }
                             else
                             {
-                                if (!Globals.ServicesFrameworkRegex.IsMatch(context.Request.RawUrl))
+                                if (!Globals.ServicesFrameworkRegex.IsMatch(context.Request.GetRawUrl()))
                                 {
                                     // no physical path, intercept the request and hand out a 404 error
                                     result.Action = ActionType.Output404;
@@ -2803,9 +2868,11 @@ namespace DotNetNuke.Entities.Urls
             }
             catch (ThreadAbortException)
             {
-                // do nothing, a threadAbortException will have occured from using a server.transfer or response.redirect within the code block.  This is the highest
-                // level try/catch block, so we handle it here.
-                Thread.ResetAbort();
+                // On ASP.NET Framework a Server.Transfer or Response.Redirect inside the block
+                // above aborted the thread and this was the highest-level handler. ASP.NET Core
+                // never aborts threads (and Thread.ResetAbort throws PlatformNotSupportedException),
+                // so this can no longer be raised by the platform; the handler is kept so a
+                // third-party rewrite provider that still throws it cannot take the request down.
             }
             catch (Exception ex)
             {
@@ -2843,7 +2910,7 @@ namespace DotNetNuke.Entities.Urls
             finally
             {
                 // 809 : add in new code copied from urlRewrite class in standard Url Rewrite module
-                if (context != null && context.Items["FirstRequest"] != null)
+                if (context != null && context.Items.ContainsKey("FirstRequest"))
                 {
                     context.Items.Remove("FirstRequest");
 

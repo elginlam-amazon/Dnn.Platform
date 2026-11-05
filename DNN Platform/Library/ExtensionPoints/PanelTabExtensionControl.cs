@@ -3,33 +3,41 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.ExtensionPoints
 {
-    using System.Diagnostics.CodeAnalysis;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System;
 
-    public class PanelTabExtensionControl : WebControl
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+
+    /// <summary>Wraps a tab extension point's control in the edit-page tab content panel.</summary>
+    /// <remarks>
+    /// Was a <c>WebControl</c> whose <c>RenderBeginTag</c>/<c>RenderEndTag</c> were suppressed and
+    /// whose <c>RenderContents</c> emitted the <c>ehccContent</c> wrapper around its children. The
+    /// emitted markup is unchanged; the children now come from <see cref="ChildContent"/> instead of
+    /// the <c>Controls</c> collection.
+    /// </remarks>
+    public class PanelTabExtensionControl : ComponentBase
     {
+        /// <summary>Gets or sets the DOM id of the panel.</summary>
+        [Parameter]
         public string PanelId { get; set; }
 
-        /// <inheritdoc />
-        public override void RenderBeginTag(HtmlTextWriter writer)
-        {
-            writer.Write(string.Empty);
-        }
+        /// <summary>Gets or sets the content rendered inside the panel.</summary>
+        [Parameter]
+        public RenderFragment ChildContent { get; set; }
 
         /// <inheritdoc />
-        public override void RenderEndTag(HtmlTextWriter writer)
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
-            writer.Write(string.Empty);
-        }
+            if (builder is null)
+            {
+                throw new ArgumentNullException(nameof(builder));
+            }
 
-        /// <inheritdoc />
-        [SuppressMessage("Microsoft.Naming", "CA1725:ParameterNamesShouldMatchBaseDeclaration", Justification = "Breaking change")]
-        protected override void RenderContents(HtmlTextWriter op)
-        {
-            op.Write($"<div class=\"ehccContent dnnClear\" id=\"{this.PanelId}\">");
-            base.RenderContents(op);
-            op.Write("</div>");
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "ehccContent dnnClear");
+            builder.AddAttribute(2, "id", this.PanelId);
+            builder.AddContent(3, this.ChildContent);
+            builder.CloseElement();
         }
     }
 }

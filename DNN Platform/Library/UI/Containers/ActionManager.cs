@@ -6,12 +6,11 @@ namespace DotNetNuke.UI.Containers
     using System;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
-    using System.Web;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Modules.Actions;
@@ -25,14 +24,14 @@ namespace DotNetNuke.UI.Containers
     using DotNetNuke.UI.Modules;
     using DotNetNuke.UI.WebControls;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.JSInterop;
 
     /// <summary>ActionManager is a helper class that provides common Action Behaviors that can be used by any <see cref="IActionControl"/> implementation.</summary>
     public class ActionManager
     {
         private readonly IPortalSettings portalSettings = PortalController.Instance.GetCurrentSettings();
-        private readonly HttpRequest request = HttpContext.Current.Request;
-        private readonly HttpResponse response = HttpContext.Current.Response;
         private readonly IEventLogger eventLogger;
 
         /// <summary>Initializes a new instance of the <see cref="ActionManager"/> class.</summary>
@@ -57,6 +56,14 @@ namespace DotNetNuke.UI.Containers
 
         /// <summary>Gets the ModuleInstanceContext instance that is connected to this ActionManager instance.</summary>
         protected ModuleInstanceContext ModuleContext => this.ActionControl.ModuleControl.ModuleContext;
+
+        /// <summary>Gets the current request.</summary>
+        /// <remarks>Was captured from <c>HttpContext.Current</c> in the constructor.</remarks>
+        private HttpRequest Request => HttpContextSource.CurrentOrThrow.Request;
+
+        /// <summary>Gets the current response.</summary>
+        /// <remarks>Was captured from <c>HttpContext.Current</c> in the constructor.</remarks>
+        private HttpResponse Response => HttpContextSource.CurrentOrThrow.Response;
 
         /// <summary>DisplayControl determines whether the associated Action control should be displayed.</summary>
         /// <param name="objNodes">The nav nodes.</param>
@@ -108,8 +115,9 @@ namespace DotNetNuke.UI.Containers
         /// <summary>GetClientScriptURL gets the client script to attach to the control's client side onclick event.</summary>
         /// <param name="action">The Action.</param>
         /// <param name="control">The Control.</param>
+        /// <remarks>The <c>control</c> parameter was a <c>System.Web.UI.WebControls.WebControl</c>.</remarks>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
-        public void GetClientScriptURL(ModuleAction action, WebControl control)
+        public void GetClientScriptURL(ModuleAction action, IDnnControl control)
         {
             if (!string.IsNullOrEmpty(action.ClientScript))
             {
@@ -120,7 +128,7 @@ namespace DotNetNuke.UI.Containers
                     script = script.Substring(jSPos + 11);
                 }
 
-                control.Attributes.Add("onClick", $"javascript: return {script};");
+                control.Attributes["onClick"] = $"javascript: return {script};";
             }
         }
 
@@ -234,7 +242,7 @@ namespace DotNetNuke.UI.Containers
             ModuleController.SynchronizeModule(this.ModuleContext.ModuleId);
 
             // Redirect to the same page to pick up changes
-            this.response.Redirect(this.request.RawUrl, true);
+            this.Response.Redirect(this.Request.GetRawUrl(), true);
         }
 
         private void Delete(ModuleAction command)
@@ -260,18 +268,31 @@ namespace DotNetNuke.UI.Containers
             this.eventLogger.AddLog(module, this.portalSettings, user.UserID, string.Empty, EventLogType.MODULE_SENT_TO_RECYCLE_BIN);
 
             // Redirect to the same page to pick up changes
-            this.response.Redirect(this.request.RawUrl, true);
+            this.Response.Redirect(this.Request.GetRawUrl(), true);
         }
 
         private void DoAction(ModuleAction command)
         {
             if (command.NewWindow)
             {
-                UrlUtils.OpenNewWindow(this.ActionControl.ModuleControl.Control.Page, this.GetType(), command.Url);
+                // Was UrlUtils.OpenNewWindow(Page, Type, url), which registered a window.open startup
+                // script on the WebForms page. It is JS interop now; when no JS runtime is reachable
+                // (there is no interactive circuit yet) the navigation still happens, in this window,
+                // rather than being silently dropped.
+                var jsRuntime = HttpContextSource.Current?.RequestServices?.GetService<IJSRuntime>()
+                                ?? Globals.GetCurrentServiceProvider().GetService<IJSRuntime>();
+                if (jsRuntime != null)
+                {
+                    UrlUtils.OpenNewWindow(jsRuntime, command.Url).GetAwaiter().GetResult();
+                }
+                else
+                {
+                    this.Response.Redirect(command.Url, true);
+                }
             }
             else
             {
-                this.response.Redirect(command.Url, true);
+                this.Response.Redirect(command.Url, true);
             }
         }
 
@@ -290,7 +311,7 @@ namespace DotNetNuke.UI.Containers
             }
 
             // Redirect to the same page to pick up changes
-            this.response.Redirect(this.request.RawUrl, true);
+            this.Response.Redirect(this.Request.GetRawUrl(), true);
         }
 
         private void Translate(ModuleAction command)
@@ -307,7 +328,7 @@ namespace DotNetNuke.UI.Containers
             }
 
             // Redirect to the same page to pick up changes
-            this.response.Redirect(this.request.RawUrl, true);
+            this.Response.Redirect(this.Request.GetRawUrl(), true);
         }
 
         private void MoveToPane(ModuleAction command)
@@ -316,7 +337,7 @@ namespace DotNetNuke.UI.Containers
             ModuleController.Instance.UpdateTabModuleOrder(this.ModuleContext.TabId);
 
             // Redirect to the same page to pick up changes
-            this.response.Redirect(this.request.RawUrl, true);
+            this.Response.Redirect(this.Request.GetRawUrl(), true);
         }
 
         private void MoveUpDown(ModuleAction command)
@@ -340,7 +361,7 @@ namespace DotNetNuke.UI.Containers
             ModuleController.Instance.UpdateTabModuleOrder(this.ModuleContext.TabId);
 
             // Redirect to the same page to pick up changes
-            this.response.Redirect(this.request.RawUrl, true);
+            this.Response.Redirect(this.Request.GetRawUrl(), true);
         }
     }
 }

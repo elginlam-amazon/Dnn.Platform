@@ -1,14 +1,14 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.Scheduling
 {
     using System;
     using System.Diagnostics.CodeAnalysis;
-    using System.Threading;
-    using System.Web.Compilation;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Common;
+    using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
@@ -69,7 +69,11 @@ namespace DotNetNuke.Services.Scheduling
 
                     if (process != null)
                     {
-                        process.ScheduleHistoryItem?.Succeeded = false;
+                        if (process.ScheduleHistoryItem != null)
+                        {
+                            process.ScheduleHistoryItem.Succeeded = false;
+                        }
+
                         process.Errored(ref exc);
                     }
                 }
@@ -131,7 +135,7 @@ namespace DotNetNuke.Services.Scheduling
             }
         }
 
-        // Add a queue request to Threadpool with a
+        // Add a queue request to the thread pool with a
         // callback to RunPooledThread which calls Run()
         public void AddQueueUserWorkItem(ScheduleItem s)
         {
@@ -140,11 +144,10 @@ namespace DotNetNuke.Services.Scheduling
             var obj = new ScheduleHistoryItem(s);
             try
             {
-                // Create a callback to subroutine RunPooledThread
-                WaitCallback callback = this.RunPooledThread;
-
-                // And put in a request to ThreadPool to run the process.
-                ThreadPool.QueueUserWorkItem(callback, obj);
+                // Queue the process on the thread pool. Task.Run replaces
+                // ThreadPool.QueueUserWorkItem; the scheduler's own concurrency cap
+                // (MaxThreadCount / number of process groups) still limits how many run at once.
+                _ = Task.Run(() => this.RunPooledThread(obj));
             }
             catch (Exception exc)
             {
@@ -156,7 +159,10 @@ namespace DotNetNuke.Services.Scheduling
         {
             // This is a method to encapsulate returning
             // an object whose class inherits SchedulerClient.
-            Type t = BuildManager.GetType(strProcess, true, true);
+            // BuildManager does not exist in modern .NET. Reflection.CreateType resolves the
+            // type through AssemblyLoadContext.Default (see Framework/Reflection.cs) and throws
+            // when the type cannot be found, matching BuildManager.GetType(name, throwOnError: true).
+            Type t = Reflection.CreateType(strProcess, false);
             return (SchedulerClient)ActivatorUtilities.CreateInstance(services, t, objScheduleHistoryItem);
         }
 

@@ -14,7 +14,7 @@ namespace DotNetNuke.Services.Installer.Blocker
     /// <summary>This class ...</summary>
     public class InstallBlocker : ServiceLocator<IInstallBlocker, InstallBlocker>, IInstallBlocker
     {
-        private const string InstallBlockerFile = "\\installBlocker.lock";
+        private const string InstallBlockerFile = "installBlocker.lock";
         private bool fileCreated;
 
         /// <inheritdoc />
@@ -22,7 +22,7 @@ namespace DotNetNuke.Services.Installer.Blocker
         {
             if (!this.fileCreated)
             {
-                File.Create(Globals.ApplicationMapPath + InstallBlockerFile);
+                File.Create(Path.Combine(Globals.ApplicationMapPath, InstallBlockerFile));
             }
 
             this.fileCreated = true;
@@ -31,7 +31,7 @@ namespace DotNetNuke.Services.Installer.Blocker
         /// <inheritdoc />
         public bool IsInstallInProgress()
         {
-            return this.fileCreated || File.Exists(Globals.ApplicationMapPath + InstallBlockerFile);
+            return this.fileCreated || File.Exists(Path.Combine(Globals.ApplicationMapPath, InstallBlockerFile));
         }
 
         /// <inheritdoc />
@@ -42,7 +42,7 @@ namespace DotNetNuke.Services.Installer.Blocker
                 {
                     if (this.IsInstallInProgress() && this.fileCreated)
                     {
-                        File.Delete(Globals.ApplicationMapPath + InstallBlockerFile);
+                        File.Delete(Path.Combine(Globals.ApplicationMapPath, InstallBlockerFile));
                     }
                 },
                 "Deleting lock file",

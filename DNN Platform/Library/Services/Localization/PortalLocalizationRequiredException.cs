@@ -29,8 +29,10 @@ public class PortalLocalizationRequiredException : Exception
     }
 
     /// <inheritdoc />
+#pragma warning disable SYSLIB0051 // Formatter-based serialization is obsolete; ctor retained for public surface compatibility.
     protected PortalLocalizationRequiredException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
     }
+#pragma warning restore SYSLIB0051
 }

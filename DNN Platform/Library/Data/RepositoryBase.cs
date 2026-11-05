@@ -8,14 +8,13 @@ namespace DotNetNuke.Data
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Collections;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.ComponentModel.DataAnnotations;
-
+    using DotNetNuke.Services.Cache;
     using Microsoft.Extensions.DependencyInjection;
 
     public abstract class RepositoryBase<T> : IRepository<T>

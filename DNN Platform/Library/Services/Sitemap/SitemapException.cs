@@ -5,9 +5,13 @@
 namespace DotNetNuke.Services.Sitemap;
 
 using System;
-using System.Runtime.Serialization;
 
 /// <summary>An exception thrown when there's an issue generating a site map.</summary>
+/// <remarks>
+/// The binary-serialization constructor was removed: formatter-based serialization of exceptions
+/// is obsolete (SYSLIB0051) and non-functional on modern .NET. [Serializable] is kept so the type
+/// still reports itself as serializable to callers that check the attribute.
+/// </remarks>
 [Serializable]
 public class SitemapException : Exception
 {
@@ -25,12 +29,6 @@ public class SitemapException : Exception
     /// <inheritdoc />
     public SitemapException(string message, Exception innerException)
         : base(message, innerException)
-    {
-    }
-
-    /// <inheritdoc />
-    protected SitemapException(SerializationInfo info, StreamingContext context)
-        : base(info, context)
     {
     }
 }

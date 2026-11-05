@@ -9,13 +9,11 @@ namespace DotNetNuke.Data
     using System.Collections.Generic;
     using System.Data;
     using System.Data.Common;
-    using System.Data.SqlClient;
     using System.Data.SqlTypes;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.IO;
     using System.Text;
-    using System.Web.Hosting;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -30,7 +28,7 @@ namespace DotNetNuke.Data
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Scheduling;
     using DotNetNuke.Services.Search.Entities;
-    using Microsoft.ApplicationBlocks.Data;
+    using Microsoft.Data.SqlClient;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -269,7 +267,7 @@ namespace DotNetNuke.Data
             string path = this.ProviderPath;
             if (!string.IsNullOrEmpty(path))
             {
-                path = HostingEnvironment.MapPath(path);
+                path = HttpContextSource.MapPath(path);
 
                 // ReSharper disable once AssignNullToNotNullAttribute
                 if (Directory.Exists(path))
@@ -4206,13 +4204,28 @@ namespace DotNetNuke.Data
             }
 
             sql = DataUtil.ReplaceTokens(sql);
+            SqlConnection connection = null;
             try
             {
-                return SqlHelper.ExecuteReader(this.ConnectionString, CommandType.Text, sql, sqlCommandParameters);
+                connection = new SqlConnection(this.ConnectionString);
+                var command = new SqlCommand(sql, connection) { CommandType = CommandType.Text };
+                if (sqlCommandParameters != null)
+                {
+                    command.Parameters.AddRange(sqlCommandParameters);
+                }
+
+                connection.Open();
+
+                // CommandBehavior.CloseConnection preserves the SqlHelper.ExecuteReader(connectionString, ...) contract:
+                // the returned reader owns the connection and closes it when the reader is closed.
+                return command.ExecuteReader(CommandBehavior.CloseConnection);
             }
-            catch
+            catch (Exception ex)
             {
+                connection?.Dispose();
+
                 // error in SQL query
+                Logger.LogDebug(ex, "Error executing SQL: {Sql}", sql);
                 return null;
             }
         }

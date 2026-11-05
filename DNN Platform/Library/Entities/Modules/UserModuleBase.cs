@@ -9,11 +9,10 @@ namespace DotNetNuke.Entities.Modules
     using System.Globalization;
     using System.IO;
     using System.Runtime.CompilerServices;
-    using System.Web;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Lists;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
@@ -24,6 +23,7 @@ namespace DotNetNuke.Entities.Modules
     using DotNetNuke.Security.Roles;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Mail;
     using DotNetNuke.Services.Social.Notifications;
     using DotNetNuke.Services.UserRequest;
@@ -57,6 +57,7 @@ namespace DotNetNuke.Entities.Modules
     public partial class UserModuleBase : PortalModuleBase
     {
         private UserInfo user;
+        private int? userIdState;
 
         /// <summary>Initializes a new instance of the <see cref="UserModuleBase"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.4. Please use overload with ListController. Scheduled removal in v12.0.0.")]
@@ -93,31 +94,35 @@ namespace DotNetNuke.Entities.Modules
         }
 
         /// <summary>Gets or sets the UserId associated with this control.</summary>
+        /// <remarks>
+        /// The value used to live in WebForms <c>ViewState</c>, which does not exist in Blazor.
+        /// A Blazor component instance survives for the life of the circuit, so the value is held
+        /// in a component field instead — the same lifetime ViewState gave it.
+        /// </remarks>
         public new int UserId
         {
             get
             {
-                int userId = Null.NullInteger;
-                if (this.ViewState["UserId"] == null)
+                if (this.userIdState.HasValue)
                 {
-                    if (this.Request.QueryString["userid"] != null)
-                    {
-                        // Use Int32.MaxValue as invalid UserId
-                        userId = int.TryParse(this.Request.QueryString["userid"], out var id) ? id : int.MaxValue;
-                        this.ViewState["UserId"] = userId;
-                    }
-                }
-                else
-                {
-                    userId = Convert.ToInt32(this.ViewState["UserId"], CultureInfo.InvariantCulture);
+                    return this.userIdState.Value;
                 }
 
-                return userId;
+                var requestedUserId = this.Request?.Query["userid"].ToString();
+                if (!string.IsNullOrEmpty(requestedUserId))
+                {
+                    // Use Int32.MaxValue as invalid UserId
+                    var userId = int.TryParse(requestedUserId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : int.MaxValue;
+                    this.userIdState = userId;
+                    return userId;
+                }
+
+                return Null.NullInteger;
             }
 
             set
             {
-                this.ViewState["UserId"] = value;
+                this.userIdState = value;
             }
         }
 
@@ -131,7 +136,7 @@ namespace DotNetNuke.Entities.Modules
         protected virtual bool AddUser => this.UserId == Null.NullInteger;
 
         /// <summary>Gets a value indicating whether the current user is an Administrator (or SuperUser).</summary>
-        protected bool IsAdmin => this.Request.IsAuthenticated && PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName);
+        protected bool IsAdmin => this.Request.IsAuthenticated() && PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName);
 
         /// <summary>Gets a value indicating whether this is the current user or admin.</summary>
         /// <value>gets whether this is the current user or admin.</value>
@@ -146,9 +151,9 @@ namespace DotNetNuke.Entities.Modules
             get
             {
                 bool isEdit = false;
-                if (this.Request.QueryString["ctl"] != null)
+                var ctl = this.Request?.Query["ctl"].ToString();
+                if (!string.IsNullOrEmpty(ctl))
                 {
-                    string ctl = this.Request.QueryString["ctl"];
                     if (ctl.Equals("edit", StringComparison.OrdinalIgnoreCase))
                     {
                         isEdit = true;
@@ -178,9 +183,9 @@ namespace DotNetNuke.Entities.Modules
                     else
                     {
                         // admin tab
-                        if (this.Request.QueryString["ctl"] != null)
+                        var ctl = this.Request?.Query["ctl"].ToString();
+                        if (!string.IsNullOrEmpty(ctl))
                         {
-                            string ctl = this.Request.QueryString["ctl"];
                             if (ctl.Equals("profile", StringComparison.OrdinalIgnoreCase))
                             {
                                 isProfile = true;
@@ -197,7 +202,7 @@ namespace DotNetNuke.Entities.Modules
         protected bool IsRegister => !this.IsAdmin && !this.IsUser;
 
         /// <summary>Gets a value indicating whether the User is editing their own information.</summary>
-        protected bool IsUser => this.Request.IsAuthenticated && (this.UserId == this.UserInfo.UserID);
+        protected bool IsUser => this.Request.IsAuthenticated() && (this.UserId == this.UserInfo.UserID);
 
         /// <summary>Gets the PortalId to use for this control.</summary>
         protected int UserPortalID => this.IsHostTab ? Null.NullInteger : this.PortalId;
@@ -431,9 +436,9 @@ namespace DotNetNuke.Entities.Modules
 
             // Set AffiliateId
             int affiliateId = Null.NullInteger;
-            if (this.Request.Cookies["AffiliateId"] != null)
+            if (this.Request != null && this.Request.Cookies.TryGetValue("AffiliateId", out var affiliateCookie))
             {
-                affiliateId = int.Parse(this.Request.Cookies["AffiliateId"].Value, CultureInfo.InvariantCulture);
+                affiliateId = int.Parse(affiliateCookie, CultureInfo.InvariantCulture);
             }
 
             newUser.AffiliateID = affiliateId;
@@ -448,26 +453,35 @@ namespace DotNetNuke.Entities.Modules
             string geoIPFile;
             geoIPFile = "controls/CountryListBox/Data/GeoIP.dat";
             var userRequestIpAddressController = UserRequestIPAddressController.Instance;
-            var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress(new HttpRequestWrapper(this.Request));
+            var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress(this.Request);
+
+            // Request.UserHostAddress is HttpContext.Connection.RemoteIpAddress on ASP.NET Core.
+            // This mirrors the ClientIpAddress parameter of the Blazor CountryListBox component,
+            // which performs the same lookup when it renders the country list.
+            var remoteIpAddress = this.Request?.HttpContext?.Connection?.RemoteIpAddress?.ToString();
             if (ipAddress == "127.0.0.1")
             {
                 // 'The country cannot be detected because the user is local.
                 isLocal = true;
 
                 // Set the IP address in case they didn't specify LocalhostCountryCode
-                ip = this.Page.Request.UserHostAddress;
+                ip = remoteIpAddress;
             }
             else
             {
                 // Set the IP address so we can find the country
-                ip = this.Page.Request.UserHostAddress;
+                ip = remoteIpAddress;
             }
 
             // Check to see if we need to generate the Cache for the GeoIPData file
-            if (this.Context.Cache.Get("GeoIPData") == null && cacheGeoIPData)
+            var geoIpFilePath = HttpContextSource.MapPath(geoIPFile);
+            if (DataCache.GetCache("GeoIPData") == null && cacheGeoIPData)
             {
                 // Store it as  well as setting a dependency on the file
-                this.Context.Cache.Insert("GeoIPData", CountryLookup.FileToMemory(this.Context.Server.MapPath(geoIPFile)), new CacheDependency(this.Context.Server.MapPath(geoIPFile)));
+                DataCache.SetCache(
+                    "GeoIPData",
+                    CountryLookup.FileToMemory(geoIpFilePath),
+                    DataCache.CreateFileDependency(geoIpFilePath));
             }
 
             // Check to see if the request is a localhost request
@@ -486,12 +500,12 @@ namespace DotNetNuke.Entities.Modules
             if (cacheGeoIPData)
             {
                 // Yes, get it from cache
-                countryLookup = new CountryLookup((MemoryStream)this.Context.Cache.Get("GeoIPData"));
+                countryLookup = new CountryLookup(DataCache.GetCache<MemoryStream>("GeoIPData"));
             }
             else
             {
                 // No, get it from file
-                countryLookup = new CountryLookup(this.Context.Server.MapPath(geoIPFile));
+                countryLookup = new CountryLookup(geoIpFilePath);
             }
 
             // Get the country code based on the IP address

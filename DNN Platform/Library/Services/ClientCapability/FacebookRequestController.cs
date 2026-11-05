@@ -7,9 +7,9 @@ namespace DotNetNuke.Services.ClientCapability
     using System.Diagnostics.CodeAnalysis;
     using System.Security.Cryptography;
     using System.Text;
-    using System.Web;
 
     using DotNetNuke.Common.Utilities;
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Make modules that are aware of Facebook’s <c>signed_request</c> – a parameter that is POSTed to the web page being loaded in the iFrame, giving it variables such as if the Page has been Liked, and the age range of the user.</summary>
     public class FacebookRequestController
@@ -41,12 +41,20 @@ namespace DotNetNuke.Services.ClientCapability
                 return null;
             }
 
-            if (request.RequestType != "POST")
+            if (!HttpMethods.IsPost(request.Method))
             {
                 return null;
             }
 
-            string rawSignedRequest = request[SignedRequestParameter];
+            // Legacy Request[key] searched QueryString, Form then Cookies; Facebook POSTs the
+            // signed request as a form field, so form first, then query string.
+            var rawSignedRequest = request.HasFormContentType
+                ? request.Form[SignedRequestParameter].ToString()
+                : string.Empty;
+            if (string.IsNullOrEmpty(rawSignedRequest))
+            {
+                rawSignedRequest = request.Query[SignedRequestParameter].ToString();
+            }
             return GetFacebookDetailsFromRequest(rawSignedRequest);
         }
 

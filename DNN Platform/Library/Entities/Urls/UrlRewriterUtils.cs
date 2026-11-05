@@ -5,14 +5,15 @@ namespace DotNetNuke.Entities.Urls
 {
     using System;
     using System.Globalization;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Logging;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Log.EventLog;
     using DotNetNuke.Services.UserRequest;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.Logging;
 
     public static class UrlRewriterUtils
@@ -84,9 +85,10 @@ namespace DotNetNuke.Entities.Urls
             {
                 try
                 {
-                    if (request.UrlReferrer != null)
+                    var referer = request.Headers.Referer.ToString();
+                    if (!string.IsNullOrEmpty(referer))
                     {
-                        log.LogProperties.Add(new LogDetailInfo("Referer", request.UrlReferrer.AbsoluteUri));
+                        log.LogProperties.Add(new LogDetailInfo("Referer", new Uri(referer).AbsoluteUri));
                     }
                 }
                 catch (UriFormatException)
@@ -94,14 +96,17 @@ namespace DotNetNuke.Entities.Urls
                     log.LogProperties.Add(new LogDetailInfo("Referer", request.Headers["Referer"]));
                 }
 
-                log.LogProperties.Add(new LogDetailInfo("Url", request.Url.AbsoluteUri));
-                log.LogProperties.Add(new LogDetailInfo("UserAgent", request.UserAgent));
+                log.LogProperties.Add(new LogDetailInfo("Url", request.GetUrl().AbsoluteUri));
+                log.LogProperties.Add(new LogDetailInfo("UserAgent", request.Headers.UserAgent.ToString()));
 
                 var userRequestIpAddressController = UserRequestIPAddressController.Instance;
-                var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress(new HttpRequestWrapper(request));
+                var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress(request);
 
                 log.LogProperties.Add(new LogDetailInfo("HostAddress", ipAddress));
-                log.LogProperties.Add(new LogDetailInfo("HostName", request.UserHostName));
+
+                // ASP.NET Core has no Request.UserHostName (reverse DNS of the client); the Host
+                // header is the closest equivalent that is actually available per-request.
+                log.LogProperties.Add(new LogDetailInfo("HostName", request.Host.Value));
             }
 
             LogController.Instance.AddLog(log);

@@ -6,6 +6,9 @@ namespace DotNetNuke.Services.Search.Internals
     using System.IO;
 
     using Lucene.Net.Analysis;
+    using Lucene.Net.Analysis.Core;
+    using Lucene.Net.Analysis.En;
+    using Lucene.Net.Analysis.Miscellaneous;
     using Lucene.Net.Analysis.Standard;
 
     /// <summary>This is responsible for the filters chain that analyzes search documents/queries.</summary>
@@ -21,27 +24,33 @@ namespace DotNetNuke.Services.Search.Internals
         }
 
         /// <inheritdoc />
-        public override TokenStream TokenStream(string fieldName, TextReader reader)
+        protected override TokenStreamComponents CreateComponents(string fieldName, TextReader reader)
         {
             var wordLengthMinMax = SearchHelper.Instance.GetSearchMinMaxLength();
 
+            var tokenizer = new StandardTokenizer(Constants.LuceneVersion, reader);
+
             // Note: the order of filtering is important for both operation and performance, so we try to make it work faster
             // Also, note that filters are applied from the innermost outwards.
-            var filter =
-                new ASCIIFoldingFilter(// accents filter
+            TokenStream filter =
+                new ASCIIFoldingFilter( // accents filter
                     new LowerCaseFilter(
+                        Constants.LuceneVersion,
                         new LengthFilter(
+                            Constants.LuceneVersion,
                             new StandardFilter(
-                                new StandardTokenizer(Constants.LuceneVersion, reader)),
+                                Constants.LuceneVersion,
+                                tokenizer),
                             wordLengthMinMax.Item1,
-                            wordLengthMinMax.Item2)));
+                            wordLengthMinMax.Item2)),
+                    false);
 
-            if (!this.useStemmingFilter)
+            if (this.useStemmingFilter)
             {
-                return filter;
+                filter = new PorterStemFilter(filter);
             }
 
-            return new PorterStemFilter(filter);
+            return new TokenStreamComponents(tokenizer, filter);
         }
     }
 }

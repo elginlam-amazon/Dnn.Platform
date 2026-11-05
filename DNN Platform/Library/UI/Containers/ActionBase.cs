@@ -7,7 +7,6 @@ namespace DotNetNuke.UI.Containers
     using System.Diagnostics.CodeAnalysis;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
@@ -21,9 +20,13 @@ namespace DotNetNuke.UI.Containers
 
     using Microsoft.Extensions.DependencyInjection;
 
-    /// <summary>ActionBase is an abstract base control for Action objects that inherit from UserControl.</summary>
-    /// <remarks>ActionBase inherits from <see cref="UserControl"/>, and implements the <see cref="IActionControl"/> Interface.</remarks>
-    public abstract class ActionBase : UserControl, IActionControl
+    /// <summary>ActionBase is an abstract base control for Action objects.</summary>
+    /// <remarks>
+    /// ActionBase inherited from <c>System.Web.UI.UserControl</c>; it now inherits from
+    /// <see cref="DnnComponentBase"/>, the DNN skinning component, and still implements the
+    /// <see cref="IActionControl"/> Interface.
+    /// </remarks>
+    public abstract class ActionBase : DnnComponentBase, IActionControl
     {
         /// <summary>Defines if the action supports icons.</summary>
         [Obsolete("Deprecated in DotNetNuke 9.8.1. Use SupportsIcons property. Scheduled for removal in v11.0.0.")]
@@ -111,15 +114,10 @@ namespace DotNetNuke.UI.Containers
         /// <param name="actionID">The id of the action.</param>
         protected void ProcessAction(string actionID)
         {
-            if (this.ModuleControl is IAsyncModuleControl)
-            {
-                // We need to defer accesing this.Actions as it could only be accesible after the WebForms async point.
-                this.Page.RegisterAsyncTask(new PageAsyncTask(ct => this.ProcessActionInternalAsync(actionID, ct)));
-            }
-            else
-            {
-                this.ProcessActionInternal(actionID);
-            }
+            // The WebForms version deferred this with Page.RegisterAsyncTask for an
+            // IAsyncModuleControl, because this.Actions was only reachable after the WebForms async
+            // point. A Blazor component has no such point, so the actions are read directly.
+            this.ProcessActionInternal(actionID);
         }
 
         protected Task ProcessActionInternalAsync(string actionID, CancellationToken cancellationToken)
@@ -147,15 +145,8 @@ namespace DotNetNuke.UI.Containers
         /// <param name="e">The event arguments.</param>
         protected override void OnLoad(EventArgs e)
         {
-            if (this.ModuleControl is IAsyncModuleControl)
-            {
-                // We need to defer accesing this.Actions as it could only be accesible after the WebForms async point.
-                this.Page.RegisterAsyncTask(new PageAsyncTask(this.LoadActionsAsync));
-            }
-            else
-            {
-                this.LoadActions();
-            }
+            // See ProcessAction: there is no WebForms async point to defer past any more.
+            this.LoadActions();
 
             base.OnLoad(e);
         }

@@ -7,12 +7,25 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
     using System;
     using System.ComponentModel;
     using System.Diagnostics;
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
+
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
+    using SixLabors.ImageSharp.Processing;
 
     /// <summary>Resize ImageTransform class.</summary>
     public class ImageResizeTransform : ImageTransform
     {
+        /// <summary>
+        /// Reproduces the GDI+ <c>CompositingMode.SourceCopy</c> the original transform drew with:
+        /// the source pixels (including their alpha) replace the destination rather than being
+        /// blended over it.
+        /// </summary>
+        private static readonly GraphicsOptions SourceCopy = new GraphicsOptions
+        {
+            AlphaCompositionMode = PixelAlphaCompositionMode.Src,
+            ColorBlendingMode = PixelColorBlendingMode.Normal,
+        };
+
         private int width;
         private int height;
         private int border;
@@ -174,7 +187,29 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
             }
         }
 
-        private Bitmap FitImage(Image img, int scaledHeight, int scaledWidth)
+        /// <summary>
+        /// Replaces <c>Graphics.DrawImage(img, x, y, width, height)</c>: the source is scaled to the
+        /// requested size with the configured resampler and then composited onto the canvas at the
+        /// requested offset.
+        /// </summary>
+        private void DrawScaled(Image<Rgba32> canvas, Image source, int x, int y, int resizeWidth, int resizeHeight)
+        {
+            if (resizeWidth <= 0 || resizeHeight <= 0)
+            {
+                return;
+            }
+
+            using var scaled = source.Clone(ctx => ctx.Resize(new ResizeOptions
+            {
+                Size = new Size(resizeWidth, resizeHeight),
+                Mode = ResizeMode.Stretch,
+                Sampler = this.GetResampler(),
+            }));
+
+            canvas.Mutate(ctx => ctx.DrawImage(scaled, new Point(x, y), SourceCopy));
+        }
+
+        private Image<Rgba32> FitImage(Image img, int scaledHeight, int scaledWidth)
         {
             int resizeWidth;
             int resizeHeight;
@@ -202,21 +237,17 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
                 }
             }
 
-            var newimage = new Bitmap(resizeWidth + (2 * this.border), resizeHeight + (2 * this.border));
-            var graphics = Graphics.FromImage(newimage);
+            var newimage = new Image<Rgba32>(resizeWidth + (2 * this.border), resizeHeight + (2 * this.border));
 
-            graphics.CompositingMode = CompositingMode.SourceCopy;
-            graphics.CompositingQuality = this.CompositingQuality;
-            graphics.InterpolationMode = this.InterpolationMode;
-            graphics.SmoothingMode = this.SmoothingMode;
+            // Replaces graphics.FillRectangle(new SolidBrush(BackColor), <whole canvas>).
+            newimage.Mutate(ctx => ctx.BackgroundColor(SourceCopy, this.BackColor));
 
-            graphics.FillRectangle(new SolidBrush(this.BackColor), new Rectangle(0, 0, resizeWidth + (2 * this.border), resizeHeight + (2 * this.border)));
-            graphics.DrawImage(img, this.border, this.border, resizeWidth, resizeHeight);
+            this.DrawScaled(newimage, img, this.border, this.border, resizeWidth, resizeHeight);
 
             return newimage;
         }
 
-        private Bitmap FitSquareImage(Image img)
+        private Image<Rgba32> FitSquareImage(Image img)
         {
             int resizeWidth;
             int resizeHeight;
@@ -234,20 +265,23 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
                 resizeHeight = Convert.ToInt32((float)img.Height / (float)img.Width * newDim);
             }
 
-            var newImage = new Bitmap(newDim + (2 * this.border), newDim + (2 * this.border));
-            var graphics = Graphics.FromImage(newImage);
+            var newImage = new Image<Rgba32>(newDim + (2 * this.border), newDim + (2 * this.border));
 
-            graphics.CompositingMode = CompositingMode.SourceCopy;
-            graphics.CompositingQuality = this.CompositingQuality;
-            graphics.InterpolationMode = this.InterpolationMode;
-            graphics.SmoothingMode = this.SmoothingMode;
+            // Replaces graphics.FillRectangle(new SolidBrush(BackColor), <whole canvas>).
+            newImage.Mutate(ctx => ctx.BackgroundColor(SourceCopy, this.BackColor));
 
-            graphics.FillRectangle(new SolidBrush(this.BackColor), new Rectangle(0, 0, newDim + (2 * this.border), newDim + (2 * this.border)));
-            graphics.DrawImage(img, ((newDim - resizeWidth) / 2) + this.border, ((newDim - resizeHeight) / 2) + this.border, resizeWidth, resizeHeight);
+            this.DrawScaled(
+                newImage,
+                img,
+                ((newDim - resizeWidth) / 2) + this.border,
+                ((newDim - resizeHeight) / 2) + this.border,
+                resizeWidth,
+                resizeHeight);
+
             return newImage;
         }
 
-        private Bitmap CropImage(Image img, int scaledHeight, int scaledWidth)
+        private Image<Rgba32> CropImage(Image img, int scaledHeight, int scaledWidth)
         {
             int resizeWidth;
             int resizeHeight;
@@ -262,34 +296,34 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
                 resizeHeight = this.Height;
             }
 
-            var newImage = new Bitmap(this.Width, this.Height);
-            var graphics = Graphics.FromImage(newImage);
+            var newImage = new Image<Rgba32>(this.Width, this.Height);
 
-            graphics.CompositingMode = CompositingMode.SourceCopy;
-            graphics.CompositingQuality = this.CompositingQuality;
-            graphics.InterpolationMode = this.InterpolationMode;
-            graphics.SmoothingMode = this.SmoothingMode;
-            graphics.PixelOffsetMode = this.PixelOffsetMode;
+            this.DrawScaled(
+                newImage,
+                img,
+                (this.Width - resizeWidth) / 2,
+                (this.Height - resizeHeight) / 2,
+                resizeWidth,
+                resizeHeight);
 
-            graphics.DrawImage(img, (this.Width - resizeWidth) / 2, (this.Height - resizeHeight) / 2, resizeWidth, resizeHeight);
             return newImage;
         }
 
-        private Bitmap FillImage(Image img)
+        private Image<Rgba32> FillImage(Image img)
         {
             int resizeHeight = this.Height;
             int resizeWidth = this.Width;
 
-            var newImage = new Bitmap(this.Width, this.Height);
-            var graphics = Graphics.FromImage(newImage);
+            var newImage = new Image<Rgba32>(this.Width, this.Height);
 
-            graphics.CompositingMode = CompositingMode.SourceCopy;
-            graphics.CompositingQuality = this.CompositingQuality;
-            graphics.InterpolationMode = this.InterpolationMode;
-            graphics.SmoothingMode = this.SmoothingMode;
-            graphics.PixelOffsetMode = this.PixelOffsetMode;
+            this.DrawScaled(
+                newImage,
+                img,
+                (this.Width - resizeWidth) / 2,
+                (this.Height - resizeHeight) / 2,
+                resizeWidth,
+                resizeHeight);
 
-            graphics.DrawImage(img, (this.Width - resizeWidth) / 2, (this.Height - resizeHeight) / 2, resizeWidth, resizeHeight);
             return newImage;
         }
     }

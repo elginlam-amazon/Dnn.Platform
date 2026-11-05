@@ -14,16 +14,13 @@ namespace DotNetNuke.Common
     using System.IO;
     using System.Linq;
     using System.Net;
+    using System.Net.Http;
     using System.Runtime.InteropServices;
-    using System.Runtime.Serialization.Formatters.Binary;
     using System.Text;
+    using System.Text.Json;
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web;
-    using System.Web.Caching;
-    using System.Web.UI;
-    using System.Web.UI.HtmlControls;
     using System.Xml;
 
     using DotNetNuke.Abstractions;
@@ -48,12 +45,15 @@ namespace DotNetNuke.Common
     using DotNetNuke.Security;
     using DotNetNuke.Security.Permissions;
     using DotNetNuke.Security.Roles;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.FileSystem;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Personalization;
     using DotNetNuke.Services.Url.FriendlyUrl;
     using DotNetNuke.UI.Utilities;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Http.Extensions;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
     using Microsoft.VisualBasic.CompilerServices;
@@ -72,6 +72,15 @@ namespace DotNetNuke.Common
     [StandardModule]
     public sealed partial class Globals
     {
+        /// <summary>
+        /// The name of the <see cref="HttpClient"/> registration (see <see cref="IHttpClientFactory"/>)
+        /// used for outbound requests to services external to DNN.
+        /// </summary>
+        public const string ExternalRequestHttpClientName = "DnnExternalRequest";
+
+        /// <summary>The user agent DNN sends on requests to external services.</summary>
+        public const string ExternalRequestUserAgent = "DotNetNuke";
+
         /// <summary>Global role id for all users.</summary>
         /// <value>-1.</value>
         public const string glbRoleAllUsers = "-1";
@@ -293,15 +302,19 @@ namespace DotNetNuke.Common
         {
             get
             {
-                if (applicationPath == null && (HttpContext.Current != null))
+                var currentContext = HttpContextSource.Current;
+                if (applicationPath == null && currentContext != null)
                 {
-                    if (HttpContext.Current.Request.ApplicationPath == "/")
+                    // ASP.NET Core: Request.ApplicationPath becomes Request.PathBase, which is
+                    // empty (rather than "/") when the app is hosted at the site root.
+                    var pathBase = currentContext.Request.PathBase.Value;
+                    if (string.IsNullOrEmpty(pathBase) || pathBase == "/")
                     {
                         applicationPath = string.IsNullOrEmpty(Config.GetSetting("InstallationSubfolder")) ? string.Empty : (Config.GetSetting("InstallationSubfolder") + "/").ToLowerInvariant();
                     }
                     else
                     {
-                        applicationPath = HttpContext.Current.Request.ApplicationPath.ToLowerInvariant();
+                        applicationPath = pathBase.TrimEnd('/').ToLowerInvariant();
                     }
                 }
 
@@ -499,7 +512,9 @@ namespace DotNetNuke.Common
         {
             try
             {
-                HttpContext.Current.Response.Redirect(url, endResponse);
+                // ASP.NET Core has no "end response" concept: writing the redirect ends the
+                // response for this handler, and the caller returns normally afterwards.
+                HttpContextSource.CurrentOrThrow.Response.Redirect(url);
             }
             catch (ThreadAbortException)
             {
@@ -789,10 +804,12 @@ namespace DotNetNuke.Common
         /// <returns>absolute server path.</returns>
         public static string GetAbsoluteServerPath(HttpRequest request)
         {
-            var strServerPath = request.MapPath(request.ApplicationPath);
-            if (!strServerPath.EndsWith(@"\", StringComparison.Ordinal))
+            // ASP.NET Core: the application's physical root comes from IWebHostEnvironment,
+            // not from the request (Request.MapPath no longer exists).
+            var strServerPath = HttpContextSource.ApplicationPhysicalPath;
+            if (!strServerPath.EndsWith(Path.DirectorySeparatorChar))
             {
-                strServerPath += @"\";
+                strServerPath += Path.DirectorySeparatorChar;
             }
 
             return strServerPath;
@@ -809,7 +826,8 @@ namespace DotNetNuke.Common
         public static string GetApplicationName()
         {
             string appName;
-            if (HttpContext.Current.Items["ApplicationName"] == null || string.IsNullOrEmpty(HttpContext.Current.Items["ApplicationName"].ToString()))
+            var items = HttpContextSource.CurrentOrThrow.Items;
+            if (!items.TryGetValue("ApplicationName", out var applicationNameItem) || applicationNameItem == null || string.IsNullOrEmpty(applicationNameItem.ToString()))
             {
                 var portalSettings = PortalController.Instance.GetCurrentSettings();
                 if (portalSettings == null)
@@ -823,7 +841,7 @@ namespace DotNetNuke.Common
             }
             else
             {
-                appName = Convert.ToString(HttpContext.Current.Items["ApplicationName"], CultureInfo.InvariantCulture);
+                appName = Convert.ToString(applicationNameItem, CultureInfo.InvariantCulture);
             }
 
             return appName;
@@ -923,14 +941,6 @@ namespace DotNetNuke.Common
         /// <returns>domain name.</returns>
         public static string GetDomainName(HttpRequest request)
         {
-            return GetDomainName(new HttpRequestWrapper(request), false);
-        }
-
-        /// <summary>Gets the name of the domain.</summary>
-        /// <param name="request">The request.</param>
-        /// <returns>domain name.</returns>
-        public static string GetDomainName(HttpRequestBase request)
-        {
             return GetDomainName(request, false);
         }
 
@@ -940,16 +950,7 @@ namespace DotNetNuke.Common
         /// <returns>domain name.</returns>
         public static string GetDomainName(HttpRequest request, bool parsePortNumber)
         {
-            return GetDomainName(new HttpRequestWrapper(request), parsePortNumber);
-        }
-
-        /// <summary>returns the domain name of the current request ( ie. www.domain.com or 207.132.12.123 or www.domain.com/directory if subhost ).</summary>
-        /// <param name="request">The request.</param>
-        /// <param name="parsePortNumber">if set to <see langword="true"/> [parse port number].</param>
-        /// <returns>domain name.</returns>
-        public static string GetDomainName(HttpRequestBase request, bool parsePortNumber)
-        {
-            return TestableGlobals.Instance.GetDomainName(request.Url, parsePortNumber);
+            return TestableGlobals.Instance.GetDomainName(new Uri(request.GetDisplayUrl()), parsePortNumber);
         }
 
         /// <summary>Determine whether use port number by the value in config file.</summary>
@@ -1172,9 +1173,10 @@ namespace DotNetNuke.Common
             PortalSettings portalSettings = null;
 
             // Try getting the settings from the Context
-            if (HttpContext.Current != null)
+            var currentContext = HttpContextSource.Current;
+            if (currentContext != null && currentContext.Items.TryGetValue("PortalSettings", out var portalSettingsItem))
             {
-                portalSettings = (PortalSettings)HttpContext.Current.Items["PortalSettings"];
+                portalSettings = (PortalSettings)portalSettingsItem;
             }
 
             // If nothing then try getting the Host Settings
@@ -1271,7 +1273,7 @@ namespace DotNetNuke.Common
         public static string HTTPPOSTEncode(string strPost)
         {
             strPost = strPost.Replace(@"\", string.Empty);
-            strPost = HttpUtility.UrlEncode(strPost);
+            strPost = WebUtility.UrlEncode(strPost);
             strPost = strPost.Replace("%2f", "/");
             return strPost;
         }
@@ -1283,7 +1285,7 @@ namespace DotNetNuke.Common
         /// <param name="portalId">The Portal ID.</param>
         public static void SetApplicationName(int portalId)
         {
-            HttpContext.Current.Items["ApplicationName"] = GetApplicationName(portalId);
+            HttpContextSource.CurrentOrThrow.Items["ApplicationName"] = GetApplicationName(portalId);
         }
 
         /// <summary>Sets the ApplicationName for the MemberRole API.</summary>
@@ -1293,7 +1295,7 @@ namespace DotNetNuke.Common
         /// <param name="applicationName">The Application Name to set.</param>
         public static void SetApplicationName(string applicationName)
         {
-            HttpContext.Current.Items["ApplicationName"] = applicationName;
+            HttpContextSource.CurrentOrThrow.Items["ApplicationName"] = applicationName;
         }
 
         /// <summary>Formats the address on a single line ( ie. Unit, Street, City, Region, Country, PostalCode ).</summary>
@@ -1520,12 +1522,14 @@ namespace DotNetNuke.Common
         public static bool IsAdminControl()
         {
             // This is needed to avoid an exception if there is no Context.  This will occur if code is called from the Scheduler
-            if (HttpContext.Current == null)
+            var currentContext = HttpContextSource.Current;
+            if (currentContext == null)
             {
                 return false;
             }
 
-            return (!string.IsNullOrEmpty(HttpContext.Current.Request.QueryString["mid"])) || (!string.IsNullOrEmpty(HttpContext.Current.Request.QueryString["ctl"]));
+            var query = currentContext.Request.Query;
+            return !string.IsNullOrEmpty(query["mid"]) || !string.IsNullOrEmpty(query["ctl"]);
         }
 
         /// <summary>Determines whether current request use admin skin.</summary>
@@ -1535,18 +1539,20 @@ namespace DotNetNuke.Common
         public static bool IsAdminSkin()
         {
             bool isAdminSkin = Null.NullBoolean;
-            if (HttpContext.Current != null)
+            var currentContext = HttpContextSource.Current;
+            if (currentContext != null)
             {
+                var query = currentContext.Request.Query;
                 string controlKey = string.Empty;
-                if (HttpContext.Current.Request.QueryString["ctl"] != null)
+                if (query.ContainsKey("ctl"))
                 {
-                    controlKey = HttpContext.Current.Request.QueryString["ctl"].ToLowerInvariant();
+                    controlKey = query["ctl"].ToString().ToLowerInvariant();
                 }
 
                 int moduleID = -1;
-                if (HttpContext.Current.Request.QueryString["mid"] != null)
+                if (query.ContainsKey("mid"))
                 {
-                    if (!int.TryParse(HttpContext.Current.Request.QueryString["mid"], out moduleID))
+                    if (!int.TryParse(query["mid"].ToString(), out moduleID))
                     {
                         moduleID = -1;
                     }
@@ -1751,109 +1757,59 @@ namespace DotNetNuke.Common
             return sbBuff.ToString();
         }
 
-        /// <summary>Finds the control recursive from child to parent.</summary>
-        /// <param name="objControl">current control.</param>
-        /// <param name="strControlName">the control name which want to find out.</param>
-        /// <returns>control which'name is strControlName, or else return null if didn't match any control.</returns>
-        public static Control FindControlRecursive(Control objControl, string strControlName)
+        /// <summary>
+        /// Gets an <see cref="HttpClient"/> configured from the host settings (timeout, user agent and proxy)
+        /// for calling external services. This is the modern replacement for <see cref="GetExternalRequest(string)"/>.
+        /// </summary>
+        /// <returns>An <see cref="HttpClient"/> from the <see cref="ExternalRequestHttpClientName"/> registration.</returns>
+        public static HttpClient GetExternalHttpClient()
+            => GetCurrentServiceProvider().GetRequiredService<IHttpClientFactory>().CreateClient(ExternalRequestHttpClientName);
+
+        /// <summary>Applies the DNN host settings (request timeout and user agent) to an <see cref="HttpClient"/>.</summary>
+        /// <param name="client">The client to configure.</param>
+        /// <param name="hostSettings">The host settings.</param>
+        /// <remarks>Called by the host's <c>IHttpClientFactory</c> registration of <see cref="ExternalRequestHttpClientName"/>.</remarks>
+        public static void ConfigureExternalRequestClient(HttpClient client, IHostSettings hostSettings)
         {
-            if (objControl.Parent == null)
-            {
-                return null;
-            }
-            else
-            {
-                if (objControl.Parent.FindControl(strControlName) != null)
-                {
-                    return objControl.Parent.FindControl(strControlName);
-                }
-                else
-                {
-                    return FindControlRecursive(objControl.Parent, strControlName);
-                }
-            }
+            Requires.NotNull(nameof(client), client);
+            Requires.NotNull(nameof(hostSettings), hostSettings);
+
+            client.Timeout = hostSettings.WebRequestTimeout;
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(ExternalRequestUserAgent);
         }
 
-        /// <summary>Searches control hierarchy from top down to find a control matching the passed in name.</summary>
-        /// <param name="objParent">Root control to begin searching.</param>
-        /// <param name="strControlName">Name of control to look for.</param>
-        /// <returns>The found control or null.</returns>
-        /// <remarks>
-        /// This differs from FindControlRecursive in that it looks down the control hierarchy, whereas, the
-        /// FindControlRecursive starts at the passed in control and walks the tree up.  Therefore, this function is
-        /// more a expensive task.
-        /// </remarks>
-        public static Control FindControlRecursiveDown(Control objParent, string strControlName)
+        /// <summary>Creates the message handler for <see cref="ExternalRequestHttpClientName"/>, applying the configured proxy.</summary>
+        /// <param name="hostSettings">The host settings.</param>
+        /// <returns>A configured <see cref="HttpClientHandler"/>.</returns>
+        /// <remarks>Called by the host's <c>IHttpClientFactory</c> registration of <see cref="ExternalRequestHttpClientName"/>.</remarks>
+        public static HttpClientHandler CreateExternalRequestHandler(IHostSettings hostSettings)
         {
-            Control objCtl;
-            objCtl = objParent.FindControl(strControlName);
-            if (objCtl == null)
+            Requires.NotNull(nameof(hostSettings), hostSettings);
+
+            var handler = new HttpClientHandler();
+            if (!string.IsNullOrEmpty(hostSettings.ProxyServer))
             {
-                foreach (Control objChild in objParent.Controls)
+                var proxy = new WebProxy(hostSettings.ProxyServer, hostSettings.ProxyPort);
+                if (!string.IsNullOrEmpty(hostSettings.ProxyUsername))
                 {
-                    objCtl = FindControlRecursiveDown(objChild, strControlName);
-                    if (objCtl != null)
-                    {
-                        break;
-                    }
+                    proxy.Credentials = new NetworkCredential(hostSettings.ProxyUsername, hostSettings.ProxyPassword);
                 }
+
+                handler.Proxy = proxy;
+                handler.UseProxy = true;
             }
 
-            return objCtl;
-        }
-
-        /// <summary>Sets the form focus.</summary>
-        /// <param name="control">The control.</param>
-        public static void SetFormFocus(Control control)
-        {
-            if (control.Page != null && control.Visible)
-            {
-                if (control.Page.Request.Browser.EcmaScriptVersion.Major >= 1)
-                {
-                    // JH dnn.js mod
-                    if (ClientAPI.ClientAPIDisabled() == false)
-                    {
-                        JavaScript.RegisterClientReference(control.Page, ClientAPI.ClientNamespaceReferences.dnn);
-                        DNNClientAPI.SetInitialFocus(control.Page, control);
-                    }
-                    else
-                    {
-                        // Create JavaScript
-                        var sb = new StringBuilder();
-                        sb.Append("<script type=\"text/javascript\">");
-                        sb.Append("<!--");
-                        sb.Append(Environment.NewLine);
-                        sb.Append("function SetInitialFocus() {");
-                        sb.Append(Environment.NewLine);
-                        sb.Append(" document.");
-
-                        // Find the Form
-                        Control objParent = control.Parent;
-                        while (!(objParent is HtmlForm))
-                        {
-                            objParent = objParent.Parent;
-                        }
-
-                        sb.Append(objParent.ClientID);
-                        sb.Append("['");
-                        sb.Append(control.UniqueID);
-                        sb.Append("'].focus(); }");
-                        sb.Append("window.onload = SetInitialFocus;");
-                        sb.Append(Environment.NewLine);
-                        sb.Append("// -->");
-                        sb.Append(Environment.NewLine);
-                        sb.Append("</script>");
-
-                        // Register Client Script
-                        ClientAPI.RegisterClientScriptBlock(control.Page, "InitialFocus", sb.ToString());
-                    }
-                }
-            }
+            return handler;
         }
 
         /// <summary>Gets the external request.</summary>
         /// <param name="address">The address.</param>
         /// <returns>Web request.</returns>
+        /// <remarks>
+        /// <see cref="HttpWebRequest"/> is obsolete (SYSLIB0014) but is part of this method's public
+        /// signature, so the implementation cannot be moved onto <see cref="HttpClient"/> without a
+        /// breaking change. Use <see cref="GetExternalHttpClient"/> for new code.
+        /// </remarks>
         [DnnDeprecated(10, 0, 2, "Use overload taking IHostSettings")]
         public static partial HttpWebRequest GetExternalRequest(string address)
             => GetExternalRequest(GetCurrentServiceProvider().GetRequiredService<IHostSettings>(), address);
@@ -1864,8 +1820,11 @@ namespace DotNetNuke.Common
         /// <returns>Web request.</returns>
         public static HttpWebRequest GetExternalRequest(IHostSettings hostSettings, string address)
         {
-            // Create the request object
+            // Create the request object. HttpWebRequest is the declared return type of this public
+            // API, so SYSLIB0014 is suppressed rather than changing the contract.
+#pragma warning disable SYSLIB0014
             var objRequest = (HttpWebRequest)WebRequest.Create(address);
+#pragma warning restore SYSLIB0014
 
             // Set a time-out to the request ... 10 seconds
             objRequest.Timeout = (int)hostSettings.WebRequestTimeout.TotalMilliseconds;
@@ -1915,8 +1874,11 @@ namespace DotNetNuke.Common
         /// <returns>Web request.</returns>
         public static HttpWebRequest GetExternalRequest(IHostSettings hostSettings, string address, NetworkCredential credentials)
         {
-            // Create the request object
+            // Create the request object. HttpWebRequest is the declared return type of this public
+            // API, so SYSLIB0014 is suppressed rather than changing the contract.
+#pragma warning disable SYSLIB0014
             var objRequest = (HttpWebRequest)WebRequest.Create(address);
+#pragma warning restore SYSLIB0014
 
             // Set a time-out to the request ... 10 seconds
             objRequest.Timeout = (int)hostSettings.WebRequestTimeout.TotalMilliseconds;
@@ -2198,7 +2160,8 @@ namespace DotNetNuke.Common
 
             var currentTabId = TabController.CurrentPage.TabID;
             var currentUserId = UserController.Instance.GetCurrentUserInfo().UserID;
-            if (HttpContext.Current.Request.IsAuthenticated)
+            var currentRequest = HttpContextSource.CurrentOrThrow.Request;
+            if (HttpContextSource.CurrentOrThrow.User?.Identity?.IsAuthenticated == true)
             {
                 if (string.IsNullOrEmpty(message))
                 {
@@ -2215,7 +2178,8 @@ namespace DotNetNuke.Common
             }
             else
             {
-                strURL = LoginURL(HttpUtility.UrlEncode(HttpContext.Current.Request.RawUrl), false);
+                var rawUrl = (currentRequest.PathBase + currentRequest.Path + currentRequest.QueryString).ToString();
+                strURL = LoginURL(WebUtility.UrlEncode(rawUrl), false);
             }
 
             return strURL;
@@ -2233,7 +2197,8 @@ namespace DotNetNuke.Common
                     && !strURL.Contains("~", StringComparison.Ordinal)
                     && !strURL.Contains(@"\\", StringComparison.Ordinal))
                 {
-                    var secure = HttpContext.Current != null && UrlUtils.IsSecureConnectionOrSslOffload(HttpContext.Current.Request);
+                    var currentRequest = HttpContextSource.Current?.Request;
+                    var secure = currentRequest != null && UrlUtils.IsSecureConnectionOrSslOffload(currentRequest);
                     strURL = (secure ? "https://" : "http://") + strURL;
                 }
             }
@@ -2313,12 +2278,12 @@ namespace DotNetNuke.Common
 
             if (!string.IsNullOrEmpty(name))
             {
-                strURL += "&helpmodule=" + HttpUtility.UrlEncode(name);
+                strURL += "&helpmodule=" + WebUtility.UrlEncode(name);
             }
 
             if (!string.IsNullOrEmpty(version))
             {
-                strURL += "&helpversion=" + HttpUtility.UrlEncode(version);
+                strURL += "&helpversion=" + WebUtility.UrlEncode(version);
             }
 
             return AddHTTP(strURL);
@@ -2589,7 +2554,7 @@ namespace DotNetNuke.Common
             }
 
             var popUpParameter = string.Empty;
-            if (HttpUtility.UrlDecode(returnUrl).IndexOf("popUp=true", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (WebUtility.UrlDecode(returnUrl).IndexOf("popUp=true", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 popUpParameter = "popUp=true";
             }
@@ -2781,7 +2746,7 @@ namespace DotNetNuke.Common
         /// <returns>Encoded content.</returns>
         public static string QueryStringEncode(string queryString)
         {
-            queryString = HttpUtility.UrlEncode(queryString);
+            queryString = WebUtility.UrlEncode(queryString);
             return queryString;
         }
 
@@ -2790,18 +2755,26 @@ namespace DotNetNuke.Common
         /// <returns>Decoded content.</returns>
         public static string QueryStringDecode(string queryString)
         {
-            queryString = HttpUtility.UrlDecode(queryString);
-            string fullPath;
+            queryString = WebUtility.UrlDecode(queryString);
+
+            // The legacy code called Request.MapPath(..., allowCrossAppMapping: false) purely so
+            // that a path escaping the application root would raise an HttpException. ASP.NET Core
+            // has no such API, so the same guard is applied explicitly.
             try
             {
-                fullPath = HttpContext.Current.Request.MapPath(queryString, HttpContext.Current.Request.ApplicationPath, false);
+                var applicationRoot = HttpContextSource.ApplicationPhysicalPath;
+                var fullPath = Path.GetFullPath(HttpContextSource.MapPath(queryString));
+                if (!fullPath.StartsWith(applicationRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    Exceptions.ProcessHttpException();
+                }
             }
-            catch (HttpException exc)
+            catch (Exception exc) when (exc is ArgumentException || exc is NotSupportedException || exc is PathTooLongException)
             {
-                Exceptions.ProcessHttpException(exc);
+                Exceptions.ProcessHttpException();
             }
 
-            string strDoubleDecodeUrl = HttpContext.Current.Server.UrlDecode(HttpContext.Current.Server.UrlDecode(queryString));
+            string strDoubleDecodeUrl = WebUtility.UrlDecode(WebUtility.UrlDecode(queryString));
             if (queryString.Contains("..", StringComparison.Ordinal) || strDoubleDecodeUrl.Contains("..", StringComparison.Ordinal))
             {
                 Exceptions.ProcessHttpException();
@@ -3047,7 +3020,7 @@ namespace DotNetNuke.Common
 
                 if (string.IsNullOrEmpty(strLink))
                 {
-                    strLink = $"{ApplicationPath}/LinkClick.aspx?link={HttpUtility.UrlEncode(link)}";
+                    strLink = $"{ApplicationPath}/LinkClick.aspx?link={WebUtility.UrlEncode(link)}";
                 }
 
                 // tabid is required to identify the portal where the click originated
@@ -3273,39 +3246,40 @@ namespace DotNetNuke.Common
             return hasModule;
         }
 
-        /// <summary>DeserializeHashTableBase64 deserializes a Hashtable using Binary Formatting.</summary>
+        /// <summary>DeserializeHashTableBase64 deserializes a Hashtable from a Base64 encoded string.</summary>
         /// <remarks>
-        /// While this method of serializing is no longer supported (due to Medium Trust
-        /// issue), it is still required for upgrade purposes.
+        /// <para>This method used <c>BinaryFormatter</c>, which is removed from .NET 10, so the payload is
+        /// now UTF-8 JSON (a flat string-to-string map) encoded as Base64. Payloads written by DNN running
+        /// on .NET Framework cannot be read; as before, an unreadable payload is logged and an empty
+        /// <see cref="Hashtable"/> is returned.</para>
         /// </remarks>
         /// <param name="source">The String Source to deserialize.</param>
         /// <returns>The deserialized Hashtable.</returns>
         [DnnDeprecated(9, 8, 1, "No replacement")]
         public static partial Hashtable DeserializeHashTableBase64(string source)
         {
-            Hashtable objHashTable;
-            if (!string.IsNullOrEmpty(source))
+            var objHashTable = new Hashtable();
+            if (string.IsNullOrEmpty(source))
             {
-                byte[] bits = Convert.FromBase64String(source);
-                using (var mem = new MemoryStream(bits))
+                return objHashTable;
+            }
+
+            try
+            {
+                var bits = Convert.FromBase64String(source);
+                var values = JsonSerializer.Deserialize<Dictionary<string, string>>(bits);
+                if (values != null)
                 {
-                    var bin = new BinaryFormatter();
-                    try
+                    foreach (var pair in values)
                     {
-                        objHashTable = (Hashtable)bin.Deserialize(mem);
+                        objHashTable[pair.Key] = pair.Value;
                     }
-                    catch (Exception exc)
-                    {
-                        Logger.GlobalsDeserializeHashTableBase64Exception(exc);
-
-                        objHashTable = new Hashtable();
-                    }
-
-                    mem.Close();
                 }
             }
-            else
+            catch (Exception exc) when (exc is FormatException or JsonException or NotSupportedException)
             {
+                Logger.GlobalsDeserializeHashTableBase64Exception(exc);
+
                 objHashTable = new Hashtable();
             }
 
@@ -3324,43 +3298,38 @@ namespace DotNetNuke.Common
             return XmlUtils.DeSerializeHashtable(source, "profile");
         }
 
-        /// <summary>SerializeHashTableBase64 serializes a Hashtable using Binary Formatting.</summary>
+        /// <summary>SerializeHashTableBase64 serializes a Hashtable to a Base64 encoded string.</summary>
         /// <remarks>
-        /// While this method of serializing is no longer supported (due to Medium Trust
-        /// issue), it is still required for upgrade purposes.
+        /// <para>This method used <c>BinaryFormatter</c>, which is removed from .NET 10. The payload is now
+        /// UTF-8 JSON (a flat string-to-string map, values via <see cref="object.ToString"/>) encoded as
+        /// Base64, and is readable only by <see cref="DeserializeHashTableBase64"/> on modern .NET.</para>
         /// </remarks>
         /// <param name="source">The Hashtable to serialize.</param>
         /// <returns>The serialized String.</returns>
         [DnnDeprecated(9, 8, 1, "No replacement")]
         public static partial string SerializeHashTableBase64(Hashtable source)
         {
-            string strString;
-            if (source.Count != 0)
+            if (source.Count == 0)
             {
-                var bin = new BinaryFormatter();
-                var mem = new MemoryStream();
-                try
-                {
-                    bin.Serialize(mem, source);
-                    strString = Convert.ToBase64String(mem.GetBuffer(), 0, Convert.ToInt32(mem.Length));
-                }
-                catch (Exception exc)
-                {
-                    Logger.GlobalsSerializeHashTableBase64Exception(exc);
-
-                    strString = string.Empty;
-                }
-                finally
-                {
-                    mem.Close();
-                }
-            }
-            else
-            {
-                strString = string.Empty;
+                return string.Empty;
             }
 
-            return strString;
+            try
+            {
+                var values = new Dictionary<string, string>(source.Count);
+                foreach (DictionaryEntry entry in source)
+                {
+                    values[entry.Key.ToString()] = entry.Value?.ToString();
+                }
+
+                return Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(values));
+            }
+            catch (Exception exc) when (exc is JsonException or NotSupportedException)
+            {
+                Logger.GlobalsSerializeHashTableBase64Exception(exc);
+
+                return string.Empty;
+            }
         }
 
         /// <summary>SerializeHashTableXml serializes a Hashtable using XML Serialization.</summary>
@@ -3403,11 +3372,12 @@ namespace DotNetNuke.Common
             var avatarUrl = PortalController.Instance.GetCurrentSettings().DefaultPortalAlias;
             if (string.IsNullOrEmpty(avatarUrl))
             {
-                avatarUrl = HttpContext.Current.Request.Url.Host;
+                avatarUrl = new Uri(HttpContextSource.CurrentOrThrow.Request.GetDisplayUrl()).Host;
             }
 
-            var protocol = UrlUtils.IsSecureConnectionOrSslOffload(HttpContext.Current.Request) ? "https" : "http";
-            var port = !HttpContext.Current.Request.Url.IsDefaultPort && !avatarUrl.Contains(":") ? ":" + HttpContext.Current.Request.Url.Port : string.Empty;
+            var requestUri = new Uri(HttpContextSource.CurrentOrThrow.Request.GetDisplayUrl());
+            var protocol = UrlUtils.IsSecureConnectionOrSslOffload(HttpContextSource.CurrentOrThrow.Request) ? "https" : "http";
+            var port = !requestUri.IsDefaultPort && !avatarUrl.Contains(":") ? ":" + requestUri.Port : string.Empty;
             avatarUrl = $"{protocol}://{avatarUrl}{port}";
 
             avatarUrl += "/DnnImageHandler.ashx?mode=profilepic&userId={0}&h={1}&w={2}";

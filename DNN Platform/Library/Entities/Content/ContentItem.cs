@@ -8,7 +8,6 @@ namespace DotNetNuke.Entities.Content
     using System.Collections.Specialized;
     using System.Data;
     using System.Linq;
-    using System.Web.Script.Serialization;
     using System.Xml.Serialization;
 
     using DotNetNuke.Common.Utilities;
@@ -82,7 +81,6 @@ namespace DotNetNuke.Entities.Content
         /// <summary>Gets the metadata.</summary>
         /// <value>metadata collection.</value>
         [XmlIgnore]
-        [ScriptIgnore]
         [JsonIgnore]
         public NameValueCollection Metadata
         {
@@ -95,7 +93,6 @@ namespace DotNetNuke.Entities.Content
         /// <summary>Gets the terms.</summary>
         /// <value>Terms Collection.</value>
         [XmlIgnore]
-        [ScriptIgnore]
         [JsonIgnore]
         public List<Term> Terms
         {
@@ -107,7 +104,6 @@ namespace DotNetNuke.Entities.Content
 
         /// <summary>Gets files that are attached to this ContentItem.</summary>
         [XmlIgnore]
-        [ScriptIgnore]
         [JsonIgnore]
         public List<IFileInfo> Files
         {
@@ -116,7 +112,6 @@ namespace DotNetNuke.Entities.Content
 
         /// <summary>Gets video files attached to this ContentItem.</summary>
         [XmlIgnore]
-        [ScriptIgnore]
         [JsonIgnore]
         public List<IFileInfo> Videos
         {
@@ -125,7 +120,6 @@ namespace DotNetNuke.Entities.Content
 
         /// <summary>Gets images associated with this ContentItem.</summary>
         [XmlIgnore]
-        [ScriptIgnore]
         [JsonIgnore]
         public List<IFileInfo> Images
         {
@@ -137,7 +131,6 @@ namespace DotNetNuke.Entities.Content
         /// The content item id.
         /// </value>
         [XmlIgnore]
-        [ScriptIgnore]
         [JsonIgnore]
         public int ContentItemId { get; set; }
 
@@ -161,7 +154,6 @@ namespace DotNetNuke.Entities.Content
         /// </value>
         /// <see cref="ContentType"/>
         [XmlIgnore]
-        [ScriptIgnore]
         [JsonIgnore]
         public int ContentTypeId { get; set; }
 
@@ -170,7 +162,6 @@ namespace DotNetNuke.Entities.Content
         ///   <see langword="true"/> if indexed; otherwise, <see langword="false"/>.
         /// </value>
         [XmlIgnore]
-        [ScriptIgnore]
         [JsonIgnore]
         public bool Indexed { get; set; }
 

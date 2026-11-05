@@ -7,14 +7,14 @@ namespace DotNetNuke.Services.GeneratedImage.StartTransform
     using System;
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
     using System.IO;
 
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Security.Permissions;
     using DotNetNuke.Services.FileSystem;
+
+    using SixLabors.ImageSharp;
 
     /// <summary>Secure File ImageTransform class.</summary>
     public class SecureFileTransform : ImageTransform
@@ -78,15 +78,23 @@ namespace DotNetNuke.Services.GeneratedImage.StartTransform
 
         private Image GetSecureFileExtensionIconImage()
         {
-            var iconLocation = PortalSettings.Current.DefaultIconLocation.Replace("/", @"\");
-            var extensionImageAbsolutePath = $@"{Globals.ApplicationMapPath}\{iconLocation}\Ext{this.SecureFile.Extension}_32x32_Standard.png";
+            // Built with Path.Combine rather than hard-coded backslashes so the path also resolves
+            // on a case-sensitive, forward-slash file system.
+            var iconLocation = PortalSettings.Current.DefaultIconLocation
+                .Replace('\\', Path.DirectorySeparatorChar)
+                .Replace('/', Path.DirectorySeparatorChar)
+                .Trim(Path.DirectorySeparatorChar);
+            var extensionImageAbsolutePath = Path.Combine(
+                Globals.ApplicationMapPath,
+                iconLocation,
+                $"Ext{this.SecureFile.Extension}_32x32_Standard.png");
 
             if (!File.Exists(extensionImageAbsolutePath))
             {
                 return this.EmptyImage;
             }
 
-            using var stream = new FileStream(extensionImageAbsolutePath, FileMode.Open);
+            using var stream = new FileStream(extensionImageAbsolutePath, FileMode.Open, FileAccess.Read);
             return this.CopyImage(stream);
         }
     }

@@ -4,13 +4,16 @@
 
 namespace DotNetNuke.Services.Mail
 {
-    using System;
     using System.IO;
-    using System.Web;
+
+    using Microsoft.AspNetCore.StaticFiles;
 
     public class MailAttachment
     {
         private const string DefaultContentType = "application/octet-stream";
+
+        /// <summary>Replaces <c>System.Web.MimeMapping</c>, which does not exist on modern .NET.</summary>
+        private static readonly FileExtensionContentTypeProvider ContentTypeProvider = new FileExtensionContentTypeProvider();
 
         /// <summary>Initializes a new instance of the <see cref="MailAttachment"/> class.</summary>
         /// <param name="filePath">The path to the file to attach.</param>
@@ -18,7 +21,7 @@ namespace DotNetNuke.Services.Mail
         {
             var content = File.ReadAllBytes(filePath);
             var filename = Path.GetFileName(filePath);
-            var contentType = MimeMapping.GetMimeMapping(filename);
+            var contentType = GetMimeMapping(filename);
 
             this.MailAttachmentInternal(filename, content, contentType);
         }
@@ -28,7 +31,7 @@ namespace DotNetNuke.Services.Mail
         /// <param name="content">The contents of the attachment.</param>
         public MailAttachment(string filename, byte[] content)
         {
-            this.MailAttachmentInternal(filename, content, MimeMapping.GetMimeMapping(filename));
+            this.MailAttachmentInternal(filename, content, GetMimeMapping(filename));
         }
 
         /// <summary>Initializes a new instance of the <see cref="MailAttachment"/> class.</summary>
@@ -45,6 +48,11 @@ namespace DotNetNuke.Services.Mail
         public string Filename { get; set; }
 
         public string ContentType { get; set; }
+
+        private static string GetMimeMapping(string filename)
+        {
+            return ContentTypeProvider.TryGetContentType(filename, out var contentType) ? contentType : DefaultContentType;
+        }
 
         private void MailAttachmentInternal(string filename, byte[] content, string contentType)
         {

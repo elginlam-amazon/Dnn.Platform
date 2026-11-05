@@ -4,7 +4,6 @@
 namespace DotNetNuke.UI.WebControls
 {
     using System;
-    using System.Web.UI;
 
     /// <summary>The NavDataSourceView class encapsulates the capabilities of the NavDataSource data source control.</summary>
     public class NavDataSourceView : HierarchicalDataSourceView

@@ -4,64 +4,80 @@
 namespace DotNetNuke.UI.WebControls
 {
     using System;
-    using System.Collections.Specialized;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Net;
 
     using DotNetNuke.Common;
     using DotNetNuke.Modules.HTMLEditorProvider;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
 
     /// <summary>
     /// The DNNRichTextEditControl control provides a standard UI component for editing
     /// RichText.
     /// </summary>
-    [ToolboxData("<{0}:DNNRichTextEditControl runat=server></{0}:DNNRichTextEditControl>")]
+    /// <remarks>
+    /// The configured <see cref="HtmlEditorProvider"/> now hands over its markup as a
+    /// <see cref="RenderFragment"/> (<see cref="HtmlEditorProvider.HtmlEditorControl"/>) instead of
+    /// as a server control to add to a control collection; when no provider is configured a
+    /// <c>textarea</c> is rendered as before. <c>Server.HtmlEncode</c>/<c>Server.HtmlDecode</c> are
+    /// now <see cref="WebUtility"/> calls.
+    /// </remarks>
     public class DNNRichTextEditControl : TextEditControl
     {
         private HtmlEditorProvider richTextEditor;
-        private TextBox defaultTextEditor;
+        private string defaultEditorText = string.Empty;
+        private bool editorCreated;
 
-        protected Control TextEditControl
+        /// <summary>Gets the markup of the editor that is rendered.</summary>
+        /// <remarks>Replaces the <c>Control TextEditControl</c> property, which returned either the
+        /// provider's control or the fallback <c>TextBox</c>.</remarks>
+        protected RenderFragment TextEditControl
         {
             get
             {
+                this.EnsureEditorCreated();
                 if (this.richTextEditor != null)
                 {
                     return this.richTextEditor.HtmlEditorControl;
                 }
 
-                return this.defaultTextEditor;
+                return this.RenderDefaultEditor;
             }
         }
 
+        /// <summary>Gets or sets the text held by the editor.</summary>
         protected string EditorText
         {
             get
             {
+                this.EnsureEditorCreated();
                 if (this.richTextEditor != null)
                 {
                     return this.richTextEditor.Text;
                 }
 
-                return this.defaultTextEditor.Text;
+                return this.defaultEditorText;
             }
 
             set
             {
+                this.EnsureEditorCreated();
                 if (this.richTextEditor != null)
                 {
                     this.richTextEditor.Text = value;
                 }
                 else
                 {
-                    this.defaultTextEditor.Text = value;
+                    this.defaultEditorText = value;
                 }
             }
         }
 
         /// <inheritdoc />
-        public override bool LoadPostData(string postDataKey, NameValueCollection postCollection)
+        public override bool LoadPostData(string postDataKey, System.Collections.Specialized.NameValueCollection postCollection)
         {
             var dataChanged = false;
             var presentValue = this.StringValue;
@@ -76,67 +92,23 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void CreateChildControls()
-        {
-            if (this.EditMode == PropertyEditorMode.Edit)
-            {
-                var pnlEditor = new Panel();
-                if (string.IsNullOrEmpty(this.CssClass))
-                {
-                    pnlEditor.CssClass = "dnnLeft";
-                }
-                else
-                {
-                    pnlEditor.CssClass = $"{this.CssClass} dnnLeft";
-                }
-
-                this.richTextEditor = HtmlEditorProvider.Instance();
-                if (this.richTextEditor != null)
-                {
-                    this.richTextEditor.ControlID = this.ID + "edit";
-                    this.richTextEditor.Initialize();
-                    this.richTextEditor.Height = this.ControlStyle.Height;
-                    this.richTextEditor.Width = this.ControlStyle.Width;
-                    if (this.richTextEditor.Height.IsEmpty)
-                    {
-                        this.richTextEditor.Height = new Unit(250);
-                    }
-
-                    this.richTextEditor.Width = new Unit(400);
-                }
-                else
-                {
-                    this.defaultTextEditor = new TextBox
-                    {
-                        ID = this.ID + "edit",
-                        Width = this.ControlStyle.Width.IsEmpty ? new Unit(300) : this.ControlStyle.Width,
-                        Height = this.ControlStyle.Height.IsEmpty ? new Unit(250) : this.ControlStyle.Height,
-                        TextMode = TextBoxMode.MultiLine,
-                    };
-                    this.defaultTextEditor.Attributes.Add("aria-label", "editor");
-                }
-
-                this.Controls.Clear();
-                pnlEditor.Controls.Add(this.TextEditControl);
-                this.Controls.Add(pnlEditor);
-            }
-
-            base.CreateChildControls();
-        }
-
-        /// <inheritdoc />
         protected override void OnDataChanged(EventArgs e)
         {
             var strValue = RemoveBaseTags(Convert.ToString(this.Value, CultureInfo.InvariantCulture));
             var strOldValue = RemoveBaseTags(Convert.ToString(this.OldValue, CultureInfo.InvariantCulture));
-            var args = new PropertyEditorEventArgs(this.Name) { Value = this.Page.Server.HtmlEncode(strValue), OldValue = this.Page.Server.HtmlEncode(strOldValue), StringValue = this.Page.Server.HtmlEncode(RemoveBaseTags(this.StringValue)) };
+            var args = new PropertyEditorEventArgs(this.Name)
+            {
+                Value = WebUtility.HtmlEncode(strValue),
+                OldValue = WebUtility.HtmlEncode(strOldValue),
+                StringValue = WebUtility.HtmlEncode(RemoveBaseTags(this.StringValue)),
+            };
             this.OnValueChanged(args);
         }
 
         /// <inheritdoc />
         protected override void OnInit(EventArgs e)
         {
-            this.EnsureChildControls();
+            this.EnsureEditorCreated();
             base.OnInit(e);
         }
 
@@ -146,34 +118,96 @@ namespace DotNetNuke.UI.WebControls
             base.OnPreRender(e);
             if (this.EditMode == PropertyEditorMode.Edit)
             {
-                this.EditorText = this.Page.Server.HtmlDecode(Convert.ToString(this.Value, CultureInfo.InvariantCulture));
-            }
-
-            if (this.Page != null && this.EditMode == PropertyEditorMode.Edit)
-            {
-                this.Page.RegisterRequiresPostBack(this);
+                this.EditorText = WebUtility.HtmlDecode(Convert.ToString(this.Value, CultureInfo.InvariantCulture));
             }
         }
 
         /// <inheritdoc />
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            this.RenderChildren(writer);
+            ArgumentNullException.ThrowIfNull(builder);
+
+            this.EnsureEditorCreated();
+
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(
+                1,
+                "class",
+                string.IsNullOrEmpty(this.CssClass) ? "dnnLeft" : $"{this.CssClass} dnnLeft");
+            builder.AddContent(2, this.TextEditControl);
+            builder.CloseElement();
         }
 
         /// <inheritdoc />
-        protected override void RenderViewMode(HtmlTextWriter writer)
+        protected override void RenderViewMode(RenderTreeBuilder builder)
         {
-            string propValue = this.Page.Server.HtmlDecode(Convert.ToString(this.Value, CultureInfo.InvariantCulture));
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.RenderBeginTag(HtmlTextWriterTag.Span);
-            writer.Write(propValue);
-            writer.RenderEndTag();
+            ArgumentNullException.ThrowIfNull(builder);
+
+            string propValue = WebUtility.HtmlDecode(Convert.ToString(this.Value, CultureInfo.InvariantCulture));
+
+            builder.OpenElement(0, "span");
+            this.AddStyleAttributes(builder, 1);
+
+            // The value is editor html, so it is emitted as markup, which is what
+            // HtmlTextWriter.Write(propValue) did.
+            builder.AddMarkupContent(5, propValue);
+            builder.CloseElement();
         }
 
         private static string RemoveBaseTags(string strInput)
         {
             return Globals.BaseTagRegex.Replace(strInput, " ");
+        }
+
+        /// <summary>Resolves and configures the editor provider, once.</summary>
+        /// <remarks>Replaces <c>CreateChildControls</c>/<c>EnsureChildControls</c>.</remarks>
+        private void EnsureEditorCreated()
+        {
+            if (this.editorCreated || this.EditMode != PropertyEditorMode.Edit)
+            {
+                return;
+            }
+
+            this.editorCreated = true;
+
+            this.richTextEditor = HtmlEditorProvider.Instance();
+            if (this.richTextEditor != null)
+            {
+                this.richTextEditor.ControlID = this.ID + "edit";
+                this.richTextEditor.Initialize();
+                this.richTextEditor.Height = this.ControlStyle.Height;
+                this.richTextEditor.Width = this.ControlStyle.Width;
+                if (this.richTextEditor.Height.IsEmpty)
+                {
+                    this.richTextEditor.Height = new Unit(250);
+                }
+
+                this.richTextEditor.Width = new Unit(400);
+            }
+        }
+
+        private void RenderDefaultEditor(RenderTreeBuilder builder)
+        {
+            var width = this.ControlStyle.Width.IsEmpty ? new Unit(300) : this.ControlStyle.Width;
+            var height = this.ControlStyle.Height.IsEmpty ? new Unit(250) : this.ControlStyle.Height;
+
+            builder.OpenElement(0, "textarea");
+            builder.AddAttribute(1, "id", this.ClientID + "edit");
+            builder.AddAttribute(2, "name", this.UniqueID);
+            builder.AddAttribute(3, "aria-label", "editor");
+            builder.AddAttribute(
+                4,
+                "style",
+                $"width:{width.ToString(CultureInfo.InvariantCulture)};height:{height.ToString(CultureInfo.InvariantCulture)};");
+            builder.AddAttribute(5, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnEditorTextChanged));
+            builder.AddContent(6, this.defaultEditorText);
+            builder.CloseElement();
+        }
+
+        private void OnEditorTextChanged(ChangeEventArgs args)
+        {
+            this.defaultEditorText = args?.Value?.ToString() ?? string.Empty;
+            this.CommitPostData();
         }
     }
 }

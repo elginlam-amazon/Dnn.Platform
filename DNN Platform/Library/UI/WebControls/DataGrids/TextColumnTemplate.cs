@@ -4,13 +4,20 @@
 namespace DotNetNuke.UI.WebControls
 {
     using System;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Common.Utilities;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Web;
+
     /// <summary>The TextColumnTemplate provides a Template for the TextColumn.</summary>
-    public class TextColumnTemplate : ITemplate
+    /// <remarks>
+    /// Was an <c>ITemplate</c> that instantiated a <c>Label</c> (or, while editing, a
+    /// <c>TextBox</c>) into the cell. It now renders a <c>span</c> or an <c>input</c> itself, and
+    /// registers the edited text as a <see cref="GridTextBox"/> in the cell so that it can be read
+    /// back the way the WebForms code read it off the <c>TextBox</c>.
+    /// </remarks>
+    public class TextColumnTemplate : IGridTemplate
     {
         private ListItemType mItemType = ListItemType.Item;
 
@@ -58,30 +65,31 @@ namespace DotNetNuke.UI.WebControls
         /// <value>A Unit.</value>
         public Unit Width { get; set; }
 
-        /// <summary>InstantiateIn instantiates the template (implementation of ITemplate).</summary>
-        /// <param name="container">The parent container (DataGridItem).</param>
-        public void InstantiateIn(Control container)
+        /// <inheritdoc />
+        public RenderFragment Render(DataGridCell cell)
         {
+            ArgumentNullException.ThrowIfNull(cell);
+
             switch (this.ItemType)
             {
                 case ListItemType.Item:
                 case ListItemType.AlternatingItem:
                 case ListItemType.SelectedItem:
-                    var lblText = new Label();
-                    lblText.Width = this.Width;
-                    lblText.DataBinding += this.Item_DataBinding;
-                    container.Controls.Add(lblText);
-                    break;
+                    cell.Text = this.GetValue(cell.Item);
+                    return this.RenderLabel(cell.Text);
                 case ListItemType.EditItem:
-                    var txtText = new TextBox();
-                    txtText.Width = this.Width;
-                    txtText.DataBinding += this.Item_DataBinding;
-                    container.Controls.Add(txtText);
-                    break;
+                    var state = new GridTextBox { Text = this.GetValue(cell.Item) };
+                    cell.Text = state.Text;
+                    cell.Controls.Clear();
+                    cell.Controls.Add(state);
+                    return this.RenderTextBox(state);
                 case ListItemType.Footer:
                 case ListItemType.Header:
-                    container.Controls.Add(new LiteralControl(this.Text));
-                    break;
+                    cell.Text = this.Text;
+                    var text = this.Text;
+                    return builder => builder.AddMarkupContent(0, text);
+                default:
+                    return static builder => { };
             }
         }
 
@@ -98,9 +106,9 @@ namespace DotNetNuke.UI.WebControls
                 }
                 else
                 {
-                    if (container.DataItem != null)
+                    if (container?.DataItem != null)
                     {
-                        object evaluation = DataBinder.Eval(container.DataItem, this.DataField);
+                        object evaluation = GridDataBinder.Eval(container.DataItem, this.DataField);
                         if (evaluation != null)
                         {
                             itemValue = evaluation.ToString();
@@ -112,28 +120,40 @@ namespace DotNetNuke.UI.WebControls
             return itemValue;
         }
 
-        /// <summary>Item_DataBinding runs when an Item of type ListItemType.Item is being data-bound.</summary>
-        /// <param name="sender"> The object that triggers the event.</param>
-        /// <param name="e">An EventArgs object.</param>
-        private void Item_DataBinding(object sender, EventArgs e)
+        private RenderFragment RenderLabel(string text)
         {
-            DataGridItem container;
-            int keyValue = Null.NullInteger;
-            switch (this.ItemType)
+            var width = this.Width;
+            return builder =>
             {
-                case ListItemType.Item:
-                case ListItemType.AlternatingItem:
-                case ListItemType.SelectedItem:
-                    var lblText = (Label)sender;
-                    container = (DataGridItem)lblText.NamingContainer;
-                    lblText.Text = this.GetValue(container);
-                    break;
-                case ListItemType.EditItem:
-                    var txtText = (TextBox)sender;
-                    container = (DataGridItem)txtText.NamingContainer;
-                    txtText.Text = this.GetValue(container);
-                    break;
-            }
+                builder.OpenElement(0, "span");
+                if (!width.IsEmpty)
+                {
+                    builder.AddAttribute(1, "style", "width:" + width);
+                }
+
+                builder.AddContent(2, text);
+                builder.CloseElement();
+            };
+        }
+
+        private RenderFragment RenderTextBox(GridTextBox state)
+        {
+            var width = this.Width;
+            return builder =>
+            {
+                builder.OpenElement(0, "input");
+                builder.AddAttribute(1, "type", "text");
+                if (!width.IsEmpty)
+                {
+                    builder.AddAttribute(2, "style", "width:" + width);
+                }
+
+                builder.AddAttribute(3, "value", state.Text);
+                builder.AddAttribute(4, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(
+                    this,
+                    args => state.Text = args?.Value?.ToString() ?? string.Empty));
+                builder.CloseElement();
+            };
         }
     }
 }

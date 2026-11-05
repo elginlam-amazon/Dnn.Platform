@@ -8,12 +8,10 @@ namespace DotNetNuke.Entities.Urls
     using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Collections.Specialized;
-    using System.Configuration;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.IO;
     using System.Threading;
-    using System.Web.Caching;
 
     using DotNetNuke.Collections.Internal;
     using DotNetNuke.Common;
@@ -164,15 +162,12 @@ namespace DotNetNuke.Entities.Urls
                         itemName = "Page Index";
 
                         // user profile actions
-                        try
-                        {
-                            DataCache.RemoveCache(UserProfileActionsKey);
-                        }
-                        catch (ConfigurationErrorsException)
-                        {
-                            // do nothing, this means the web.config file was overwritten, and thus the cache
-                            // was cleared.
-                        }
+                        // The legacy code caught ConfigurationErrorsException here, which
+                        // System.Web raised when web.config was overwritten while the
+                        // HttpRuntime cache was being touched (the cache was cleared as a side
+                        // effect, so the handler was a no-op). IMemoryCache is not backed by
+                        // web.config and cannot raise it, so there is nothing left to catch.
+                        DataCache.RemoveCache(UserProfileActionsKey);
 
                         if (v is SharedDictionary<string, string> stringDict)
                         {
@@ -375,20 +370,20 @@ namespace DotNetNuke.Entities.Urls
                         redirectActions.LoadFromXmlFile(fileName, portalId, portalSpecific, ref messages);
                     }
 
-                    CacheDependency fileDependency = null;
+                    DNNCacheDependency fileDependency = null;
                     if (File.Exists(fileName))
                     {
-                        fileDependency = new CacheDependency(fileName);
+                        fileDependency = DataCache.CreateFileDependency(fileName);
                     }
 
                     if (settings != null)
                     {
                         DateTime absoluteExpiration = DateTime.Now.Add(settings.CacheTime);
-                        DataCache.SetCache(redirectActionKey, redirectActions, new DNNCacheDependency(fileDependency), absoluteExpiration, Cache.NoSlidingExpiration);
+                        DataCache.SetCache(redirectActionKey, redirectActions, fileDependency, absoluteExpiration, Cache.NoSlidingExpiration);
                     }
                     else
                     {
-                        DataCache.SetCache(redirectActionKey, redirectActions, new DNNCacheDependency(fileDependency));
+                        DataCache.SetCache(redirectActionKey, redirectActions, fileDependency);
                     }
                 }
                 catch (Exception ex)
@@ -423,15 +418,15 @@ namespace DotNetNuke.Entities.Urls
                         replaceActions.LoadFromXmlFile(fileName, portalId, portalSpecific, ref messages);
                     }
 
-                    CacheDependency cacheDependency = null;
+                    DNNCacheDependency cacheDependency = null;
                     if (replaceActions.Count > 0)
                     {
                         // only set filename dependency if file exists
-                        cacheDependency = new CacheDependency(fileName);
+                        cacheDependency = DataCache.CreateFileDependency(fileName);
                     }
 
                     DateTime expiration = DateTime.MaxValue;
-                    DataCache.SetCache(replaceActionKey, replaceActions, new DNNCacheDependency(cacheDependency), expiration, settings.CacheTime);
+                    DataCache.SetCache(replaceActionKey, replaceActions, cacheDependency, expiration, settings.CacheTime);
                 }
                 catch (Exception ex)
                 {
@@ -465,13 +460,13 @@ namespace DotNetNuke.Entities.Urls
                         rewriteActions.LoadFromXmlFile(filename, portalId, portalSpecific, ref messages);
                     }
 
-                    CacheDependency fileDependency = null;
+                    DNNCacheDependency fileDependency = null;
                     if (File.Exists(filename))
                     {
-                        fileDependency = new CacheDependency(filename);
+                        fileDependency = DataCache.CreateFileDependency(filename);
                     }
 
-                    DataCache.SetCache(rewriteActionKey, rewriteActions, new DNNCacheDependency(fileDependency));
+                    DataCache.SetCache(rewriteActionKey, rewriteActions, fileDependency);
                 }
                 catch (Exception ex)
                 {
@@ -819,7 +814,7 @@ namespace DotNetNuke.Entities.Urls
 
             logRemovedReason = settings.LogCacheMessages;
 
-            SetPageCache(UrlDictKey, urlDict, new DNNCacheDependency(GetTabsCacheDependency(urlPortals)), settings, this.onRemovePageIndex);
+            SetPageCache(UrlDictKey, urlDict, GetTabsCacheDependency(urlPortals), settings, this.onRemovePageIndex);
             SetPageCache(UrlPortalsKey, urlPortals, settings);
             SetPageCache(CustomAliasTabsKey, customAliasTabs, settings);
 
@@ -861,7 +856,7 @@ namespace DotNetNuke.Entities.Urls
             }
 
             // 783 : use cache dependency to manage page index instead of triggerDictionaryRebuild regex.
-            SetPageCache(PageIndexKey, tabDictionary, new DNNCacheDependency(GetTabsCacheDependency(portalIds)), settings, this.onRemovePageIndex);
+            SetPageCache(PageIndexKey, tabDictionary, GetTabsCacheDependency(portalIds), settings, this.onRemovePageIndex);
 
             SetPageCache(PageIndexDepthKey, portalDepthInfo, settings);
 
@@ -890,14 +885,16 @@ namespace DotNetNuke.Entities.Urls
             SetPageCache(
                 string.Format(CultureInfo.InvariantCulture, TabPathsKey, portalId),
                 tabPathDictionary,
-                new DNNCacheDependency(GetTabsCacheDependency([portalId,])),
+                GetTabsCacheDependency([portalId,]),
                 settings,
                 null);
         }
 
-        private static CacheDependency GetPortalsCacheDependency()
+        /// <summary>Creates a dependency on the cached portal dictionary, so that the dependent cache item is evicted whenever the portal list changes.</summary>
+        /// <returns>A key-based <see cref="DNNCacheDependency"/>.</returns>
+        private static DNNCacheDependency GetPortalsCacheDependency()
         {
-            return new CacheDependency(null, PortalCacheDependencyKeys);
+            return new DNNCacheDependency(null, PortalCacheDependencyKeys);
         }
 
         private static void SetPageCache(string key, object value, FriendlyUrlSettings settings)
@@ -932,7 +929,7 @@ namespace DotNetNuke.Entities.Urls
                 DataCache.SetCache(
                     key,
                     value,
-                    new DNNCacheDependency(GetPortalsCacheDependency()),
+                    GetPortalsCacheDependency(),
                     absoluteExpiration,
                     Cache.NoSlidingExpiration);
             }
@@ -942,7 +939,10 @@ namespace DotNetNuke.Entities.Urls
             }
         }
 
-        private static CacheDependency GetTabsCacheDependency(IEnumerable<int> portalIds)
+        /// <summary>Creates a dependency on the cached tab collections of the given portals.</summary>
+        /// <param name="portalIds">The portals whose tab caches the dependent item depends on.</param>
+        /// <returns>A key-based <see cref="DNNCacheDependency"/>; the underlying change tokens are cancelled by the cache store when any of those keys is removed, replaced or expires.</returns>
+        private static DNNCacheDependency GetTabsCacheDependency(IEnumerable<int> portalIds)
         {
             var keys = new List<string>();
             foreach (int portalId in portalIds)
@@ -960,7 +960,7 @@ namespace DotNetNuke.Entities.Urls
                 keys.AddRange(portalKeys);
             }
 
-            var tabsDependency = new CacheDependency(null, keys.ToArray());
+            var tabsDependency = new DNNCacheDependency(null, keys.ToArray());
             return tabsDependency;
         }
     }

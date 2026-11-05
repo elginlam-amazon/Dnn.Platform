@@ -13,7 +13,6 @@ namespace DotNetNuke.Entities.Modules
     using System.Linq;
     using System.Net;
     using System.Threading;
-    using System.Web;
     using System.Xml;
     using System.Xml.Serialization;
 
@@ -77,7 +76,22 @@ namespace DotNetNuke.Entities.Modules
         {
         }
 
-        private static Hashtable ParsedLocalizedModuleGuid => (Hashtable)(HttpContext.Current.Items["ParsedLocalizedModuleGuid"] ??= new Hashtable());
+        private static Hashtable ParsedLocalizedModuleGuid
+        {
+            get
+            {
+                // HttpContext.Items is IDictionary<object, object> on ASP.NET Core, so the
+                // legacy "indexer ??= new" idiom is replaced by an explicit TryGetValue.
+                var items = HttpContextSource.CurrentOrThrow.Items;
+                if (!items.TryGetValue("ParsedLocalizedModuleGuid", out var parsed) || parsed is not Hashtable)
+                {
+                    parsed = new Hashtable();
+                    items["ParsedLocalizedModuleGuid"] = parsed;
+                }
+
+                return (Hashtable)parsed;
+            }
+        }
 
         /// <summary>Deserializes the module.</summary>
         /// <param name="businessControllerProvider">The business controller provider.</param>
@@ -1777,7 +1791,7 @@ namespace DotNetNuke.Entities.Modules
                 xmlAttr.Value = module.DesktopModule.Version;
                 newNode.Attributes?.Append(xmlAttr);
 
-                content = HttpContext.Current.Server.HtmlEncode(content);
+                content = WebUtility.HtmlEncode(content);
                 newNode.InnerXml = XmlUtils.XMLEncode(content);
                 nodeModule.AppendChild(newNode);
             }

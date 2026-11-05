@@ -6,10 +6,11 @@ namespace DotNetNuke.UI.Modules.Html5
 {
     using System;
     using System.Globalization;
-    using System.Web;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.Tokens;
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Replaces tokens related to the current http request.</summary>
     public class RequestPropertyAccess : IPropertyAccess
@@ -35,18 +36,29 @@ namespace DotNetNuke.UI.Modules.Html5
             switch (propertyName.ToLowerInvariant())
             {
                 case "querystring":
-                    return this.request.QueryString.ToString();
+                    // Was Request.QueryString.ToString(), i.e. the raw query string without the leading '?'.
+                    return this.request == null ? string.Empty : this.request.QueryString.ToString().TrimStart('?');
                 case "applicationpath":
-                    return this.request.ApplicationPath;
+                    return GetApplicationPath();
                 case "relativeapppath":
                     // RelativeAppPath is like ApplicationPath, but will always end with a forward slash (/)
-                    return this.request.ApplicationPath.EndsWith("/", StringComparison.Ordinal)
-                        ? this.request.ApplicationPath
-                        : $"{this.request.ApplicationPath}/";
+                    var applicationPath = GetApplicationPath();
+                    return applicationPath.EndsWith("/", StringComparison.Ordinal)
+                        ? applicationPath
+                        : $"{applicationPath}/";
             }
 
             propertyNotFound = true;
             return string.Empty;
+        }
+
+        /// <summary>Gets the application's virtual path.</summary>
+        /// <returns>The application path.</returns>
+        /// <remarks>Replaces <c>HttpRequest.ApplicationPath</c>, which does not exist on ASP.NET Core.</remarks>
+        private static string GetApplicationPath()
+        {
+            var applicationPath = HttpContextSource.ApplicationVirtualPath;
+            return string.IsNullOrEmpty(applicationPath) ? "/" : applicationPath;
         }
     }
 }

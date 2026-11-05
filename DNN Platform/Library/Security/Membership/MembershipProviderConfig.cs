@@ -10,7 +10,11 @@ namespace DotNetNuke.Security.Membership
     /// <summary>The MembershipProviderConfig class provides a wrapper to the Membership providers configuration.</summary>
     public class MembershipProviderConfig
     {
-        private static readonly MembershipProvider MemberProvider = MembershipProvider.Instance();
+        /// <summary>Gets the configured provider.</summary>
+        /// <remarks>Resolved on each access so that the dependency-injection container
+        /// is used once the application has started, rather than captured at type
+        /// initialization time.</remarks>
+        private static MembershipProvider MemberProvider => MembershipProvider.Instance();
 
         /// <summary>Gets a value indicating whether the Provider Properties can be edited.</summary>
         [Browsable(false)]

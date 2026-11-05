@@ -8,9 +8,6 @@ namespace DotNetNuke.UI.WebControls
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Web.UI;
-    using System.Web.UI.HtmlControls;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
@@ -25,10 +22,21 @@ namespace DotNetNuke.UI.WebControls
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Web.Client.ResourceManager;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>The DNNRegionEditControl control provides a standard UI component for editing Regions.</summary>
-    [ToolboxData("<{0}:DNNRegionEditControl runat=server></{0}:DNNRegionEditControl>")]
+    /// <remarks>
+    /// The <c>DropDownList</c>/<c>TextBox</c>/<c>HtmlInputHidden</c> child controls are now rendered
+    /// directly, keeping their <c>{ID}_dropdown</c>, <c>{ID}_text</c> and <c>{ID}_value</c>
+    /// identifiers and their <c>data-editor</c> attributes, so that
+    /// <c>dnn.CountriesRegions.js</c> — which swaps the drop down for the text box depending on
+    /// whether the selected country has regions — keeps working unchanged. The drop down and the
+    /// text box additionally raise the value change natively, so the editor also works without the
+    /// script.
+    /// </remarks>
     public class DNNRegionEditControl : EditControl
     {
         private readonly IClientResourceController clientResourceController;
@@ -38,9 +46,6 @@ namespace DotNetNuke.UI.WebControls
         private readonly IApplicationStatusInfo appStatus;
         private readonly IPortalGroupController portalGroupController;
         private readonly IEventLogger eventLogger;
-        private DropDownList regions;
-        private TextBox region;
-        private HtmlInputHidden initialValue;
         private List<ListEntryInfo> listEntries;
 
         /// <summary>Initializes a new instance of the <see cref="DNNRegionEditControl"/> class.</summary>
@@ -75,7 +80,6 @@ namespace DotNetNuke.UI.WebControls
             this.portalGroupController = portalGroupController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IPortalGroupController>();
             this.eventLogger = eventLogger ?? Globals.GetCurrentServiceProvider().GetRequiredService<IEventLogger>();
             this.clientResourceController = clientResourceController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IClientResourceController>();
-            this.Init += this.DnnRegionControl_Init;
         }
 
         /// <summary>Initializes a new instance of the <see cref="DNNRegionEditControl"/> class.</summary>
@@ -113,6 +117,10 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>Gets or sets the parent key of the List to display.</summary>
         public string ParentKey { get; set; }
 
+        /// <inheritdoc />
+        public override string EditControlClientId => this.ClientID + "_dropdown";
+
+        /// <summary>Gets the old value expressed as a string.</summary>
         protected string OldStringValue => Convert.ToString(this.OldValue, CultureInfo.InvariantCulture);
 
         /// <summary>Gets the ListEntryInfo objects associated with the control.</summary>
@@ -129,6 +137,7 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
+        /// <summary>Gets the effective portal id the region list is read for.</summary>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         protected int PortalId => PortalController.GetEffectivePortalId(this.portalController, this.appStatus, this.portalGroupController, PortalSettings.Current.PortalId);
 
@@ -152,48 +161,11 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
-        private DropDownList Regions
-        {
-            get
-            {
-                if (this.regions == null)
-                {
-                    this.regions = new DropDownList();
-                }
-
-                return this.regions;
-            }
-        }
-
-        private TextBox Region
-        {
-            get
-            {
-                if (this.region == null)
-                {
-                    this.region = new TextBox();
-                }
-
-                return this.region;
-            }
-        }
-
-        private HtmlInputHidden RegionCode
-        {
-            get
-            {
-                if (this.initialValue == null)
-                {
-                    this.initialValue = new HtmlInputHidden();
-                }
-
-                return this.initialValue;
-            }
-        }
-
         /// <inheritdoc />
         public override bool LoadPostData(string postDataKey, System.Collections.Specialized.NameValueCollection postCollection)
         {
+            ArgumentNullException.ThrowIfNull(postCollection);
+
             bool dataChanged = false;
             string presentValue = this.StringValue;
             string postedValue = postCollection[postDataKey + "_value"];
@@ -237,64 +209,10 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void CreateChildControls()
+        protected override void OnInit(EventArgs e)
         {
-            base.CreateChildControls();
+            base.OnInit(e);
 
-            this.Regions.ControlStyle.CopyFrom(this.ControlStyle);
-            this.Regions.ID = $"{this.ID}_dropdown";
-            this.Regions.Attributes.Add("data-editor", "DNNRegionEditControl_DropDown");
-            this.Regions.Attributes.Add("aria-label", "Region");
-            this.Regions.Items.Add(new ListItem { Text = $"<{Localization.GetString("Not_Specified", Localization.SharedResourceFile)}>", Value = string.Empty, });
-            this.Controls.Add(this.Regions);
-
-            this.Region.ControlStyle.CopyFrom(this.ControlStyle);
-            this.Region.ID = $"{this.ID}_text";
-            this.Region.Attributes.Add("data-editor", "DNNRegionEditControl_Text");
-            this.Controls.Add(this.Region);
-
-            this.RegionCode.ID = $"{this.ID}_value";
-            this.RegionCode.Attributes.Add("data-editor", "DNNRegionEditControl_Hidden");
-            this.Controls.Add(this.RegionCode);
-        }
-
-        /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
-        {
-            base.OnPreRender(e);
-
-            this.LoadControls();
-
-            if (this.Page != null & this.EditMode == PropertyEditorMode.Edit)
-            {
-                this.Page.RegisterRequiresPostBack(this);
-                this.Page.RegisterRequiresPostBack(this.RegionCode);
-            }
-        }
-
-        /// <inheritdoc />
-        protected override void RenderEditMode(HtmlTextWriter writer)
-        {
-            if (this.ListEntries != null && this.ListEntries.Any())
-            {
-                foreach (ListEntryInfo item in this.ListEntries)
-                {
-                    this.Regions.Items.Add(new ListItem { Text = item.Text, Value = item.EntryID.ToString(CultureInfo.InvariantCulture), });
-                }
-            }
-
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.AddAttribute("data-name", this.Name);
-            writer.AddAttribute("data-list", "Region");
-            writer.AddAttribute("data-category", this.Category);
-            writer.AddAttribute("data-required", this.Required.ToString().ToLowerInvariant());
-            writer.RenderBeginTag(HtmlTextWriterTag.Div);
-            this.RenderChildren(writer);
-            writer.RenderEndTag();
-        }
-
-        private void DnnRegionControl_Init(object sender, EventArgs e)
-        {
             this.servicesFramework.RequestAjaxAntiForgerySupport();
             this.clientResourceController.RegisterScript("~/Resources/Shared/components/CountriesRegions/dnn.CountriesRegions.js");
             this.clientResourceController
@@ -305,9 +223,87 @@ namespace DotNetNuke.UI.WebControls
             JavaScript.RequestRegistration(this.appStatus, this.eventLogger, this.portalController.GetCurrentSettings(), CommonJs.jQueryUI);
         }
 
-        private void LoadControls()
+        /// <inheritdoc />
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            this.RegionCode.Value = this.StringValue;
+            ArgumentNullException.ThrowIfNull(builder);
+
+            builder.OpenElement(0, "div");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddAttribute(5, "data-name", this.Name);
+            builder.AddAttribute(6, "data-list", "Region");
+            builder.AddAttribute(7, "data-category", this.Category);
+            builder.AddAttribute(8, "data-required", this.Required.ToString().ToLowerInvariant());
+
+            // The region drop down, shown when the selected country has a region list.
+            builder.OpenElement(10, "select");
+            this.AddStyleAttributes(builder, 11);
+            builder.AddAttribute(15, "id", this.ClientID + "_dropdown");
+            builder.AddAttribute(16, "name", this.UniqueID + "_dropdown");
+            builder.AddAttribute(17, "data-editor", "DNNRegionEditControl_DropDown");
+            builder.AddAttribute(18, "aria-label", "Region");
+            builder.AddAttribute(19, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnRegionChanged));
+
+            builder.OpenElement(20, "option");
+            builder.AddAttribute(21, "value", string.Empty);
+            if (string.IsNullOrEmpty(this.StringValue))
+            {
+                builder.AddAttribute(22, "selected", "selected");
+            }
+
+            builder.AddContent(23, "<" + Localization.GetString("Not_Specified", Localization.SharedResourceFile) + ">");
+            builder.CloseElement();
+
+            builder.OpenRegion(30);
+            if (this.ListEntries != null && this.ListEntries.Any())
+            {
+                foreach (ListEntryInfo item in this.ListEntries)
+                {
+                    var itemValue = item.EntryID.ToString(CultureInfo.InvariantCulture);
+                    builder.OpenElement(0, "option");
+                    builder.AddAttribute(1, "value", itemValue);
+                    if (string.Equals(this.StringValue, itemValue, StringComparison.Ordinal))
+                    {
+                        builder.AddAttribute(2, "selected", "selected");
+                    }
+
+                    builder.AddContent(3, item.Text);
+                    builder.CloseElement();
+                }
+            }
+
+            builder.CloseRegion();
+            builder.CloseElement();
+
+            // The free-text region, shown when the selected country has no region list.
+            builder.OpenElement(40, "input");
+            this.AddStyleAttributes(builder, 41);
+            builder.AddAttribute(45, "type", "text");
+            builder.AddAttribute(46, "id", this.ClientID + "_text");
+            builder.AddAttribute(47, "name", this.UniqueID + "_text");
+            builder.AddAttribute(48, "data-editor", "DNNRegionEditControl_Text");
+            builder.AddAttribute(49, "aria-label", "Region");
+            builder.AddAttribute(50, "value", this.StringValue);
+            builder.AddAttribute(51, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnRegionChanged));
+            builder.CloseElement();
+
+            // The hidden field that dnn.CountriesRegions.js writes the resolved value into.
+            builder.OpenElement(60, "input");
+            builder.AddAttribute(61, "type", "hidden");
+            builder.AddAttribute(62, "id", this.ClientID + "_value");
+            builder.AddAttribute(63, "name", this.UniqueID + "_value");
+            builder.AddAttribute(64, "data-editor", "DNNRegionEditControl_Hidden");
+            builder.AddAttribute(65, "value", this.StringValue);
+            builder.AddAttribute(66, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnRegionChanged));
+            builder.CloseElement();
+
+            builder.CloseElement();
+        }
+
+        private void OnRegionChanged(ChangeEventArgs args)
+        {
+            this.SetPostValue("_value", args?.Value?.ToString());
+            this.CommitPostData();
         }
     }
 }

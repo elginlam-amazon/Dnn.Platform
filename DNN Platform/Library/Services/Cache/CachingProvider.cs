@@ -9,8 +9,6 @@ namespace DotNetNuke.Services.Cache
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Web;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -28,7 +26,7 @@ namespace DotNetNuke.Services.Cache
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
-    /// <summary>CachingProvider provides basic component of cache system, by default it will use HttpRuntime.Cache.</summary>
+    /// <summary>CachingProvider provides basic component of cache system, by default it will use the application's <see cref="Microsoft.Extensions.Caching.Memory.IMemoryCache"/>.</summary>
     /// <remarks>
     /// <para>Using cache will speed up the application to a great degree, we recommend to use cache for whole modules,
     /// but sometimes cache also make confuse for user, if we didn't take care of how to make cache expired when needed,
@@ -48,7 +46,6 @@ namespace DotNetNuke.Services.Cache
     {
         private const string CachePrefix = "DNN_";
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<CachingProvider>();
-        private static System.Web.Caching.Cache cache;
 
         /// <summary>Initializes a new instance of the <see cref="CachingProvider"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.0.2. Please use overload with IHostSettings. Scheduled removal in v12.0.0.")]
@@ -64,9 +61,9 @@ namespace DotNetNuke.Services.Cache
             this.HostSettings = hostSettings ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
         }
 
-        /// <summary>Gets the default cache provider.</summary>
-        /// <value>HttpRuntime.Cache.</value>
-        protected static System.Web.Caching.Cache Cache => cache ?? (cache = HttpRuntime.Cache);
+        /// <summary>Gets the default cache store.</summary>
+        /// <value>The <see cref="DnnCacheStore"/> singleton, backed by the application's <see cref="Microsoft.Extensions.Caching.Memory.IMemoryCache"/>.</value>
+        protected static DnnCacheStore Cache => DnnCacheStore.Instance;
 
         /// <summary>Gets a value indicating whether current caching provider disabled to expire cache.</summary>
         /// <remarks>This setting shouldn't affect current server, cache should always expire in current server even this setting set to True.</remarks>
@@ -136,7 +133,7 @@ namespace DotNetNuke.Services.Cache
         /// <param name="itemToCache">The object.</param>
         public virtual void Insert(string cacheKey, object itemToCache)
         {
-            this.Insert(cacheKey, itemToCache, null as DNNCacheDependency, System.Web.Caching.Cache.NoAbsoluteExpiration, System.Web.Caching.Cache.NoSlidingExpiration, CacheItemPriority.Default, null);
+            this.Insert(cacheKey, itemToCache, null as DNNCacheDependency, DnnCacheStore.NoAbsoluteExpiration, DnnCacheStore.NoSlidingExpiration, CacheItemPriority.Default, null);
         }
 
         /// <summary>Inserts the specified cache key.</summary>
@@ -145,7 +142,7 @@ namespace DotNetNuke.Services.Cache
         /// <param name="dependency">The dependency.</param>
         public virtual void Insert(string cacheKey, object itemToCache, DNNCacheDependency dependency)
         {
-            this.Insert(cacheKey, itemToCache, dependency, System.Web.Caching.Cache.NoAbsoluteExpiration, System.Web.Caching.Cache.NoSlidingExpiration, CacheItemPriority.Default, null);
+            this.Insert(cacheKey, itemToCache, dependency, DnnCacheStore.NoAbsoluteExpiration, DnnCacheStore.NoSlidingExpiration, CacheItemPriority.Default, null);
         }
 
         /// <summary>Inserts the specified cache key.</summary>
@@ -169,7 +166,7 @@ namespace DotNetNuke.Services.Cache
         /// <param name="onRemoveCallback">The on remove callback.</param>
         public virtual void Insert(string cacheKey, object itemToCache, DNNCacheDependency dependency, DateTime absoluteExpiration, TimeSpan slidingExpiration, CacheItemPriority priority, CacheItemRemovedCallback onRemoveCallback)
         {
-            Cache.Insert(cacheKey, itemToCache, dependency == null ? null : dependency.SystemCacheDependency, absoluteExpiration, slidingExpiration, priority, onRemoveCallback);
+            Cache.Insert(cacheKey, itemToCache, dependency, absoluteExpiration, slidingExpiration, priority, onRemoveCallback);
         }
 
         /// <summary>Determines whether is web farm.</summary>
@@ -279,19 +276,21 @@ namespace DotNetNuke.Services.Cache
 
         private void ClearCacheInternal(string prefix, bool clearRuntime)
         {
-            foreach (DictionaryEntry objDictionaryEntry in HttpRuntime.Cache)
+            // IMemoryCache cannot be enumerated, so the DnnCacheStore keeps a registry of its keys;
+            // clear-by-prefix walks a snapshot of that registry.
+            foreach (var cacheKey in Cache.GetKeys())
             {
-                if (Convert.ToString(objDictionaryEntry.Key, CultureInfo.InvariantCulture).StartsWith(prefix, StringComparison.Ordinal))
+                if (Convert.ToString(cacheKey, CultureInfo.InvariantCulture).StartsWith(prefix, StringComparison.Ordinal))
                 {
                     if (clearRuntime)
                     {
                         // remove item from runtime cache
-                        this.RemoveInternal(Convert.ToString(objDictionaryEntry.Key, CultureInfo.InvariantCulture));
+                        this.RemoveInternal(Convert.ToString(cacheKey, CultureInfo.InvariantCulture));
                     }
                     else
                     {
                         // Call provider's remove method
-                        this.Remove(Convert.ToString(objDictionaryEntry.Key, CultureInfo.InvariantCulture));
+                        this.Remove(Convert.ToString(cacheKey, CultureInfo.InvariantCulture));
                     }
                 }
             }

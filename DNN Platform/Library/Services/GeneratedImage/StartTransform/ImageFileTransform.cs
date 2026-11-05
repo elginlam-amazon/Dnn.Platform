@@ -5,14 +5,24 @@
 namespace DotNetNuke.Services.GeneratedImage.StartTransform
 {
     using System;
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
     using System.IO;
-    using System.Net;
+    using System.Net.Http;
+
+    using SixLabors.ImageSharp;
 
     /// <summary>Image File ImageTransform class.</summary>
     public class ImageFileTransform : ImageTransform
     {
+        /// <summary>
+        /// The client used to download <see cref="ImageUrl"/>. Replaces the
+        /// <c>HttpWebRequest</c>/<c>HttpWebResponse</c> pair, which is obsolete on modern .NET.
+        /// </summary>
+        /// <remarks>
+        /// A single static instance is used deliberately: it is the pattern that avoids socket
+        /// exhaustion, and it mirrors the stateless use the original made of <c>WebRequest</c>.
+        /// </remarks>
+        private static readonly HttpClient HttpClient = new HttpClient();
+
         /// <summary>Initializes a new instance of the <see cref="ImageFileTransform"/> class.</summary>
         public ImageFileTransform()
         {
@@ -51,7 +61,7 @@ namespace DotNetNuke.Services.GeneratedImage.StartTransform
         {
             try
             {
-                using (var stream = new FileStream(this.ImageFilePath, FileMode.Open))
+                using (var stream = new FileStream(this.ImageFilePath, FileMode.Open, FileAccess.Read))
                 {
                     return this.CopyImage(stream);
                 }
@@ -65,13 +75,12 @@ namespace DotNetNuke.Services.GeneratedImage.StartTransform
 
         private Image ProcessImageFromUrl()
         {
-            var httpWebRequest = (HttpWebRequest)WebRequest.Create(this.ImageUrl);
-
             try
             {
-                using (var httpWebReponse = (HttpWebResponse)httpWebRequest.GetResponse())
+                using (var response = HttpClient.GetAsync(this.ImageUrl, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult())
                 {
-                    using (var stream = httpWebReponse.GetResponseStream())
+                    response.EnsureSuccessStatusCode();
+                    using (var stream = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult())
                     {
                         return this.CopyImage(stream);
                     }

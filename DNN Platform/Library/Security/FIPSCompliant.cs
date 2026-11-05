@@ -60,10 +60,15 @@ namespace DotNetNuke.Security
             VerifyAesSettings(passPhrase, salt);
 
             byte[] saltBytes = Encoding.ASCII.GetBytes(salt);
-            using var aesProvider = new AesCryptoServiceProvider();
-            using var derivedBytes = new Rfc2898DeriveBytes(passPhrase, saltBytes, iterations, hashAlgorithm);
-            byte[] derivedKey = derivedBytes.GetBytes(32); // 256 bits
-            byte[] derivedInitVector = derivedBytes.GetBytes(16); // 128 bits
+            using var aesProvider = Aes.Create();
+
+            // Rfc2898DeriveBytes.Pbkdf2 replaces the obsolete Rfc2898DeriveBytes constructor.
+            // The sequential GetBytes(32) + GetBytes(16) calls read the first 48 bytes of the
+            // PBKDF2 output stream, so deriving 48 bytes in one call and splitting them yields
+            // byte-identical key material and keeps existing cipher text decryptable.
+            byte[] derived = Rfc2898DeriveBytes.Pbkdf2(passPhrase, saltBytes, iterations, hashAlgorithm, 48);
+            byte[] derivedKey = derived[..32]; // 256 bits
+            byte[] derivedInitVector = derived[32..]; // 128 bits
             byte[] plainTextBytes = Encoding.UTF8.GetBytes(plainText);
 
             aesProvider.KeySize = 256;
@@ -106,10 +111,15 @@ namespace DotNetNuke.Security
             VerifyAesSettings(passPhrase, salt);
 
             byte[] saltBytes = Encoding.ASCII.GetBytes(salt);
-            using var aesProvider = new AesCryptoServiceProvider();
-            using var derivedBytes = new Rfc2898DeriveBytes(passPhrase, saltBytes, iterations, hashAlgorithm);
-            byte[] derivedKey = derivedBytes.GetBytes(32); // 256 bits
-            byte[] derivedInitVector = derivedBytes.GetBytes(16); // 128 bits
+            using var aesProvider = Aes.Create();
+
+            // Rfc2898DeriveBytes.Pbkdf2 replaces the obsolete Rfc2898DeriveBytes constructor.
+            // The sequential GetBytes(32) + GetBytes(16) calls read the first 48 bytes of the
+            // PBKDF2 output stream, so deriving 48 bytes in one call and splitting them yields
+            // byte-identical key material and keeps existing cipher text decryptable.
+            byte[] derived = Rfc2898DeriveBytes.Pbkdf2(passPhrase, saltBytes, iterations, hashAlgorithm, 48);
+            byte[] derivedKey = derived[..32]; // 256 bits
+            byte[] derivedInitVector = derived[32..]; // 128 bits
             byte[] cipherTextBytes = Convert.FromBase64String(encryptedText);
 
             aesProvider.KeySize = 256;

@@ -5,12 +5,14 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
 
     using DotNetNuke.Common.Utilities;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
+
     /// <summary>The TextEditControl control provides a standard UI component for editing string/text properties.</summary>
-    [ToolboxData("<{0}:TextEditControl runat=server></{0}:TextEditControl>")]
     public class TextEditControl : EditControl
     {
         /// <summary>
@@ -34,6 +36,29 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>Gets oldStringValue returns the Boolean representation of the OldValue.</summary>
         /// <value>A String representing the OldValue.</value>
         protected string OldStringValue => Convert.ToString(this.OldValue, CultureInfo.InvariantCulture);
+
+        /// <summary>Gets the maximum length declared by a <see cref="MaxLengthAttribute"/> custom attribute.</summary>
+        /// <value>The maximum length, or <see cref="Null.NullInteger"/> when unconstrained.</value>
+        protected int MaxLength
+        {
+            get
+            {
+                int length = Null.NullInteger;
+                if (this.CustomAttributes != null)
+                {
+                    foreach (Attribute attribute in this.CustomAttributes)
+                    {
+                        if (attribute is MaxLengthAttribute maxLengthAttribute)
+                        {
+                            length = maxLengthAttribute.Length;
+                            break;
+                        }
+                    }
+                }
+
+                return length;
+            }
+        }
 
         /// <summary>Gets or sets stringValue is the value of the control expressed as a String.</summary>
         /// <value>A string representing the Value.</value>
@@ -68,34 +93,26 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <summary>RenderEditMode renders the Edit mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            int length = Null.NullInteger;
-            if (this.CustomAttributes != null)
-            {
-                foreach (Attribute attribute in this.CustomAttributes)
-                {
-                    if (attribute is MaxLengthAttribute maxLengthAttribute)
-                    {
-                        length = maxLengthAttribute.Length;
-                        break;
-                    }
-                }
-            }
+            ArgumentNullException.ThrowIfNull(builder);
 
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "text");
-            writer.AddAttribute(HtmlTextWriterAttribute.Value, this.StringValue);
+            int length = this.MaxLength;
+
+            builder.OpenElement(0, "input");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddAttribute(5, "type", "text");
+            builder.AddAttribute(6, "value", this.StringValue);
             if (length > Null.NullInteger)
             {
-                writer.AddAttribute(HtmlTextWriterAttribute.Maxlength, length.ToString(CultureInfo.InvariantCulture));
+                builder.AddAttribute(7, "maxlength", length.ToString(CultureInfo.InvariantCulture));
             }
 
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Id, this.ClientID);
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.RenderEndTag();
+            builder.AddAttribute(8, "name", this.UniqueID);
+            builder.AddAttribute(9, "id", this.ClientID);
+            builder.AddAttribute(10, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnInputChanged));
+            builder.CloseElement();
         }
     }
 }

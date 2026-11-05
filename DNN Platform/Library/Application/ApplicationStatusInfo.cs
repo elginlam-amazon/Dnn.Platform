@@ -5,9 +5,10 @@ namespace DotNetNuke.Application
 {
     using System;
     using System.IO;
-    using System.Web;
+    using System.Net;
 
     using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
     using DotNetNuke.Framework.Providers;
@@ -133,7 +134,7 @@ namespace DotNetNuke.Application
             int dataproviderfactor = Convert.ToInt32(HasDataProviderLogFiles() ? 3 : 0);
             int htmlmodulefactor = Convert.ToInt32(this.ModuleDirectoryExists("html") ? 2 : 0);
             int portaldirectoryfactor = Convert.ToInt32(this.HasNonDefaultPortalDirectory() ? 2 : 0);
-            int localexecutionfactor = Convert.ToInt32(HttpContext.Current.Request.IsLocal ? c_PassingScore - 1 : 0);
+            int localexecutionfactor = Convert.ToInt32(IsLocalRequest() ? c_PassingScore - 1 : 0);
 
             // This calculation ensures that you have a more than one item that indicates you have already installed DNN.
             // While it is possible that you might not have an installation date or that you have deleted log files
@@ -177,7 +178,7 @@ namespace DotNetNuke.Application
             // If the provider path does not exist, then there can't be any log files
             if (!string.IsNullOrEmpty(providerpath))
             {
-                providerpath = HttpRuntime.AppDomainAppPath + providerpath.Replace("~", string.Empty);
+                providerpath = HttpContextSource.MapPath(providerpath);
                 if (Directory.Exists(providerpath))
                 {
                     var incrementalcount = Directory.GetFiles(providerpath, Upgrade.GetStringVersion(version) + ".*." + Upgrade.DefaultProvider).Length;
@@ -205,11 +206,35 @@ namespace DotNetNuke.Application
             }
         }
 
+        /// <summary>
+        /// Determines whether the current request originates from the local machine (the
+        /// ASP.NET Core replacement for <c>HttpRequest.IsLocal</c>).
+        /// </summary>
+        /// <returns><see langword="true"/> when the request comes from a loopback address or the remote and local addresses match.</returns>
+        private static bool IsLocalRequest()
+        {
+            var connection = HttpContextSource.CurrentOrThrow.Connection;
+            var remoteIp = connection.RemoteIpAddress;
+            if (remoteIp == null)
+            {
+                // No remote address means the request was not made over the network (in-process/test host).
+                return true;
+            }
+
+            if (IPAddress.IsLoopback(remoteIp))
+            {
+                return true;
+            }
+
+            return connection.LocalIpAddress != null && remoteIp.Equals(connection.LocalIpAddress);
+        }
+
         /// <summary>Determines whether current request is for install.</summary>
         /// <returns><see langword="true"/> if current request is for install; otherwise, <see langword="false"/>.</returns>
         private static bool IsInstallationURL()
         {
-            string requestURL = HttpContext.Current.Request.RawUrl.ToLowerInvariant().Replace(@"\", "/");
+            var request = HttpContextSource.CurrentOrThrow.Request;
+            string requestURL = (request.Path + request.QueryString).ToString().ToLowerInvariant().Replace(@"\", "/");
             return requestURL.Contains("/install.aspx") || requestURL.Contains("/installwizard.aspx");
         }
 
@@ -230,7 +255,7 @@ namespace DotNetNuke.Application
             // If the provider path does not exist, then there can't be any log files
             if (!string.IsNullOrEmpty(providerpath))
             {
-                providerpath = HttpContext.Current.Server.MapPath(providerpath);
+                providerpath = HttpContextSource.MapPath(providerpath);
                 if (Directory.Exists(providerpath))
                 {
                     return Directory.GetFiles(providerpath, "*.log.resources").Length > 0;

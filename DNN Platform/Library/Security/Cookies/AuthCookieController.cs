@@ -5,8 +5,11 @@
 namespace DotNetNuke.Security.Cookies
 {
     using System;
-    using System.Web.Caching;
-    using System.Web.Security;
+    using DotNetNuke.Services.Cache;
+    using DotNetNuke.Common;
+    using DotNetNuke.Security.Authentication;
+
+    using Microsoft.Extensions.DependencyInjection;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
@@ -39,7 +42,7 @@ namespace DotNetNuke.Security.Cookies
             return CBO.Instance.GetCachedObject<PersistedAuthCookie>(
                 new CacheItemArgs(
                     GetKey(cookieValue),
-                    (int)FormsAuthentication.Timeout.TotalMinutes,
+                    (int)Globals.GetCurrentServiceProvider().GetRequiredService<IAuthenticationCookieService>().Timeout.TotalMinutes,
                     CacheItemPriority.AboveNormal),
                 _ => CBO.Instance.FillObject<PersistedAuthCookie>(this.dataProvider.FindAuthCookie(cookieValue)),
                 false);

@@ -152,35 +152,11 @@ namespace DotNetNuke.Entities.Content.Data
         /// <inheritdoc />
         public void SynchronizeMetaData(ContentItem contentItem, IEnumerable<KeyValuePair<string, string>> added, IEnumerable<KeyValuePair<string, string>> deleted)
         {
-#if false
-            //TODO: fixing the original code requires adding new DataProvider methods. Reason:
-            //      since we are calling DeleteMetaData/AddMetaData on their own connections,
-            //      the transaction is useless and not going on the same connection as the other
-            //      operations; we must find a better way of doing this transactional operation.
-            using (var transaction = _provider.GetTransaction())
-            {
-                try
-                {
-                    var connection = transaction.Connection;
-                    foreach (var item in deleted)
-                    {
-                        _provider.ExecuteNonQuery(connection, "DeleteMetaData", contentItem.ContentItemId, item.Key, item.Value);
-                    }
-
-                    foreach (var item in added)
-                    {
-                        _provider.ExecuteNonQuery(connection, "AddMetaData", contentItem, item.Key, item.Value);
-                    }
-
-                    _provider.CommitTransaction(transaction);
-                }
-                catch (Exception)
-                {
-                    _provider.RollbackTransaction(transaction);
-                    throw;
-                }
-            }
-#else
+            // TODO: making this a single transactional operation requires adding new DataProvider
+            //       methods. Reason: since DeleteMetaData/AddMetaData each use their own
+            //       connection, a transaction here would not span the other operations; we must
+            //       find a better way of doing this transactional operation. (The previously
+            //       disabled transactional implementation lives in source control history.)
             foreach (var item in deleted)
             {
                 this.DeleteMetaData(contentItem, item.Key, item.Value);
@@ -190,7 +166,6 @@ namespace DotNetNuke.Entities.Content.Data
             {
                 this.AddMetaData(contentItem, item.Key, item.Value);
             }
-#endif
         }
 
         /// <summary>Deletes the meta data.</summary>

@@ -6,18 +6,32 @@ namespace DotNetNuke.Framework
     using System.Diagnostics.CodeAnalysis;
     using System.IO;
     using System.Text;
-    using System.Web.UI;
 
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Entities.Portals;
 
     /// <summary>DiskPageStatePersister provides a disk (stream) based page state persistence mechanism.</summary>
+    /// <remarks>
+    /// The state file name used to be scoped by <c>Session.SessionID</c>; it is now scoped by
+    /// <see cref="PageBase.PageStateId"/>, the identity of the page component instance. The state is
+    /// written with <see cref="PageStatePersister.StateFormatter"/> (JSON) rather than
+    /// <c>LosFormatter</c>, which no longer exists.
+    /// </remarks>
     public class DiskPageStatePersister : PageStatePersister
     {
         /// <summary>Initializes a new instance of the <see cref="DiskPageStatePersister"/> class.</summary>
-        /// <param name="page">The <see cref="Page"/> that the view state persistence mechanism is created for.</param>
-        public DiskPageStatePersister(Page page)
-            : base(page)
+        /// <param name="page">The <see cref="PageBase"/> that the state persistence mechanism is created for.</param>
+        public DiskPageStatePersister(PageBase page)
+            : this(page, null)
+        {
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="DiskPageStatePersister"/> class.</summary>
+        /// <param name="page">The <see cref="PageBase"/> that the state persistence mechanism is created for.</param>
+        /// <param name="stateFormatter">The state formatter, or <see langword="null"/> for the default.</param>
+        public DiskPageStatePersister(PageBase page, IPageStateFormatter stateFormatter)
+            : base(page, stateFormatter)
         {
         }
 
@@ -36,45 +50,31 @@ namespace DotNetNuke.Framework
                 var key = new StringBuilder();
                 {
                     key.Append("VIEWSTATE_");
-                    key.Append(this.Page.Session.SessionID);
+                    key.Append(this.Page.PageStateId);
                     key.Append('_');
-                    key.Append(this.Page.Request.RawUrl);
+                    key.Append(this.Page.Request?.GetRawUrl());
                 }
 
-                return $@"{this.CacheDirectory}\{Globals.CleanFileName(key.ToString())}.txt";
+                return Path.Combine(this.CacheDirectory, $"{Globals.CleanFileName(key.ToString())}.txt");
             }
         }
 
-        /// <summary>Loads the Page State from the Cache.</summary>
+        /// <summary>Loads the Page State from disk.</summary>
         public override void Load()
         {
-            StreamReader reader = null;
-
-            // Read the state string, using the StateFormatter.
-            try
+            // Read the state string, using the state formatter.
+            using (var reader = new StreamReader(this.StateFileName))
             {
-                reader = new StreamReader(this.StateFileName);
+                var serializedStatePair = reader.ReadToEnd();
 
-                string serializedStatePair = reader.ReadToEnd();
-
-                IStateFormatter formatter = this.StateFormatter;
-
-                // Deserialize returns the Pair object that is serialized in
-                // the Save method.
-                var statePair = (Pair)formatter.Deserialize(serializedStatePair);
-                this.ViewState = statePair.First;
-                this.ControlState = statePair.Second;
-            }
-            finally
-            {
-                if (reader != null)
-                {
-                    reader.Close();
-                }
+                // Deserialize returns the PageState object that is serialized in the Save method.
+                var statePair = this.StateFormatter.Deserialize(serializedStatePair);
+                this.ViewState = statePair.ViewState;
+                this.ControlState = statePair.ControlState;
             }
         }
 
-        /// <summary>Saves the Page State to the Cache.</summary>
+        /// <summary>Saves the Page State to disk.</summary>
         public override void Save()
         {
             // No processing needed if no states available
@@ -83,22 +83,17 @@ namespace DotNetNuke.Framework
                 return;
             }
 
-            if (this.Page.Session != null)
+            if (!Directory.Exists(this.CacheDirectory))
             {
-                if (!Directory.Exists(this.CacheDirectory))
-                {
-                    Directory.CreateDirectory(this.CacheDirectory);
-                }
+                Directory.CreateDirectory(this.CacheDirectory);
+            }
 
-                // Write a state string, using the StateFormatter.
-                using (var writer = new StreamWriter(this.StateFileName, false))
-                {
-                    IStateFormatter formatter = this.StateFormatter;
-                    var statePair = new Pair(this.ViewState, this.ControlState);
-                    string serializedState = formatter.Serialize(statePair);
-                    writer.Write(serializedState);
-                    writer.Close();
-                }
+            // Write a state string, using the state formatter.
+            using (var writer = new StreamWriter(this.StateFileName, false))
+            {
+                var statePair = new PageState { ViewState = this.ViewState, ControlState = this.ControlState };
+                var serializedState = this.StateFormatter.Serialize(statePair);
+                writer.Write(serializedState);
             }
         }
     }

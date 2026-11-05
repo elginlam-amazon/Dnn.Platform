@@ -5,12 +5,14 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
 
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
+
     /// <summary>The EnumEditControl control provides a standard UI component for editing enumerated properties.</summary>
-    [ToolboxData("<{0}:EnumEditControl runat=server></{0}:EnumEditControl>")]
     public class EnumEditControl : EditControl
     {
         private readonly Type enumType;
@@ -59,55 +61,62 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <summary>RenderEditMode renders the Edit mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
             int propValue = Convert.ToInt32(this.Value, CultureInfo.InvariantCulture);
             var enumValues = Enum.GetValues(this.enumType);
 
             // Render the Select Tag
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "text");
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Id, this.ClientID);
-            writer.RenderBeginTag(HtmlTextWriterTag.Select);
+            builder.OpenElement(0, "select");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddAttribute(5, "name", this.UniqueID);
+            builder.AddAttribute(6, "id", this.ClientID);
+            builder.AddAttribute(7, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnInputChanged));
 
+            builder.OpenRegion(8);
             for (int i = 0; i <= enumValues.Length - 1; i++)
             {
                 int enumValue = (int)enumValues.GetValue(i);
                 string enumName = Enum.GetName(this.enumType, enumValue);
                 enumName = Localization.GetString(enumName, this.LocalResourceFile);
 
+                builder.OpenElement(0, "option");
+
                 // Add the Value Attribute
-                writer.AddAttribute(HtmlTextWriterAttribute.Value, enumValue.ToString(CultureInfo.InvariantCulture));
+                builder.AddAttribute(1, "value", enumValue.ToString(CultureInfo.InvariantCulture));
 
                 if (enumValue == propValue)
                 {
                     // Add the Selected Attribute
-                    writer.AddAttribute(HtmlTextWriterAttribute.Selected, "selected");
+                    builder.AddAttribute(2, "selected", "selected");
                 }
 
-                // Render Option Tag
-                writer.RenderBeginTag(HtmlTextWriterTag.Option);
-                writer.Write(enumName);
-                writer.RenderEndTag();
+                builder.AddContent(3, enumName);
+                builder.CloseElement();
             }
 
+            builder.CloseRegion();
+
             // Close Select Tag
-            writer.RenderEndTag();
+            builder.CloseElement();
         }
 
         /// <summary>RenderViewMode renders the View (readonly) mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderViewMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderViewMode(RenderTreeBuilder builder)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
             int propValue = Convert.ToInt32(this.Value, CultureInfo.InvariantCulture);
             string enumValue = Enum.Format(this.enumType, propValue, "G");
 
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.RenderBeginTag(HtmlTextWriterTag.Span);
-            writer.Write(enumValue);
-            writer.RenderEndTag();
+            builder.OpenElement(0, "span");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddContent(5, enumValue);
+            builder.CloseElement();
         }
     }
 }

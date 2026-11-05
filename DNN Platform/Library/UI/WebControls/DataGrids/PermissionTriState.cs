@@ -5,9 +5,7 @@
 namespace DotNetNuke.UI.WebControls.Internal
 {
     using System;
-    using System.Web;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.IO;
 
     using DotNetNuke.Entities.Icons;
     using DotNetNuke.Framework;
@@ -20,7 +18,15 @@ namespace DotNetNuke.UI.WebControls.Internal
     /// This control is not general in any way shape of form and should NOT be used outside
     /// of the PermissionGrid.
     /// </summary>
-    public class PermissionTriState : HiddenField
+    /// <remarks>
+    /// Was a <c>System.Web.UI.WebControls.HiddenField</c>. It is now a
+    /// <see cref="DotNetNuke.UI.WebControls.BaseWebControl"/>, the control shape the DNN client API
+    /// uses on ASP.NET Core: the control still renders the image plus the hidden input the
+    /// <c>dnn.permissiontristate.js</c> behaviour cycles through, and the posted value is read
+    /// through <see cref="IClientApiPage.GetRequestValue(string)"/> instead of
+    /// <c>HiddenField.Value</c>'s view state.
+    /// </remarks>
+    public class PermissionTriState : BaseWebControl
     {
         private readonly string grantImagePath;
         private readonly string denyImagePath;
@@ -29,50 +35,104 @@ namespace DotNetNuke.UI.WebControls.Internal
         private readonly string grantAltText;
         private readonly string denyAltText;
         private readonly string nullAltText;
+        private bool valueSet;
 
         /// <summary>Initializes a new instance of the <see cref="PermissionTriState"/> class.</summary>
         public PermissionTriState()
+            : base("input")
         {
             // kind of ugly to lookup this data each time, but doesn't seem worth the effort to
             // maintain statics for the paths but require a control instance to initialize them
             // and lazy load the text bits when the page instance (or localization) changes
             LookupScriptValues(this, out this.grantImagePath, out this.denyImagePath, out this.nullImagePath, out this.lockImagePath, out this.grantAltText, out this.denyAltText, out this.nullAltText);
+
+            // Replaces the OnInit override: BaseWebControl raises PreRender, which is the earliest
+            // point at which the control knows the page it belongs to.
+            this.PreRender += (sender, args) => RegisterScripts(this.Page, this);
         }
 
+        /// <summary>Gets or sets a value indicating whether this control represents the full control permission.</summary>
         public bool IsFullControl { get; set; }
 
+        /// <summary>Gets or sets a value indicating whether this control represents the view permission.</summary>
         public bool IsView { get; set; }
 
-        // Locked is currently not used on a post-back and therefore the
-        // value on postback is undefined at this time
+        /// <summary>Gets or sets a value indicating whether this control is locked.</summary>
+        /// <remarks>
+        /// Locked is currently not used on a post-back and therefore the
+        /// value on postback is undefined at this time.
+        /// </remarks>
         public bool Locked { get; set; }
 
+        /// <summary>Gets or sets the key of the permission this control grants or denies.</summary>
         public string PermissionKey { get; set; }
 
+        /// <summary>Gets or sets a value indicating whether this control can express "deny".</summary>
         public bool SupportsDenyMode { get; set; }
 
-        public static void RegisterScripts(Page page, Control ctl)
+        /// <summary>Gets or sets the value of the hidden input, which is <c>True</c>, <c>False</c> or <c>Null</c>.</summary>
+        /// <remarks>Replaces <c>HiddenField.Value</c>.</remarks>
+        public string Value
         {
-            const string scriptKey = "initTriState";
-            if (!ClientAPI.IsClientScriptBlockRegistered(page, scriptKey))
+            get
+            {
+                if (!this.valueSet)
+                {
+                    var posted = this.Page?.GetRequestValue(this.UniqueID);
+                    if (!string.IsNullOrEmpty(posted))
+                    {
+                        this.Value = posted;
+                    }
+                }
+
+                this.Attributes.TryGetValue("value", out var value);
+                return value;
+            }
+
+            set
+            {
+                this.valueSet = true;
+                this.Attributes["value"] = value;
+            }
+        }
+
+        /// <summary>Registers the client side behaviour of the tri-state controls of a page, once per page.</summary>
+        /// <param name="page">The page the controls live on.</param>
+        /// <param name="ctl">One of the controls, used to look up the localized tool tips.</param>
+        /// <remarks>
+        /// The <c>System.Web.UI.Page</c>/<c>Control</c> parameters became the Client API
+        /// abstractions, which is where keyed client script blocks are registered on ASP.NET Core.
+        /// </remarks>
+        public static void RegisterScripts(IClientApiPage page, IClientApiControl ctl)
+        {
+            const string ScriptKey = "initTriState";
+            if (page == null)
+            {
+                return;
+            }
+
+            if (!ClientAPI.IsClientScriptBlockRegistered(page, ScriptKey))
             {
                 AJAX.RegisterScriptManager();
                 JavaScript.RequestRegistration(CommonJs.jQuery);
                 ClientAPI.RegisterClientScriptBlock(page, "dnn.permissiontristate.js");
 
-                ClientAPI.RegisterStartUpScript(page, scriptKey, "<script type='text/javascript'>" + GetInitScript(ctl) + "</script>");
+                ClientAPI.RegisterStartUpScript(page, ScriptKey, "<script type='text/javascript'>" + GetInitScript(ctl) + "</script>");
             }
         }
 
-        public static string GetInitScript(Control ctl)
+        /// <summary>Gets the client side initialization script of the tri-state controls.</summary>
+        /// <param name="ctl">One of the controls, used to look up the localized tool tips.</param>
+        /// <returns>The script.</returns>
+        public static string GetInitScript(IClientApiControl ctl)
         {
             LookupScriptValues(ctl, out var grantImagePath, out var denyImagePath, out var nullImagePath, out _, out var grantAltText, out var denyAltText, out var nullAltText);
 
             return $$"""
                      jQuery(document).ready(
                      function() {
-                         var images = { 'True': '{{HttpUtility.JavaScriptStringEncode(grantImagePath)}}', 'False': '{{HttpUtility.JavaScriptStringEncode(denyImagePath)}}', 'Null': '{{HttpUtility.JavaScriptStringEncode(nullImagePath)}}' };
-                         var toolTips = { 'True': '{{HttpUtility.JavaScriptStringEncode(grantAltText)}}', 'False': '{{HttpUtility.JavaScriptStringEncode(denyAltText)}}', 'Null': '{{HttpUtility.JavaScriptStringEncode(nullAltText)}}' };
+                         var images = { 'True': '{{ClientAPI.EscapeForJavascript(grantImagePath)}}', 'False': '{{ClientAPI.EscapeForJavascript(denyImagePath)}}', 'Null': '{{ClientAPI.EscapeForJavascript(nullImagePath)}}' };
+                         var toolTips = { 'True': '{{ClientAPI.EscapeForJavascript(grantAltText)}}', 'False': '{{ClientAPI.EscapeForJavascript(denyAltText)}}', 'Null': '{{ClientAPI.EscapeForJavascript(nullAltText)}}' };
                          var tsm = dnn.controls.triStateManager(images, toolTips);
                          jQuery('.tristate').each( function(i, elem) {
                            tsm.initControl( elem );
@@ -81,17 +141,13 @@ namespace DotNetNuke.UI.WebControls.Internal
                      """;
         }
 
-        /// <inheritdoc />
-        protected override void OnInit(EventArgs e)
+        /// <summary>Renders the image and the hidden input of this control.</summary>
+        /// <param name="writer">The writer to render to.</param>
+        /// <remarks>Replaces <c>Render(HtmlTextWriter)</c>.</remarks>
+        protected override void Render(TextWriter writer)
         {
-            base.OnInit(e);
+            ArgumentNullException.ThrowIfNull(writer);
 
-            RegisterScripts(this.Page, this);
-        }
-
-        /// <inheritdoc />
-        protected override void Render(HtmlTextWriter writer)
-        {
             string imagePath;
             string altText;
             switch (this.Value)
@@ -141,13 +197,19 @@ namespace DotNetNuke.UI.WebControls.Internal
                 cssClass += " " + this.PermissionKey.ToLowerInvariant();
             }
 
-            writer.Write("<img src='{0}' alt='{1}' />", imagePath, altText);
+            writer.Write($"<img src='{imagePath}' alt='{altText}' />");
 
-            writer.AddAttribute("class", cssClass);
+            this.CssClass = cssClass;
+            this.Attributes["type"] = "hidden";
+            if (!string.IsNullOrEmpty(this.UniqueID))
+            {
+                this.Attributes["name"] = this.UniqueID;
+            }
+
             base.Render(writer);
         }
 
-        private static void LookupScriptValues(Control ctl, out string grantImagePath, out string denyImagePath, out string nullImagePath, out string lockImagePath, out string grantAltText, out string denyAltText, out string nullAltText)
+        private static void LookupScriptValues(IClientApiControl ctl, out string grantImagePath, out string denyImagePath, out string nullImagePath, out string lockImagePath, out string grantAltText, out string denyAltText, out string nullAltText)
         {
             grantImagePath = IconController.IconURL("Grant");
             denyImagePath = IconController.IconURL("Deny");

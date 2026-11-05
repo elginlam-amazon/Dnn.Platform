@@ -6,7 +6,6 @@ namespace DotNetNuke.Common.Utilities
     using System;
     using System.Globalization;
     using System.Text.RegularExpressions;
-    using System.Web.Caching;
 
     using DotNetNuke.Services.Cache;
 

@@ -28,9 +28,13 @@ public class IllegalZipFileException : Exception
     {
     }
 
+    #pragma warning disable SYSLIB0051 // Kept for API compatibility: the formatter-based serialization constructor is part
+        // of this public exception type's surface and dependent projects compile against
+        // it. Nothing in the platform serializes these exceptions.
     /// <inheritdoc />
     protected IllegalZipFileException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
     }
+    #pragma warning restore SYSLIB0051
 }

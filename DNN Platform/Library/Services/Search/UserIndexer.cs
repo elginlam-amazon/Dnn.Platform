@@ -24,7 +24,7 @@ namespace DotNetNuke.Services.Search
     using DotNetNuke.Services.Scheduling;
     using DotNetNuke.Services.Search.Entities;
     using DotNetNuke.Services.Search.Internals;
-    using Lucene.Net.QueryParsers;
+    using Lucene.Net.QueryParsers.Classic;
     using Lucene.Net.Search;
 
     using Microsoft.Extensions.DependencyInjection;
@@ -369,9 +369,9 @@ namespace DotNetNuke.Services.Search
         {
             var query = new BooleanQuery
             {
-                { NumericRangeQuery.NewIntRange(Constants.PortalIdTag, portalId, portalId, true, true), Occur.MUST },
+                { NumericRangeQuery.NewInt32Range(Constants.PortalIdTag, portalId, portalId, true, true), Occur.MUST },
                 {
-                    NumericRangeQuery.NewIntRange(Constants.SearchTypeTag, UserSearchTypeId, UserSearchTypeId, true, true),
+                    NumericRangeQuery.NewInt32Range(Constants.SearchTypeTag, UserSearchTypeId, UserSearchTypeId, true, true),
                     Occur.MUST
                 },
             };

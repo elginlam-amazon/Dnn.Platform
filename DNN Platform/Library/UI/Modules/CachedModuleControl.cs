@@ -3,19 +3,30 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.UI.Modules
 {
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
-
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.AspNetCore.Components;
+
     /// <summary>
-    /// CachedModuleControl represents a cached "ModuleControl".  It inherits from
-    /// Literal and implements the IModuleControl interface.
+    /// CachedModuleControl represents a cached "ModuleControl".  It renders the cached markup and
+    /// implements the IModuleControl interface.
     /// </summary>
-    public class CachedModuleControl : Literal, IModuleControl
+    /// <remarks>
+    /// Was a <c>System.Web.UI.WebControls.Literal</c>; it is now a
+    /// <see cref="DnnLiteralControl"/>, which renders its <see cref="DnnLiteralControl.Text"/> as
+    /// markup exactly as the <c>Literal</c> did.
+    /// </remarks>
+    public class CachedModuleControl : DnnLiteralControl, IModuleControl
     {
         private string localResourceFile;
         private ModuleInstanceContext moduleContext;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="CachedModuleControl"/> class.
+        /// </summary>
+        public CachedModuleControl()
+        {
+        }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="CachedModuleControl"/> class.
@@ -28,49 +39,20 @@ namespace DotNetNuke.UI.Modules
         }
 
         /// <summary>Gets the underlying base control for this ModuleControl.</summary>
-        /// <returns>A String.</returns>
-        public Control Control
-        {
-            get
-            {
-                return this;
-            }
-        }
+        /// <returns>This component.</returns>
+        public IComponent Control => this;
 
         /// <summary>Gets the Path for this control (used primarily for UserControls).</summary>
         /// <returns>A String.</returns>
-        public string ControlPath
-        {
-            get
-            {
-                return this.TemplateSourceDirectory + "/";
-            }
-        }
+        public string ControlPath => this.TemplateSourceDirectory + "/";
 
         /// <summary>Gets the Name for this control.</summary>
         /// <returns>A String.</returns>
-        public string ControlName
-        {
-            get
-            {
-                return this.GetType().Name.Replace("_", ".");
-            }
-        }
+        public string ControlName => this.GetType().Name.Replace("_", ".");
 
         /// <summary>Gets the Module Context for this control.</summary>
         /// <returns>A ModuleInstanceContext.</returns>
-        public ModuleInstanceContext ModuleContext
-        {
-            get
-            {
-                if (this.moduleContext == null)
-                {
-                    this.moduleContext = new ModuleInstanceContext(this);
-                }
-
-                return this.moduleContext;
-            }
-        }
+        public ModuleInstanceContext ModuleContext => this.moduleContext ??= new ModuleInstanceContext(this);
 
         /// <summary>Gets or sets the local resource file for this control.</summary>
         /// <returns>A String.</returns>
@@ -82,7 +64,7 @@ namespace DotNetNuke.UI.Modules
 
                 if (string.IsNullOrEmpty(this.localResourceFile))
                 {
-                    fileRoot = this.ControlPath + "/" + Localization.LocalResourceDirectory + "/" + this.ID;
+                    fileRoot = this.ControlPath + "/" + Localization.LocalResourceDirectory + "/" + (this.ID ?? this.ControlName);
                 }
                 else
                 {

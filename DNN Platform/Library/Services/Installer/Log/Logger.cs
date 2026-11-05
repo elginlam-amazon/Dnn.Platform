@@ -5,11 +5,13 @@ namespace DotNetNuke.Services.Installer.Log
 {
     using System;
     using System.Collections.Generic;
-    using System.Web.UI.HtmlControls;
+    using System.Net;
+    using System.Text;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Instrumentation;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.Logging;
 
     /// <summary>The Logger class provides an Installer Log.</summary>
@@ -156,48 +158,65 @@ namespace DotNetNuke.Services.Installer.Log
             DnnLogger.InstallLoggerLogInfo(job);
         }
 
-        /// <summary>GetLogsTable formats log entries in an HtmlTable.</summary>
-        /// <returns>An <see cref="HtmlTable"/> instance.</returns>
-        public HtmlTable GetLogsTable()
+        /// <summary>GetLogsTable formats log entries as an HTML table.</summary>
+        /// <returns>The log entries rendered as an HTML <c>&lt;table&gt;</c>, ready to be emitted into a Blazor component.</returns>
+        /// <remarks>
+        /// On .NET Framework this returned a <c>System.Web.UI.HtmlControls.HtmlTable</c> control
+        /// that callers added to a <c>PlaceHolder</c>. There are no WebForms controls on modern
+        /// .NET, so the same table is produced as markup; render it with <c>@logger.GetLogsTable()</c>.
+        /// Cell text is HTML-encoded exactly as <c>HtmlTableCell.InnerText</c> used to be.
+        /// </remarks>
+        public MarkupString GetLogsTable()
         {
-            var arrayTable = new HtmlTable();
+            return new MarkupString(this.GetLogsTableHtml());
+        }
+
+        /// <summary>GetLogsTableHtml formats log entries as an HTML table.</summary>
+        /// <returns>The log entries rendered as an HTML <c>&lt;table&gt;</c>.</returns>
+        public string GetLogsTableHtml()
+        {
+            var table = new StringBuilder();
+            table.Append("<table>");
             foreach (LogEntry entry in this.Logs)
             {
-                var tr = new HtmlTableRow();
-                var tdType = new HtmlTableCell();
-                tdType.InnerText = Util.GetLocalizedString("LOG.PALogger." + entry.Type);
-                var tdDescription = new HtmlTableCell();
-                tdDescription.InnerText = entry.Description;
-                tr.Cells.Add(tdType);
-                tr.Cells.Add(tdDescription);
+                string cssClass = null;
                 switch (entry.Type)
                 {
                     case LogType.Failure:
                     case LogType.Warning:
-                        tdType.Attributes.Add("class", this.ErrorClass);
-                        tdDescription.Attributes.Add("class", this.ErrorClass);
+                        cssClass = this.ErrorClass;
                         break;
                     case LogType.StartJob:
                     case LogType.EndJob:
-                        tdType.Attributes.Add("class", this.HighlightClass);
-                        tdDescription.Attributes.Add("class", this.HighlightClass);
+                        cssClass = this.HighlightClass;
                         break;
                     case LogType.Info:
-                        tdType.Attributes.Add("class", this.NormalClass);
-                        tdDescription.Attributes.Add("class", this.NormalClass);
+                        cssClass = this.NormalClass;
                         break;
                 }
 
-                arrayTable.Rows.Add(tr);
+                var classAttribute = string.IsNullOrEmpty(cssClass)
+                    ? string.Empty
+                    : " class=\"" + WebUtility.HtmlEncode(cssClass) + "\"";
+
+                table.Append("<tr>");
+                table.Append("<td").Append(classAttribute).Append('>')
+                    .Append(WebUtility.HtmlEncode(Util.GetLocalizedString("LOG.PALogger." + entry.Type)))
+                    .Append("</td>");
+                table.Append("<td").Append(classAttribute).Append('>')
+                    .Append(WebUtility.HtmlEncode(entry.Description))
+                    .Append("</td>");
+                table.Append("</tr>");
+
                 if (entry.Type == LogType.EndJob)
                 {
-                    var spaceTR = new HtmlTableRow();
-                    spaceTR.Cells.Add(new HtmlTableCell { ColSpan = 2, InnerHtml = "&nbsp;" });
-                    arrayTable.Rows.Add(spaceTR);
+                    table.Append("<tr><td colspan=\"2\">&nbsp;</td></tr>");
                 }
             }
 
-            return arrayTable;
+            table.Append("</table>");
+
+            return table.ToString();
         }
 
         public void ResetFlags()

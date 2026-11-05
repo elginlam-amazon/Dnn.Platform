@@ -1,0 +1,201 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+@using System
+@using System.Globalization
+@using System.IO
+@using System.Net
+@using System.Threading.Tasks
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Host
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Modules.Actions
+@using DotNetNuke.Entities.Modules.Definitions
+@using DotNetNuke.Services.Installer.Packages
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+@if (!string.IsNullOrEmpty(this.errorMessage))
+{
+    <div class="dnnFormMessage dnnFormError">@this.errorMessage</div>
+}
+<span style="width:100%">@((MarkupString)(this.HelpTextHtml ?? string.Empty))</span>
+<div class="dnnForm dnnHelpControl">
+    <fieldset>
+        <div class="dnnFormItem dnnClear">
+            @if (!string.IsNullOrEmpty(this.HelpFrameUrl))
+            {
+                <iframe src="@this.HelpFrameUrl" id="helpFrame" width="100%" height="500"></iframe>
+            }
+        </div>
+        <ul class="dnnActions dnnClear">
+            <li>
+                @if (this.ShowHelpLink)
+                {
+                    <a id="cmdHelp" class="dnnPrimaryAction" target="_blank" rel="noopener" href="@this.HelpUrl">@this.HelpLinkText</a>
+                }
+            </li>
+            <li>
+                <a id="cmdCancel" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CancelAsync" @onclick:preventDefault="true">@this.CancelText</a>
+            </li>
+        </ul>
+        <div class="dnnFormItem">
+            <span style="width:100%">@((MarkupString)(this.InfoHtml ?? string.Empty))</span>
+        </div>
+    </fieldset>
+</div>
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "Help.ascx";
+
+    private string urlReferrer = string.Empty;
+    private string errorMessage;
+    private string key;
+    private bool loaded;
+
+    /// <summary>Gets or sets the navigation manager used to return to the referring page.</summary>
+    [Inject]
+    protected NavigationManager NavigationManager { get; set; }
+
+    /// <summary>Gets the help text shown above the help frame.</summary>
+    public string HelpTextHtml { get; private set; }
+
+    /// <summary>Gets the host/module level information shown to super users.</summary>
+    public string InfoHtml { get; private set; }
+
+    /// <summary>Gets the url rendered into the help <c>iframe</c>, or <see langword="null"/> when there is none.</summary>
+    public string HelpFrameUrl { get; private set; }
+
+    /// <summary>Gets the online help url of the module control.</summary>
+    public string HelpUrl { get; private set; }
+
+    /// <summary>Gets a value indicating whether the online help link is rendered.</summary>
+    public bool ShowHelpLink { get; private set; }
+
+    /// <summary>Gets the control key of the module control the help is shown for.</summary>
+    public string Key => this.key;
+
+    /// <summary>Gets the localized caption of the online help link.</summary>
+    private string HelpLinkText => Localization.GetString("cmdHelp", this.ResourceFile);
+
+    /// <summary>Gets the localized caption of the cancel link.</summary>
+    private string CancelText => Localization.GetString("cmdCancel", this.ResourceFile);
+
+    /// <summary>Gets the effective resource file of this control.</summary>
+    private string ResourceFile =>
+        string.IsNullOrEmpty(this.LocalResourceFile)
+            ? "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName
+            : this.LocalResourceFile;
+
+    /// <summary>Page_Load runs when the control is loaded.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        var request = this.Request;
+        var moduleControlId = Null.NullInteger;
+
+        var controlIdValue = request?.Query["ctlid"].ToString();
+        if (!string.IsNullOrEmpty(controlIdValue))
+        {
+            moduleControlId = int.Parse(controlIdValue, CultureInfo.InvariantCulture);
+        }
+        else if (Host.EnableModuleOnLineHelp)
+        {
+            this.HelpFrameUrl = Host.HelpURL;
+        }
+
+        var objModuleControl = ModuleControlController.GetModuleControl(moduleControlId);
+        if (objModuleControl != null)
+        {
+            if (!string.IsNullOrEmpty(objModuleControl.HelpURL) && Host.EnableModuleOnLineHelp)
+            {
+                this.HelpFrameUrl = objModuleControl.HelpURL;
+            }
+            else
+            {
+                var fileName = Path.GetFileName(objModuleControl.ControlSrc);
+                var localResourceFile = objModuleControl.ControlSrc.Replace(fileName, Localization.LocalResourceDirectory + "/" + fileName);
+                if (!string.IsNullOrEmpty(Localization.GetString(ModuleActionType.HelpText, localResourceFile)))
+                {
+                    this.HelpTextHtml = Localization.GetString(ModuleActionType.HelpText, localResourceFile);
+                }
+                else
+                {
+                    this.HelpTextHtml = Localization.GetString("lblHelp.Text", this.ResourceFile);
+                }
+            }
+
+            this.key = objModuleControl.ControlKey;
+
+            // display module info to Host users
+            if (this.UserInfo.IsSuperUser)
+            {
+                var strInfo = Localization.GetString("lblInfo.Text", this.ResourceFile);
+                strInfo = strInfo.Replace("[CONTROL]", objModuleControl.ControlKey);
+                strInfo = strInfo.Replace("[SRC]", objModuleControl.ControlSrc);
+                var objModuleDefinition = ModuleDefinitionController.GetModuleDefinitionByID(objModuleControl.ModuleDefID);
+                if (objModuleDefinition != null)
+                {
+                    strInfo = strInfo.Replace("[DEFINITION]", objModuleDefinition.FriendlyName);
+                    var objDesktopModule = DesktopModuleController.GetDesktopModule(objModuleDefinition.DesktopModuleID, this.PortalId);
+                    if (objDesktopModule != null)
+                    {
+                        var objPackage = PackageController.Instance.GetExtensionPackage(Null.NullInteger, p => p.PackageID == objDesktopModule.PackageID);
+                        if (objPackage != null)
+                        {
+                            strInfo = strInfo.Replace("[ORGANIZATION]", objPackage.Organization);
+                            strInfo = strInfo.Replace("[OWNER]", objPackage.Owner);
+                            strInfo = strInfo.Replace("[EMAIL]", objPackage.Email);
+                            strInfo = strInfo.Replace("[URL]", objPackage.Url);
+                            strInfo = strInfo.Replace("[MODULE]", objPackage.Name);
+                            strInfo = strInfo.Replace("[VERSION]", objPackage.Version.ToString());
+                        }
+                    }
+                }
+
+                // Was Server.HtmlDecode, which is not available outside of System.Web.
+                this.InfoHtml = WebUtility.HtmlDecode(strInfo);
+            }
+
+            this.HelpUrl = objModuleControl.HelpURL;
+            this.ShowHelpLink = !string.IsNullOrEmpty(objModuleControl.HelpURL);
+        }
+
+        // Was Request.UrlReferrer, which the Core request exposes as the Referer header.
+        var referrer = request?.Headers["Referer"].ToString();
+        this.urlReferrer = string.IsNullOrEmpty(referrer) ? string.Empty : referrer;
+    }
+
+    /// <summary>cmdCancel_Click runs when the cancel Button is clicked.</summary>
+    /// <returns>A task representing the operation.</returns>
+    protected Task CancelAsync()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(this.urlReferrer))
+            {
+                // Was Response.Redirect(..., true).
+                this.NavigationManager.NavigateTo(this.urlReferrer, forceLoad: true);
+            }
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+
+        return Task.CompletedTask;
+    }
+}

@@ -34,7 +34,11 @@ namespace DotNetNuke.Entities.Profile
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<ProfileController>();
         private static readonly DataProvider DataProvider = DataProvider.Instance();
-        private static readonly ProfileProvider ProfileProvider = ProfileProvider.Instance();
+        /// <summary>Gets the configured profile provider.</summary>
+        /// <remarks>Resolved on each access so that the dependency-injection container is used
+        /// once the application has started, rather than captured at type initialization time.
+        /// </remarks>
+        private static ProfileProvider ProfileProvider => Security.Profile.ProfileProvider.Instance();
         private static int orderCounter;
 
         /// <summary>Adds the default property definitions for a portal.</summary>

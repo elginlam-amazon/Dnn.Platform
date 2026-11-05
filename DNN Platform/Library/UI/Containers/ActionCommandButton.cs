@@ -62,9 +62,9 @@ namespace DotNetNuke.UI.Containers
             // Call base class method to ensure Control Tree is built
             base.CreateChildControls();
 
-            // Set Causes Validation and Enables ViewState to false
+            // Set Causes Validation to false.
+            // Was also EnableViewState = false; there is no view state on ASP.NET Core.
             this.CausesValidation = false;
-            this.EnableViewState = false;
         }
 
         /// <summary>OnAction raises the Action Event.</summary>

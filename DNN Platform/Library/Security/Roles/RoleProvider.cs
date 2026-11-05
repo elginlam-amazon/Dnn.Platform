@@ -9,13 +9,17 @@ namespace DotNetNuke.Security.Roles
 
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Entities.Users;
+    using DotNetNuke.Framework;
 
     public abstract class RoleProvider
     {
         // return the provider
         public static RoleProvider Instance()
         {
-            return ComponentFactory.GetComponent<RoleProvider>();
+            // Prefer the application's dependency-injection container. The legacy
+            // ComponentFactory registration (populated from the provider configuration)
+            // remains the fallback so that third-party providers keep working.
+            return ServiceLocator.GetService<RoleProvider>() ?? ComponentFactory.GetComponent<RoleProvider>();
         }
 
         public virtual bool CreateRole(RoleInfo role)

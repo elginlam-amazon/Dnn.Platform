@@ -5,7 +5,6 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI.WebControls;
 
     [AttributeUsage(AttributeTargets.Property)]
     public sealed class ControlStyleAttribute : Attribute

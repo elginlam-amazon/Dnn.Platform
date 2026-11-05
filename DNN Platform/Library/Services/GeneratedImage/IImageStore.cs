@@ -3,13 +3,21 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.GeneratedImage
 {
-    using System.Web;
+    using System.Threading.Tasks;
 
+    using Microsoft.AspNetCore.Http;
+
+    /// <summary>A server-side cache for generated images.</summary>
+    /// <remarks>
+    /// <c>TryTransmitIfContains</c> became asynchronous because its ASP.NET Core replacement for
+    /// <c>HttpResponse.TransmitFile</c> (<see cref="SendFileResponseExtensions.SendFileAsync(HttpResponse, string, System.Threading.CancellationToken)"/>)
+    /// is asynchronous.
+    /// </remarks>
     internal interface IImageStore
     {
         void Add(string id, byte[] data);
 
-        bool TryTransmitIfContains(string id, HttpResponseBase response);
+        Task<bool> TryTransmitIfContainsAsync(string id, HttpResponse response);
 
         void ForcePurgeFromServerCache(string cacheId);
     }

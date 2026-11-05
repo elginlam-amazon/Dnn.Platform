@@ -4,8 +4,8 @@
 
 namespace DotNetNuke.Services.GeneratedImage.FilterTransform
 {
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
 
     /// <summary>Invert ImageTransform class.</summary>
     public class ImageInvertTransform : ImageTransform
@@ -24,19 +24,21 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
         /// <returns>Image result after image transformation.</returns>
         public override Image ProcessImage(Image image)
         {
-            var temp = (Bitmap)image;
-            var bmap = (Bitmap)temp.Clone();
-            Color c;
-            for (int i = 0; i < bmap.Width; i++)
+            var bmap = image.CloneAs<Rgba32>();
+            bmap.ProcessPixelRows(accessor =>
             {
-                for (int j = 0; j < bmap.Height; j++)
+                for (var j = 0; j < accessor.Height; j++)
                 {
-                    c = bmap.GetPixel(i, j);
-                    bmap.SetPixel(i, j, Color.FromArgb(255 - c.R, 255 - c.G, 255 - c.B));
+                    var row = accessor.GetRowSpan(j);
+                    for (var i = 0; i < row.Length; i++)
+                    {
+                        var c = row[i];
+                        row[i] = new Rgba32((byte)(255 - c.R), (byte)(255 - c.G), (byte)(255 - c.B), byte.MaxValue);
+                    }
                 }
-            }
+            });
 
-            return (Bitmap)bmap.Clone();
+            return bmap;
         }
     }
 }

@@ -4,8 +4,9 @@
 
 namespace DotNetNuke.Services.GeneratedImage.FilterTransform
 {
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
+    using SixLabors.ImageSharp.Processing;
 
     /// <summary>Rotation ImageTransform class.</summary>
     public class ImageRotateFlipTransform : ImageTransform
@@ -29,12 +30,34 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
         /// <summary>Processes an input image applying a rotation image transformation.</summary>
         /// <param name="image">Input image.</param>
         /// <returns>Image result after image transformation.</returns>
+        /// <remarks>
+        /// <c>Bitmap.RotateFlip</c> becomes ImageSharp's <c>Rotate</c> + <c>Flip</c> mutations. The
+        /// GDI+ ordering is kept: the image is rotated clockwise first, then flipped.
+        /// </remarks>
         public override Image ProcessImage(Image image)
         {
-            var temp = (Bitmap)image;
-            var bmap = (Bitmap)temp.Clone();
-            bmap.RotateFlip(this.RotateFlip);
-            return (Bitmap)bmap.Clone();
+            var bmap = image.CloneAs<Rgba32>();
+
+            // The low two bits of the GDI+ enum are the number of 90-degree clockwise rotations,
+            // and the next bit selects a horizontal flip after the rotation.
+            var value = (int)this.RotateFlip;
+            var rotation = (RotateMode)(((value & 0x03) * 90) % 360);
+            var flip = (value & 0x04) == 0 ? FlipMode.None : FlipMode.Horizontal;
+
+            bmap.Mutate(x =>
+            {
+                if (rotation != RotateMode.None)
+                {
+                    x.Rotate(rotation);
+                }
+
+                if (flip != FlipMode.None)
+                {
+                    x.Flip(flip);
+                }
+            });
+
+            return bmap;
         }
     }
 }

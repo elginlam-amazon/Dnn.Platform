@@ -4,41 +4,48 @@
 namespace DotNetNuke.UI
 {
     using System;
-    using System.Web.UI;
+    using System.Collections.Generic;
+    using System.Linq;
 
-    using DotNetNuke.Framework;
+    using DotNetNuke.UI.Utilities;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.Extensions.DependencyInjection;
+
+    /// <summary>Helpers for navigating and dynamically loading DNN's skinning component tree.</summary>
+    /// <remarks>
+    /// The WebForms signatures took <c>System.Web.UI.Control</c>/<c>TemplateControl</c>. Blazor has
+    /// no server-side control tree, so the navigation helpers now walk the explicit DNN component
+    /// tree modelled by <see cref="IDnnControl"/>.
+    /// </remarks>
     public class ControlUtilities
     {
-        public static T FindParentControl<T>(Control control)
-            where T : Control
+        /// <summary>Walks up the component tree looking for the closest ancestor of type <typeparamref name="T"/>.</summary>
+        /// <typeparam name="T">The type of ancestor to find.</typeparam>
+        /// <param name="control">The control to start from.</param>
+        /// <returns>The ancestor, or <see langword="null"/> when there is none.</returns>
+        public static T FindParentControl<T>(IClientApiControl control)
+            where T : class
         {
-            T parent = default(T);
-            if (control.Parent == null)
+            if (control?.Parent == null)
             {
-                parent = null;
-            }
-            else
-            {
-                var parentT = control.Parent as T;
-                if (parentT != null)
-                {
-                    parent = parentT;
-                }
-                else
-                {
-                    parent = FindParentControl<T>(control.Parent);
-                }
+                return null;
             }
 
-            return parent;
+            return control.Parent as T ?? FindParentControl<T>(control.Parent);
         }
 
-        public static T FindControl<T>(Control control, string id, bool recursive)
-            where T : Control
+        /// <summary>Finds a sibling (or, recursively, an ancestor's descendant) control by its identifier.</summary>
+        /// <typeparam name="T">The type of control to find.</typeparam>
+        /// <param name="control">The control to start from.</param>
+        /// <param name="id">The identifier of the control to find.</param>
+        /// <param name="recursive">Whether to keep searching up the tree.</param>
+        /// <returns>The control, or <see langword="null"/> when it was not found.</returns>
+        public static T FindControl<T>(IClientApiControl control, string id, bool recursive)
+            where T : class
         {
             T target = null;
-            if (control.Parent != null)
+            if (control?.Parent != null)
             {
                 target = control.Parent.FindControl(id) as T;
 
@@ -51,23 +58,37 @@ namespace DotNetNuke.UI
             return target;
         }
 
-        public static T FindFirstDescendent<T>(Control control)
-            where T : Control
+        /// <summary>Finds the first descendant (or the control itself) of type <typeparamref name="T"/>.</summary>
+        /// <typeparam name="T">The type of control to find.</typeparam>
+        /// <param name="control">The control to start from.</param>
+        /// <returns>The control, or <see langword="null"/> when it was not found.</returns>
+        public static T FindFirstDescendent<T>(IClientApiControl control)
+            where T : class
         {
             return FindFirstDescendent<T>(control, idx => idx is T);
         }
 
-        public static T FindFirstDescendent<T>(Control control, Predicate<Control> predicate)
-            where T : Control
+        /// <summary>Finds the first descendant (or the control itself) matching the given predicate.</summary>
+        /// <typeparam name="T">The type of control to find.</typeparam>
+        /// <param name="control">The control to start from.</param>
+        /// <param name="predicate">The predicate the control must match.</param>
+        /// <returns>The control, or <see langword="null"/> when it was not found.</returns>
+        public static T FindFirstDescendent<T>(IClientApiControl control, Predicate<IClientApiControl> predicate)
+            where T : class
         {
+            if (control == null)
+            {
+                return null;
+            }
+
             if (predicate(control))
             {
                 return control as T;
             }
 
-            foreach (Control childControl in control.Controls)
+            foreach (var childControl in control.Children)
             {
-                T descendent = FindFirstDescendent<T>(childControl, predicate);
+                var descendent = FindFirstDescendent<T>(childControl, predicate);
                 if (descendent != null)
                 {
                     return descendent;
@@ -80,28 +101,203 @@ namespace DotNetNuke.UI
         /// <summary>LoadControl loads a control and returns a reference to the control.</summary>
         /// <typeparam name="T">The type of control to Load.</typeparam>
         /// <param name="containerControl">The parent Container Control.</param>
-        /// <param name="controlSrc">The source for the control.  This can either be a User Control (.ascx) or a compiled
-        /// control.</param>
+        /// <param name="controlSrc">The source for the control. This can either be a skin/container
+        /// or module markup path (originally a <c>.ascx</c> user control) or a compiled control's
+        /// type name.</param>
         /// <returns>A Control of type T.</returns>
-        public static T LoadControl<T>(TemplateControl containerControl, string controlSrc)
-            where T : Control
+        /// <remarks>
+        /// <para>
+        /// The WebForms implementation called <c>TemplateControl.LoadControl</c>, which compiled the
+        /// <c>.ascx</c> file on the fly. ASP.NET Core has no runtime markup compiler, so a markup
+        /// path is resolved to the Blazor component type that replaced that file through
+        /// <see cref="IDnnControlTypeResolver"/>, and the component is created from the request's
+        /// service provider so it can take constructor dependencies.
+        /// </para>
+        /// <para>
+        /// This never returns <see langword="null"/> silently: when the source cannot be resolved it
+        /// throws, because a skin/container/module loader that quietly produces nothing renders a
+        /// blank site.
+        /// </para>
+        /// </remarks>
+        public static T LoadControl<T>(IComponent containerControl, string controlSrc)
+            where T : class, IComponent
         {
-            T ctrl;
-
-            // load the control dynamically
-            if (controlSrc.EndsWith(".ascx", StringComparison.InvariantCultureIgnoreCase))
+            if (string.IsNullOrWhiteSpace(controlSrc))
             {
-                // load from a user control on the file system
-                ctrl = (T)containerControl.LoadControl("~/" + controlSrc);
+                throw new ArgumentException("A control source is required to load a control.", nameof(controlSrc));
             }
-            else
+
+            var controlType = ResolveControlType(controlSrc);
+            var serviceProvider = Common.Globals.GetCurrentServiceProvider();
+            var control = ActivatorUtilities.CreateInstance(serviceProvider, controlType);
+
+            if (control is not T typedControl)
+            {
+                throw new InvalidOperationException(
+                    $"The control '{controlSrc}' resolved to '{controlType.FullName}', which is not a '{typeof(T).FullName}'.");
+            }
+
+            if (control is DnnComponentBase dnnControl)
+            {
+                dnnControl.ControlSrc = controlSrc;
+                if (containerControl is IClientApiControl parentControl)
+                {
+                    dnnControl.SetParent(parentControl);
+                }
+            }
+
+            return typedControl;
+        }
+
+        /// <summary>Resolves the component type that implements the given control source.</summary>
+        /// <param name="controlSrc">The control source (a markup path or a type name).</param>
+        /// <returns>The component type.</returns>
+        internal static Type ResolveControlType(string controlSrc)
+        {
+            var isMarkupPath = controlSrc.EndsWith(".ascx", StringComparison.OrdinalIgnoreCase)
+                               || controlSrc.EndsWith(".razor", StringComparison.OrdinalIgnoreCase)
+                               || controlSrc.Contains('/')
+                               || controlSrc.Contains('\\');
+
+            if (!isMarkupPath)
             {
                 // load from a typename in an assembly ( ie. server control )
-                Type objType = Reflection.CreateType(controlSrc);
-                ctrl = (T)containerControl.LoadControl(objType, null);
+                var objType = Framework.Reflection.CreateType(controlSrc, true);
+                if (objType == null)
+                {
+                    throw new InvalidOperationException($"The control type '{controlSrc}' could not be found.");
+                }
+
+                return objType;
             }
 
-            return ctrl;
+            var resolver = Common.Globals.GetCurrentServiceProvider().GetService<IDnnControlTypeResolver>()
+                           ?? DnnControlTypeResolver.Instance;
+            var resolved = resolver.Resolve(controlSrc);
+            if (resolved == null)
+            {
+                throw new InvalidOperationException(
+                    $"No component was found for the skin/container/module source '{controlSrc}'. " +
+                    "Register the component that replaced this markup file with IDnnControlTypeResolver.");
+            }
+
+            return resolved;
+        }
+    }
+
+    /// <summary>
+    /// Maps a DNN skin, container or module markup source (historically an <c>.ascx</c> path) onto
+    /// the Blazor component type that implements it.
+    /// </summary>
+    /// <remarks>
+    /// Themes and third party modules ship markup on disk; on ASP.NET Core the markup is compiled
+    /// into components ahead of time, so the mapping from the stored path (the value of
+    /// <c>TabInfo.SkinSrc</c>, <c>ModuleInfo.ContainerSrc</c>, <c>ModuleControlInfo.ControlSrc</c>)
+    /// to the component type has to be registered. Register an implementation in DI to override the
+    /// default convention based resolution.
+    /// </remarks>
+    public interface IDnnControlTypeResolver
+    {
+        /// <summary>Resolves the component type implementing the given markup source.</summary>
+        /// <param name="controlSrc">The markup source, e.g. <c>Portals/_default/Skins/Xcillion/Index.ascx</c>.</param>
+        /// <returns>The component type, or <see langword="null"/> when it is unknown.</returns>
+        Type Resolve(string controlSrc);
+
+        /// <summary>Registers the component type implementing the given markup source.</summary>
+        /// <param name="controlSrc">The markup source.</param>
+        /// <param name="componentType">The component type.</param>
+        void Register(string controlSrc, Type componentType);
+    }
+
+    /// <summary>
+    /// The default <see cref="IDnnControlTypeResolver"/>: an explicit registry, falling back to
+    /// locating a component whose type name matches the markup file name.
+    /// </summary>
+    public class DnnControlTypeResolver : IDnnControlTypeResolver
+    {
+        private static readonly DnnControlTypeResolver SharedInstance = new DnnControlTypeResolver();
+
+        private readonly Dictionary<string, Type> registrations =
+            new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Gets the process wide resolver used when none is registered in DI.</summary>
+        public static DnnControlTypeResolver Instance => SharedInstance;
+
+        /// <inheritdoc />
+        public Type Resolve(string controlSrc)
+        {
+            if (string.IsNullOrWhiteSpace(controlSrc))
+            {
+                return null;
+            }
+
+            var key = Normalize(controlSrc);
+            lock (this.registrations)
+            {
+                if (this.registrations.TryGetValue(key, out var registered))
+                {
+                    return registered;
+                }
+            }
+
+            var byConvention = FindByConvention(key);
+            if (byConvention != null)
+            {
+                this.Register(controlSrc, byConvention);
+            }
+
+            return byConvention;
+        }
+
+        /// <inheritdoc />
+        public void Register(string controlSrc, Type componentType)
+        {
+            if (string.IsNullOrWhiteSpace(controlSrc) || componentType == null)
+            {
+                return;
+            }
+
+            lock (this.registrations)
+            {
+                this.registrations[Normalize(controlSrc)] = componentType;
+            }
+        }
+
+        private static string Normalize(string controlSrc)
+        {
+            var normalized = controlSrc.Replace('\\', '/').TrimStart('~', '/');
+            return normalized;
+        }
+
+        private static Type FindByConvention(string normalizedSrc)
+        {
+            var fileName = normalizedSrc;
+            var lastSlash = fileName.LastIndexOf('/');
+            if (lastSlash >= 0)
+            {
+                fileName = fileName.Substring(lastSlash + 1);
+            }
+
+            var dot = fileName.LastIndexOf('.');
+            if (dot > 0)
+            {
+                fileName = fileName.Substring(0, dot);
+            }
+
+            // Skin and container file names may contain spaces and dashes; the generated component
+            // name cannot, so both the raw and the sanitized name are considered.
+            var candidates = new[]
+            {
+                fileName,
+                fileName.Replace(" ", string.Empty).Replace("-", string.Empty),
+            };
+
+            return new Framework.Reflections.TypeLocator()
+                .GetAllMatchingTypes(type => type != null
+                                             && !type.IsAbstract
+                                             && typeof(IComponent).IsAssignableFrom(type)
+                                             && candidates.Any(candidate => string.Equals(type.Name, candidate, StringComparison.OrdinalIgnoreCase)))
+                .FirstOrDefault();
         }
     }
 }

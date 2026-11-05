@@ -3,9 +3,6 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.UI.WebControls
 {
-    using System.Web;
-    using System.Web.UI.WebControls;
-
     /// <summary>The TextColumn control provides a custom Text Column.</summary>
     public class TextColumn : TemplateColumn
     {
@@ -27,13 +24,13 @@ namespace DotNetNuke.UI.WebControls
             this.ItemTemplate = this.CreateTemplate(ListItemType.Item);
             this.EditItemTemplate = this.CreateTemplate(ListItemType.EditItem);
             this.HeaderTemplate = this.CreateTemplate(ListItemType.Header);
-            if (HttpContext.Current == null)
+            if (this.DesignMode)
             {
                 this.ItemStyle.Font.Names = new[] { "Tahoma, Verdana, Arial" };
-                this.ItemStyle.Font.Size = new FontUnit("10pt");
+                this.ItemStyle.Font.Size = "10pt";
                 this.ItemStyle.HorizontalAlign = HorizontalAlign.Left;
                 this.HeaderStyle.Font.Names = new[] { "Tahoma, Verdana, Arial" };
-                this.HeaderStyle.Font.Size = new FontUnit("10pt");
+                this.HeaderStyle.Font.Size = "10pt";
                 this.HeaderStyle.Font.Bold = true;
                 this.HeaderStyle.HorizontalAlign = HorizontalAlign.Left;
             }
@@ -43,11 +40,7 @@ namespace DotNetNuke.UI.WebControls
         /// <returns>A TextColumnTemplate.</returns>
         private TextColumnTemplate CreateTemplate(ListItemType type)
         {
-            bool isDesignMode = false;
-            if (HttpContext.Current == null)
-            {
-                isDesignMode = true;
-            }
+            var isDesignMode = this.DesignMode;
 
             var template = new TextColumnTemplate(type);
             if (type != ListItemType.Header)

@@ -1,0 +1,157 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Threading.Tasks
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+@if (!string.IsNullOrEmpty(this.errorMessage))
+{
+    <div class="dnnFormMessage dnnFormError">@this.errorMessage</div>
+}
+<a id="@this.ButtonId"
+   href="javascript:void(0);"
+   tabindex="-1"
+   @onclick="this.ShowHelpAsync"
+   @onclick:preventDefault="true">
+    @if (this.ShowHelpIcon)
+    {
+        <img id="@this.ImageId" src="@this.HelpIconUrl" alt="@this.HelpIconAlternateText" />
+    }
+</a>
+@if (this.HelpVisible)
+{
+    <div id="@this.PanelId" class="dnnFormMessge dnnFormInfo">
+        <span>@this.HelpText</span>
+    </div>
+}
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "HelpButtonControl.ascx";
+
+    private string instanceId = "helpButton_" + Guid.NewGuid().ToString("N");
+    private string errorMessage;
+    private string helpText;
+    private bool loaded;
+
+    /// <summary>Gets or sets controlName is the Id of the control that is associated with the label.</summary>
+    /// <value>A string representing the id of the associated control.</value>
+    [Parameter]
+    public string ControlName { get; set; } // Associated Edit Control for this Label
+
+    /// <summary>Gets or sets helpKey is the Resource Key for the Help Text.</summary>
+    /// <value>A string representing the Resource Key for the Help Text.</value>
+    [Parameter]
+    public string HelpKey { get; set; }
+
+    /// <summary>Gets or sets helpText is value of the Help Text if no ResourceKey is provided.</summary>
+    /// <value>A string representing the Text.</value>
+    [Parameter]
+    public string HelpText
+    {
+        get => this.helpText;
+
+        set
+        {
+            this.helpText = value;
+
+            // hide the help icon if the help text is ""
+            this.ShowHelpIcon = !string.IsNullOrEmpty(value);
+            this.HelpIconAlternateText = HtmlUtils.Clean(value, false);
+        }
+    }
+
+    /// <summary>Gets or sets resourceKey is the Resource Key for the Help Text.</summary>
+    /// <value>A string representing the Resource Key for the Label Text.</value>
+    [Parameter]
+    public string ResourceKey { get; set; }
+
+    /// <summary>Gets or sets the url of the help icon.</summary>
+    /// <remarks>
+    /// Replaces the <c>&lt;dnn:DnnImage IconKey="Help"&gt;</c> markup of the user control; the
+    /// resolved icon url is now supplied by the consumer (or defaulted below), because the
+    /// <c>DnnImage</c> Web Forms control no longer exists.
+    /// </remarks>
+    [Parameter]
+    public string HelpIconUrl { get; set; } = "~/icons/sigma/Help_16X16_Standard.png";
+
+    /// <summary>Gets or sets the resource file the help text is localized from.</summary>
+    [Parameter]
+    public string LocalResourceFile { get; set; }
+
+    /// <summary>Gets the <c>id</c> attribute rendered on the help button.</summary>
+    public string ButtonId => this.instanceId + "_cmdHelp";
+
+    /// <summary>Gets the <c>id</c> attribute rendered on the help icon.</summary>
+    public string ImageId => this.instanceId + "_imgHelp";
+
+    /// <summary>Gets the <c>id</c> attribute rendered on the help panel.</summary>
+    public string PanelId => this.instanceId + "_pnlHelp";
+
+    /// <summary>Gets a value indicating whether the help panel is currently shown.</summary>
+    public bool HelpVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the help icon is rendered.</summary>
+    public bool ShowHelpIcon { get; private set; }
+
+    /// <summary>Gets the alternate text of the help icon.</summary>
+    public string HelpIconAlternateText { get; private set; }
+
+    /// <summary>Gets the effective resource file of this control.</summary>
+    private string ResourceFile =>
+        string.IsNullOrEmpty(this.LocalResourceFile)
+            ? "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName
+            : this.LocalResourceFile;
+
+    /// <summary>Page_Load runs when the control is loaded.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        try
+        {
+            // The Web Forms control asked DNNClientAPI.EnableMinMax to toggle the help panel from
+            // the client; the component owns that state itself (see ShowHelpAsync).
+            this.HelpVisible = false;
+
+            if (string.IsNullOrEmpty(this.HelpKey))
+            {
+                // Set Help Key to the Resource Key plus ".Help"
+                this.HelpKey = this.ResourceKey + ".Help";
+            }
+
+            var localizedHelpText = Localization.GetString(this.HelpKey, this.ResourceFile);
+            if (!string.IsNullOrEmpty(localizedHelpText))
+            {
+                this.HelpText = localizedHelpText;
+            }
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+    }
+
+    /// <summary>Shows the help panel.</summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>This is the port of <c>cmdHelp_Click</c>.</remarks>
+    protected Task ShowHelpAsync()
+    {
+        this.HelpVisible = true;
+        return Task.CompletedTask;
+    }
+}

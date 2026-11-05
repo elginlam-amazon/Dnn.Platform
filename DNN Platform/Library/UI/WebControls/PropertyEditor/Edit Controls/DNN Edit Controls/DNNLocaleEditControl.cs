@@ -8,30 +8,44 @@ namespace DotNetNuke.UI.WebControls
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Web.UI;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
+
     /// <summary>
     /// The DNNLocaleEditControl control provides a standard UI component for selecting
     /// a Locale.
     /// </summary>
-    [ToolboxData("<{0}:DNNLocaleEditControl runat=server></{0}:DNNLocaleEditControl>")]
-    public class DNNLocaleEditControl : TextEditControl, IPostBackEventHandler
+    /// <remarks>
+    /// The control implemented <c>IPostBackEventHandler</c> purely to switch between the native and
+    /// the English language names. <see cref="RaisePostBackEvent"/> is preserved and is now invoked
+    /// directly from the radio buttons instead of through a <c>__doPostBack</c> round trip.
+    /// The <c>onLocaleChanged</c> inline script that showed/hid the "language not selected" message
+    /// is gone: the message is now rendered conditionally, which Blazor updates on every change.
+    /// </remarks>
+    public class DNNLocaleEditControl : TextEditControl
     {
         private string displayMode = "Native";
         private LanguagesListType listType = LanguagesListType.Enabled;
 
+        /// <summary>Gets the type of language list that is offered.</summary>
         protected LanguagesListType ListType => this.listType;
 
+        /// <summary>Gets the language name flavour that is displayed (<c>Native</c> or <c>English</c>).</summary>
         protected string DisplayMode => this.displayMode;
 
+        /// <summary>Gets the portal settings.</summary>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         protected PortalSettings PortalSettings => PortalSettings.Current;
 
-        /// <inheritdoc />
+        /// <summary>Switches the displayed language name flavour.</summary>
+        /// <param name="eventArgument">Either <c>Native</c> or <c>English</c>.</param>
+        /// <remarks>Replaces <c>IPostBackEventHandler.RaisePostBackEvent</c>.</remarks>
         public void RaisePostBackEvent(string eventArgument)
         {
             this.displayMode = eventArgument;
@@ -56,28 +70,32 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <summary>RenderViewMode renders the View (readonly) mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderViewMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderViewMode(RenderTreeBuilder builder)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
             Locale locale = LocaleController.Instance.GetLocale(this.StringValue);
 
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.RenderBeginTag(HtmlTextWriterTag.Div);
+            builder.OpenElement(0, "div");
+            this.AddStyleAttributes(builder, 1);
             if (locale != null)
             {
-                writer.Write(locale.Text);
+                builder.AddContent(5, locale.Text);
             }
 
-            writer.RenderEndTag();
+            builder.CloseElement();
         }
 
         /// <summary>RenderEditMode renders the Edit mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
             // Render div
-            writer.AddAttribute(HtmlTextWriterAttribute.Class, "dnnLeft");
-            writer.RenderBeginTag(HtmlTextWriterTag.Div);
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "dnnLeft");
 
             var cultures = new List<CultureInfo>();
             switch (this.ListType)
@@ -102,74 +120,60 @@ namespace DotNetNuke.UI.WebControls
             var promptValue = this.StringValue == Null.NullString && cultures.Count > 1 && !this.Required;
 
             // Render the Select Tag
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Id, this.ClientID);
-            if (promptValue)
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Onchange, "onLocaleChanged(this)");
-            }
-
-            writer.RenderBeginTag(HtmlTextWriterTag.Select);
+            builder.OpenElement(10, "select");
+            builder.AddAttribute(11, "name", this.UniqueID);
+            builder.AddAttribute(12, "id", this.ClientID);
+            builder.AddAttribute(13, "aria-label", this.Name);
+            builder.AddAttribute(14, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnInputChanged));
 
             // Render None selected option
-            // Add the Value Attribute
-            writer.AddAttribute(HtmlTextWriterAttribute.Value, Null.NullString);
-
+            builder.OpenElement(15, "option");
+            builder.AddAttribute(16, "value", Null.NullString);
             if (this.StringValue == Null.NullString)
             {
                 // Add the Selected Attribute
-                writer.AddAttribute(HtmlTextWriterAttribute.Selected, "selected");
+                builder.AddAttribute(17, "selected", "selected");
             }
 
-            writer.RenderBeginTag(HtmlTextWriterTag.Option);
-            writer.Write(Localization.GetString("Not_Specified", Localization.SharedResourceFile));
-            writer.RenderEndTag();
+            builder.AddContent(18, Localization.GetString("Not_Specified", Localization.SharedResourceFile));
+            builder.CloseElement();
 
+            builder.OpenRegion(20);
             foreach (var culture in cultures)
             {
-                this.RenderOption(writer, culture);
+                this.RenderOption(builder, culture);
             }
 
+            builder.CloseRegion();
+
             // Close Select Tag
-            writer.RenderEndTag();
+            builder.CloseElement();
 
             if (promptValue)
             {
-                writer.WriteBreak();
+                builder.AddMarkupContent(30, "<br />");
 
-                writer.AddAttribute(HtmlTextWriterAttribute.Class, "dnnFormMessage dnnFormError");
-                writer.RenderBeginTag(HtmlTextWriterTag.Span);
-                writer.Write(Localization.GetString("LanguageNotSelected", Localization.SharedResourceFile));
-                writer.RenderEndTag();
-
-                writer.AddAttribute(HtmlTextWriterAttribute.Type, "text/javascript");
-                writer.RenderBeginTag(HtmlTextWriterTag.Script);
-                writer.Write(@"
-function onLocaleChanged(element){
-    var $this = $(element);
-    var $error = $this.next().next();
-    var value = $this.val();
-    value ? $error.hide() : $error.show();
-};
-");
-                writer.RenderEndTag();
+                builder.OpenElement(31, "span");
+                builder.AddAttribute(32, "class", "dnnFormMessage dnnFormError");
+                builder.AddContent(33, Localization.GetString("LanguageNotSelected", Localization.SharedResourceFile));
+                builder.CloseElement();
             }
 
             // Render break
-            writer.Write("<br />");
+            builder.AddMarkupContent(40, "<br />");
 
             // Render Span
-            writer.AddAttribute(HtmlTextWriterAttribute.Class, "dnnFormRadioButtons");
-            writer.RenderBeginTag(HtmlTextWriterTag.Span);
+            builder.OpenElement(41, "span");
+            builder.AddAttribute(42, "class", "dnnFormRadioButtons");
 
             // Render Button Row
-            this.RenderModeButtons(writer);
+            this.RenderModeButtons(builder, 43);
 
             // close span
-            writer.RenderEndTag();
+            builder.CloseElement();
 
             // close div
-            writer.RenderEndTag();
+            builder.CloseElement();
         }
 
         private bool IsSelected(string locale)
@@ -177,42 +181,37 @@ function onLocaleChanged(element){
             return locale == this.StringValue;
         }
 
-        private void RenderModeButtons(HtmlTextWriter writer)
+        private void RenderModeButtons(RenderTreeBuilder builder, int sequence)
         {
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "radio");
-            writer.AddAttribute("aria-label", "Mode");
-            if (this.DisplayMode == "English")
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Checked, "checked");
-            }
-            else
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Onclick, this.Page.ClientScript.GetPostBackEventReference(this, "English"));
-            }
-
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.RenderEndTag();
-            writer.Write(Localization.GetString("EnglishName", Localization.GlobalResourceFile));
-
-            ////writer.Write("<br />");
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "radio");
-            writer.AddAttribute("aria-label", "Mode");
-            if (this.DisplayMode == "Native")
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Checked, "checked");
-            }
-            else
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Onclick, this.Page.ClientScript.GetPostBackEventReference(this, "Native"));
-            }
-
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.RenderEndTag();
-
-            writer.Write(Localization.GetString("NativeName", Localization.GlobalResourceFile));
+            this.RenderModeButton(builder, sequence, "English", Localization.GetString("EnglishName", Localization.GlobalResourceFile));
+            this.RenderModeButton(builder, sequence + 20, "Native", Localization.GetString("NativeName", Localization.GlobalResourceFile));
         }
 
-        private void RenderOption(HtmlTextWriter writer, CultureInfo culture)
+        private void RenderModeButton(RenderTreeBuilder builder, int sequence, string mode, string text)
+        {
+            builder.OpenElement(sequence, "input");
+            builder.AddAttribute(sequence + 1, "type", "radio");
+            builder.AddAttribute(sequence + 2, "aria-label", "Mode");
+            builder.AddAttribute(sequence + 3, "name", this.UniqueID + "_mode");
+            builder.AddAttribute(sequence + 4, "value", mode);
+            if (this.DisplayMode == mode)
+            {
+                builder.AddAttribute(sequence + 5, "checked", "checked");
+            }
+            else
+            {
+                // Replaces Page.ClientScript.GetPostBackEventReference(this, mode).
+                builder.AddAttribute(
+                    sequence + 6,
+                    "onchange",
+                    EventCallback.Factory.Create<ChangeEventArgs>(this, () => this.RaisePostBackEvent(mode)));
+            }
+
+            builder.CloseElement();
+            builder.AddContent(sequence + 10, text);
+        }
+
+        private void RenderOption(RenderTreeBuilder builder, CultureInfo culture)
         {
             string localeName;
 
@@ -225,18 +224,18 @@ function onLocaleChanged(element){
                 localeName = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(culture.EnglishName);
             }
 
+            builder.OpenElement(0, "option");
+
             // Add the Value Attribute
-            writer.AddAttribute(HtmlTextWriterAttribute.Value, culture.Name);
+            builder.AddAttribute(1, "value", culture.Name);
 
             if (this.IsSelected(culture.Name))
             {
-                writer.AddAttribute(HtmlTextWriterAttribute.Selected, "selected");
+                builder.AddAttribute(2, "selected", "selected");
             }
 
-            // Render Option Tag
-            writer.RenderBeginTag(HtmlTextWriterTag.Option);
-            writer.Write(localeName);
-            writer.RenderEndTag();
+            builder.AddContent(3, localeName);
+            builder.CloseElement();
         }
     }
 }

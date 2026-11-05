@@ -8,12 +8,14 @@ namespace DotNetNuke.Entities.Urls
     using System.Collections.Specialized;
     using System.Globalization;
     using System.Text.RegularExpressions;
-    using System.Web;
 
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Tabs;
+
+    using Microsoft.AspNetCore.Http;
 
     internal class RedirectController
     {
@@ -32,7 +34,7 @@ namespace DotNetNuke.Entities.Urls
             NameValueCollection queryString = null;
             if (context != null)
             {
-                queryString = context.Request.QueryString;
+                queryString = context.Request.GetQueryString();
             }
 
             result.RewritePath = RedirectTokens.RemoveAnyRedirectTokens(result.RewritePath, queryString);

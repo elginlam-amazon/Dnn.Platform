@@ -8,7 +8,6 @@ namespace DotNetNuke.Entities.Urls
     using System.Collections.Specialized;
     using System.Globalization;
     using System.Text.RegularExpressions;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
@@ -118,10 +117,12 @@ namespace DotNetNuke.Entities.Urls
             if (!string.IsNullOrEmpty(portalAlias))
             {
                 string httpAlias = Globals.AddHTTP(portalAlias).ToLowerInvariant();
-                if (HttpContext.Current?.Items["UrlRewrite:OriginalUrl"] != null)
+                var httpContext = HttpContextSource.Current;
+                object originalUrlItem = null;
+                httpContext?.Items.TryGetValue("UrlRewrite:OriginalUrl", out originalUrlItem);
+                if (originalUrlItem != null)
                 {
-                    string originalUrl =
-                        HttpContext.Current.Items["UrlRewrite:OriginalUrl"].ToString().ToLowerInvariant();
+                    string originalUrl = originalUrlItem.ToString().ToLowerInvariant();
                     httpAlias = Globals.AddPort(httpAlias, originalUrl);
                     if (originalUrl.StartsWith(httpAlias, StringComparison.OrdinalIgnoreCase))
                     {
@@ -143,7 +144,7 @@ namespace DotNetNuke.Entities.Urls
                     {
                         // Manage the special case of child portals
                         // http://www.domain.com/child/default.aspx
-                        string tempurl = HttpContext.Current.Request.Url.Host + Globals.ResolveUrl(friendlyPath);
+                        string tempurl = httpContext.Request.Host.Host + Globals.ResolveUrl(friendlyPath);
                         if (!tempurl.Contains(portalAlias))
                         {
                             matchString = httpAlias;
@@ -271,7 +272,7 @@ namespace DotNetNuke.Entities.Urls
                                     }
                                 }
 
-                                pathToAppend = pathToAppend + "/" + HttpUtility.UrlPathEncode(pair[1]);
+                                pathToAppend = pathToAppend + "/" + Uri.EscapeDataString(pair[1]);
                             }
                             else
                             {
@@ -290,7 +291,7 @@ namespace DotNetNuke.Entities.Urls
                         }
                         else
                         {
-                            pathToAppend = pathToAppend + "/" + HttpUtility.UrlPathEncode(' '.ToString());
+                            pathToAppend = pathToAppend + "/" + Uri.EscapeDataString(' '.ToString());
                         }
                     }
 

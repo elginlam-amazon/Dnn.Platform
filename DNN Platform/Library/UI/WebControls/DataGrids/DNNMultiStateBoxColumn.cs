@@ -1,11 +1,8 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.UI.WebControls
 {
-    using System.Web;
-    using System.Web.UI.WebControls;
-
     using DotNetNuke.Common.Utilities;
 
     /// <summary>The DNNMultiStateBoxColumn control provides a DNNMultiState Box column for a Data Grid.</summary>
@@ -91,10 +88,10 @@ namespace DotNetNuke.UI.WebControls
             this.ItemTemplate = this.CreateTemplate(ListItemType.Item);
             this.EditItemTemplate = this.CreateTemplate(ListItemType.EditItem);
             this.HeaderTemplate = this.CreateTemplate(ListItemType.Header);
-            if (HttpContext.Current == null)
+            if (this.DesignMode)
             {
                 this.HeaderStyle.Font.Names = new[] { "Tahoma, Verdana, Arial" };
-                this.HeaderStyle.Font.Size = new FontUnit("10pt");
+                this.HeaderStyle.Font.Size = "10pt";
                 this.HeaderStyle.Font.Bold = true;
             }
 
@@ -106,11 +103,7 @@ namespace DotNetNuke.UI.WebControls
         /// <returns>A DNNMultiStateBoxColumnTemplate.</returns>
         private DNNMultiStateBoxColumnTemplate CreateTemplate(ListItemType type)
         {
-            bool isDesignMode = false;
-            if (HttpContext.Current == null)
-            {
-                isDesignMode = true;
-            }
+            var isDesignMode = this.DesignMode;
 
             var template = new DNNMultiStateBoxColumnTemplate(type);
             if (type != ListItemType.Header)

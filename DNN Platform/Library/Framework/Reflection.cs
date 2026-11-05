@@ -6,7 +6,7 @@ namespace DotNetNuke.Framework
     using System;
     using System.Globalization;
     using System.Reflection;
-    using System.Web.Compilation;
+    using System.Runtime.Loader;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -408,7 +408,7 @@ namespace DotNetNuke.Framework
                 try
                 {
                     // use reflection to get the type of the class
-                    type = BuildManager.GetType(typeName, true, true);
+                    type = GetTypeFromLoadedAssemblies(typeName);
                     if (useCache)
                     {
                         // insert the type into the cache
@@ -498,7 +498,7 @@ namespace DotNetNuke.Framework
             try
             {
                 // use reflection to get the type of the class
-                objType = BuildManager.GetType(typeName, true, true);
+                objType = GetTypeFromLoadedAssemblies(typeName);
             }
             catch (Exception exc)
             {
@@ -508,6 +508,53 @@ namespace DotNetNuke.Framework
 
             // dynamically create the object
             return Activator.CreateInstance(objType);
+        }
+
+        /// <summary>Resolves a type by (optionally assembly qualified) name across the loaded assemblies.</summary>
+        /// <param name="typeName">The name of the type.</param>
+        /// <returns>The resolved type.</returns>
+        /// <exception cref="TypeLoadException">The type is not in any loaded assembly.</exception>
+        /// <remarks>
+        /// Replaces <c>System.Web.Compilation.BuildManager.GetType(typeName, throwOnError: true,
+        /// ignoreCase: true)</c>, which also looked in the dynamically compiled page assemblies. On
+        /// modern .NET the equivalent is <see cref="Type.GetType(string,bool,bool)"/> followed by a scan
+        /// over <see cref="AssemblyLoadContext.Default"/>, which is where DNN's extension assemblies are
+        /// loaded. The same resolution is used by <c>DotNetNuke.UI.Utilities.Reflection</c>.
+        /// </remarks>
+        private static Type GetTypeFromLoadedAssemblies(string typeName)
+        {
+            var type = Type.GetType(typeName, false, true);
+            if (type is not null)
+            {
+                return type;
+            }
+
+            foreach (var assembly in AssemblyLoadContext.Default.Assemblies)
+            {
+                if (assembly.IsDynamic)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    type = assembly.GetType(typeName, false, true);
+                }
+                catch (Exception)
+                {
+                    // A single unloadable assembly must not stop the scan, just as the build manager's
+                    // top-level assembly scan tolerated individual failures.
+                    continue;
+                }
+
+                if (type is not null)
+                {
+                    return type;
+                }
+            }
+
+            throw new TypeLoadException(
+                string.Format(CultureInfo.CurrentCulture, "The type '{0}' could not be found in any loaded assembly.", typeName));
         }
     }
 }

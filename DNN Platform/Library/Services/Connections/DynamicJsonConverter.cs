@@ -7,37 +7,90 @@ namespace DotNetNuke.Services.Connections
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Collections.ObjectModel;
     using System.Dynamic;
     using System.Globalization;
     using System.Linq;
     using System.Text;
-    using System.Web;
-    using System.Web.Script.Serialization;
 
-    public sealed class DynamicJsonConverter : JavaScriptConverter
+    using Newtonsoft.Json;
+    using Newtonsoft.Json.Linq;
+
+    /// <summary>
+    /// A <see cref="JsonConverter"/> which materializes arbitrary JSON objects as late-bound
+    /// <c>dynamic</c> instances whose missing members evaluate to <c>null</c> instead of throwing.
+    /// </summary>
+    /// <remarks>
+    /// This replaces the former <c>System.Web.Script.Serialization.JavaScriptConverter</c>
+    /// implementation (that API does not exist on modern .NET). The dynamic object semantics
+    /// — member/index access returning <c>null</c> for unknown keys, nested objects wrapped
+    /// recursively and arrays projected to <see cref="List{T}"/> — are preserved exactly.
+    /// </remarks>
+    public sealed class DynamicJsonConverter : JsonConverter
     {
         /// <inheritdoc />
-        public override IEnumerable<Type> SupportedTypes
-        {
-            get { return new ReadOnlyCollection<Type>(new List<Type>([typeof(object)])); }
-        }
+        public override bool CanWrite => false;
 
-        /// <inheritdoc />
-        public override object Deserialize(IDictionary<string, object> dictionary, Type type, JavaScriptSerializer serializer)
+        /// <summary>Deserializes a JSON document into a late-bound <c>dynamic</c> object.</summary>
+        /// <param name="json">The JSON document.</param>
+        /// <returns>A <c>dynamic</c> object, or <c>null</c> when <paramref name="json"/> is empty.</returns>
+        public static dynamic Deserialize(string json)
         {
-            if (dictionary == null)
+            if (string.IsNullOrWhiteSpace(json))
             {
-                throw new ArgumentNullException(nameof(dictionary));
+                return null;
             }
 
-            return type == typeof(object) ? new DynamicJsonObject(dictionary) : null;
+            var settings = new JsonSerializerSettings();
+            settings.Converters.Add(new DynamicJsonConverter());
+            return JsonConvert.DeserializeObject<object>(json, settings);
         }
 
         /// <inheritdoc />
-        public override IDictionary<string, object> Serialize(object obj, JavaScriptSerializer serializer)
+        public override bool CanConvert(Type objectType)
         {
-            throw new NotImplementedException();
+            return objectType == typeof(object);
+        }
+
+        /// <inheritdoc />
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+            if (reader == null)
+            {
+                throw new ArgumentNullException(nameof(reader));
+            }
+
+            if (objectType != typeof(object))
+            {
+                return null;
+            }
+
+            var token = JToken.ReadFrom(reader);
+            return WrapToken(token);
+        }
+
+        /// <inheritdoc />
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            // Parity with the original JavaScriptConverter implementation, which never supported
+            // serialization. CanWrite is false, so Newtonsoft never routes writes through here.
+            throw new NotSupportedException($"{nameof(DynamicJsonConverter)} only supports deserialization.");
+        }
+
+        private static object WrapToken(JToken token)
+        {
+            switch (token)
+            {
+                case null:
+                    return null;
+                case JObject obj:
+                    return new DynamicJsonObject(obj);
+                case JArray array:
+                    return new List<object>(array.Select(WrapToken));
+                case JValue value:
+                    return value.Value;
+                default:
+                    return token;
+            }
         }
 
         private sealed class DynamicJsonObject : DynamicObject
@@ -47,6 +100,16 @@ namespace DotNetNuke.Services.Connections
             public DynamicJsonObject(IDictionary<string, object> dictionary)
             {
                 this.dictionary = dictionary ?? throw new ArgumentNullException(nameof(dictionary));
+            }
+
+            public DynamicJsonObject(JObject source)
+            {
+                if (source == null)
+                {
+                    throw new ArgumentNullException(nameof(source));
+                }
+
+                this.dictionary = source.Properties().ToDictionary(p => p.Name, p => (object)p.Value);
             }
 
             public override string ToString()
@@ -89,8 +152,12 @@ namespace DotNetNuke.Services.Connections
 
             private static object WrapResultObject(object result)
             {
-                var dictionary = result as IDictionary<string, object>;
-                if (dictionary != null)
+                if (result is JToken token)
+                {
+                    return WrapToken(token);
+                }
+
+                if (result is IDictionary<string, object> dictionary)
                 {
                     return new DynamicJsonObject(dictionary);
                 }
@@ -106,6 +173,14 @@ namespace DotNetNuke.Services.Connections
                 return result;
             }
 
+            /// <summary>Encodes a string as a double-quoted, escaped JavaScript/JSON string literal.</summary>
+            /// <param name="value">The value to encode.</param>
+            /// <returns>The quoted literal, equivalent to the former <c>HttpUtility.JavaScriptStringEncode(value, true)</c>.</returns>
+            private static string EncodeJavaScriptString(string value)
+            {
+                return JsonConvert.ToString(value ?? string.Empty);
+            }
+
             private void ToString(StringBuilder sb)
             {
                 var firstInDictionary = true;
@@ -117,48 +192,31 @@ namespace DotNetNuke.Services.Connections
                     }
 
                     firstInDictionary = false;
-                    var value = pair.Value;
+                    var value = pair.Value is JValue jValue ? jValue.Value : pair.Value;
                     var name = pair.Key;
                     if (value is string stringValue)
                     {
                         sb.AppendFormat(
                             CultureInfo.InvariantCulture,
                             "{0}:{1}",
-                            HttpUtility.JavaScriptStringEncode(name, addDoubleQuotes: true),
-                            HttpUtility.JavaScriptStringEncode(stringValue, addDoubleQuotes: true));
+                            EncodeJavaScriptString(name),
+                            EncodeJavaScriptString(stringValue));
+                    }
+                    else if (value is JObject jObjectValue)
+                    {
+                        new DynamicJsonObject(jObjectValue).ToString(sb);
                     }
                     else if (value is IDictionary<string, object> dictValue)
                     {
                         new DynamicJsonObject(dictValue).ToString(sb);
                     }
+                    else if (value is JArray jArrayValue)
+                    {
+                        AppendArray(sb, name, jArrayValue.Cast<object>());
+                    }
                     else if (value is ArrayList list)
                     {
-                        sb.Append(name + ":[");
-                        var firstInArray = true;
-                        foreach (var arrayValue in list)
-                        {
-                            if (!firstInArray)
-                            {
-                                sb.Append(',');
-                            }
-
-                            firstInArray = false;
-
-                            if (arrayValue is IDictionary<string, object> dictArrayValue)
-                            {
-                                sb.Append(new DynamicJsonObject(dictArrayValue));
-                            }
-                            else if (arrayValue is string stringArrayValue)
-                            {
-                                sb.Append(HttpUtility.JavaScriptStringEncode(stringArrayValue, addDoubleQuotes: true));
-                            }
-                            else
-                            {
-                                sb.Append(arrayValue);
-                            }
-                        }
-
-                        sb.Append(']');
+                        AppendArray(sb, name, list.Cast<object>());
                     }
                     else
                     {
@@ -167,6 +225,42 @@ namespace DotNetNuke.Services.Connections
                 }
 
                 sb.Append('}');
+            }
+
+            private void AppendArray(StringBuilder sb, string name, IEnumerable<object> values)
+            {
+                sb.Append(name + ":[");
+                var firstInArray = true;
+                foreach (var rawValue in values)
+                {
+                    if (!firstInArray)
+                    {
+                        sb.Append(',');
+                    }
+
+                    firstInArray = false;
+
+                    var arrayValue = rawValue is JValue jValue ? jValue.Value : rawValue;
+
+                    if (arrayValue is JObject jObjectArrayValue)
+                    {
+                        sb.Append(new DynamicJsonObject(jObjectArrayValue));
+                    }
+                    else if (arrayValue is IDictionary<string, object> dictArrayValue)
+                    {
+                        sb.Append(new DynamicJsonObject(dictArrayValue));
+                    }
+                    else if (arrayValue is string stringArrayValue)
+                    {
+                        sb.Append(EncodeJavaScriptString(stringArrayValue));
+                    }
+                    else
+                    {
+                        sb.Append(arrayValue);
+                    }
+                }
+
+                sb.Append(']');
             }
         }
     }

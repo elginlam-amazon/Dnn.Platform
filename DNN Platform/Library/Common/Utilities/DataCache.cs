@@ -8,7 +8,6 @@ namespace DotNetNuke.Common.Utilities
     using System.Collections.Generic;
     using System.Globalization;
     using System.Threading;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -529,6 +528,28 @@ namespace DotNetNuke.Common.Utilities
         public static void SetCache(string cacheKey, object objObject)
         {
             SetCache(cacheKey, objObject, (DNNCacheDependency)null, Cache.NoAbsoluteExpiration, Cache.NoSlidingExpiration, CacheItemPriority.Normal, null);
+        }
+
+        /// <summary>Creates a cache dependency on a file or directory on disk.</summary>
+        /// <param name="path">The physical path to the file or directory that the cached item depends on.</param>
+        /// <returns>A <see cref="DNNCacheDependency"/> which invalidates the cached item when the file changes, or <see langword="null"/> when <paramref name="path"/> is empty.</returns>
+        /// <remarks>
+        /// This replaces <c>new System.Web.Caching.CacheDependency(path)</c>. The dependency is
+        /// backed by an <see cref="Microsoft.Extensions.Primitives.IChangeToken"/> from a
+        /// <see cref="Microsoft.Extensions.FileProviders.PhysicalFileProvider"/>, so file changes
+        /// really do evict the cached item.
+        /// </remarks>
+        public static DNNCacheDependency CreateFileDependency(string path)
+        {
+            return string.IsNullOrWhiteSpace(path) ? null : new DNNCacheDependency(path);
+        }
+
+        /// <summary>Creates a cache dependency on several files or directories on disk.</summary>
+        /// <param name="paths">The physical paths to the files or directories that the cached item depends on.</param>
+        /// <returns>A <see cref="DNNCacheDependency"/> which invalidates the cached item when any of the files change, or <see langword="null"/> when <paramref name="paths"/> is empty.</returns>
+        public static DNNCacheDependency CreateFileDependency(string[] paths)
+        {
+            return paths == null || paths.Length == 0 ? null : new DNNCacheDependency(paths);
         }
 
         public static void SetCache(string cacheKey, object objObject, DNNCacheDependency objDependency)

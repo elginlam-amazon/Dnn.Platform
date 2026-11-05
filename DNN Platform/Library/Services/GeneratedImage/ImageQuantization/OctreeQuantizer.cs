@@ -4,11 +4,18 @@
 namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
 {
     using System;
-    using System.Collections;
-    using System.Drawing;
-    using System.Drawing.Imaging;
+    using System.Collections.Generic;
+
+    using SixLabors.ImageSharp;
 
     /// <summary>Quantize using an Octree.</summary>
+    /// <remarks>
+    /// The octree itself is unchanged — the same tree, the same reduction order and the same
+    /// palette-index arithmetic — because its output is the visual result callers depend on. Only
+    /// the GDI+ types it exchanged with the base class moved to ImageSharp:
+    /// <c>System.Drawing.Color</c> became <see cref="SixLabors.ImageSharp.Color"/> and the
+    /// <c>ArrayList</c> palette became a <see cref="List{T}"/> of them.
+    /// </remarks>
     public class OctreeQuantizer : Quantizer
     {
         /// <summary>Stores the tree.</summary>
@@ -64,19 +71,19 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
         }
 
         /// <inheritdoc />
-        protected override ColorPalette GetPalette(ColorPalette original)
+        protected override Color[] GetPalette(Color[] original)
         {
             // First off convert the octree to _maxColors colors
-            ArrayList palette = this.octree.Palletize(this.maxColors - 1);
+            var palette = this.octree.Palletize(this.maxColors - 1);
 
             // Then convert the palette based on those colors
             for (int index = 0; index < palette.Count; index++)
             {
-                original.Entries[index] = (Color)palette[index];
+                original[index] = palette[index];
             }
 
             // Add the transparent color
-            original.Entries[this.maxColors] = Color.FromArgb(0, 0, 0, 0);
+            original[this.maxColors] = Color.FromRgba(0, 0, 0, 0);
 
             return original;
         }
@@ -181,8 +188,8 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
 
             /// <summary>Convert the nodes in the octree to a palette with a maximum of colorCount colors.</summary>
             /// <param name="colorCount">The maximum number of colors.</param>
-            /// <returns>An arraylist with the palettized colors.</returns>
-            public ArrayList Palletize(int colorCount)
+            /// <returns>A list with the palettized colors.</returns>
+            public List<Color> Palletize(int colorCount)
             {
                 while (this.Leaves > colorCount)
                 {
@@ -190,7 +197,7 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
                 }
 
                 // Now palettize the nodes
-                ArrayList palette = new ArrayList(this.Leaves);
+                var palette = new List<Color>(this.Leaves);
                 int paletteIndex = 0;
                 this.root.ConstructPalette(palette, ref paletteIndex);
 
@@ -349,7 +356,7 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
                 /// <summary>Traverse the tree, building up the color palette.</summary>
                 /// <param name="palette">The palette.</param>
                 /// <param name="paletteIndex">The current palette index.</param>
-                public void ConstructPalette(ArrayList palette, ref int paletteIndex)
+                public void ConstructPalette(List<Color> palette, ref int paletteIndex)
                 {
                     if (this.leaf)
                     {
@@ -357,7 +364,10 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
                         this.paletteIndex = paletteIndex++;
 
                         // And set the color of the palette entry
-                        palette.Add(Color.FromArgb(this.red / this.pixelCount, this.green / this.pixelCount, this.blue / this.pixelCount));
+                        palette.Add(Color.FromRgb(
+                            (byte)(this.red / this.pixelCount),
+                            (byte)(this.green / this.pixelCount),
+                            (byte)(this.blue / this.pixelCount)));
                     }
                     else
                     {

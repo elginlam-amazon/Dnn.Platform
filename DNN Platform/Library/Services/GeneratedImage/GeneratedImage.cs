@@ -6,16 +6,33 @@ namespace DotNetNuke.Services.GeneratedImage
 {
     using System;
     using System.Collections.Generic;
+    using System.Net;
     using System.Text;
-    using System.Web;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
-    public class GeneratedImage : Image
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+
+    /// <summary>
+    /// Renders an <c>&lt;img&gt;</c> whose <c>src</c> points at the generated-image endpoint, with
+    /// the supplied <see cref="Parameters"/> appended as query-string values.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Was a <c>System.Web.UI.WebControls.Image</c> subclass. It is now a Blazor component:
+    /// <c>OnPreRender</c> (which assigned <c>ImageUrl</c>) became
+    /// <see cref="OnParametersSet"/>, and <c>OnDataBinding</c> — which pushed the binding container
+    /// into each <see cref="ImageParameter"/> and called <c>DataBind()</c> — became a pass over
+    /// <see cref="Parameters"/> raising <see cref="ImageParameter.DataBind"/> so that a parameter
+    /// which computes its value still gets the chance to do so before the URL is built.
+    /// </para>
+    /// <para>
+    /// The URL-building logic, including the <c>__timestamp</c> cache buster, is unchanged.
+    /// </para>
+    /// </remarks>
+    public class GeneratedImage : ComponentBase
     {
         private const string TimestampField = "__timestamp";
-        private readonly Control bindingContainer;
-        private readonly HttpContextBase context;
+
         private string timestamp;
         private string imageHandlerUrl;
 
@@ -25,18 +42,12 @@ namespace DotNetNuke.Services.GeneratedImage
             this.Parameters = new List<ImageParameter>();
         }
 
-        /// <summary>Initializes a new instance of the <see cref="GeneratedImage"/> class.</summary>
-        /// <param name="context">The HTTP context.</param>
-        /// <param name="bindingContainer">The control into which the image should be rendered.</param>
-        internal GeneratedImage(HttpContextBase context, Control bindingContainer)
-            : this()
-        {
-            this.context = context;
-            this.bindingContainer = bindingContainer;
-        }
+        /// <summary>Gets the query-string parameters appended to <see cref="ImageHandlerUrl"/>.</summary>
+        [Parameter]
+        public List<ImageParameter> Parameters { get; set; }
 
-        public List<ImageParameter> Parameters { get; }
-
+        /// <summary>Gets or sets the URL of the image handler, e.g. <c>~/DnnImageHandler.ashx</c>.</summary>
+        [Parameter]
         public string ImageHandlerUrl
         {
             get
@@ -50,6 +61,8 @@ namespace DotNetNuke.Services.GeneratedImage
             }
         }
 
+        /// <summary>Gets or sets a cache-busting timestamp appended to the generated URL.</summary>
+        [Parameter]
         public string Timestamp
         {
             get
@@ -63,42 +76,68 @@ namespace DotNetNuke.Services.GeneratedImage
             }
         }
 
-        private new HttpContextBase Context => this.context ?? new HttpContextWrapper(HttpContext.Current);
+        /// <summary>Gets or sets the alternate text, rendered as the <c>alt</c> attribute.</summary>
+        [Parameter]
+        public string AlternateText { get; set; }
 
-        private new Control BindingContainer => this.bindingContainer ?? base.BindingContainer;
+        /// <summary>Gets or sets the CSS class rendered on the <c>&lt;img&gt;</c>.</summary>
+        [Parameter]
+        public string CssClass { get; set; }
+
+        /// <summary>Gets or sets any additional attributes to render on the <c>&lt;img&gt;</c>.</summary>
+        [Parameter(CaptureUnmatchedValues = true)]
+        public IReadOnlyDictionary<string, object> AdditionalAttributes { get; set; }
+
+        /// <summary>Gets the URL that was built for the image, i.e. the rendered <c>src</c>.</summary>
+        public string ImageUrl { get; private set; }
 
         /// <inheritdoc />
-        protected override void OnDataBinding(EventArgs e)
+        protected override void OnParametersSet()
         {
-            base.OnDataBinding(e);
+            base.OnParametersSet();
 
-            Control bindingContainer = this.BindingContainer;
-            foreach (var parameter in this.Parameters)
+            // Replaces OnDataBinding: give every parameter the chance to compute its value.
+            if (this.Parameters != null)
             {
-                parameter.BindingContainer = bindingContainer;
-                parameter.DataBind();
+                foreach (var parameter in this.Parameters)
+                {
+                    parameter.DataBind();
+                }
             }
+
+            // Replaces OnPreRender's this.ImageUrl = this.BuildImageUrl().
+            this.ImageUrl = this.BuildImageUrl();
         }
 
         /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
-            base.OnPreRender(e);
+            ArgumentNullException.ThrowIfNull(builder);
 
-            if (this.DesignMode)
+            builder.OpenElement(0, "img");
+            if (this.AdditionalAttributes != null)
             {
-                return;
+                builder.AddMultipleAttributes(1, this.AdditionalAttributes);
             }
 
-            this.ImageUrl = this.BuildImageUrl();
+            if (!string.IsNullOrEmpty(this.CssClass))
+            {
+                builder.AddAttribute(2, "class", this.CssClass);
+            }
+
+            builder.AddAttribute(3, "alt", this.AlternateText ?? string.Empty);
+            builder.AddAttribute(4, "src", this.ImageUrl);
+            builder.CloseElement();
         }
 
         private static void AddQueryStringParameter(StringBuilder stringBuilder, bool paramAlreadyAdded, string name, string value)
         {
             stringBuilder.Append(paramAlreadyAdded ? '&' : '?');
-            stringBuilder.Append(HttpUtility.UrlEncode(name));
+
+            // Replaces HttpUtility.UrlEncode, which lives in System.Web.
+            stringBuilder.Append(WebUtility.UrlEncode(name));
             stringBuilder.Append('=');
-            stringBuilder.Append(HttpUtility.UrlEncode(value));
+            stringBuilder.Append(WebUtility.UrlEncode(value));
         }
 
         private string BuildImageUrl()
@@ -108,10 +147,13 @@ namespace DotNetNuke.Services.GeneratedImage
 
             var paramAlreadyAdded = false;
 
-            foreach (var parameter in this.Parameters)
+            if (this.Parameters != null)
             {
-                AddQueryStringParameter(stringBuilder, paramAlreadyAdded, parameter.Name, parameter.Value);
-                paramAlreadyAdded = true;
+                foreach (var parameter in this.Parameters)
+                {
+                    AddQueryStringParameter(stringBuilder, paramAlreadyAdded, parameter.Name, parameter.Value);
+                    paramAlreadyAdded = true;
+                }
             }
 
             string timeStamp = this.Timestamp?.Trim();

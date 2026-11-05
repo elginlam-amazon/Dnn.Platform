@@ -5,17 +5,29 @@ namespace DotNetNuke.Services.ClientCapability
 {
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
 
+    using DotNetNuke.Common;
     using DotNetNuke.ComponentModel;
+
+    using Microsoft.AspNetCore.Http;
 
     public abstract class ClientCapabilityProvider : IClientCapabilityProvider
     {
+        /// <summary>
+        /// Gets the client capabilities of the request currently in flight, resolved through the
+        /// <see cref="HttpContextSource"/> seam.
+        /// </summary>
+        /// <remarks>
+        /// On ASP.NET Core there is no ambient request, so this returns <see langword="null"/>
+        /// when there is none (for example during Blazor Server interactive rendering). Capture
+        /// the value during the initial render instead of reading it from an event handler.
+        /// </remarks>
         public static IClientCapability CurrentClientCapability
         {
             get
             {
-                return Instance().GetClientCapability(HttpContext.Current.Request);
+                var request = HttpContextSource.Current?.Request;
+                return request is null ? null : Instance().GetClientCapability(request);
             }
         }
 
@@ -42,7 +54,9 @@ namespace DotNetNuke.Services.ClientCapability
         /// <inheritdoc />
         public virtual IClientCapability GetClientCapability(HttpRequest httpRequest)
         {
-            IClientCapability clientCapability = this.GetClientCapability(httpRequest.UserAgent);
+            // ASP.NET Core has no HttpBrowserCapabilities / .browser capability files; the
+            // User-Agent header is the only input, which is what the providers parse anyway.
+            IClientCapability clientCapability = this.GetClientCapability(httpRequest.Headers.UserAgent.ToString());
             clientCapability.FacebookRequest = FacebookRequestController.GetFacebookDetailsFromRequest(httpRequest);
 
             return clientCapability;

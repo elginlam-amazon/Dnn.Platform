@@ -8,15 +8,12 @@ namespace DotNetNuke.UI.WebControls
     using System.ComponentModel;
     using System.Globalization;
     using System.Reflection;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
 
     /// <summary>The CollectionEditorControl control provides a Control to display Collection Properties.</summary>
-    [ToolboxData("<{0}:CollectionEditorControl runat=server></{0}:CollectionEditorControl>")]
     public class CollectionEditorControl : PropertyEditorControl
     {
         /// <summary>Initializes a new instance of the <see cref="CollectionEditorControl"/> class.</summary>
@@ -127,13 +124,13 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void AddEditorRow(Table table, object obj)
+        protected override void AddEditorRow(PropertyEditorTable table, object obj)
         {
             this.AddEditorRow(table, this.NameDataField, new CollectionEditorInfoAdapter(obj, this.ID, this.NameDataField, this.GetFieldNames()));
         }
 
         /// <inheritdoc />
-        protected override void AddEditorRow(Panel container, object obj)
+        protected override void AddEditorRow(PropertyEditorPanel container, object obj)
         {
             this.AddEditorRow(container, this.NameDataField, new CollectionEditorInfoAdapter(obj, this.ID, this.NameDataField, this.GetFieldNames()));
         }
@@ -141,7 +138,7 @@ namespace DotNetNuke.UI.WebControls
         /// <inheritdoc />
         protected override void AddEditorRow(object obj)
         {
-            this.AddEditorRow(this, this.NameDataField, new CollectionEditorInfoAdapter(obj, this.ID, this.NameDataField, this.GetFieldNames()));
+            this.AddEditorRow(this.GetRootPanel(), this.NameDataField, new CollectionEditorInfoAdapter(obj, this.ID, this.NameDataField, this.GetFieldNames()));
         }
 
         /// <summary>GetCategory gets the Category of an object.</summary>

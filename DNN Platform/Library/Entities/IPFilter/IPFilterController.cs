@@ -8,7 +8,6 @@ namespace DotNetNuke.Entities.Host
     using System.Diagnostics.CodeAnalysis;
     using System.Linq;
     using System.Net;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;

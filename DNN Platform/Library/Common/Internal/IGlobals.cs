@@ -6,10 +6,10 @@ namespace DotNetNuke.Common.Internal
 {
     using System;
     using System.Diagnostics.CodeAnalysis;
-    using System.Web;
 
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Tabs;
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>A collection of Dnn global methods and properties.</summary>
     public interface IGlobals

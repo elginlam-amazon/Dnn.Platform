@@ -98,8 +98,12 @@ namespace DotNetNuke.Entities.Users.Membership
         {
             bool foundMatch = false;
 
-            // use default algorithm (SHA1CryptoServiceProvider )
-            using (HashAlgorithm ha = HashAlgorithm.Create())
+            // HashAlgorithm.Create()'s parameterless overload is unsupported on modern .NET; its
+            // default was always SHA1, which must be preserved so that existing password-history
+            // hashes still compare equal.
+#pragma warning disable CA5350 // required for compatibility with stored password history hashes
+            using (HashAlgorithm ha = SHA1.Create())
+#pragma warning restore CA5350
             {
                 List<PasswordHistory> history = this.GetPasswordHistory(userId);
                 foreach (PasswordHistory ph in history)
@@ -169,15 +173,18 @@ namespace DotNetNuke.Entities.Users.Membership
 
         private static byte[] GetRandomSaltValue()
         {
-            using var rcsp = new RNGCryptoServiceProvider();
-            var bSalt = new byte[16];
-            rcsp.GetBytes(bSalt);
-            return bSalt;
+            // RNGCryptoServiceProvider is obsolete; RandomNumberGenerator is the supported
+            // cryptographically strong source and produces an equivalent 16-byte salt.
+            return RandomNumberGenerator.GetBytes(16);
         }
 
         private void AddPasswordHistory(int userId, string password, int passwordsRetained, int daysRetained)
         {
-            using (HashAlgorithm ha = HashAlgorithm.Create())
+            // See IsPasswordPreviouslyUsed: SHA1 is the algorithm the stored hashes were created
+            // with, so it must be kept for compatibility.
+#pragma warning disable CA5350 // required for compatibility with stored password history hashes
+            using (HashAlgorithm ha = SHA1.Create())
+#pragma warning restore CA5350
             {
                 byte[] newSalt = GetRandomSaltValue();
                 byte[] bytePassword = Encoding.Unicode.GetBytes(password);

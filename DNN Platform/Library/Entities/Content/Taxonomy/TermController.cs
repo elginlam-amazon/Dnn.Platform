@@ -7,8 +7,7 @@ namespace DotNetNuke.Entities.Content.Taxonomy
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web;
-    using System.Web.Caching;
+    using System.Net;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -16,7 +15,7 @@ namespace DotNetNuke.Entities.Content.Taxonomy
     using DotNetNuke.Entities.Content.Common;
     using DotNetNuke.Entities.Content.Data;
     using DotNetNuke.Entities.Users;
-
+    using DotNetNuke.Services.Cache;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>The Main Business layer of Taxonomy.</summary>
@@ -64,7 +63,7 @@ namespace DotNetNuke.Entities.Content.Taxonomy
             Requires.PropertyNotNegative("term", "VocabularyId", term.VocabularyId);
             Requires.PropertyNotNullOrEmpty("term", "Name", term.Name);
 
-            term.Name = HttpUtility.HtmlEncode(term.Name);
+            term.Name = WebUtility.HtmlEncode(term.Name);
 
             if (term.IsHeirarchical)
             {

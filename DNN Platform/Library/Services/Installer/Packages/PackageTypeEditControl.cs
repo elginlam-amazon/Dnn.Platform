@@ -3,11 +3,15 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.Installer.Packages.WebControls
 {
+    using System;
     using System.Collections.Generic;
-    using System.Web.UI;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.UI.WebControls;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
 
     using DNNLocalization = DotNetNuke.Services.Localization.Localization;
 
@@ -15,53 +19,62 @@ namespace DotNetNuke.Services.Installer.Packages.WebControls
     /// The PackageTypeEditControl control provides a standard UI component for editing
     /// package types.
     /// </summary>
-    [ToolboxData("<{0}:PackageTypeEditControl runat=server></{0}:PackageTypeEditControl>")]
+    /// <remarks>
+    /// Migrated from a WebForms <c>TextEditControl</c> (which rendered through an
+    /// <c>HtmlTextWriter</c> and carried a <c>[ToolboxData]</c> designer attribute, neither of
+    /// which exists on modern .NET) to the Blazor <c>EditControl</c> component contract: the edit
+    /// mode now writes into a <see cref="RenderTreeBuilder"/>. The rendered markup — a
+    /// <c>&lt;select&gt;</c> with a "not specified" option followed by one option per extension
+    /// package type, with the current value selected — is unchanged.
+    /// </remarks>
     public class PackageTypeEditControl : TextEditControl
     {
         /// <summary>RenderEditMode renders the Edit mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
             IList<PackageType> packageTypes = PackageController.Instance.GetExtensionPackageTypes();
 
             // Render the Select Tag
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "text");
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.RenderBeginTag(HtmlTextWriterTag.Select);
+            builder.OpenElement(0, "select");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddAttribute(5, "name", this.UniqueID);
+            builder.AddAttribute(6, "id", this.ClientID);
+            builder.AddAttribute(7, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnInputChanged));
 
             // Add the Not Specified Option
-            writer.AddAttribute(HtmlTextWriterAttribute.Value, Null.NullString);
-
+            builder.OpenElement(8, "option");
+            builder.AddAttribute(9, "value", Null.NullString);
             if (this.StringValue == Null.NullString)
             {
-                writer.AddAttribute(HtmlTextWriterAttribute.Selected, "selected");
+                builder.AddAttribute(10, "selected", "selected");
             }
 
-            // Render Option Tag
-            writer.RenderBeginTag(HtmlTextWriterTag.Option);
-            writer.Write("<" + DNNLocalization.GetString("Not_Specified", DNNLocalization.SharedResourceFile) + ">");
-            writer.RenderEndTag();
+            builder.AddContent(11, "<" + DNNLocalization.GetString("Not_Specified", DNNLocalization.SharedResourceFile) + ">");
+            builder.CloseElement();
 
+            var sequence = 12;
             foreach (PackageType type in packageTypes)
             {
+                builder.OpenElement(sequence++, "option");
+
                 // Add the Value Attribute
-                writer.AddAttribute(HtmlTextWriterAttribute.Value, type.PackageType);
+                builder.AddAttribute(sequence++, "value", type.PackageType);
 
                 if (type.PackageType == this.StringValue)
                 {
                     // Add the Selected Attribute
-                    writer.AddAttribute(HtmlTextWriterAttribute.Selected, "selected");
+                    builder.AddAttribute(sequence++, "selected", "selected");
                 }
 
-                // Render Option Tag
-                writer.RenderBeginTag(HtmlTextWriterTag.Option);
-                writer.Write(type.PackageType);
-                writer.RenderEndTag();
+                builder.AddContent(sequence++, type.PackageType);
+                builder.CloseElement();
             }
 
             // Close Select Tag
-            writer.RenderEndTag();
+            builder.CloseElement();
         }
     }
 }

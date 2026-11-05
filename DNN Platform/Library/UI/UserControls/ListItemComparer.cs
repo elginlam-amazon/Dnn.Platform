@@ -4,8 +4,8 @@
 namespace DotNetNuke.UI.UserControls
 {
     using System.Collections;
-    using System.Web.UI.WebControls;
 
+    /// <summary>Compares two <see cref="ListItem"/> instances by their display text.</summary>
     public class ListItemComparer : IComparer
     {
         /// <inheritdoc />

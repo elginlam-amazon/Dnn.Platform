@@ -7,23 +7,24 @@ namespace DotNetNuke.Services.Tokens
 {
     using System;
     using System.Collections.Generic;
-    using System.Web.UI;
 
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Framework.JavaScriptLibraries;
     using DotNetNuke.Web.Client;
     using DotNetNuke.Web.Client.ClientResourceManagement;
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Property Access implementation for javascript registration.</summary>
     public class JavaScriptPropertyAccess : JsonPropertyAccess<JavaScriptDto>
     {
-        private readonly Page page;
+        private readonly HttpContext context;
 
         /// <summary>Initializes a new instance of the <see cref="JavaScriptPropertyAccess"/> class.</summary>
-        /// <param name="page">The current page.</param>
-        public JavaScriptPropertyAccess(Page page)
+        /// <param name="context">The current request.</param>
+        /// <remarks>Was <c>JavaScriptPropertyAccess(System.Web.UI.Page)</c>; client resources are registered per request now.</remarks>
+        public JavaScriptPropertyAccess(HttpContext context)
         {
-            this.page = page;
+            this.context = context;
         }
 
         /// <inheritdoc />
@@ -46,7 +47,7 @@ namespace DotNetNuke.Services.Tokens
             else
             {
                 ClientResourceManager.RegisterScript(
-                    this.page,
+                    this.context,
                     model.Path,
                     model.Priority,
                     model.Provider ?? string.Empty,

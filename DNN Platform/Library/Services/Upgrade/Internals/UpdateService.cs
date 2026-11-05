@@ -5,7 +5,7 @@
 namespace DotNetNuke.Services.Upgrade.Internals
 {
     using System.IO;
-    using System.Net;
+    using System.Net.Http;
 
     using DotNetNuke.Application;
     using DotNetNuke.Common;
@@ -55,20 +55,24 @@ namespace DotNetNuke.Services.Upgrade.Internals
 
         private static StreamReader GetResponseAsStream(string url)
         {
-            // creating the proxy for the service call using the HttpWebRequest class
-            var webReq = (HttpWebRequest)WebRequest.Create(url);
+            // The service call goes through the named "DnnExternalRequest" HttpClient so that the
+            // host's timeout/proxy/user-agent settings apply and sockets are pooled.
+            var client = Globals.GetExternalHttpClient();
 
-            // Set the method/action type
-            webReq.Method = "GET";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
             // We use form contentType
-            webReq.ContentType = "text/xml; charset=utf-8";
+            request.Headers.Accept.ParseAdd("text/xml");
+            request.Headers.AcceptCharset.ParseAdd("utf-8");
 
-            // Get the response handle, we have no true response yet!
-            var webResp = (HttpWebResponse)webReq.GetResponse();
+            // Get the response handle. The synchronous Send overload keeps this (public, synchronous)
+            // API from blocking on an async call.
+            var response = client.Send(request, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
 
             // Now, we read the response (the string), and output it.
-            Stream myResponse = webResp.GetResponseStream();
+            // Note: the caller owns the returned reader; the response stream stays open until it is read.
+            var myResponse = response.Content.ReadAsStream();
 
             // read the stream into streamreader
             var myResponseReader = new StreamReader(myResponse);

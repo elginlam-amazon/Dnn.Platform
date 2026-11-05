@@ -5,58 +5,98 @@ namespace DotNetNuke.Services.UserProfile
 {
     using System;
     using System.Globalization;
-    using System.Web;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Instrumentation;
 
+    using Microsoft.AspNetCore.Builder;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.Logging;
 
-    /// <summary>Redirects to the user's profile page.</summary>
-    public partial class UserProfilePageHandler : IHttpHandler
+    /// <summary>
+    /// Redirects to the user's profile page. This is the ASP.NET Core replacement for the
+    /// <c>UserProfilePageHandler</c> <c>IHttpHandler</c> which was registered in
+    /// <c>web.config</c> for <c>path="User.aspx" verb="*"</c>.
+    /// </summary>
+    public static class UserProfilePageHandler
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<UserProfilePageHandler>();
+        /// <summary>The preserved user profile URL, so existing links keep working.</summary>
+        public const string UserProfilePath = "/User.aspx";
 
-        /// <inheritdoc />
-        public bool IsReusable => true;
+        /// <summary>
+        /// The preserved user profile URL when it appears below a portal/tab folder, e.g.
+        /// <c>/Home/User.aspx?UserId=1</c>. The IIS handler mapping matched the file name at any
+        /// folder depth, so both shapes are routed.
+        /// </summary>
+        public const string NestedUserProfilePath = "/{**dnnUserProfilePrefix}/User.aspx";
 
-        /// <summary>This handler handles requests for LinkClick.aspx, but only those specific to file serving.</summary>
-        /// <param name="context">System.Web.HttpContext.</param>
-        public void ProcessRequest(HttpContext context)
+        private static readonly ILogger Logger = DnnLoggingController.GetLogger(typeof(UserProfilePageHandler));
+
+        /// <summary>Maps the user profile redirect endpoint onto its original URL(s).</summary>
+        /// <param name="endpoints">The endpoint route builder.</param>
+        /// <returns>The <paramref name="endpoints"/>, for chaining.</returns>
+        public static IEndpointRouteBuilder MapDnnUserProfilePage(this IEndpointRouteBuilder endpoints)
         {
+            // Map (rather than MapGet): the handler was registered with verb="*".
+            endpoints.Map(UserProfilePath, HandleAsync);
+            endpoints.Map(NestedUserProfilePath, HandleAsync);
+            return endpoints;
+        }
+
+        /// <summary>Adapts the synchronous handler to a <see cref="RequestDelegate"/>.</summary>
+        /// <param name="context">The HTTP context of the request.</param>
+        /// <returns>A completed task; the work is synchronous (a database lookup and a redirect).</returns>
+        private static Task HandleAsync(HttpContext context)
+        {
+            ProcessRequest(context);
+            return Task.CompletedTask;
+        }
+
+        /// <summary>Resolves the requested user and redirects to that user's profile page.</summary>
+        /// <param name="context">The HTTP context of the request.</param>
+        public static void ProcessRequest(HttpContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+
             var portalSettings = PortalController.Instance.GetCurrentSettings();
             int userId = Null.NullInteger;
             int portalId = portalSettings.PortalId;
+            var rawUrl = context.Request.GetRawUrl();
 
             try
             {
                 // try UserId
-                if (!string.IsNullOrEmpty(context.Request.QueryString["UserId"]))
+                var rawUserId = context.Request.Query["UserId"].ToString();
+                if (!string.IsNullOrEmpty(rawUserId))
                 {
-                    userId = int.Parse(context.Request.QueryString["UserId"], CultureInfo.InvariantCulture);
+                    userId = int.Parse(rawUserId, CultureInfo.InvariantCulture);
                     if (UserController.GetUserById(portalId, userId) == null)
                     {
                         // The user cannot be found (potential DOS)
-                        Exceptions.Exceptions.ProcessHttpException(context.Request);
+                        Exceptions.Exceptions.ProcessHttpException(rawUrl);
                     }
                 }
 
                 if (userId == Null.NullInteger)
                 {
                     // try userName
-                    if (!string.IsNullOrEmpty(context.Request.QueryString["UserName"]))
+                    var userName = context.Request.Query["UserName"].ToString();
+                    if (!string.IsNullOrEmpty(userName))
                     {
-                        userId = GetUserId(context.Request.QueryString["UserName"], portalId);
+                        userId = GetUserId(userName, portalId);
                     }
                 }
 
                 if (userId == Null.NullInteger)
                 {
                     // try user
-                    string user = context.Request.QueryString["User"];
+                    string user = context.Request.Query["User"].ToString();
                     if (!string.IsNullOrEmpty(user))
                     {
                         if (!int.TryParse(user, out userId))
@@ -69,7 +109,7 @@ namespace DotNetNuke.Services.UserProfile
                             if (UserController.GetUserById(portalId, userId) == null)
                             {
                                 // The user cannot be found (potential DOS)
-                                Exceptions.Exceptions.ProcessHttpException(context.Request);
+                                Exceptions.Exceptions.ProcessHttpException(rawUrl);
                             }
                         }
                     }
@@ -78,7 +118,7 @@ namespace DotNetNuke.Services.UserProfile
                 if (userId == Null.NullInteger)
                 {
                     // The user cannot be found (potential DOS)
-                    Exceptions.Exceptions.ProcessHttpException(context.Request);
+                    Exceptions.Exceptions.ProcessHttpException(rawUrl);
                 }
             }
             catch (Exception exc)
@@ -86,11 +126,11 @@ namespace DotNetNuke.Services.UserProfile
                 Logger.UserProfilePageHandlerException(exc);
 
                 // The user cannot be found (potential DOS)
-                Exceptions.Exceptions.ProcessHttpException(context.Request);
+                Exceptions.Exceptions.ProcessHttpException(rawUrl);
             }
 
             // Redirect to Userprofile Page
-            context.Response.Redirect(Globals.UserProfileURL(userId), true);
+            context.Response.Redirect(Globals.UserProfileURL(userId));
         }
 
         private static int GetUserId(string username, int portalId)

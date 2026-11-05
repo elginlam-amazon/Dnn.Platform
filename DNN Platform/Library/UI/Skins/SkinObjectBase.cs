@@ -5,7 +5,6 @@ namespace DotNetNuke.UI.Skins
 {
     using System.ComponentModel;
     using System.Diagnostics.CodeAnalysis;
-    using System.Web.UI;
 
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Security.Permissions;
@@ -15,7 +14,13 @@ namespace DotNetNuke.UI.Skins
     /// The SkinObject class defines a custom base class inherited by all
     /// skin and container objects within the Portal.
     /// </summary>
-    public class SkinObjectBase : UserControl, ISkinControl
+    /// <remarks>
+    /// Was a <c>System.Web.UI.UserControl</c>; skin objects are DNN skinning components
+    /// (<see cref="DnnComponentBase"/>) now, which keeps the control-tree surface
+    /// (<c>ID</c>/<c>Visible</c>/<c>Controls</c>/<c>FindControl</c>) and the
+    /// <c>OnInit</c>/<c>OnLoad</c>/<c>OnPreRender</c> lifecycle the skin objects are written against.
+    /// </remarks>
+    public class SkinObjectBase : DnnComponentBase, ISkinControl
     {
         /// <summary>Gets the portal Settings for this Skin Control.</summary>
         [Browsable(false)]

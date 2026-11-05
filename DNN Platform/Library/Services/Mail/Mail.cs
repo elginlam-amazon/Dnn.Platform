@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.Mail
 {
+    using System.Net;
     using System;
     using System.Collections;
     using System.Collections.Generic;
@@ -12,7 +13,6 @@ namespace DotNetNuke.Services.Mail
     using System.Net.Mail;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -170,13 +170,13 @@ namespace DotNetNuke.Services.Mail
                     subject = "EMAIL_USER_REGISTRATION_VERIFIED_SUBJECT";
                     body = "EMAIL_USER_REGISTRATION_VERIFIED_BODY";
                     var propertyNotFound = false;
-                    if (HttpContext.Current != null)
+                    if (HttpContextSource.Current != null)
                     {
                         custom = new ArrayList
                                  {
-                                     HttpContext.Current.Server.HtmlEncode(
-                                         HttpContext.Current.Server.UrlEncode(user.Username)),
-                                     HttpContext.Current.Server.UrlEncode(
+                                     WebUtility.HtmlEncode(
+                                         WebUtility.UrlEncode(user.Username)),
+                                     WebUtility.UrlEncode(
                                          user.GetProperty(
                                              "verificationcode",
                                              string.Empty,

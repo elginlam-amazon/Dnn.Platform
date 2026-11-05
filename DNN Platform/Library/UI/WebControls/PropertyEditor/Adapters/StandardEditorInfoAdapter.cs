@@ -6,7 +6,6 @@ namespace DotNetNuke.UI.WebControls
     using System;
     using System.ComponentModel;
     using System.Reflection;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Profile;

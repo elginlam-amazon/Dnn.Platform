@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -7,26 +7,27 @@ namespace DotNetNuke.Services.GeneratedImage
     using System;
     using System.ComponentModel;
     using System.Globalization;
-    using System.Web.UI;
 
+    /// <summary>A single query-string parameter appended to a <see cref="GeneratedImage"/> URL.</summary>
+    /// <remarks>
+    /// Was an <c>IDataBindingsAccessor</c> implementation holding a WebForms
+    /// <c>DataBindingCollection</c>, neither of which exists outside <c>System.Web.UI</c>. In Blazor
+    /// the parent component sets <see cref="Name"/> and <see cref="Value"/> directly, so the
+    /// collection is gone; the <see cref="DataBinding"/> event and <see cref="DataBind"/> remain so
+    /// that a parameter whose value is computed still has a hook that runs before the URL is built
+    /// (<see cref="GeneratedImage"/> raises it from <c>OnParametersSet</c>).
+    /// </remarks>
     [Bindable(true)]
-    public class ImageParameter : IDataBindingsAccessor
+    public class ImageParameter
     {
-        private readonly DataBindingCollection dataBindings = new DataBindingCollection();
-
+        /// <summary>Raised just before the containing <see cref="GeneratedImage"/> builds its URL.</summary>
         public event EventHandler DataBinding;
 
+        /// <summary>Gets or sets the query-string parameter name.</summary>
         public string Name { get; set; }
 
+        /// <summary>Gets or sets the query-string parameter value.</summary>
         public string Value { get; set; }
-
-        public Control BindingContainer { get; internal set; }
-
-        /// <inheritdoc />
-        DataBindingCollection IDataBindingsAccessor.DataBindings => this.dataBindings;
-
-        /// <inheritdoc />
-        bool IDataBindingsAccessor.HasDataBindings => this.dataBindings.Count != 0;
 
         /// <inheritdoc />
         public override string ToString()
@@ -39,12 +40,10 @@ namespace DotNetNuke.Services.GeneratedImage
             return string.Format(CultureInfo.InvariantCulture, "{0} = {1}", this.Name, this.Value);
         }
 
+        /// <summary>Raises <see cref="DataBinding"/>.</summary>
         internal void DataBind()
         {
-            if (this.DataBinding != null)
-            {
-                this.DataBinding(this, EventArgs.Empty);
-            }
+            this.DataBinding?.Invoke(this, EventArgs.Empty);
         }
     }
 }

@@ -9,7 +9,6 @@ namespace DotNetNuke.Entities.Modules.Settings
     using System.Globalization;
     using System.Reflection;
     using System.Security.Cryptography;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;

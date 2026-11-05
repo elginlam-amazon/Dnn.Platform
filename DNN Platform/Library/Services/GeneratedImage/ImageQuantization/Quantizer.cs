@@ -5,17 +5,42 @@
 namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
 {
     using System;
-    using System.Drawing;
-    using System.Drawing.Imaging;
     using System.Runtime.InteropServices;
 
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
+
     /// <summary>Abstract class for Quantizers.</summary>
+    /// <remarks>
+    /// <para>
+    /// Ported from GDI+ to ImageSharp. The two-pass structure, the virtual/abstract members and the
+    /// <see cref="Color32"/> helper struct are all preserved so that a derived quantizer keeps
+    /// working. What changed:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>
+    /// <see cref="Quantize"/> returns an ImageSharp <see cref="Image{Rgba32}"/> instead of a
+    /// <c>System.Drawing.Bitmap</c>.
+    /// </description></item>
+    /// <item><description>
+    /// <c>Bitmap.LockBits</c>/<c>BitmapData</c>/<c>Marshal</c> pointer walking is replaced by
+    /// ImageSharp's pixel rows — there is no unmanaged memory to pin or unlock.
+    /// </description></item>
+    /// <item><description>
+    /// <c>GetPalette(ColorPalette)</c> became <see cref="GetPalette(Color[])"/>: modern .NET has no
+    /// <c>ColorPalette</c>, and ImageSharp images are not palette-indexed. The quantized result is
+    /// therefore written as the palette color for each pixel; encoding it as a truly indexed image is
+    /// the job of the (GIF/PNG) encoder's own quantizer.
+    /// </description></item>
+    /// </list>
+    /// </remarks>
     public abstract class Quantizer
     {
+        /// <summary>The number of palette entries the quantizers work with (an 8bpp palette).</summary>
+        private const int PaletteSize = 256;
+
         /// <summary>Flag used to indicate whether a single pass or two passes are needed for quantization.</summary>
         private bool singlePass;
-
-        private int pixelSize;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Quantizer"/> class.
@@ -30,171 +55,112 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
         public Quantizer(bool singlePass)
         {
             this.singlePass = singlePass;
-            this.pixelSize = Marshal.SizeOf<Color32>();
         }
 
-        /// <summary>Quantize an image and return the resulting output bitmap.</summary>
+        /// <summary>Quantize an image and return the resulting output image.</summary>
         /// <param name="source">The image to quantize.</param>
         /// <returns>A quantized version of the image.</returns>
-        public Bitmap Quantize(Image source)
+        public Image<Rgba32> Quantize(Image source)
         {
-            // Get the size of the source image
-            int height = source.Height;
-            int width = source.Width;
-
-            // And construct a rectangle from these dimensions
-            Rectangle bounds = new Rectangle(0, 0, width, height);
-
-            // First off take a 32bpp copy of the image
-            Bitmap copy = new Bitmap(width, height, PixelFormat.Format32bppArgb);
-
-            // And construct an 8bpp version
-            Bitmap output = new Bitmap(width, height, PixelFormat.Format8bppIndexed);
-
-            // Now lock the bitmap into memory
-            using (Graphics g = Graphics.FromImage(copy))
+            if (source == null)
             {
-                g.PageUnit = GraphicsUnit.Pixel;
-
-                // Draw the source image onto the copy bitmap,
-                // which will effect a widening as appropriate.
-                g.DrawImage(source, bounds);
+                throw new ArgumentNullException(nameof(source));
             }
 
-            // Define a pointer to the bitmap data
-            BitmapData sourceData = null;
+            // First off take a 32bpp copy of the image, which is what Color32 expects to read.
+            using var copy = source.CloneAs<Rgba32>();
 
-            try
+            // Call the FirstPass function if not a single pass algorithm.
+            // For something like an octree quantizer, this will run through
+            // all image pixels, build a data structure, and create a palette.
+            if (!this.singlePass)
             {
-                // Get the source image bits and lock into memory
-                sourceData = copy.LockBits(bounds, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-
-                // Call the FirstPass function if not a single pass algorithm.
-                // For something like an octree quantizer, this will run through
-                // all image pixels, build a data structure, and create a palette.
-                if (!this.singlePass)
-                {
-                    this.FirstPass(sourceData, width, height);
-                }
-
-                // Then set the color palette on the output bitmap. I'm passing in the current palette
-                // as there's no way to construct a new, empty palette.
-                output.Palette = this.GetPalette(output.Palette);
-
-                // Then call the second pass which actually does the conversion
-                this.SecondPass(sourceData, output, width, height, bounds);
-            }
-            finally
-            {
-                // Ensure that the bits are unlocked
-                copy.UnlockBits(sourceData);
+                this.FirstPass(copy, copy.Width, copy.Height);
             }
 
-            // Last but not least, return the output bitmap
+            // Then ask the derived quantizer for the palette. The incoming array stands in for the
+            // "any old palette, this is overwritten" argument the GDI+ version was handed.
+            var palette = this.GetPalette(new Color[PaletteSize]);
+
+            // Then call the second pass which actually does the conversion.
+            var output = new Image<Rgba32>(copy.Width, copy.Height);
+            this.SecondPass(copy, output, copy.Width, copy.Height, palette);
+
+            // Last but not least, return the output image
             return output;
         }
 
         /// <summary>Execute the first pass through the pixels in the image.</summary>
-        /// <param name="sourceData">The source data.</param>
+        /// <param name="sourceData">The source image.</param>
         /// <param name="width">The width in pixels of the image.</param>
         /// <param name="height">The height in pixels of the image.</param>
-        protected virtual void FirstPass(BitmapData sourceData, int width, int height)
+        protected virtual void FirstPass(Image<Rgba32> sourceData, int width, int height)
         {
-            // Define the source data pointers. The source row is a byte to
-            // keep addition of the stride value easier (as this is in bytes)
-            IntPtr pSourceRow = sourceData.Scan0;
-
-            // Loop through each row
-            for (int row = 0; row < height; row++)
+            sourceData.ProcessPixelRows(accessor =>
             {
-                // Set the source pixel to the first pixel in this row
-                IntPtr pSourcePixel = pSourceRow;
-
-                // And loop through each column
-                for (int col = 0; col < width; col++)
+                // Loop through each row
+                for (var row = 0; row < height; row++)
                 {
-                    this.InitialQuantizePixel(new Color32(pSourcePixel));
-                    pSourcePixel = (IntPtr)((long)pSourcePixel + this.pixelSize);
-                } // Now I have the pixel, call the FirstPassQuantize function...
+                    var sourceRow = accessor.GetRowSpan(row);
 
-                // Add the stride to the source row
-                pSourceRow = (IntPtr)((long)pSourceRow + sourceData.Stride);
-            }
+                    // And loop through each column
+                    for (var col = 0; col < width; col++)
+                    {
+                        // Now I have the pixel, call the FirstPassQuantize function...
+                        this.InitialQuantizePixel(new Color32(sourceRow[col]));
+                    }
+                }
+            });
         }
 
-        /// <summary>Execute a second pass through the bitmap.</summary>
-        /// <param name="sourceData">The source bitmap, locked into memory.</param>
-        /// <param name="output">The output bitmap.</param>
+        /// <summary>Execute a second pass through the image.</summary>
+        /// <param name="sourceData">The source image.</param>
+        /// <param name="output">The output image.</param>
         /// <param name="width">The width in pixels of the image.</param>
         /// <param name="height">The height in pixels of the image.</param>
-        /// <param name="bounds">The bounding rectangle.</param>
-        protected virtual void SecondPass(BitmapData sourceData, Bitmap output, int width, int height, Rectangle bounds)
+        /// <param name="palette">The palette produced by <see cref="GetPalette(Color[])"/>.</param>
+        protected virtual void SecondPass(Image<Rgba32> sourceData, Image<Rgba32> output, int width, int height, Color[] palette)
         {
-            BitmapData outputData = null;
-
-            try
+            var palettePixels = new Rgba32[palette.Length];
+            for (var i = 0; i < palette.Length; i++)
             {
-                // Lock the output bitmap into memory
-                outputData = output.LockBits(bounds, ImageLockMode.WriteOnly, PixelFormat.Format8bppIndexed);
+                palettePixels[i] = palette[i].ToPixel<Rgba32>();
+            }
 
-                // Define the source data pointers. The source row is a byte to
-                // keep addition of the stride value easier (as this is in bytes)
-                IntPtr pSourceRow = sourceData.Scan0;
-                IntPtr pSourcePixel = pSourceRow;
-                IntPtr pPreviousPixel = pSourcePixel;
-
-                // Now define the destination data pointers
-                IntPtr pDestinationRow = outputData.Scan0;
-                IntPtr pDestinationPixel = pDestinationRow;
-
-                // And convert the first pixel, so that I have values going into the loop
-                byte pixelValue = this.QuantizePixel(new Color32(pSourcePixel));
-
-                // Assign the value of the first pixel
-                Marshal.WriteByte(pDestinationPixel, pixelValue);
+            sourceData.ProcessPixelRows(output, (sourceAccessor, outputAccessor) =>
+            {
+                var previousPixel = default(Color32);
+                var havePrevious = false;
+                byte pixelValue = 0;
 
                 // Loop through each row
-                for (int row = 0; row < height; row++)
+                for (var row = 0; row < height; row++)
                 {
-                    // Set the source pixel to the first pixel in this row
-                    pSourcePixel = pSourceRow;
-
-                    // And set the destination pixel pointer to the first pixel in the row
-                    pDestinationPixel = pDestinationRow;
+                    var sourceRow = sourceAccessor.GetRowSpan(row);
+                    var destinationRow = outputAccessor.GetRowSpan(row);
 
                     // Loop through each pixel on this scan line
-                    for (int col = 0; col < width; col++)
+                    for (var col = 0; col < width; col++)
                     {
+                        var pixel = new Color32(sourceRow[col]);
+
                         // Check if this is the same as the last pixel. If so use that value
                         // rather than calculating it again. This is an inexpensive optimisation.
-                        if (Marshal.ReadByte(pPreviousPixel) != Marshal.ReadByte(pSourcePixel))
+                        if (!havePrevious || previousPixel.ARGB != pixel.ARGB)
                         {
                             // Quantize the pixel
-                            pixelValue = this.QuantizePixel(new Color32(pSourcePixel));
+                            pixelValue = this.QuantizePixel(pixel);
 
-                            // And setup the previous pointer
-                            pPreviousPixel = pSourcePixel;
+                            // And setup the previous pixel
+                            previousPixel = pixel;
+                            havePrevious = true;
                         }
 
                         // And set the pixel in the output
-                        Marshal.WriteByte(pDestinationPixel, pixelValue);
-
-                        pSourcePixel = (IntPtr)((long)pSourcePixel + this.pixelSize);
-                        pDestinationPixel = (IntPtr)((long)pDestinationPixel + 1);
+                        destinationRow[col] = palettePixels[pixelValue];
                     }
-
-                    // Add the stride to the source row
-                    pSourceRow = (IntPtr)((long)pSourceRow + sourceData.Stride);
-
-                    // And to the destination row
-                    pDestinationRow = (IntPtr)((long)pDestinationRow + outputData.Stride);
                 }
-            }
-            finally
-            {
-                // Ensure that I unlock the output bits
-                output.UnlockBits(outputData);
-            }
+            });
         }
 
         /// <summary>Override this to process the pixel in the first pass of the algorithm.</summary>
@@ -215,13 +181,13 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
         /// <summary>Retrieve the palette for the quantized image.</summary>
         /// <param name="original">Any old palette, this is overrwritten.</param>
         /// <returns>The new color palette.</returns>
-        protected abstract ColorPalette GetPalette(ColorPalette original);
+        protected abstract Color[] GetPalette(Color[] original);
 
         /// <summary>Struct that defines a 32 bpp colour.</summary>
         /// <remarks>
-        /// This struct is used to read data from a 32 bits per pixel image
-        /// in memory, and is ordered in this manner as this is the way that
-        /// the data is layed out in memory.
+        /// The explicit layout (and therefore the meaning of <see cref="ARGB"/>) is unchanged from
+        /// the GDI+ version; it is now populated from an ImageSharp <see cref="Rgba32"/> pixel
+        /// rather than from a pointer into locked bitmap bits.
         /// </remarks>
         [StructLayout(LayoutKind.Explicit)]
         public struct Color32
@@ -247,16 +213,22 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
             public int ARGB;
 
             /// <summary>Initializes a new instance of the <see cref="Color32"/> struct.</summary>
-            /// <param name="pSourcePixel">A pointer to the value.</param>
-            public Color32(IntPtr pSourcePixel)
+            /// <param name="pixel">The source pixel.</param>
+            public Color32(Rgba32 pixel)
             {
-                this = Marshal.PtrToStructure<Color32>(pSourcePixel);
+                // ARGB overlaps the four bytes (as it did in the GDI+ version), so assigning the
+                // components is all that is needed.
+                this.ARGB = 0;
+                this.Blue = pixel.B;
+                this.Green = pixel.G;
+                this.Red = pixel.R;
+                this.Alpha = pixel.A;
             }
 
             /// <summary>Gets return the color for this Color32 object.</summary>
             public Color Color
             {
-                get { return Color.FromArgb(this.Alpha, this.Red, this.Green, this.Blue); }
+                get { return Color.FromRgba(this.Red, this.Green, this.Blue, this.Alpha); }
             }
         }
     }

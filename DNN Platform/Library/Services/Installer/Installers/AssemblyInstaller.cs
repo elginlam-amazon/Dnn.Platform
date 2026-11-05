@@ -28,7 +28,7 @@ namespace DotNetNuke.Services.Installer.Installers
         protected override string CollectionNodeName => "assemblies";
 
         /// <summary>Gets the default Path for the file - if not present in the manifest.</summary>
-        protected override string DefaultPath => "bin\\";
+        protected override string DefaultPath => "bin" + System.IO.Path.DirectorySeparatorChar;
 
         /// <summary>Gets the name of the Item Node (<c>assembly</c>).</summary>
         protected override string ItemNodeName => "assembly";

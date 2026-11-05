@@ -1,0 +1,433 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Globalization
+@using System.Text.RegularExpressions
+@using System.Threading.Tasks
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+@if (!string.IsNullOrEmpty(this.errorMessage))
+{
+    <div class="dnnFormMessage dnnFormError">@this.errorMessage</div>
+}
+<table cellspacing="0" cellpadding="1" border="0" summary="User Design Table">
+    <tr>
+        <td class="SubHead" width="@this.LabelWidth">
+            <LabelControl ID="plFirstName" ControlName="txtFirstName" Text="First Name:" LocalResourceFile="@this.ResourceFile" />
+        </td>
+        <td class="NormalBold" style="white-space:nowrap">
+            <input id="txtFirstName" type="text" tabindex="@this.TabIndexFor(0)" class="NormalTextBox" size="25" maxlength="50"
+                   style="@this.ControlStyle" value="@this.FirstName" @onchange="this.OnFirstNameChangedAsync" />&nbsp;*
+            @if (!string.IsNullOrEmpty(this.firstNameError))
+            {
+                <span class="NormalRed">@((MarkupString)this.firstNameError)</span>
+            }
+        </td>
+    </tr>
+    <tr>
+        <td class="SubHead" width="@this.LabelWidth">
+            <LabelControl ID="plLastName" ControlName="txtLastName" Text="Last Name:" LocalResourceFile="@this.ResourceFile" />
+        </td>
+        <td class="NormalBold" style="white-space:nowrap">
+            <input id="txtLastName" type="text" tabindex="@this.TabIndexFor(1)" class="NormalTextBox" size="25" maxlength="50"
+                   style="@this.ControlStyle" value="@this.LastName" @onchange="this.OnLastNameChangedAsync" />&nbsp;*
+            @if (!string.IsNullOrEmpty(this.lastNameError))
+            {
+                <span class="NormalRed">@((MarkupString)this.lastNameError)</span>
+            }
+        </td>
+    </tr>
+    <tr>
+        <td class="SubHead" width="@this.LabelWidth">
+            <LabelControl ID="plEmail" ControlName="txtEmail" Text="Email Address:" LocalResourceFile="@this.ResourceFile" />
+        </td>
+        <td class="NormalBold" style="white-space:nowrap">
+            <input id="txtEmail" type="text" tabindex="@this.TabIndexFor(5)" class="NormalTextBox" size="25" maxlength="175"
+                   style="@this.ControlStyle" value="@this.Email" @onchange="this.OnEmailChangedAsync" />&nbsp;*
+            @if (!string.IsNullOrEmpty(this.emailError))
+            {
+                <span class="NormalRed">@((MarkupString)this.emailError)</span>
+            }
+        </td>
+    </tr>
+    <tr>
+        <td class="SubHead" width="@this.LabelWidth">
+            <LabelControl ID="plUserName" ControlName="txtUsername" Text="User Name:" LocalResourceFile="@this.ResourceFile" />
+        </td>
+        <td class="NormalBold" style="white-space:nowrap">
+            @if (this.ShowUserNameEditor)
+            {
+                <input id="txtUsername" type="text" tabindex="@this.TabIndexFor(2)" class="NormalTextBox" size="25" maxlength="175"
+                       style="@this.ControlStyle" value="@this.UserName" @onchange="this.OnUserNameChangedAsync" />
+                <span>*</span>
+            }
+            else
+            {
+                <span id="lblUsername">@this.UserName</span>
+            }
+            @if (!string.IsNullOrEmpty(this.userNameError))
+            {
+                <span class="NormalRed">@((MarkupString)this.userNameError)</span>
+            }
+        </td>
+    </tr>
+    @if (this.ShowPasswordRows)
+    {
+        <tr id="PasswordRow">
+            <td class="SubHead" width="@this.LabelWidth">
+                <LabelControl ID="plPassword" ControlName="txtPassword" Text="Password:" LocalResourceFile="@this.ResourceFile" />
+            </td>
+            <td class="NormalBold" style="white-space:nowrap">
+                <input id="txtPassword" type="password" tabindex="@this.TabIndexFor(3)" class="NormalTextBox" size="25" maxlength="20"
+                       style="@this.ControlStyle" value="@this.Password" @onchange="this.OnPasswordChangedAsync" />&nbsp;*
+                @if (!string.IsNullOrEmpty(this.passwordError))
+                {
+                    <span class="NormalRed">@((MarkupString)this.passwordError)</span>
+                }
+            </td>
+        </tr>
+        <tr id="ConfirmPasswordRow">
+            <td class="SubHead" width="@this.LabelWidth">
+                <LabelControl ID="plConfirm" ControlName="txtConfirm" Text="Confirm:" LocalResourceFile="@this.ResourceFile" />
+            </td>
+            <td class="NormalBold" style="white-space:nowrap">
+                <input id="txtConfirm" type="password" tabindex="@this.TabIndexFor(4)" class="NormalTextBox" size="25" maxlength="20"
+                       style="@this.ControlStyle" value="@this.Confirm" @onchange="this.OnConfirmChangedAsync" />&nbsp;*
+                @if (!string.IsNullOrEmpty(this.confirmError))
+                {
+                    <span class="NormalRed">@((MarkupString)this.confirmError)</span>
+                }
+            </td>
+        </tr>
+    }
+    <tr>
+        <td class="SubHead" width="@this.LabelWidth">
+            <LabelControl ID="plWebsite" ControlName="txtWebsite" Text="Website:" LocalResourceFile="@this.ResourceFile" />
+        </td>
+        <td class="NormalBold" style="white-space:nowrap">
+            <input id="txtWebsite" type="text" tabindex="@this.TabIndexFor(6)" class="NormalTextBox" size="25" maxlength="175"
+                   style="@this.ControlStyle" value="@this.Website" @onchange="this.OnWebsiteChangedAsync" />
+        </td>
+    </tr>
+    <tr>
+        <td class="SubHead" width="@this.LabelWidth">
+            <LabelControl ID="plIM" ControlName="txtIM" Text="Instant Messaging ID:" LocalResourceFile="@this.ResourceFile" />
+        </td>
+        <td class="NormalBold" style="white-space:nowrap">
+            <input id="txtIM" type="text" tabindex="@this.TabIndexFor(7)" class="NormalTextBox" size="25" maxlength="175"
+                   style="@this.ControlStyle" value="@this.IM" @onchange="this.OnIMChangedAsync" />
+        </td>
+    </tr>
+</table>
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "User.ascx";
+
+    /// <summary>The validation expression of the email address, taken verbatim from <c>User.ascx</c>.</summary>
+    private const string EmailPattern = @"^[\w\.-]+(\+[\w-]*)?" + "\u0040" + @"([\w-]+\.)+[\w-]+$";
+
+    private string errorMessage;
+    private string firstNameError;
+    private string lastNameError;
+    private string emailError;
+    private string userNameError;
+    private string passwordError;
+    private string confirmError;
+    private int startTabIndex = 1;
+    private bool showPassword;
+    private bool loaded;
+
+    /// <summary>Gets the resource file of this control.</summary>
+    public string LocalResourceFile => this.ResourceFile;
+
+    /// <summary>Gets or sets the id of the module the control is hosted in.</summary>
+    [Parameter]
+    public int ModuleId { get; set; }
+
+    /// <summary>Gets or sets the CSS width of the label column.</summary>
+    [Parameter]
+    public string LabelColumnWidth { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS width of the control column.</summary>
+    [Parameter]
+    public string ControlColumnWidth { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the first name of the user.</summary>
+    [Parameter]
+    public string FirstName { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="FirstName"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> FirstNameChanged { get; set; }
+
+    /// <summary>Gets or sets the last name of the user.</summary>
+    [Parameter]
+    public string LastName { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="LastName"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> LastNameChanged { get; set; }
+
+    /// <summary>Gets or sets the user name of the user.</summary>
+    [Parameter]
+    public string UserName { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="UserName"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> UserNameChanged { get; set; }
+
+    /// <summary>Gets or sets the password of the user.</summary>
+    [Parameter]
+    public string Password { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="Password"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> PasswordChanged { get; set; }
+
+    /// <summary>Gets or sets the password confirmation.</summary>
+    [Parameter]
+    public string Confirm { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="Confirm"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> ConfirmChanged { get; set; }
+
+    /// <summary>Gets or sets the email address of the user.</summary>
+    [Parameter]
+    public string Email { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="Email"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> EmailChanged { get; set; }
+
+    /// <summary>Gets or sets the website of the user.</summary>
+    [Parameter]
+    public string Website { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="Website"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> WebsiteChanged { get; set; }
+
+    /// <summary>Gets or sets the instant messaging id of the user.</summary>
+    [Parameter]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Naming", "CA1709:IdentifiersShouldBeCasedCorrectly", Justification = "Breaking change")]
+    public string IM { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="IM"/> changes.</summary>
+    [Parameter]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Naming", "CA1709:IdentifiersShouldBeCasedCorrectly", Justification = "Breaking change")]
+    public EventCallback<string> IMChanged { get; set; }
+
+    /// <summary>Sets the tab index of the first editor of the control.</summary>
+    [Parameter]
+    public int StartTabIndex
+    {
+        get => this.startTabIndex;
+        set => this.startTabIndex = value;
+    }
+
+    /// <summary>Sets a value indicating whether the password editors are shown.</summary>
+    [Parameter]
+    public bool ShowPassword
+    {
+        get => this.showPassword;
+        set => this.showPassword = value;
+    }
+
+    /// <summary>Gets a value indicating whether the password rows are rendered.</summary>
+    public bool ShowPasswordRows => this.showPassword;
+
+    /// <summary>Gets a value indicating whether the user name is editable (it is read-only without a password).</summary>
+    public bool ShowUserNameEditor => this.showPassword;
+
+    /// <summary>Gets the resource file of this control.</summary>
+    private string ResourceFile => "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName;
+
+    /// <summary>Gets the width attribute of the label column.</summary>
+    private string LabelWidth => string.IsNullOrEmpty(this.LabelColumnWidth) ? "175" : this.LabelColumnWidth;
+
+    /// <summary>Gets the inline style applied to every editor.</summary>
+    private string ControlStyle =>
+        string.IsNullOrEmpty(this.ControlColumnWidth) ? null : "width:" + this.ControlColumnWidth;
+
+    /// <summary>Validates every editor of the control.</summary>
+    /// <returns><see langword="true"/> when all values are valid.</returns>
+    /// <remarks>
+    /// Replaces the <c>RequiredFieldValidator</c>/<c>RegularExpressionValidator</c>/
+    /// <c>CompareValidator</c> controls of <c>User.ascx</c>, including the way their validation was
+    /// switched off when the password rows were hidden.
+    /// </remarks>
+    public bool Validate()
+    {
+        this.firstNameError = string.IsNullOrEmpty(this.FirstName)
+            ? Localization.GetString("valFirstName.ErrorMessage", this.ResourceFile)
+            : null;
+        this.lastNameError = string.IsNullOrEmpty(this.LastName)
+            ? Localization.GetString("valLastName.ErrorMessage", this.ResourceFile)
+            : null;
+
+        if (string.IsNullOrEmpty(this.Email))
+        {
+            this.emailError = Localization.GetString("valEmail1.ErrorMessage", this.ResourceFile);
+        }
+        else if (!Regex.IsMatch(this.Email, EmailPattern))
+        {
+            this.emailError = Localization.GetString("valEmail2.ErrorMessage", this.ResourceFile);
+        }
+        else
+        {
+            this.emailError = null;
+        }
+
+        if (this.showPassword)
+        {
+            this.userNameError = string.IsNullOrEmpty(this.UserName)
+                ? Localization.GetString("valUsername.ErrorMessage", this.ResourceFile)
+                : null;
+            this.passwordError = string.IsNullOrEmpty(this.Password)
+                ? Localization.GetString("valPassword.ErrorMessage", this.ResourceFile)
+                : null;
+
+            if (string.IsNullOrEmpty(this.Confirm))
+            {
+                this.confirmError = Localization.GetString("valConfirm1.ErrorMessage", this.ResourceFile);
+            }
+            else if (!string.Equals(this.Confirm, this.Password, StringComparison.Ordinal))
+            {
+                this.confirmError = Localization.GetString("valConfirm2.ErrorMessage", this.ResourceFile);
+            }
+            else
+            {
+                this.confirmError = null;
+            }
+        }
+        else
+        {
+            this.userNameError = null;
+            this.passwordError = null;
+            this.confirmError = null;
+        }
+
+        return string.IsNullOrEmpty(this.firstNameError)
+            && string.IsNullOrEmpty(this.lastNameError)
+            && string.IsNullOrEmpty(this.emailError)
+            && string.IsNullOrEmpty(this.userNameError)
+            && string.IsNullOrEmpty(this.passwordError)
+            && string.IsNullOrEmpty(this.confirmError);
+    }
+
+    /// <summary>Page_Load runs when the control is loaded.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        try
+        {
+            // The Web Forms control copied its properties into the child editors here and set the
+            // tab indexes; both are now done directly by the markup above.
+            this.FirstName ??= string.Empty;
+            this.LastName ??= string.Empty;
+            this.Email ??= string.Empty;
+            this.UserName ??= string.Empty;
+            this.Password ??= string.Empty;
+            this.Confirm ??= string.Empty;
+            this.Website ??= string.Empty;
+            this.IM ??= string.Empty;
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+    }
+
+    /// <summary>Gets the tab index of an editor.</summary>
+    /// <param name="offset">The zero based offset of the editor.</param>
+    /// <returns>The tab index to render.</returns>
+    private int TabIndexFor(int offset) => this.startTabIndex + offset;
+
+    /// <summary>Handles a change of the first name.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnFirstNameChangedAsync(ChangeEventArgs args)
+    {
+        this.FirstName = args?.Value?.ToString() ?? string.Empty;
+        await this.FirstNameChanged.InvokeAsync(this.FirstName);
+    }
+
+    /// <summary>Handles a change of the last name.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnLastNameChangedAsync(ChangeEventArgs args)
+    {
+        this.LastName = args?.Value?.ToString() ?? string.Empty;
+        await this.LastNameChanged.InvokeAsync(this.LastName);
+    }
+
+    /// <summary>Handles a change of the user name.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnUserNameChangedAsync(ChangeEventArgs args)
+    {
+        this.UserName = args?.Value?.ToString() ?? string.Empty;
+        await this.UserNameChanged.InvokeAsync(this.UserName);
+    }
+
+    /// <summary>Handles a change of the password.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnPasswordChangedAsync(ChangeEventArgs args)
+    {
+        this.Password = args?.Value?.ToString() ?? string.Empty;
+        await this.PasswordChanged.InvokeAsync(this.Password);
+    }
+
+    /// <summary>Handles a change of the password confirmation.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnConfirmChangedAsync(ChangeEventArgs args)
+    {
+        this.Confirm = args?.Value?.ToString() ?? string.Empty;
+        await this.ConfirmChanged.InvokeAsync(this.Confirm);
+    }
+
+    /// <summary>Handles a change of the email address.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnEmailChangedAsync(ChangeEventArgs args)
+    {
+        this.Email = args?.Value?.ToString() ?? string.Empty;
+        await this.EmailChanged.InvokeAsync(this.Email);
+    }
+
+    /// <summary>Handles a change of the website.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnWebsiteChangedAsync(ChangeEventArgs args)
+    {
+        this.Website = args?.Value?.ToString() ?? string.Empty;
+        await this.WebsiteChanged.InvokeAsync(this.Website);
+    }
+
+    /// <summary>Handles a change of the instant messaging id.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnIMChangedAsync(ChangeEventArgs args)
+    {
+        this.IM = args?.Value?.ToString() ?? string.Empty;
+        await this.IMChanged.InvokeAsync(this.IM);
+    }
+}

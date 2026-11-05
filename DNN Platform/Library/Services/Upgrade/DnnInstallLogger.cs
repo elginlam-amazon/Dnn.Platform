@@ -8,7 +8,6 @@ namespace DotNetNuke.Services.Upgrade
     using System.Diagnostics;
     using System.Globalization;
     using System.IO;
-    using System.Web.Compilation;
 
     using DotNetNuke.Services.Upgrade.Internals;
 
@@ -26,7 +25,7 @@ namespace DotNetNuke.Services.Upgrade
                 if (stack != null)
                 {
                     Type reflectedType = stack[frameDepth].GetMethod().ReflectedType;
-                    while (reflectedType == BuildManager.GetType("DotNetNuke.Services.Exceptions.Exceptions", false) || reflectedType == typeof(DnnInstallLogger))
+                    while (reflectedType == typeof(DotNetNuke.Services.Exceptions.Exceptions) || reflectedType == typeof(DnnInstallLogger))
                     {
                         frameDepth++;
                         reflectedType = stack[frameDepth].GetMethod().ReflectedType;

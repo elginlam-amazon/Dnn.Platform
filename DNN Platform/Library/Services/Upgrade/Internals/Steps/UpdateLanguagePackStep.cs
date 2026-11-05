@@ -4,7 +4,7 @@
 namespace DotNetNuke.Services.Upgrade.InternalController.Steps
 {
     using System;
-    using System.Web;
+    using System.Reflection;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Framework;
@@ -38,8 +38,36 @@ namespace DotNetNuke.Services.Upgrade.InternalController.Steps
                     if (licensingNode != null)
                     {
                         var type = licensingNode.Attributes["type"].Value;
-                        var module = Reflection.CreateObject(type, null, false) as IHttpModule;
-                        module.Init(HttpContext.Current.ApplicationInstance);
+
+                        // The Licensing component used to be an IHttpModule initialized with the
+                        // HttpApplication instance. ASP.NET Core has neither IHttpModule nor
+                        // HttpContext.Current.ApplicationInstance, so the component is constructed
+                        // (which is what publishes the installed edition) and, if it exposes a
+                        // parameterless Init(), that is called in place of IHttpModule.Init.
+                        // REVIEW: behavior inferred from usage - verify against the licensing component.
+                        var module = Reflection.CreateObject(type, null, false);
+                        if (module == null)
+                        {
+                            throw new InvalidOperationException(
+                                $"Unable to create the Licensing component '{type}' configured in system.webServer/modules.");
+                        }
+
+                        var initMethod = module.GetType().GetMethod(
+                            "Init",
+                            BindingFlags.Public | BindingFlags.Instance,
+                            null,
+                            Type.EmptyTypes,
+                            null);
+                        if (initMethod != null)
+                        {
+                            initMethod.Invoke(module, null);
+                        }
+                        else
+                        {
+                            Logger.LogInformation(
+                                "The Licensing component {LicensingType} has no parameterless Init(); the legacy IHttpModule initialization is not applicable on ASP.NET Core.",
+                                type);
+                        }
                     }
 
                     InstallController.Instance.IsAvailableLanguagePack(culture);

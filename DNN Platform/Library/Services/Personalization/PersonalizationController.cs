@@ -8,7 +8,6 @@ namespace DotNetNuke.Services.Personalization
     using System.Data;
     using System.Globalization;
     using System.Security.Cryptography;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Security;
@@ -17,6 +16,7 @@ namespace DotNetNuke.Services.Personalization
     using DotNetNuke.Data;
     using DotNetNuke.Security;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     public class PersonalizationController
@@ -51,17 +51,20 @@ namespace DotNetNuke.Services.Personalization
             this.cryptographyProvider = cryptographyProvider ?? Globals.GetCurrentServiceProvider().GetRequiredService<ICryptographyProvider>();
         }
 
-        // default implementation relies on HTTPContext
+        /// <summary>Loads the profile into <see cref="HttpContext.Items"/> for the current request.</summary>
+        /// <param name="httpContext">The current request context.</param>
+        /// <param name="userId">The user ID, or <see cref="Null.NullInteger"/> for an anonymous user.</param>
+        /// <param name="portalId">The portal ID.</param>
         public void LoadProfile(HttpContext httpContext, int userId, int portalId)
         {
-            this.LoadProfile(new HttpContextWrapper(httpContext), userId, portalId);
-        }
-
-        public void LoadProfile(HttpContextBase httpContext, int userId, int portalId)
-        {
-            if (HttpContext.Current.Items["Personalization"] == null)
+            if (httpContext is null)
             {
-                httpContext.Items.Add("Personalization", this.LoadProfile(userId, portalId));
+                throw new ArgumentNullException(nameof(httpContext));
+            }
+
+            if (!httpContext.Items.ContainsKey("Personalization"))
+            {
+                httpContext.Items["Personalization"] = this.LoadProfile(userId, portalId);
             }
         }
 
@@ -86,25 +89,23 @@ namespace DotNetNuke.Services.Personalization
             else
             {
                 // Anon User - so try and use cookie.
-                HttpContext context = HttpContext.Current;
-                if (context?.Request.Cookies[PersonalizationCookieName] != null)
+                var context = HttpContextSource.Current;
+                if (context != null && context.Request.Cookies.TryGetValue(PersonalizationCookieName, out var personalizationCookieValue))
                 {
-                    var algorithm = context.Request.Cookies[AlgorithmCookieName]?.Value;
+                    var algorithm = context.Request.Cookies.TryGetValue(AlgorithmCookieName, out var algorithmCookieValue)
+                        ? algorithmCookieValue
+                        : null;
                     if (string.IsNullOrWhiteSpace(algorithm))
                     {
                         algorithm = HashAlgorithmName.SHA1.Name;
                     }
 
-                    profileData = this.DecryptData(new HashAlgorithmName(algorithm), context.Request.Cookies[PersonalizationCookieName].Value);
+                    profileData = this.DecryptData(new HashAlgorithmName(algorithm), personalizationCookieValue);
 
                     if (string.IsNullOrEmpty(profileData))
                     {
-                        var personalizationCookie = new HttpCookie(PersonalizationCookieName, string.Empty)
-                        {
-                            Expires = DateTime.Now.AddDays(-1),
-                            Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-                        };
-                        context.Response.Cookies.Add(personalizationCookie);
+                        // the cookie could not be decrypted, expire it
+                        context.Response.Cookies.Delete(PersonalizationCookieName, new CookieOptions { Path = CookiePath, });
                     }
                 }
             }
@@ -119,10 +120,19 @@ namespace DotNetNuke.Services.Personalization
             this.SaveProfile(personalization, personalization.UserId, personalization.PortalId);
         }
 
-        // default implementation relies on HTTPContext
+        /// <summary>Saves the profile held in <see cref="HttpContext.Items"/> for the current request.</summary>
+        /// <param name="httpContext">The current request context.</param>
+        /// <param name="userId">The user ID, or <see cref="Null.NullInteger"/> for an anonymous user.</param>
+        /// <param name="portalId">The portal ID.</param>
         public void SaveProfile(HttpContext httpContext, int userId, int portalId)
         {
-            var objPersonalization = (PersonalizationInfo)httpContext.Items["Personalization"];
+            if (httpContext is null)
+            {
+                throw new ArgumentNullException(nameof(httpContext));
+            }
+
+            httpContext.Items.TryGetValue("Personalization", out var personalizationItem);
+            var objPersonalization = (PersonalizationInfo)personalizationItem;
             this.SaveProfile(objPersonalization, userId, portalId);
         }
 
@@ -150,25 +160,29 @@ namespace DotNetNuke.Services.Personalization
                 else
                 {
                     // Anon User - so try and use cookie.
-                    var context = HttpContext.Current;
+                    var context = HttpContextSource.Current;
                     if (context != null)
                     {
-                        var personalizationCookie = new HttpCookie(PersonalizationCookieName, this.EncryptData(HashAlgorithmName.SHA512, profileData))
+                        var cookieOptions = new CookieOptions
                         {
-                            Expires = DateTime.Now.AddDays(30),
-                            Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
+                            Expires = DateTimeOffset.Now.AddDays(30),
+                            Path = CookiePath,
                         };
-                        context.Response.Cookies.Add(personalizationCookie);
-                        var algorithmCookie = new HttpCookie(AlgorithmCookieName, HashAlgorithmName.SHA512.Name)
-                        {
-                            Expires = DateTime.Now.AddDays(30),
-                            Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-                        };
-                        context.Response.Cookies.Add(algorithmCookie);
+                        context.Response.Cookies.Append(
+                            PersonalizationCookieName,
+                            this.EncryptData(HashAlgorithmName.SHA512, profileData),
+                            cookieOptions);
+                        context.Response.Cookies.Append(
+                            AlgorithmCookieName,
+                            HashAlgorithmName.SHA512.Name,
+                            cookieOptions);
                     }
                 }
             }
         }
+
+        private static string CookiePath =>
+            !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/";
 
         private static object GetCachedUserPersonalizationCallback(CacheItemArgs cacheItemArgs)
         {

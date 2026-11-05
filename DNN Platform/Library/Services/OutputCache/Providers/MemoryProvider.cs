@@ -5,6 +5,7 @@
 namespace DotNetNuke.Services.OutputCache.Providers
 {
     using System;
+    using System.Buffers;
     using System.Collections;
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
@@ -12,8 +13,8 @@ namespace DotNetNuke.Services.OutputCache.Providers
     using System.IO;
     using System.Linq;
     using System.Text;
-    using System.Web;
-    using System.Web.Caching;
+    using Microsoft.AspNetCore.Http;
+    using DotNetNuke.Services.Cache;
 
     /// <summary>MemoryResponseFilter implements the OutputCachingProvider for memory storage.</summary>
     public class MemoryProvider : OutputCachingProvider
@@ -23,16 +24,16 @@ namespace DotNetNuke.Services.OutputCache.Providers
         // ReSharper disable once InconsistentNaming
         protected const string cachePrefix = "DNN_OUTPUT:";
 
-        private static System.Web.Caching.Cache runtimeCache;
+        private static DnnCacheStore runtimeCache;
 
-        internal static System.Web.Caching.Cache Cache
+        internal static DnnCacheStore Cache
         {
             get
             {
                 // create singleton of the cache object
                 if (runtimeCache == null)
                 {
-                    runtimeCache = HttpRuntime.Cache;
+                    runtimeCache = DnnCacheStore.Instance;
                 }
 
                 return runtimeCache;
@@ -91,18 +92,22 @@ namespace DotNetNuke.Services.OutputCache.Providers
         /// <inheritdoc />
         public override void SetOutput(int tabId, string cacheKey, TimeSpan duration, byte[] output)
         {
-            Cache.Insert(cacheKey, output, null, DateTime.UtcNow.Add(duration), System.Web.Caching.Cache.NoSlidingExpiration, CacheItemPriority.Default, null);
+            Cache.Insert(cacheKey, output, null, DateTime.UtcNow.Add(duration), DnnCacheStore.NoSlidingExpiration, CacheItemPriority.Default, null);
         }
 
         /// <inheritdoc />
         public override bool StreamOutput(int tabId, string cacheKey, HttpContext context)
         {
-            if (Cache[cacheKey] == null)
+            var cachedOutput = Cache[cacheKey];
+            if (cachedOutput == null)
             {
                 return false;
             }
 
-            context.Response.BinaryWrite(Encoding.Default.GetBytes(Cache[cacheKey].ToString()));
+            // REVIEW: SetOutput stores a byte[] while MemoryResponseFilter stores the captured
+            // string, so both shapes have to be handled here.
+            var bytes = cachedOutput as byte[] ?? Encoding.UTF8.GetBytes(cachedOutput.ToString());
+            context.Response.BodyWriter.Write(new ReadOnlySpan<byte>(bytes));
             return true;
         }
 

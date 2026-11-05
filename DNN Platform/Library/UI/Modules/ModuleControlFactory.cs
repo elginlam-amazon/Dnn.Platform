@@ -6,7 +6,6 @@ namespace DotNetNuke.UI.Modules
 {
     using System;
     using System.IO;
-    using System.Web.UI;
 
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Framework;
@@ -15,6 +14,7 @@ namespace DotNetNuke.UI.Modules
     using DotNetNuke.Services.Localization;
     using DotNetNuke.UI.Modules.Html5;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.Logging;
 
     /// <inheritdoc cref="IModuleControlPipeline" />
@@ -23,13 +23,13 @@ namespace DotNetNuke.UI.Modules
     {
         private static readonly ILogger TracelLogger = DnnLoggingController.GetLogger("DNN.Trace");
 
-        /// <inheritdoc cref="IModuleControlPipeline.LoadModuleControl(TemplateControl,ModuleInfo,string,string)" />
+        /// <inheritdoc cref="IModuleControlPipeline.LoadModuleControl(IComponent,ModuleInfo,string,string)" />
         [DnnDeprecated(9, 4, 0, "This implementation has moved to DotNetNuke.ModulePipeline.ModuleControlPipeline")]
-        public static partial Control LoadModuleControl(TemplateControl containerControl, ModuleInfo moduleConfiguration, string controlKey, string controlSrc)
+        public static partial IComponent LoadModuleControl(IComponent containerControl, ModuleInfo moduleConfiguration, string controlKey, string controlSrc)
         {
             TracelLogger.ModuleControlFactoryLoadModuleControlStart(moduleConfiguration.TabID, moduleConfiguration.ModuleID, moduleConfiguration.ModuleControl.ControlSrc);
 
-            Control control = null;
+            IComponent control = null;
             IModuleControlFactory controlFactory = GetModuleControlFactory(controlSrc);
 
             if (controlFactory != null)
@@ -41,7 +41,10 @@ namespace DotNetNuke.UI.Modules
             // this is necessary for the Localization in PageBase
             if (control != null)
             {
-                control.ID = Path.GetFileNameWithoutExtension(controlSrc);
+                // Control.ID is now IClientApiControl.Id on the DNN component tree; a module
+                // control that is not part of that tree (PortalModuleBase) derives its resource
+                // file from its component type instead, so there is nothing to assign.
+                SetControlId(control, Path.GetFileNameWithoutExtension(controlSrc));
                 if (control is IModuleControl moduleControl)
                 {
                     moduleControl.ModuleContext.Configuration = moduleConfiguration;
@@ -52,13 +55,13 @@ namespace DotNetNuke.UI.Modules
             return control;
         }
 
-        /// <inheritdoc cref="IModuleControlPipeline.LoadModuleControl(TemplateControl,ModuleInfo)" />
+        /// <inheritdoc cref="IModuleControlPipeline.LoadModuleControl(IComponent,ModuleInfo)" />
         [DnnDeprecated(9, 4, 0, "This implementation has moved to DotNetNuke.ModulePipeline.ModuleControlPipeline")]
-        public static partial Control LoadModuleControl(TemplateControl containerControl, ModuleInfo moduleConfiguration)
+        public static partial IComponent LoadModuleControl(IComponent containerControl, ModuleInfo moduleConfiguration)
         {
             TracelLogger.ModuleControlFactoryLoadModuleControlStart(moduleConfiguration.TabID, moduleConfiguration.ModuleID, moduleConfiguration.ModuleControl.ControlSrc);
 
-            Control control = null;
+            IComponent control = null;
             IModuleControlFactory controlFactory = GetModuleControlFactory(moduleConfiguration.ModuleControl.ControlSrc);
 
             if (controlFactory != null)
@@ -70,7 +73,7 @@ namespace DotNetNuke.UI.Modules
             // this is necessary for the Localization in PageBase
             if (control != null)
             {
-                control.ID = Path.GetFileNameWithoutExtension(moduleConfiguration.ModuleControl.ControlSrc);
+                SetControlId(control, Path.GetFileNameWithoutExtension(moduleConfiguration.ModuleControl.ControlSrc));
 
                 if (control is IModuleControl moduleControl)
                 {
@@ -84,11 +87,11 @@ namespace DotNetNuke.UI.Modules
 
         /// <inheritdoc cref="IModuleControlPipeline.LoadSettingsControl" />
         [DnnDeprecated(9, 4, 0, "This implementation has moved to DotNetNuke.ModulePipeline.ModuleControlPipeline")]
-        public static partial Control LoadSettingsControl(TemplateControl containerControl, ModuleInfo moduleConfiguration, string controlSrc)
+        public static partial IComponent LoadSettingsControl(IComponent containerControl, ModuleInfo moduleConfiguration, string controlSrc)
         {
             TracelLogger.ModuleControlFactoryLoadSettingsControlStart(moduleConfiguration.TabID, moduleConfiguration.ModuleID, moduleConfiguration.ModuleControl.ControlSrc);
 
-            Control control = null;
+            IComponent control = null;
             IModuleControlFactory controlFactory = GetModuleControlFactory(controlSrc);
 
             if (controlFactory != null)
@@ -103,7 +106,7 @@ namespace DotNetNuke.UI.Modules
                 var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(controlSrc);
                 if (fileNameWithoutExtension != null)
                 {
-                    control.ID = fileNameWithoutExtension.Replace('.', '-');
+                    SetControlId(control, fileNameWithoutExtension.Replace('.', '-'));
                 }
 
                 if (control is ISettingsControl settingsControl)
@@ -118,7 +121,7 @@ namespace DotNetNuke.UI.Modules
 
         /// <inheritdoc cref="IModuleControlPipeline.CreateCachedControl" />
         [DnnDeprecated(9, 4, 0, "This implementation has moved to DotNetNuke.ModulePipeline.ModuleControlPipeline")]
-        public static partial Control CreateCachedControl(string cachedContent, ModuleInfo moduleConfiguration)
+        public static partial IComponent CreateCachedControl(string cachedContent, ModuleInfo moduleConfiguration)
         {
             var moduleControl = new CachedModuleControl(cachedContent);
             moduleControl.ModuleContext.Configuration = moduleConfiguration;
@@ -127,7 +130,7 @@ namespace DotNetNuke.UI.Modules
 
         /// <inheritdoc cref="IModuleControlPipeline.CreateModuleControl" />
         [DnnDeprecated(9, 4, 0, "This implementation has moved to DotNetNuke.ModulePipeline.ModuleControlPipeline")]
-        public static partial Control CreateModuleControl(ModuleInfo moduleConfiguration)
+        public static partial IComponent CreateModuleControl(ModuleInfo moduleConfiguration)
         {
             string extension = Path.GetExtension(moduleConfiguration.ModuleControl.ControlSrc.ToLowerInvariant());
             var moduleControl = new ModuleControlBase();
@@ -148,6 +151,17 @@ namespace DotNetNuke.UI.Modules
             }
 
             return moduleControl;
+        }
+
+        /// <summary>Assigns the server side identifier of a loaded control, when it has one.</summary>
+        /// <param name="control">The loaded control.</param>
+        /// <param name="id">The identifier to assign.</param>
+        private static void SetControlId(IComponent control, string id)
+        {
+            if (control is DotNetNuke.UI.Utilities.IClientApiControl treeControl && !string.IsNullOrEmpty(id))
+            {
+                treeControl.Id = id;
+            }
         }
 
         [DnnDeprecated(9, 4, 0, "This implementation has moved to DotNetNuke.ModulePipeline.ModuleControlPipeline")]
