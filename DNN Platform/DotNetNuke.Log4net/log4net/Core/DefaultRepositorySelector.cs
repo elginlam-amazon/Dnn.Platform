@@ -18,17 +18,8 @@
 // limitations under the License.
 // 
 
-// .NET Compact Framework 1.0 has no support for reading assembly attributes
-// and uses the CompactRepositorySelector instead
-#if !NETCF
-
 using System;
 using System.Collections;
-#if !NETSTANDARD
-using System.Configuration;
-#else
-using System.Linq;
-#endif
 using System.IO;
 using System.Reflection;
 
@@ -567,11 +558,7 @@ namespace log4net.Core
             try
             {
                 // Look for the RepositoryAttribute on the assembly 
-#if NETSTANDARD
-                object[] repositoryAttributes = assembly.GetCustomAttributes(typeof(log4net.Config.RepositoryAttribute)).ToArray();
-#else
                 object[] repositoryAttributes = Attribute.GetCustomAttributes(assembly, typeof(RepositoryAttribute), false);
-#endif
                 if (repositoryAttributes == null || repositoryAttributes.Length == 0)
                 {
                     // This is not a problem, but its nice to know what is going on.
@@ -643,11 +630,7 @@ namespace log4net.Core
             }
 
             // Look for the Configurator attributes (e.g. XmlConfiguratorAttribute) on the assembly
-#if NETSTANDARD
-            object[] configAttributes = assembly.GetCustomAttributes(typeof(log4net.Config.ConfiguratorAttribute)).ToArray();
-#else
             object[] configAttributes = Attribute.GetCustomAttributes(assembly, typeof(ConfiguratorAttribute), false);
-#endif
             if (configAttributes != null && configAttributes.Length > 0)
             {
                 // Sort the ConfiguratorAttributes in priority order
@@ -672,11 +655,14 @@ namespace log4net.Core
 
             if (repository.Name == DefaultRepositoryName)
             {
-                // Try to configure the default repository using an AppSettings specified config file
+                // Try to configure the default repository using the config file named by the
+                // 'log4net.Config' application setting. On modern .NET there is no app.config
+                // appSettings section available to a library, so the setting is resolved through
+                // Log4NetSettings (the host supplied IConfiguration, with an environment fallback).
                 // Do this even if the repository has been configured (or claims to be), this allows overriding
                 // of the default config files etc, if that is required.
 
-                string repositoryConfigFile = SystemInfo.GetAppSetting("log4net.Config");
+                string repositoryConfigFile = Log4NetSettings.GetAppSetting("log4net.Config");
                 if (repositoryConfigFile != null && repositoryConfigFile.Length > 0)
                 {
                     string applicationBaseDirectory = null;
@@ -697,24 +683,7 @@ namespace log4net.Core
 
                     // Determine whether to watch the file or not based on an app setting value:
                     bool watchRepositoryConfigFile = false;
-#if NET_2_0 || MONO_2_0 || MONO_3_5 || MONO_4_0 || NETSTANDARD
-                    Boolean.TryParse(SystemInfo.GetAppSetting("log4net.Config.Watch"), out watchRepositoryConfigFile);
-#else
-                                    {
-                                        string watch = SystemInfo.GetAppSetting("log4net.Config.Watch");
-                                        if (watch != null && watch.Length > 0)
-                                        {
-                                            try
-                                            {
-                                                watchRepositoryConfigFile = Boolean.Parse(watch);
-                                            }
-                                            catch (FormatException)
-                                            {
-                                                // simply not a Boolean
-                                            }
-                                        }
-                                    }
-#endif
+                    Boolean.TryParse(Log4NetSettings.GetAppSetting("log4net.Config.Watch"), out watchRepositoryConfigFile);
 
                     if (watchRepositoryConfigFile)
                     {
@@ -795,11 +764,7 @@ namespace log4net.Core
             }
 
             // Look for the PluginAttribute on the assembly
-#if NETSTANDARD
-            object[] configAttributes = assembly.GetCustomAttributes(typeof(log4net.Config.PluginAttribute)).ToArray();
-#else
             object[] configAttributes = Attribute.GetCustomAttributes(assembly, typeof(PluginAttribute), false);
-#endif
             if (configAttributes != null && configAttributes.Length > 0)
             {
                 foreach(Plugin.IPluginFactory configAttr in configAttributes)
@@ -839,11 +804,7 @@ namespace log4net.Core
             }
 
             // Look for the AliasRepositoryAttribute on the assembly
-#if NETSTANDARD
-            object[] configAttributes = assembly.GetCustomAttributes(typeof(log4net.Config.AliasRepositoryAttribute)).ToArray();
-#else
             object[] configAttributes = Attribute.GetCustomAttributes(assembly, typeof(AliasRepositoryAttribute), false);
-#endif
             if (configAttributes != null && configAttributes.Length > 0)
             {
                 foreach(AliasRepositoryAttribute configAttr in configAttributes)
@@ -879,5 +840,3 @@ namespace log4net.Core
         private event LoggerRepositoryCreationEventHandler m_loggerRepositoryCreatedEvent;
     }
 }
-
-#endif // !NETCF

@@ -26,9 +26,7 @@ namespace log4net.Plugin
     /// <summary>    A strongly-typed collection of <see cref="IPlugin"/> objects.</summary>
     /// <author>Nicko Cadell</author>
     public class PluginCollection : ICollection, IList, IEnumerable
-#if !NETSTANDARD1_3
         , ICloneable
-#endif
     {
         /// <summary>Supports type-safe iteration over a <see cref="PluginCollection"/>.</summary>
         /// <exclude/>

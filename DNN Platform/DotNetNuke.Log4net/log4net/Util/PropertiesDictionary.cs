@@ -34,12 +34,8 @@ namespace log4net.Util
     /// </remarks>
     /// <author>Nicko Cadell</author>
     /// <author>Gert Driesen</author>
-#if NETCF 
-    public sealed class PropertiesDictionary : ReadOnlyPropertiesDictionary, IDictionary
-#else
     [Serializable]
     public sealed class PropertiesDictionary : ReadOnlyPropertiesDictionary, ISerializable, IDictionary
-#endif
     {
         /// <summary>Constructor</summary>
         /// <remarks>
@@ -62,7 +58,6 @@ namespace log4net.Util
         {
         }
 
-#if !NETCF
         /// <summary>
         /// Initializes a new instance of the <see cref="PropertiesDictionary" /> class 
         /// with serialized data.
@@ -77,7 +72,6 @@ namespace log4net.Util
         private PropertiesDictionary(SerializationInfo info, StreamingContext context) : base(info, context)
         {
         }
-#endif
 
         /// <summary>Gets or sets the value of the  property with the specified key.</summary>
         /// <value>

@@ -172,21 +172,11 @@ namespace log4net.Layout
             {
                 throw new ArgumentNullException("loggingEvent");
             }
-#if NETSTANDARD
-            var settings = new XmlWriterSettings
-            {
-                Indent = false,
-                OmitXmlDeclaration = true
-            };
-            using(var xmlWriter = XmlWriter.Create(new ProtectCloseTextWriter(writer), settings))
-            {
-#else
             using (var xmlWriter = new XmlTextWriter(new ProtectCloseTextWriter(writer)))
             {
                 xmlWriter.Formatting = Formatting.None;
                 xmlWriter.Namespaces = false;
 
-#endif
                 // Write the event to the writer
                 this.FormatXml(xmlWriter, loggingEvent);
 

@@ -200,20 +200,13 @@ namespace log4net.Appender
         /// <summary>Cleans up all resources used by this appender.</summary>
         ~RollingFileAppender()
         {
-#if !NETCF
             if (this.m_mutexForRolling != null)
             {
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
                 this.m_mutexForRolling.Dispose();
-#else
-                m_mutexForRolling.Close();
-#endif
                 this.m_mutexForRolling = null;
             }
-#endif
         }
 
-#if !NET_1_0 && !CLI_1_0 && !NETCF
         /// <summary>
         /// Gets or sets the strategy for determining the current date and time. The default
         /// implementation is to use LocalDateTime which internally calls through to DateTime.Now. 
@@ -236,23 +229,6 @@ namespace log4net.Appender
         /// The default strategy is <see cref="RollingFileAppender.LocalDateTime"/>.
         /// </para>
         /// </remarks>
-#else
-        /// <summary>
-        /// Gets or sets the strategy for determining the current date and time. The default
-        /// implementation is to use LocalDateTime which internally calls through to DateTime.Now. 
-        /// </summary>
-        /// <value>
-        /// An implementation of the <see cref="RollingFileAppender.IDateTime"/> interface which returns the current date and time.
-        /// </value>
-        /// <remarks>
-        /// <para>
-        /// Gets or sets the <see cref="RollingFileAppender.IDateTime"/> used to return the current date and time.
-        /// </para>
-        /// <para>
-        /// The default strategy is <see cref="RollingFileAppender.LocalDateTime"/>.
-        /// </para>
-        /// </remarks>
-#endif
         public IDateTime DateTimeStrategy
         {
             get { return this.m_dateTime; }
@@ -543,7 +519,6 @@ namespace log4net.Appender
         protected virtual void AdjustFileBeforeAppend()
         {
             // reuse the file appenders locking model to lock the rolling
-#if !NETCF
             try
             {
                 // if rolling should be locked, acquire the lock
@@ -551,7 +526,6 @@ namespace log4net.Appender
                 {
                     this.m_mutexForRolling.WaitOne();
                 }
-#endif
                 if (this.m_rollDate)
                 {
                     DateTime n = this.m_dateTime.Now;
@@ -571,7 +545,6 @@ namespace log4net.Appender
                         this.RollOverSize();
                     }
                 }
-#if !NETCF
             }
             finally
             {
@@ -581,7 +554,6 @@ namespace log4net.Appender
                     this.m_mutexForRolling.ReleaseMutex();
                 }
             }
-#endif
         }
 
         /// <summary>
@@ -757,18 +729,14 @@ namespace log4net.Appender
                 {
                     DateTime last;
                     using(this.SecurityContext.Impersonate(this)) {
-#if !NET_1_0 && !CLI_1_0 && !NETCF
                         if (this.DateTimeStrategy is UniversalDateTime)
                         {
                             last = System.IO.File.GetLastWriteTimeUtc(this.m_baseFileName);
                         }
                         else
                         {
-#endif
                             last = System.IO.File.GetLastWriteTime(this.m_baseFileName);
-#if !NET_1_0 && !CLI_1_0 && !NETCF
                         }
-#endif
                     }
                     LogLog.Debug(declaringType, "[" + last.ToString(this.m_datePattern,DateTimeFormatInfo.InvariantInfo) + "] vs. [" + this.m_now.ToString(this.m_datePattern,DateTimeFormatInfo.InvariantInfo) + "]");
 
@@ -1073,14 +1041,12 @@ namespace log4net.Appender
                 this.m_baseFileName = base.File;
             }
 
-#if !NETCF
             // initialize the mutex that is used to lock rolling
             this.m_mutexForRolling = new Mutex(false, this.m_baseFileName
                 .Replace("\\", "_")
                 .Replace(":", "_")
                 .Replace("/", "_") + "_rolling"
             );
-#endif
 
             if (this.m_rollDate && this.File != null && this.m_scheduledFilename == null)
             {
@@ -1569,10 +1535,8 @@ namespace log4net.Appender
         /// <summary>FileName provided in configuration.  Used for rolling properly</summary>
         private string m_baseFileName;
 
-#if !NETCF
         /// <summary>A mutex that is used to lock rolling of files.</summary>
         private Mutex m_mutexForRolling;
-#endif
 
         /// <summary>The 1st of January 1970 in UTC</summary>
         private static readonly DateTime s_date1970 = new DateTime(1970, 1, 1);
@@ -1611,7 +1575,6 @@ namespace log4net.Appender
             }
         }
 
-#if !NET_1_0 && !CLI_1_0 && !NETCF
         /// <summary>Implementation of <see cref="IDateTime"/> that returns the current time as the coordinated universal time (UTC).</summary>
         private class UniversalDateTime : IDateTime
         {
@@ -1627,6 +1590,5 @@ namespace log4net.Appender
                 get { return DateTime.UtcNow; }
             }
         }
-#endif
     }
 }

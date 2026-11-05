@@ -1,0 +1,31 @@
+@* Ported from menus/footer/RazorMenu.cshtml (+ menus/footer/menudef.xml, which only pointed the
+   DDRMenu template engine at that template). The original kept the "desktop-menu" class and the
+   "nav-footer" id, which the theme stylesheet targets, so both are preserved verbatim. *@
+@inject IApertureMenuProvider MenuProvider
+
+<ul class="desktop-menu h-100 @this.CssClass" id="nav-footer">
+    <FooterMenuItems Pages="this.nodes" />
+</ul>
+
+@code {
+    private IReadOnlyList<ApertureMenuNode> nodes = [];
+
+    /// <summary>Gets or sets the CSS class applied to the menu element.</summary>
+    /// <remarks>Replaces the <c>CssClass</c> attribute of the <c>dnn:MENU</c> skin object.</remarks>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the DDRMenu node selector that scopes the rendered nodes.</summary>
+    /// <remarks>
+    /// Defaults to <c>*,0,0</c>, the value declared for <c>menu_footer</c> in
+    /// <c>partials/_footer.ascx</c>, which renders root-level pages only.
+    /// </remarks>
+    [Parameter]
+    public string NodeSelector { get; set; } = "*,0,0";
+
+    /// <inheritdoc />
+    protected override async Task OnParametersSetAsync()
+    {
+        this.nodes = await this.MenuProvider.GetNodesAsync(this.NodeSelector);
+    }
+}

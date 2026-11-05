@@ -1,0 +1,10 @@
+@* Declared in the root namespace so the root _Imports.razor resolves this component by tag
+   name: a namespace created only by generated Razor components is not visible during the Razor
+   declaration pass. *@
+@namespace Dnn.Skins.Aperture
+@* Ported from partials/_includes-popUpSkin.ascx, which contained a single dnn:META skin object
+   declaring the viewport. The popup skin deliberately loads no theme CSS or JS. *@
+
+<HeadContent>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</HeadContent>

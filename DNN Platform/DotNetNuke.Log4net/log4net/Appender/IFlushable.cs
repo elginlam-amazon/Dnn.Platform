@@ -46,7 +46,7 @@ namespace log4net.Appender
         /// </para>
         /// <para>
         /// The <paramref name="millisecondsTimeout"/> parameter is only relevant for appenders that process logging events asynchronously,
-        /// such as <see cref="RemotingAppender"/>.
+        /// such as the buffering appenders.
         /// </para>
         /// </remarks>
         /// <param name="millisecondsTimeout">The maximum time to wait for logging events to be flushed.</param>

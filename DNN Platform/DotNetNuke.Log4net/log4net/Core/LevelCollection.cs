@@ -26,9 +26,7 @@ namespace log4net.Core
     /// <summary>A strongly-typed collection of <see cref="Level"/> objects.</summary>
     /// <author>Nicko Cadell</author>
     public class LevelCollection : ICollection, IList, IEnumerable
-#if !NETSTANDARD1_3
         , ICloneable
-#endif
     {
         /// <summary>Supports type-safe iteration over a <see cref="LevelCollection"/>.</summary>
         public interface ILevelCollectionEnumerator

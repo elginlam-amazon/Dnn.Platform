@@ -18,19 +18,10 @@
 // limitations under the License.
 // 
 
-// SSCLI 1.0 has no support for ADO.NET
-#if !SSCLI
-
 using System;
 using System.Collections;
-#if !NETSTANDARD1_3
-using System.Configuration;
-#endif
 using System.Data;
 using System.IO;
-#if NETSTANDARD1_3
-using System.Reflection;
-#endif
 
 using log4net.Util;
 using log4net.Layout;
@@ -89,7 +80,7 @@ namespace log4net.Appender
     /// An example configuration to log to the above table:
     /// <code lang="XML" escaped="true">
     /// <appender name="AdoNetAppender_SqlServer" type="log4net.Appender.AdoNetAppender" >
-    ///   <connectionType value="System.Data.SqlClient.SqlConnection, System.Data, Version=1.0.3300.0, Culture=neutral, PublicKeyToken=b77a5c561934e089" />
+    ///   <connectionType value="Microsoft.Data.SqlClient.SqlConnection, Microsoft.Data.SqlClient" />
     ///   <connectionString value="data source=SQLSVR;initial catalog=test_log4net;integrated security=false;persist security info=True;User ID=sa;Password=sa" />
     ///   <commandText value="INSERT INTO Log ([Date],[Thread],[Level],[Logger],[Message]) VALUES (@log_date, @thread, @log_level, @logger, @message)" />
     ///   <parameter>
@@ -138,7 +129,10 @@ namespace log4net.Appender
         /// </remarks>
         public AdoNetAppender()
         {
-            this.ConnectionType = "System.Data.OleDb.OleDbConnection, System.Data, Version=1.0.3300.0, Culture=neutral, PublicKeyToken=b77a5c561934e089";
+            // On modern .NET the OLE DB provider that used to be the default is no longer part of
+            // the framework; Microsoft.Data.SqlClient is the supported SQL Server provider and is
+            // therefore the default connection type.
+            this.ConnectionType = "Microsoft.Data.SqlClient.SqlConnection, Microsoft.Data.SqlClient";
             this.UseTransactions = true;
             this.CommandType = CommandType.Text;
             this.m_parameters = new ArrayList();
@@ -174,8 +168,12 @@ namespace log4net.Appender
         }
 
         /// <summary>
-        /// The appSettings key from App.Config that contains the connection string.
+        /// The application setting key that contains the connection string.
         /// </summary>
+        /// <remarks>
+        /// Resolved through <see cref="SystemInfo.GetAppSetting"/>, which reads application
+        /// settings from the environment on modern .NET.
+        /// </remarks>
         public string AppSettingsKey
         {
             get { return this.m_appSettingsKey; }
@@ -183,10 +181,19 @@ namespace log4net.Appender
         }
 
         /// <summary>
-        /// The connectionStrings key from App.Config that contains the connection string.
+        /// The name of a connection string that the hosting application has made available to
+        /// log4net.
         /// </summary>
         /// <remarks>
-        /// This property requires at least .NET 2.0.
+        /// <para>
+        /// On .NET Framework this resolved a name from the <c>&lt;connectionStrings&gt;</c>
+        /// section of the application configuration file. That section does not exist on modern
+        /// .NET, so the name is now resolved through
+        /// <see cref="log4net.Util.Log4NetSettings.GetConnectionString"/> — which the host backs
+        /// with its <c>IConfiguration</c> (an <c>appsettings.json</c> <c>ConnectionStrings</c>
+        /// section resolves exactly as before) or, by default, with the
+        /// <c>log4net.ConnectionStrings.&lt;name&gt;</c> environment variable.
+        /// </para>
         /// </remarks>
         public string ConnectionStringName
         {
@@ -206,14 +213,12 @@ namespace log4net.Appender
         /// The type name of the ADO.NET provider to use.
         /// </para>
         /// <para>
-        /// The default is to use the OLE DB provider.
+        /// The default is to use the Microsoft SQL Server provider
+        /// <c>Microsoft.Data.SqlClient.SqlConnection, Microsoft.Data.SqlClient</c>.
         /// </para>
         /// </remarks>
-        /// <example>Use the OLE DB Provider. This is the default value.
-        /// <code>System.Data.OleDb.OleDbConnection, System.Data, Version=1.0.3300.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</code>
-        /// </example>
-        /// <example>Use the MS SQL Server Provider. 
-        /// <code>System.Data.SqlClient.SqlConnection, System.Data, Version=1.0.3300.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</code>
+        /// <example>Use the MS SQL Server Provider. This is the default value.
+        /// <code>Microsoft.Data.SqlClient.SqlConnection, Microsoft.Data.SqlClient</code>
         /// </example>
         /// <example>Use the ODBC Provider. 
         /// <code>Microsoft.Data.Odbc.OdbcConnection,Microsoft.Data.Odbc,version=1.0.3300.0,publicKeyToken=b77a5c561934e089,culture=neutral</code>
@@ -640,11 +645,14 @@ namespace log4net.Appender
         }
 
         /// <summary>
-        /// Resolves the connection string from the ConnectionString, ConnectionStringName, or AppSettingsKey
-        /// property.
+        /// Resolves the connection string from the ConnectionString, ConnectionStringName or
+        /// AppSettingsKey property.
         /// </summary>
         /// <remarks>
-        /// ConnectiongStringName is only supported on .NET 2.0 and higher.
+        /// <c>ConnectionStringName</c> is resolved through
+        /// <see cref="log4net.Util.Log4NetSettings.GetConnectionString"/> rather than the
+        /// <c>&lt;connectionStrings&gt;</c> configuration section, which does not exist on
+        /// modern .NET.
         /// </remarks>
         /// <param name="connectionStringContext">Additional information describing the connection string.</param>
         /// <returns>A connection string used to connect to the database.</returns>
@@ -656,21 +664,17 @@ namespace log4net.Appender
                 return this.ConnectionString;
             }
 
-#if !NETSTANDARD1_3
-            if (!String.IsNullOrEmpty(this.ConnectionStringName))
+            if (!string.IsNullOrEmpty(this.ConnectionStringName))
             {
-                ConnectionStringSettings settings = ConfigurationManager.ConnectionStrings[this.ConnectionStringName];
-                if (settings != null)
+                connectionStringContext = "ConnectionStringName";
+                string namedConnectionString = Log4NetSettings.GetConnectionString(this.ConnectionStringName);
+                if (string.IsNullOrEmpty(namedConnectionString))
                 {
-                    connectionStringContext = "ConnectionStringName";
-                    return settings.ConnectionString;
+                    throw new LogException("Unable to find [" + this.ConnectionStringName + "] connection string.");
                 }
-                else
-                {
-                    throw new LogException("Unable to find [" + this.ConnectionStringName + "] ConfigurationManager.ConnectionStrings item");
-                }
+
+                return namedConnectionString;
             }
-#endif
 
             if (this.AppSettingsKey != null && this.AppSettingsKey.Length > 0)
             {
@@ -683,7 +687,7 @@ namespace log4net.Appender
                 return appSettingsConnectionString;
             }
 
-            connectionStringContext = "Unable to resolve connection string from ConnectionString, ConnectionStrings, or AppSettings.";
+            connectionStringContext = "Unable to resolve connection string from ConnectionString, ConnectionStringName or AppSettingsKey.";
             return string.Empty;
         }
 
@@ -706,12 +710,9 @@ namespace log4net.Appender
         {
             try
             {
-#if NETSTANDARD1_3
-                // NETSTANDARD1_3 requires comma separated ConnectionType like `System.Data.SqlClient.SqlConnection, System.Data` to work properly.
-                return SystemInfo.GetTypeFromString((Assembly)null, ConnectionType, true, false);
-#else
+                // Reflection based resolution of the configured provider type is preserved:
+                // the appender must stay provider agnostic (SQL Server, ODBC, Oracle, ...).
                 return SystemInfo.GetTypeFromString(this.ConnectionType, true, false);
-#endif
             }
             catch (Exception ex)
             {
@@ -802,12 +803,17 @@ namespace log4net.Appender
         private string m_connectionString;
 
         /// <summary>
-        /// The appSettings key from App.Config that contains the connection string.
+        /// The application setting key that contains the connection string.
         /// </summary>
+        /// <remarks>
+        /// Resolved through <see cref="SystemInfo.GetAppSetting"/>, which reads application
+        /// settings from the environment on modern .NET.
+        /// </remarks>
         private string m_appSettingsKey;
 
         /// <summary>
-        /// The connectionStrings key from App.Config that contains the connection string.
+        /// The name of the connection string, resolved through
+        /// <see cref="log4net.Util.Log4NetSettings.GetConnectionString"/>.
         /// </summary>
         private string m_connectionStringName;
 
@@ -1120,5 +1126,3 @@ namespace log4net.Appender
         private IRawLayout m_layout;
     }
 }
-
-#endif // !SSCLI

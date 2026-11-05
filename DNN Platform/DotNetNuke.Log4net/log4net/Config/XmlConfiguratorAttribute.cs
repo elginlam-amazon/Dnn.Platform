@@ -19,7 +19,6 @@
 // 
 
 // .NET Compact Framework 1.0 has no support for reading assembly attributes
-#if !NETCF
 
 using System;
 using System.Collections;
@@ -49,9 +48,9 @@ namespace log4net.Config
     /// If set the <see cref="ConfigFile"/> property takes priority over the
     /// <see cref="ConfigFileExtension"/> property. The <see cref="ConfigFile"/> property
     /// specifies a path to a file to load the config from. The path is relative to the
-    /// application's base directory; <see cref="AppDomain.BaseDirectory"/>.
+    /// application's base directory; <see cref="SystemInfo.ApplicationBaseDirectory"/>.
     /// The <see cref="ConfigFileExtension"/> property is used as a postfix to the assembly file name.
-    /// The config file must be located in the  application's base directory; <see cref="AppDomain.BaseDirectory"/>.
+    /// The config file must be located in the  application's base directory; <see cref="SystemInfo.ApplicationBaseDirectory"/>.
     /// For example in a console application setting the <see cref="ConfigFileExtension"/> to
     /// <c>config</c> has the same effect as not specifying the <see cref="ConfigFile"/> or 
     /// <see cref="ConfigFileExtension"/> properties.
@@ -103,7 +102,7 @@ namespace log4net.Config
         /// <para>
         /// If specified, this is the name of the configuration file to use with
         /// the <see cref="XmlConfigurator"/>. This file path is relative to the
-        /// <b>application base</b> directory (<see cref="AppDomain.BaseDirectory"/>).
+        /// <b>application base</b> directory (<see cref="SystemInfo.ApplicationBaseDirectory"/>).
         /// </para>
         /// <para>
         /// The <see cref="ConfigFile"/> takes priority over the <see cref="ConfigFileExtension"/>.
@@ -123,7 +122,7 @@ namespace log4net.Config
         /// <para>
         /// If specified this is the extension for the configuration file.
         /// The path to the config file is built by using the <b>application 
-        /// base</b> directory (<see cref="AppDomain.BaseDirectory"/>),
+        /// base</b> directory (<see cref="SystemInfo.ApplicationBaseDirectory"/>),
         /// the <b>assembly file name</b> and the config file extension.
         /// </para>
         /// <para>
@@ -158,7 +157,7 @@ namespace log4net.Config
         /// and therefore it may not be able to watch it.
         /// </para>
         /// <note>
-        /// Watching configuration is not supported on the SSCLI.
+        /// Watching configuration uses a FileSystemWatcher and is supported on all platforms on modern .NET.
         /// </note>
         /// </remarks>
         public bool Watch
@@ -290,13 +289,6 @@ namespace log4net.Config
         /// <param name="configFile">the FileInfo pointing to the config file</param>
         private void ConfigureFromFile(ILoggerRepository targetRepository, FileInfo configFile)
         {
-#if (SSCLI)
-            if (m_configureAndWatch)
-            {
-                LogLog.Warn(declaringType, "XmlConfiguratorAttribute: Unable to watch config file not supported on SSCLI");
-            }
-            XmlConfigurator.Configure(targetRepository, configFile);
-#else
             // Do we configure just once or do we configure and then watch?
             if (this.m_configureAndWatch)
             {
@@ -306,7 +298,6 @@ namespace log4net.Config
             {
                 XmlConfigurator.Configure(targetRepository, configFile);
             }
-#endif
         }
 
         /// <summary>Attempt to load configuration from a URI</summary>
@@ -431,4 +422,3 @@ namespace log4net.Config
     }
 }
 
-#endif // !NETCF

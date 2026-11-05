@@ -281,11 +281,7 @@ namespace log4net.Repository.Hierarchy
             LogLog.Debug(declaringType, "Loading Appender [" + appenderName + "] type: [" + typeName + "]");
             try 
             {
-#if NETSTANDARD1_3
-                IAppender appender = (IAppender)Activator.CreateInstance(SystemInfo.GetTypeFromString(this.GetType().GetTypeInfo().Assembly, typeName, true, true));
-#else
                 IAppender appender = (IAppender)Activator.CreateInstance(SystemInfo.GetTypeFromString(typeName, true, true));
-#endif
                 appender.Name = appenderName;
 
                 foreach (XmlNode currentNode in appenderElement.ChildNodes)
@@ -463,11 +459,7 @@ namespace log4net.Repository.Hierarchy
             {
                 try 
                 {
-#if NETSTANDARD1_3
-                    m_hierarchy.RendererMap.Put(SystemInfo.GetTypeFromString(this.GetType().GetTypeInfo().Assembly, renderedClassName, true, true), renderer);
-#else
                     this.m_hierarchy.RendererMap.Put(SystemInfo.GetTypeFromString(renderedClassName, true, true), renderer);
-#endif
                 } 
                 catch(Exception e) 
                 {
@@ -607,7 +599,6 @@ namespace log4net.Repository.Hierarchy
 
                 if(propertyValue != null)
                 {
-#if !NETCF && !NETSTANDARD1_3 // NETSTANDARD1_3: System.Runtime.InteropServices.RuntimeInformation not available on desktop 4.6
                     try
                     {
                         // Expand environment variables in the string.
@@ -625,7 +616,6 @@ namespace log4net.Repository.Hierarchy
                         // will be skipped with the following warning message.
                         LogLog.Debug(declaringType, "Security exception while trying to expand environment variables. Error Ignored. No Expansion.");
                     }
-#endif
 
                     Type parsedObjectConversionTargetType = null;
 
@@ -636,11 +626,7 @@ namespace log4net.Repository.Hierarchy
                         // Read the explicit subtype
                         try
                         {
-#if NETSTANDARD1_3
-                            Type subType = SystemInfo.GetTypeFromString(this.GetType().GetTypeInfo().Assembly, subTypeString, true, true);
-#else
                             Type subType = SystemInfo.GetTypeFromString(subTypeString, true, true);
-#endif
 
                             LogLog.Debug(declaringType, "Parameter [" + name + "] specified subtype [" + subType.FullName + "]");
 
@@ -695,11 +681,7 @@ namespace log4net.Repository.Hierarchy
                             try
                             {
                                 // Pass to the property
-#if NETSTANDARD1_3 // TODO BindingFlags is available for netstandard1.5
-                                propInfo.SetValue(target, convertedValue, null);
-#else
                                 propInfo.SetValue(target, convertedValue, BindingFlags.SetProperty, null, null, CultureInfo.InvariantCulture);
-#endif
                             }
                             catch(TargetInvocationException targetInvocationEx)
                             {
@@ -714,11 +696,7 @@ namespace log4net.Repository.Hierarchy
                             try
                             {
                                 // Pass to the property
-#if NETSTANDARD1_3 // TODO BindingFlags is available for netstandard1.5
-                                methInfo.Invoke(target, new[] { convertedValue });
-#else
                                 methInfo.Invoke(target, BindingFlags.InvokeMethod, null, new object[] { convertedValue }, CultureInfo.InvariantCulture);
-#endif
                             }
                             catch(TargetInvocationException targetInvocationEx)
                             {
@@ -770,11 +748,7 @@ namespace log4net.Repository.Hierarchy
                             try
                             {
                                 // Pass to the property
-#if NETSTANDARD1_3 // TODO BindingFlags is available for netstandard1.5
-                                propInfo.SetValue(target, createdObject, null);
-#else
                                 propInfo.SetValue(target, createdObject, BindingFlags.SetProperty, null, null, CultureInfo.InvariantCulture);
-#endif
                             }
                             catch(TargetInvocationException targetInvocationEx)
                             {
@@ -789,11 +763,7 @@ namespace log4net.Repository.Hierarchy
                             try
                             {
                                 // Pass to the property
-#if NETSTANDARD1_3 // TODO BindingFlags is available for netstandard1.5
-                                methInfo.Invoke(target, new[] { createdObject });
-#else
                                 methInfo.Invoke(target, BindingFlags.InvokeMethod, null, new object[] {createdObject}, CultureInfo.InvariantCulture);
-#endif
                             }
                             catch(TargetInvocationException targetInvocationEx)
                             {
@@ -825,12 +795,7 @@ namespace log4net.Repository.Hierarchy
         /// <returns><c>true</c> if the type is creatable using a default constructor, <c>false</c> otherwise</returns>
         private static bool IsTypeConstructible(Type type)
         {
-#if NETSTANDARD1_3
-            TypeInfo typeInfo = type.GetTypeInfo();
-            if (typeInfo.IsClass && !typeInfo.IsAbstract)
-#else
             if (type.IsClass && !type.IsAbstract)
-#endif
             {
                 ConstructorInfo defaultConstructor = type.GetConstructor(new Type[0]);
                 if (defaultConstructor != null && !defaultConstructor.IsAbstract && !defaultConstructor.IsPrivate)
@@ -950,11 +915,7 @@ namespace log4net.Repository.Hierarchy
                 // Read the explicit object type
                 try
                 {
-#if NETSTANDARD1_3
-                    objectType = SystemInfo.GetTypeFromString(this.GetType().GetTypeInfo().Assembly, objectTypeString, true, true);
-#else
                     objectType = SystemInfo.GetTypeFromString(objectTypeString, true, true);
-#endif
                 }
                 catch(Exception ex)
                 {
@@ -1024,21 +985,12 @@ namespace log4net.Repository.Hierarchy
             }
         }
 
-#if !NETCF && !NETSTANDARD1_3 // NETSTANDARD1_3: System.Runtime.InteropServices.RuntimeInformation not available on desktop 4.6
         private bool HasCaseInsensitiveEnvironment
             {
             get
             {
-#if NET_1_0 || NET_1_1 || CLI_1_0
-            // actually there is no guarantee, but we don't know better
-            return true;
-#elif MONO_1_0
-            // see above
-            return false;
-#else
             PlatformID platform = Environment.OSVersion.Platform;
             return platform != PlatformID.Unix && platform != PlatformID.MacOSX;
-#endif
             }
         }
 
@@ -1054,7 +1006,6 @@ namespace log4net.Repository.Hierarchy
             }
             return hash;
         }
-#endif
 
         // String constants used while parsing the XML data
         private const string CONFIGURATION_TAG			= "log4net";

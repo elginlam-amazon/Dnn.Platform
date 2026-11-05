@@ -18,12 +18,10 @@
 // limitations under the License.
 // 
 
-// .NET Compact Framework 1.0 has no support for application .config files
-#if !NETCF && (NET_2_0 || NETSTANDARD2_0)
-
+using System;
 using System.IO;
 using System.Collections;
-using System.Configuration;
+using System.Collections.Generic;
 
 namespace log4net.Util.PatternStringConverters
 {
@@ -32,7 +30,9 @@ namespace log4net.Util.PatternStringConverters
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This pattern converter reads appSettings from the application configuration file.
+    /// This pattern converter reads application settings. On modern .NET these are resolved
+    /// through <see cref="Log4NetSettings"/> (an <c>IConfiguration</c> supplied by the host, with
+    /// a process-environment fallback).
     /// </para>
     /// <para>
     /// If the <see cref="PatternConverter.Option"/> is specified then that will be used to
@@ -62,10 +62,21 @@ namespace log4net.Util.PatternStringConverters
                 if (_appSettingsHashTable == null)
                 {
                     Hashtable h = new Hashtable();
-                    foreach(string key in ConfigurationManager.AppSettings)
+                    try
                     {
-                        h.Add(key, ConfigurationManager.AppSettings[key]);
+                        foreach (KeyValuePair<string, string> entry in Log4NetSettings.EnumerateAppSettings())
+                        {
+                            if (entry.Key != null && !h.Contains(entry.Key))
+                            {
+                                h.Add(entry.Key, entry.Value);
+                            }
+                        }
                     }
+                    catch (Exception ex)
+                    {
+                        LogLog.Error(typeof(AppSettingPatternConverter), "Exception while reading application settings.", ex);
+                    }
+
                     _appSettingsHashTable = h;
                 }
                 return _appSettingsHashTable;
@@ -96,7 +107,7 @@ namespace log4net.Util.PatternStringConverters
             if (this.Option != null)
             {
                 // Write the value for the specified key
-                WriteObject(writer, null, ConfigurationManager.AppSettings[this.Option]);
+                WriteObject(writer, null, Log4NetSettings.GetAppSetting(this.Option));
             }
             else
             {
@@ -106,4 +117,3 @@ namespace log4net.Util.PatternStringConverters
         }
     }
 }
-#endif // !NETCF && NET_2_0

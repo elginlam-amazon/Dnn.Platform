@@ -79,9 +79,7 @@ namespace log4net.Core
     /// </remarks>
     /// <author>Nicko Cadell</author>
     /// <author>Gert Driesen</author>
-#if !NETCF
     [Serializable]
-#endif
     public sealed class Level : IComparable
     {
         /// <summary>Constructor</summary>
@@ -106,11 +104,7 @@ namespace log4net.Core
             }
 
             this.m_levelValue = level;
-#if NETSTANDARD1_3
-            m_levelName = levelName;
-#else
             this.m_levelName = string.Intern(levelName);
-#endif
             this.m_levelDisplayName = displayName;
         }
 

@@ -19,12 +19,10 @@
 // 
 
 using System;
-#if !NETCF && !NETSTANDARD1_3
 using System.Collections;
 using System.Diagnostics;
 
 using log4net.Util;
-#endif
 
 namespace log4net.Core
 {
@@ -57,9 +55,7 @@ namespace log4net.Core
     /// </remarks>
     /// <author>Nicko Cadell</author>
     /// <author>Gert Driesen</author>
-#if !NETCF
     [Serializable]
-#endif
     public class LocationInfo
     {
         /// <summary>Constructor</summary>
@@ -80,7 +76,6 @@ namespace log4net.Core
             this.m_methodName = NA;
             this.m_fullInfo = NA;
 
-#if !NETCF && !NETSTANDARD1_3 // StackTrace isn't fully implemented for NETSTANDARD1_3 https://github.com/dotnet/corefx/issues/1797
             if (callerStackBoundaryDeclaringType != null)
             {
                 try
@@ -154,7 +149,6 @@ namespace log4net.Core
                     LogLog.Debug(declaringType, "Security exception while trying to get caller stack frame. Error Ignored. Location Information Not Available.");
                 }
             }
-#endif
         }
 
         /// <summary>Constructor</summary>
@@ -255,22 +249,18 @@ namespace log4net.Core
             get { return this.m_fullInfo; }
         }
         
-#if !NETCF && !NETSTANDARD1_3
         /// <summary>Gets the stack frames from the stack trace of the caller making the log request</summary>
         public StackFrameItem[] StackFrames
         {
             get { return this.m_stackFrames; }
         }
-#endif
 
         private readonly string m_className;
         private readonly string m_fileName;
         private readonly string m_lineNumber;
         private readonly string m_methodName;
         private readonly string m_fullInfo;
-#if !NETCF && !NETSTANDARD1_3
         private readonly StackFrameItem[] m_stackFrames;
-#endif
 
         /// <summary>The fully qualified type of the LocationInfo class.</summary>
         /// <remarks>

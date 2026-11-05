@@ -1,0 +1,18 @@
+@* Replacement for the dnn:COPYRIGHT skin object (~/Admin/Skins/Copyright.ascx),
+   used by partials/_footer.ascx. *@
+@inject IApertureSkinContext SkinContext
+
+@if (this.copyright.Length > 0)
+{
+    <span class="aperture-copyright">@this.copyright</span>
+}
+
+@code {
+    private string copyright = string.Empty;
+
+    /// <inheritdoc />
+    protected override async Task OnInitializedAsync()
+    {
+        this.copyright = await this.SkinContext.GetCopyrightAsync();
+    }
+}

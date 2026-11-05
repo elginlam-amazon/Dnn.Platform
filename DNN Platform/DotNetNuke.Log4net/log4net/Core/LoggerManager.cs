@@ -19,9 +19,6 @@
 // 
 
 using System;
-#if NETSTANDARD1_3
-using System.Runtime.InteropServices;
-#endif
 using System.Reflection;
 
 using log4net.Util;
@@ -63,9 +60,10 @@ namespace log4net.Core
         /// <summary>Hook the shutdown event</summary>
         /// <remarks>
         /// <para>
-        /// On the full .NET runtime, the static constructor hooks up the 
-        /// <c>AppDomain.ProcessExit</c> and <c>AppDomain.DomainUnload</c>> events. 
-        /// These are used to shutdown the log4net system as the application exits.
+        /// On modern .NET, the static constructor hooks up the
+        /// <c>AppDomain.ProcessExit</c> event (the only shutdown notification the
+        /// single non-unloadable default AppDomain raises).
+        /// This is used to shutdown the log4net system as the application exits.
         /// </para>
         /// </remarks>
         static LoggerManager()
@@ -89,10 +87,6 @@ namespace log4net.Core
             LogLog.Debug(declaringType, GetVersionInfo());
 
             // Set the default repository selector
-#if NETCF
-            s_repositorySelector = new CompactRepositorySelector(typeof(log4net.Repository.Hierarchy.Hierarchy));
-            return;
-#elif !NETSTANDARD1_3
             // Look for the RepositorySelector type specified in the AppSettings 'log4net.RepositorySelector'
             string appRepositorySelectorTypeName = SystemInfo.GetAppSetting("log4net.RepositorySelector");
             if (appRepositorySelectorTypeName != null && appRepositorySelectorTypeName.Length > 0)
@@ -131,7 +125,6 @@ namespace log4net.Core
                     }
                 }
             }
-#endif
             // Create the DefaultRepositorySelector if not configured above 
             if (s_repositorySelector == null)
             {
@@ -139,25 +132,19 @@ namespace log4net.Core
             }
         }
 
-        /// <summary>Register for ProcessExit and DomainUnload events on the AppDomain</summary>
+        /// <summary>Register for the ProcessExit event on the AppDomain</summary>
         /// <remarks>
         /// <para>
-        /// This needs to be in a separate method because the events make
-        /// a LinkDemand for the ControlAppDomain SecurityPermission. Because
-        /// this is a LinkDemand it is demanded at JIT time. Therefore we cannot
-        /// catch the exception in the method itself, we have to catch it in the
-        /// caller.
+        /// Modern .NET has a single, non-unloadable default <see cref="AppDomain"/>, so
+        /// <c>AppDomain.DomainUnload</c> never fires and <see cref="AppDomain.ProcessExit"/>
+        /// is the only shutdown notification available. Registration stays in a separate
+        /// method so the caller can handle a failure to attach the handler.
         /// </para>
         /// </remarks>
         private static void RegisterAppDomainEvents()
         {
-#if !NETCF && !NETSTANDARD1_3
-            // ProcessExit seems to be fired if we are part of the default domain
+            // ProcessExit is raised when the default (and only) AppDomain is torn down.
             AppDomain.CurrentDomain.ProcessExit += new EventHandler(OnProcessExit);
-
-            // Otherwise DomainUnload is fired
-            AppDomain.CurrentDomain.DomainUnload += new EventHandler(OnDomainUnload);
-#endif
         }
 
         /// <summary>Return the default <see cref="ILoggerRepository"/> instance.</summary>
@@ -726,39 +713,13 @@ namespace log4net.Core
         {
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
 
-#if NETSTANDARD1_3
-            Assembly myAssembly = typeof(LoggerManager).GetTypeInfo().Assembly;
-            sb.Append($"log4net assembly [{myAssembly.FullName}]. ");
-            //sb.Append($"Loaded from [{myAssembly.Location}]. "); // TODO Assembly.Location available in netstandard1.5
-            sb.Append($"(.NET Framework [{RuntimeInformation.FrameworkDescription}] on {RuntimeInformation.OSDescription}");
-#else
             Assembly myAssembly = Assembly.GetExecutingAssembly();
             sb.Append("log4net assembly [").Append(myAssembly.FullName).Append("]. ");
             sb.Append("Loaded from [").Append(SystemInfo.AssemblyLocationInfo(myAssembly)).Append("]. ");
             sb.Append("(.NET Runtime [").Append(Environment.Version.ToString()).Append("]");
-#if (!SSCLI)
             sb.Append(" on ").Append(Environment.OSVersion.ToString());
-#endif
-#endif // NETSTANDARD1_3
             sb.Append(")");
             return sb.ToString();
-        }
-
-#if (!NETCF)
-        /// <summary>Called when the <see cref="AppDomain.DomainUnload"/> event fires</summary>
-        /// <param name="sender">the <see cref="AppDomain"/> that is exiting</param>
-        /// <param name="e">null</param>
-        /// <remarks>
-        /// <para>
-        /// Called when the <see cref="AppDomain.DomainUnload"/> event fires.
-        /// </para>
-        /// <para>
-        /// When the event is triggered the log4net system is <see cref="M:Shutdown()"/>.
-        /// </para>
-        /// </remarks>
-        private static void OnDomainUnload(object sender, EventArgs e)
-        {
-            Shutdown();
         }
 
         /// <summary>Called when the <see cref="AppDomain.ProcessExit"/> event fires</summary>
@@ -776,7 +737,6 @@ namespace log4net.Core
         {
             Shutdown();
         }
-#endif
 
         /// <summary>The fully qualified type of the LoggerManager class.</summary>
         /// <remarks>

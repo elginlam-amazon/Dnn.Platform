@@ -1,0 +1,24 @@
+@* Replacement for the dnn:TERMS skin object (~/Admin/Skins/Terms.ascx),
+   used by partials/_footer.ascx with CssClass="aperture-terms".
+   Terms.ascx renders nothing when the portal has no terms page, which is preserved here. *@
+@inject IApertureSkinContext SkinContext
+
+@if (this.link.Href.Length > 0)
+{
+    <a class="@this.CssClass" href="@this.link.Href">@this.link.Text</a>
+}
+
+@code {
+    private ApertureLink link;
+
+    /// <summary>Gets or sets the CSS class applied to the rendered link.</summary>
+    /// <remarks>Replaces the <c>CssClass</c> attribute of the WebForms skin object.</remarks>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <inheritdoc />
+    protected override async Task OnInitializedAsync()
+    {
+        this.link = await this.SkinContext.GetTermsLinkAsync();
+    }
+}

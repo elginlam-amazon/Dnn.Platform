@@ -18,14 +18,8 @@
 // limitations under the License.
 // 
 
-#if (!NETCF) && !NETSTANDARD1_3
-#define HAS_READERWRITERLOCK
-#endif
-#if NET_4_0 || MONO_4_0
-#define HAS_READERWRITERLOCKSLIM
-#endif
-
 using System;
+using System.Threading;
 
 namespace log4net.Util
 {
@@ -40,14 +34,16 @@ namespace log4net.Util
     /// one-at-a-time lock, such as <see cref="System.Threading.Monitor"/>.
     /// </para>
     /// <para>
-    /// If a platform does not support a <c>System.Threading.ReaderWriterLock</c> 
-    /// implementation then all readers and writers are serialized. Therefore 
-    /// the caller must not rely on multiple simultaneous readers.
+    /// This type is a thin wrapper over <see cref="ReaderWriterLockSlim"/>, which is the
+    /// supported reader/writer lock on modern .NET. Recursion is permitted so that the
+    /// nested acquisition patterns used by the log4net internals keep working.
     /// </para>
     /// </remarks>
     /// <author>Nicko Cadell</author>
     public sealed class ReaderWriterLock
     {
+        private readonly ReaderWriterLockSlim m_lock;
+
         /// <summary>Constructor</summary>
         /// <remarks>
         /// <para>
@@ -56,14 +52,7 @@ namespace log4net.Util
         /// </remarks>
         public ReaderWriterLock()
         {
-
-#if HAS_READERWRITERLOCK
-#if HAS_READERWRITERLOCKSLIM
-            this.m_lock = new System.Threading.ReaderWriterLockSlim(System.Threading.LockRecursionPolicy.SupportsRecursion);
-#else
-            m_lock = new System.Threading.ReaderWriterLock();
-#endif
-#endif
+            this.m_lock = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
         }
 
         /// <summary>Acquires a reader lock</summary>
@@ -75,22 +64,7 @@ namespace log4net.Util
         /// </remarks>
         public void AcquireReaderLock()
         {
-#if HAS_READERWRITERLOCK
-#if HAS_READERWRITERLOCKSLIM
-                    // prevent ThreadAbort while updating state, see https://issues.apache.org/jira/browse/LOG4NET-443
-                    try 
-                    {
-                    } 
-                    finally
-                    {
-                        this.m_lock.EnterReadLock();
-                    }
-#else
-            m_lock.AcquireReaderLock(-1);
-#endif
-#else
-            System.Threading.Monitor.Enter(this);
-#endif
+            this.m_lock.EnterReadLock();
         }
 
         /// <summary>Decrements the lock count</summary>
@@ -102,16 +76,7 @@ namespace log4net.Util
         /// </remarks>
         public void ReleaseReaderLock()
         {
-#if HAS_READERWRITERLOCK
-#if HAS_READERWRITERLOCKSLIM
             this.m_lock.ExitReadLock();
-#else
-            m_lock.ReleaseReaderLock();
-
-#endif
-#else
-            System.Threading.Monitor.Exit(this);
-#endif
         }
 
         /// <summary>Acquires the writer lock</summary>
@@ -122,22 +87,7 @@ namespace log4net.Util
         /// </remarks>
         public void AcquireWriterLock()
         {
-#if HAS_READERWRITERLOCK
-#if HAS_READERWRITERLOCKSLIM
-                    // prevent ThreadAbort while updating state, see https://issues.apache.org/jira/browse/LOG4NET-443
-                    try 
-                    {
-                    } 
-                    finally
-                    {
-                        this.m_lock.EnterWriteLock();
-                    }
-#else
-            m_lock.AcquireWriterLock(-1);
-#endif
-#else
-            System.Threading.Monitor.Enter(this);
-#endif
+            this.m_lock.EnterWriteLock();
         }
 
         /// <summary>Decrements the lock count on the writer lock</summary>
@@ -149,24 +99,7 @@ namespace log4net.Util
         /// </remarks>
         public void ReleaseWriterLock()
         {
-#if HAS_READERWRITERLOCK
-#if HAS_READERWRITERLOCKSLIM
             this.m_lock.ExitWriteLock();
-#else
-            m_lock.ReleaseWriterLock();
-#endif
-#else
-            System.Threading.Monitor.Exit(this);
-#endif
         }
-
-#if HAS_READERWRITERLOCK
-#if HAS_READERWRITERLOCKSLIM
-        private System.Threading.ReaderWriterLockSlim m_lock;
-#else
-        private System.Threading.ReaderWriterLock m_lock;
-#endif
-
-#endif
     }
 }

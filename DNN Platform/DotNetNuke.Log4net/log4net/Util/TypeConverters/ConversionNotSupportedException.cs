@@ -19,9 +19,6 @@
 // 
 
 using System;
-#if !NETCF && !NETSTANDARD1_3
-using System.Runtime.Serialization;
-#endif
 
 namespace log4net.Util.TypeConverters
 {
@@ -37,14 +34,8 @@ namespace log4net.Util.TypeConverters
     /// </remarks>
     /// <author>Nicko Cadell</author>
     /// <author>Gert Driesen</author>
-#if !NETCF
     [Serializable]
-#endif
-#if NETSTANDARD1_3
-    public class ConversionNotSupportedException : Exception
-#else
-    public class ConversionNotSupportedException : ApplicationException 
-#endif
+    public class ConversionNotSupportedException : ApplicationException
     {
         /// <summary>
         /// Constructor
@@ -86,23 +77,6 @@ namespace log4net.Util.TypeConverters
         public ConversionNotSupportedException(String message, Exception innerException) : base(message, innerException) 
         {
         }
-
-#if !NETCF && !NETSTANDARD1_3
-        /// <summary>
-        /// Serialization constructor
-        /// </summary>
-        /// <param name="info">The <see cref="SerializationInfo" /> that holds the serialized object data about the exception being thrown.</param>
-        /// <param name="context">The <see cref="StreamingContext" /> that contains contextual information about the source or destination.</param>
-        /// <remarks>
-        /// <para>
-        /// Initializes a new instance of the <see cref="ConversionNotSupportedException" /> class 
-        /// with serialized data.
-        /// </para>
-        /// </remarks>
-        protected ConversionNotSupportedException(SerializationInfo info, StreamingContext context) : base(info, context) 
-        {
-        }
-#endif
 
         /// <summary>
         /// Creates a new instance of the <see cref="ConversionNotSupportedException" /> class.

@@ -18,11 +18,6 @@
 // limitations under the License.
 // 
 
-#if NET_2_0 || NETSTANDARD2_0
-// .NET Compact Framework 1.0 has no support for application .config files
-#if !NETCF
-
-using System.Configuration;
 using System.Xml;
 
 namespace log4net.Config
@@ -48,7 +43,7 @@ namespace log4net.Config
     /// </example>
     /// <author>Nicko Cadell</author>
     /// <author>Gert Driesen</author>
-    public class Log4NetConfigurationSectionHandler : IConfigurationSectionHandler
+    public class Log4NetConfigurationSectionHandler
     {
         /// <summary>Initializes a new instance of the <see cref="Log4NetConfigurationSectionHandler"/> class.</summary>
         /// <remarks>
@@ -76,6 +71,3 @@ namespace log4net.Config
         }
     }
 }
-
-#endif // !NETCF
-#endif // NET_2_0 || NETSTANDARD2_0

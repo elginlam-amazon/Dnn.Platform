@@ -72,11 +72,7 @@ namespace log4net.Filter
         {
             if (this.m_stringRegexToMatch != null)
             {
-#if NETSTANDARD1_3
-                m_regexToMatch = new Regex(m_stringRegexToMatch);
-#else
                 this.m_regexToMatch = new Regex(this.m_stringRegexToMatch, RegexOptions.Compiled);
-#endif
             }
         }
 

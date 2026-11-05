@@ -22,11 +22,10 @@ using System;
 using System.Xml;
 using System.Collections;
 using System.IO;
-#if !NETCF && !NETSTANDARD1_3
 using System.Reflection;
-#endif
 using System.Threading;
 using System.Net;
+using System.Net.Http;
 
 using log4net.Util;
 using log4net.Repository;
@@ -48,7 +47,6 @@ namespace log4net.Config
         {
         }
 
-#if !NETCF
         /// <summary>
         /// Automatically configures the <see cref="ILoggerRepository"/> using settings
         /// stored in the application's configuration file.
@@ -62,29 +60,13 @@ namespace log4net.Config
         /// <c>log4net</c> that contains the configuration data.
         /// </para>
         /// <para>
-        /// To use this method to configure log4net you must specify 
-        /// the <see cref="Log4NetConfigurationSectionHandler"/> section
-        /// handler for the <c>log4net</c> configuration section. See the
-        /// <see cref="Log4NetConfigurationSectionHandler"/> for an example.
+        /// On modern .NET the <c>log4net</c> app.config section is no longer supported; the
+        /// configuration is read from a <c>log4net.config</c> file located next to the application
+        /// (or from the path given by the <c>log4net.Config</c> application setting).
+        /// See <see cref="GetDefaultConfigurationFile"/>.
         /// </para>
         /// </remarks>
         /// <param name="repository">The repository to configure.</param>
-#else
-        /// <summary>
-        /// Automatically configures the <see cref="ILoggerRepository"/> using settings
-        /// stored in the application's configuration file.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Each application has a configuration file. This has the
-        /// same name as the application with '.config' appended.
-        /// This file is XML and calling this function prompts the
-        /// configurator to look in that file for a section called
-        /// <c>log4net</c> that contains the configuration data.
-        /// </para>
-        /// </remarks>
-        /// <param name="repository">The repository to configure.</param>
-#endif
         public static ICollection Configure(ILoggerRepository repository)
         {
             ArrayList configurationMessages = new ArrayList();
@@ -101,55 +83,108 @@ namespace log4net.Config
 
         private static void InternalConfigure(ILoggerRepository repository)
         {
-            LogLog.Debug(declaringType, "configuring repository [" + repository.Name + "] using .config file section");
+            LogLog.Debug(declaringType, "configuring repository [" + repository.Name + "] using the default configuration file");
 
-            try
+            FileInfo configFile = GetDefaultConfigurationFile();
+            if (configFile == null)
             {
-                LogLog.Debug(declaringType, "Application config file is [" + SystemInfo.ConfigurationFileLocation + "]");
+                LogLog.Error(declaringType, "Failed to find a log4net configuration file. Place a 'log4net.config' file next to the application (" + AppContext.BaseDirectory + "), set the 'log4net.Config' environment variable to its path, or call one of the XmlConfigurator.Configure overloads explicitly.");
             }
-            catch
+            else
             {
-                // ignore error
-                LogLog.Debug(declaringType, "Application config file location unknown");
+                InternalConfigure(repository, configFile);
             }
-
-#if NETCF || NETSTANDARD1_3
-            // No config file reading stuff. Just go straight for the file
-            Configure(repository, new FileInfo(SystemInfo.ConfigurationFileLocation));
-#else
-            try
-            {
-                XmlElement configElement = System.Configuration.ConfigurationManager.GetSection("log4net") as XmlElement;
-                if (configElement == null)
-                {
-                    // Failed to load the xml config using configuration settings handler
-                    LogLog.Error(declaringType, "Failed to find configuration section 'log4net' in the application's .config file. Check your .config file for the <log4net> and <configSections> elements. The configuration section should look like: <section name=\"log4net\" type=\"log4net.Config.Log4NetConfigurationSectionHandler,log4net\" />");
-                }
-                else
-                {
-                    // Configure using the xml loaded from the config file
-                    InternalConfigureFromXml(repository, configElement);
-                }
-            }
-            catch(System.Configuration.ConfigurationException confEx)
-            {
-                if (confEx.BareMessage.IndexOf("Unrecognized element") >= 0)
-                {
-                    // Looks like the XML file is not valid
-                    LogLog.Error(declaringType, "Failed to parse config file. Check your .config file is well formed XML.", confEx);
-                }
-                else
-                {
-                    // This exception is typically due to the assembly name not being correctly specified in the section type.
-                    string configSectionStr = "<section name=\"log4net\" type=\"log4net.Config.Log4NetConfigurationSectionHandler," + Assembly.GetExecutingAssembly().FullName + "\" />";
-                    LogLog.Error(declaringType, "Failed to parse config file. Is the <configSections> specified as: " + configSectionStr, confEx);
-                }
-            }
-#endif
         }
 
-#if !NETSTANDARD1_3 // Excluded because GetCallingAssembly() is not available in CoreFX (https://github.com/dotnet/corefx/issues/2221).
-#if !NETCF
+        /// <summary>
+        /// Locates the default log4net configuration file.
+        /// </summary>
+        /// <returns>
+        /// The configuration file to use, or <c>null</c> when no candidate file exists.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// Modern .NET has no <c>&lt;configSections&gt;</c>/app.config section support available to a
+        /// library, so the configuration is loaded from a file. The following candidates are probed,
+        /// in order, and the first existing file wins:
+        /// </para>
+        /// <list type="number">
+        /// <item><description>the path in the <c>log4net.Config</c> application setting (environment variable), absolute or relative to the application base directory;</description></item>
+        /// <item><description><c>&lt;entry-assembly-name&gt;.exe.config</c> / <c>&lt;entry-assembly-name&gt;.dll.config</c> style file <c>&lt;entry-assembly-name&gt;.log4net.config</c> in the application base directory;</description></item>
+        /// <item><description><c>log4net.config</c> in the application base directory.</description></item>
+        /// </list>
+        /// </remarks>
+        public static FileInfo GetDefaultConfigurationFile()
+        {
+            string baseDirectory = null;
+            try
+            {
+                baseDirectory = AppContext.BaseDirectory;
+            }
+            catch (Exception ex)
+            {
+                LogLog.Warn(declaringType, "Exception getting the application base directory", ex);
+            }
+
+            ArrayList candidates = new ArrayList();
+
+            string configuredPath = SystemInfo.GetAppSetting("log4net.Config");
+            if (!string.IsNullOrEmpty(configuredPath))
+            {
+                candidates.Add(configuredPath);
+                if (baseDirectory != null && !Path.IsPathRooted(configuredPath))
+                {
+                    candidates.Add(Path.Combine(baseDirectory, configuredPath));
+                }
+            }
+
+            if (baseDirectory != null)
+            {
+                string entryAssemblyName = null;
+                try
+                {
+                    Assembly entryAssembly = Assembly.GetEntryAssembly();
+                    if (entryAssembly != null)
+                    {
+                        entryAssemblyName = entryAssembly.GetName().Name;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogLog.Warn(declaringType, "Exception getting the entry assembly name", ex);
+                }
+
+                if (!string.IsNullOrEmpty(entryAssemblyName))
+                {
+                    candidates.Add(Path.Combine(baseDirectory, entryAssemblyName + ".log4net.config"));
+                }
+
+                candidates.Add(Path.Combine(baseDirectory, "log4net.config"));
+            }
+            else
+            {
+                candidates.Add("log4net.config");
+            }
+
+            foreach (string candidate in candidates)
+            {
+                try
+                {
+                    if (File.Exists(candidate))
+                    {
+                        LogLog.Debug(declaringType, "Found log4net configuration file [" + candidate + "]");
+                        return new FileInfo(candidate);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogLog.Warn(declaringType, "Exception while probing for configuration file [" + candidate + "]", ex);
+                }
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// Automatically configures the log4net system based on the 
         /// application's configuration settings.
@@ -163,28 +198,13 @@ namespace log4net.Config
         /// <c>log4net</c> that contains the configuration data.
         /// </para>
         /// <para>
-        /// To use this method to configure log4net you must specify 
-        /// the <see cref="Log4NetConfigurationSectionHandler"/> section
-        /// handler for the <c>log4net</c> configuration section. See the
-        /// <see cref="Log4NetConfigurationSectionHandler"/> for an example.
+        /// On modern .NET the <c>log4net</c> app.config section is no longer supported; the
+        /// configuration is read from a <c>log4net.config</c> file located next to the application
+        /// (or from the path given by the <c>log4net.Config</c> application setting).
+        /// See <see cref="GetDefaultConfigurationFile"/>.
         /// </para>
         /// </remarks>
-        /// <seealso cref="Log4NetConfigurationSectionHandler"/>
-#else
-        /// <summary>
-        /// Automatically configures the log4net system based on the 
-        /// application's configuration settings.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Each application has a configuration file. This has the
-        /// same name as the application with '.config' appended.
-        /// This file is XML and calling this function prompts the
-        /// configurator to look in that file for a section called
-        /// <c>log4net</c> that contains the configuration data.
-        /// </para>
-        /// </remarks>
-#endif
+        /// <seealso cref="GetDefaultConfigurationFile"/>
         public static ICollection Configure()
         {
             return Configure(LogManager.GetRepository(Assembly.GetCallingAssembly()));
@@ -214,7 +234,6 @@ namespace log4net.Config
             return configurationMessages;
         }
 
-#if !NETCF
         /// <summary>Configures log4net using the specified configuration file.</summary>
         /// <param name="configFile">The XML file to load the configuration from.</param>
         /// <remarks>
@@ -222,22 +241,11 @@ namespace log4net.Config
         /// The configuration file must be valid XML. It must contain
         /// at least one element called <c>log4net</c> that holds
         /// the log4net configuration data.
-        /// </para>
-        /// <para>
-        /// The log4net configuration file can possible be specified in the application's
-        /// configuration file (either <c>MyAppName.exe.config</c> for a
-        /// normal application on <c>Web.config</c> for an ASP.NET application).
         /// </para>
         /// <para>
         /// The first element matching <c>&lt;configuration&gt;</c> will be read as the 
-        /// configuration. If this file is also a .NET .config file then you must specify 
-        /// a configuration section for the <c>log4net</c> element otherwise .NET will 
-        /// complain. Set the type for the section handler to <see cref="System.Configuration.IgnoreSectionHandler"/>, for example:
-        /// <code lang="XML" escaped="true">
-        /// <configSections>
-        ///         <section name="log4net" type="System.Configuration.IgnoreSectionHandler" />
-        ///     </configSections>
-        /// </code>
+        /// configuration. A dedicated <c>log4net.config</c> file is the supported layout on
+        /// modern .NET.
         /// </para>
         /// <example>
         /// The following example configures log4net using a configuration file, of which the 
@@ -246,57 +254,16 @@ namespace log4net.Config
         /// <code lang="C#">
         /// using log4net.Config;
         /// using System.IO;
-        /// using System.Configuration;
         /// 
         /// ...
         /// 
-        /// XmlConfigurator.Configure(new FileInfo(ConfigurationSettings.AppSettings["log4net-config-file"]));
+        /// XmlConfigurator.Configure(new FileInfo(Path.Combine(AppContext.BaseDirectory, "log4net.config")));
         /// </code>
         /// <para>
-        /// In the <c>.config</c> file, the path to the log4net can be specified like this :
+        /// The path to the configuration file may also be supplied through the
+        /// <c>log4net.Config</c> application setting (environment variable).
         /// </para>
-        /// <code lang="XML" escaped="true">
-        /// <configuration>
-        ///         <appSettings>
-        ///             <add key="log4net-config-file" value="log.config"/>
-        ///         </appSettings>
-        ///     </configuration>
-        /// </code>
         /// </remarks>
-#else
-        /// <summary>Configures log4net using the specified configuration file.</summary>
-        /// <param name="configFile">The XML file to load the configuration from.</param>
-        /// <remarks>
-        /// <para>
-        /// The configuration file must be valid XML. It must contain
-        /// at least one element called <c>log4net</c> that holds
-        /// the log4net configuration data.
-        /// </para>
-        /// <example>
-        /// The following example configures log4net using a configuration file, of which the 
-        /// location is stored in the application's configuration file :
-        /// </example>
-        /// <code lang="C#">
-        /// using log4net.Config;
-        /// using System.IO;
-        /// using System.Configuration;
-        /// 
-        /// ...
-        /// 
-        /// XmlConfigurator.Configure(new FileInfo(ConfigurationSettings.AppSettings["log4net-config-file"]));
-        /// </code>
-        /// <para>
-        /// In the <c>.config</c> file, the path to the log4net can be specified like this :
-        /// </para>
-        /// <code lang="XML" escaped="true">
-        /// <configuration>
-        ///    <appSettings>
-        ///            <add key="log4net-config-file" value="log.config"/>
-        ///        </appSettings>
-        ///    </configuration>
-        /// </code>
-        /// </remarks>
-#endif
         public static ICollection Configure(FileInfo configFile)
         {
             ArrayList configurationMessages = new ArrayList();
@@ -362,7 +329,6 @@ namespace log4net.Config
 
             return configurationMessages;
         }
-#endif // !NETSTANDARD1_3
 
         /// <summary>
         /// Configures the <see cref="ILoggerRepository"/> using the specified XML 
@@ -390,7 +356,6 @@ namespace log4net.Config
             return configurationMessages;
         }
 
-#if !NETCF
         /// <summary>
         /// Configures the <see cref="ILoggerRepository"/> using the specified configuration 
         /// file.
@@ -402,22 +367,11 @@ namespace log4net.Config
         /// The configuration file must be valid XML. It must contain
         /// at least one element called <c>log4net</c> that holds
         /// the configuration data.
-        /// </para>
-        /// <para>
-        /// The log4net configuration file can possible be specified in the application's
-        /// configuration file (either <c>MyAppName.exe.config</c> for a
-        /// normal application on <c>Web.config</c> for an ASP.NET application).
         /// </para>
         /// <para>
         /// The first element matching <c>&lt;configuration&gt;</c> will be read as the 
-        /// configuration. If this file is also a .NET .config file then you must specify 
-        /// a configuration section for the <c>log4net</c> element otherwise .NET will 
-        /// complain. Set the type for the section handler to <see cref="System.Configuration.IgnoreSectionHandler"/>, for example:
-        /// <code lang="XML" escaped="true">
-        /// <configSections>
-        ///         <section name="log4net" type="System.Configuration.IgnoreSectionHandler" />
-        ///     </configSections>
-        /// </code>
+        /// configuration. A dedicated <c>log4net.config</c> file is the supported layout on
+        /// modern .NET.
         /// </para>
         /// <example>
         /// The following example configures log4net using a configuration file, of which the 
@@ -426,61 +380,16 @@ namespace log4net.Config
         /// <code lang="C#">
         /// using log4net.Config;
         /// using System.IO;
-        /// using System.Configuration;
         /// 
         /// ...
         /// 
-        /// XmlConfigurator.Configure(new FileInfo(ConfigurationSettings.AppSettings["log4net-config-file"]));
+        /// XmlConfigurator.Configure(new FileInfo(Path.Combine(AppContext.BaseDirectory, "log4net.config")));
         /// </code>
         /// <para>
-        /// In the <c>.config</c> file, the path to the log4net can be specified like this :
+        /// The path to the configuration file may also be supplied through the
+        /// <c>log4net.Config</c> application setting (environment variable).
         /// </para>
-        /// <code lang="XML" escaped="true">
-        /// <configuration>
-        ///         <appSettings>
-        ///             <add key="log4net-config-file" value="log.config"/>
-        ///         </appSettings>
-        ///     </configuration>
-        /// </code>
         /// </remarks>
-#else
-        /// <summary>
-        /// Configures the <see cref="ILoggerRepository"/> using the specified configuration 
-        /// file.
-        /// </summary>
-        /// <param name="repository">The repository to configure.</param>
-        /// <param name="configFile">The XML file to load the configuration from.</param>
-        /// <remarks>
-        /// <para>
-        /// The configuration file must be valid XML. It must contain
-        /// at least one element called <c>log4net</c> that holds
-        /// the configuration data.
-        /// </para>
-        /// <example>
-        /// The following example configures log4net using a configuration file, of which the 
-        /// location is stored in the application's configuration file :
-        /// </example>
-        /// <code lang="C#">
-        /// using log4net.Config;
-        /// using System.IO;
-        /// using System.Configuration;
-        /// 
-        /// ...
-        /// 
-        /// XmlConfigurator.Configure(new FileInfo(ConfigurationSettings.AppSettings["log4net-config-file"]));
-        /// </code>
-        /// <para>
-        /// In the <c>.config</c> file, the path to the log4net can be specified like this :
-        /// </para>
-        /// <code lang="XML" escaped="true">
-        /// <configuration>
-        ///        <appSettings>
-        ///            <add key="log4net-config-file" value="log.config"/>
-        ///        </appSettings>
-        ///    </configuration>
-        /// </code>
-        /// </remarks>
-#endif
         public static ICollection Configure(ILoggerRepository repository, FileInfo configFile)
         {
             ArrayList configurationMessages = new ArrayList();
@@ -601,52 +510,46 @@ namespace log4net.Config
                 }
                 else
                 {
-                    // NETCF dose not support WebClient
-                    WebRequest configRequest = null;
-
+                    // WebRequest/WebClient are obsolete on modern .NET (SYSLIB0014); use
+                    // HttpClient. This is a one-shot configuration fetch at start-up, so a
+                    // short-lived handler is appropriate here (no socket churn), and
+                    // UseDefaultCredentials preserves the previous
+                    // CredentialCache.DefaultCredentials behaviour for authenticated endpoints.
+                    HttpClientHandler handler = null;
                     try
                     {
-                        configRequest = WebRequest.Create(configUri);
-                    }
-                    catch(Exception ex)
-                    {
-                        LogLog.Error(declaringType, "Failed to create WebRequest for URI [" + configUri + "]", ex);
-                    }
-
-                    if (configRequest != null)
-                    {
-#if !NETCF_1_0
-                        // authentication may be required, set client to use default credentials
+                        handler = new HttpClientHandler();
                         try
                         {
-                            configRequest.Credentials = CredentialCache.DefaultCredentials;
+                            handler.UseDefaultCredentials = true;
                         }
                         catch
                         {
                             // ignore security exception
                         }
-#endif
-                        try
+
+                        using (var client = new HttpClient(handler, true))
                         {
-#if NETSTANDARD
-                            using(var response = configRequest.GetResponseAsync().GetAwaiter().GetResult())
+                            handler = null;
+                            using (var response = client.GetAsync(configUri).GetAwaiter().GetResult())
                             {
-#else
-                            using (var response = configRequest.GetResponse())
-                            {
-                                if (response != null)
+                                response.EnsureSuccessStatusCode();
+                                using (var configStream = response.Content.ReadAsStream())
                                 {
-                                    using (var configStream = response.GetResponseStream())
-                                    {
-                                        InternalConfigure(repository, configStream);
-                                    }
+                                    InternalConfigure(repository, configStream);
                                 }
                             }
-#endif
                         }
-                        catch(Exception ex)
+                    }
+                    catch (Exception ex)
+                    {
+                        LogLog.Error(declaringType, "Failed to request config from URI [" + configUri + "]", ex);
+                    }
+                    finally
+                    {
+                        if (handler != null)
                         {
-                            LogLog.Error(declaringType, "Failed to request config from URI ["+configUri+"]", ex);
+                            handler.Dispose();
                         }
                     }
                 }
@@ -694,48 +597,19 @@ namespace log4net.Config
             else
             {
                 // Load the config file into a document
-#if NETSTANDARD1_3
-                XmlDocument doc = new XmlDocument();
-#else
                 XmlDocument doc = new XmlDocument { XmlResolver = null };
-#endif
                 try
                 {
-#if (NETCF)
-                    // Create a text reader for the file stream
-                    XmlTextReader xmlReader = new XmlTextReader(configStream);
-#elif NET_2_0 || NETSTANDARD
-                    // Allow the DTD to specify entity includes
                     XmlReaderSettings settings = new XmlReaderSettings();
-                    // .NET 4.0 warning CS0618: 'System.Xml.XmlReaderSettings.ProhibitDtd'
-                    // is obsolete: 'Use XmlReaderSettings.DtdProcessing property instead.'
-#if NETSTANDARD1_3 // TODO DtdProcessing.Parse not yet available (https://github.com/dotnet/corefx/issues/4376)
-                    settings.DtdProcessing = DtdProcessing.Ignore;
-#elif !NET_4_0 && !MONO_4_0 && !NETSTANDARD2_0
-                    settings.ProhibitDtd = true;
-#else
                     settings.XmlResolver = null;
                     settings.DtdProcessing = DtdProcessing.Ignore;
-#endif
 
                     // Create a reader over the input stream
                     using (var xmlReader = XmlReader.Create(configStream, settings))
                     {
-#else
-                    // Create a validating reader around a text reader for the file stream
-                    using(var xmlReader = new XmlValidatingReader(new XmlTextReader(configStream)))
-                    {
-                        // Specify that the reader should not perform validation, but that it should
-                        // expand entity refs.
-                        xmlReader.ValidationType = ValidationType.None;
-                        xmlReader.EntityHandling = EntityHandling.ExpandEntities;
-#endif
-
                         // load the data into the document
                         doc.Load(xmlReader);
-#if !NETCF
                     }
-#endif
                 }
 
                 catch (Exception ex)
@@ -768,8 +642,6 @@ namespace log4net.Config
             }
         }
 
-#if (!NETCF && !SSCLI)
-#if !NETSTANDARD1_3 // Excluded because GetCallingAssembly() is not available in CoreFX (https://github.com/dotnet/corefx/issues/2221).
         /// <summary>
         /// Configures log4net using the file specified, monitors the file for changes 
         /// and reloads the configuration if a change is detected.
@@ -806,7 +678,6 @@ namespace log4net.Config
 
             return configurationMessages;
         }
-#endif // !NETSTANDARD1_3
 
         /// <summary>
         /// Configures the <see cref="ILoggerRepository"/> using the file specified, 
@@ -884,9 +755,7 @@ namespace log4net.Config
                 }
             }
         }
-#endif
 
-#if (!NETCF && !SSCLI)
         /// <summary>Class used to watch config files.</summary>
         /// <remarks>
         /// <para>
@@ -935,9 +804,6 @@ namespace log4net.Config
             /// Initializes a new instance of the <see cref="ConfigureAndWatchHandler" /> class.
             /// </para>
             /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-            [System.Security.SecuritySafeCritical]
-#endif
             public ConfigureAndWatchHandler(ILoggerRepository repository, FileInfo configFile)
             {
                 this.m_repository = repository;
@@ -1007,9 +873,6 @@ namespace log4net.Config
             }
 
             /// <summary>Release the handles held by the watcher and timer.</summary>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-            [System.Security.SecuritySafeCritical]
-#endif
             public void Dispose()
             {
                 this.m_watcher.EnableRaisingEvents = false;
@@ -1017,7 +880,6 @@ namespace log4net.Config
                 this.m_timer.Dispose();
             }
         }
-#endif
 
         /// <summary>Configures the specified repository using a <c>log4net</c> element.</summary>
         /// <param name="repository">The hierarchy to configure.</param>
@@ -1056,11 +918,7 @@ namespace log4net.Config
                     // Copy the xml data into the root of a new document
                     // this isolates the xml config data from the rest of
                     // the document
-#if NETSTANDARD1_3
-                    XmlDocument newDoc = new XmlDocument();
-#else
                     XmlDocument newDoc = new XmlDocument { XmlResolver = null };
-#endif
                     XmlElement newElement = (XmlElement)newDoc.AppendChild(newDoc.ImportNode(element, true));
 
                     // Pass the configurator the config element

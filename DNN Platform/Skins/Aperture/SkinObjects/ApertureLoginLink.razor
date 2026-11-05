@@ -1,0 +1,23 @@
+@* Replacement for the dnn:Login skin object (~/Admin/Skins/Login.ascx), used by partials/_header.ascx.
+   Login.ascx renders a login link for anonymous visitors and a logout link for authenticated users;
+   that authentication-dependent rendering is preserved here through AuthorizeView. *@
+@inject IApertureSkinContext SkinContext
+
+<AuthorizeView>
+    <Authorized>
+        <a class="aperture-login" href="@this.links.LogoutHref">Logout</a>
+    </Authorized>
+    <NotAuthorized>
+        <a class="aperture-login" href="@this.links.LoginHref">Login</a>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private ApertureUserLinks links;
+
+    /// <inheritdoc />
+    protected override async Task OnInitializedAsync()
+    {
+        this.links = await this.SkinContext.GetUserLinksAsync();
+    }
+}

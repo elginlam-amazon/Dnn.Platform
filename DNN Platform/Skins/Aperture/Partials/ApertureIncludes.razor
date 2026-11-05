@@ -1,0 +1,97 @@
+@* Declared in the root namespace so the root _Imports.razor resolves this component by tag
+   name: a namespace created only by generated Razor components is not visible during the Razor
+   declaration pass. *@
+@namespace Dnn.Skins.Aperture
+@* Ported from partials/_includes.ascx.
+
+   Three things came out of that control and all three are preserved:
+     1. dnn:META Name="viewport"  -> the viewport <meta> element below.
+     2. dnn:DnnCssInclude FilePath="css/skin.min.css" PathNameAlias="SkinPath" Priority="110"
+        -> the stylesheet <link> below. DNN's numeric client-resource priority has no Blazor
+           equivalent; HeadContent emits in document order, and the theme stylesheet is the only
+           sheet this component contributes, so relative order with the host's own sheets is
+           controlled by where the host renders this component.
+     3. The <script runat="server"> Page_Init() block that built 16 font-preload <link> elements
+        (8 Ubuntu faces x woff2/woff) and added them to CDefault.Header.Controls -> the
+        FontPreloads property below, rendered into HeadContent. The original emitted every woff2
+        link before every woff link, and that ordering is kept so the browser still prefers woff2.
+
+   The dnn:DnnJsInclude registration is NOT emitted here: Blazor does not execute <script> elements
+   rendered from inside a component, so the host references ApertureThemeAssets.ScriptHref from its
+   App.razor document instead. *@
+
+<HeadContent>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="@(this.ResolvedSkinPath + "css/skin.min.css")" />
+    @foreach (var preload in this.FontPreloads)
+    {
+        <link rel="preload" as="font" href="@preload.Href" type="@preload.MimeType" crossorigin="anonymous" />
+    }
+</HeadContent>
+
+@code {
+    /// <summary>The Ubuntu faces the theme preloads, in the order declared by the original control.</summary>
+    private static readonly string[] FontFaces =
+    [
+        "fonts/Ubuntu-Bold",
+        "fonts/Ubuntu-BoldItalic",
+        "fonts/Ubuntu-Italic",
+        "fonts/Ubuntu-Light",
+        "fonts/Ubuntu-LightItalic",
+        "fonts/Ubuntu-Medium",
+        "fonts/Ubuntu-MediumItalic",
+        "fonts/Ubuntu-Regular",
+    ];
+
+    /// <summary>The font formats to preload, mapped to their MIME type, woff2 first.</summary>
+    private static readonly (string Extension, string MimeType)[] FontFormats =
+    [
+        ("woff2", "font/woff2"),
+        ("woff", "font/woff"),
+    ];
+
+    private IReadOnlyList<FontPreload> fontPreloads = [];
+
+    [Inject]
+    private IApertureSkinContext SkinContext { get; set; } = default!;
+
+    /// <summary>
+    /// Gets or sets the base path of the theme's assets, including a trailing slash.
+    /// </summary>
+    /// <remarks>
+    /// Replaces the WebForms <c>SkinPath</c> property that the original <c>Page_Init</c> prefixed
+    /// onto every font href. When left unset the value supplied by
+    /// <see cref="IApertureSkinContext.SkinPath"/> is used.
+    /// </remarks>
+    [Parameter]
+    public string? SkinPath { get; set; }
+
+    /// <summary>Gets the effective asset base path for this render.</summary>
+    private string ResolvedSkinPath =>
+        string.IsNullOrEmpty(this.SkinPath) ? this.SkinContext.SkinPath : this.SkinPath;
+
+    /// <summary>Gets the font preload links to emit into the document head.</summary>
+    private IReadOnlyList<FontPreload> FontPreloads => this.fontPreloads;
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        var skinPath = this.ResolvedSkinPath;
+        var preloads = new List<FontPreload>(FontFormats.Length * FontFaces.Length);
+
+        foreach (var (extension, mimeType) in FontFormats)
+        {
+            foreach (var face in FontFaces)
+            {
+                preloads.Add(new FontPreload($"{skinPath}{face}.{extension}", mimeType));
+            }
+        }
+
+        this.fontPreloads = preloads;
+    }
+
+    /// <summary>A single font-preload link.</summary>
+    /// <param name="Href">The font file path.</param>
+    /// <param name="MimeType">The font MIME type, for example <c>font/woff2</c>.</param>
+    private readonly record struct FontPreload(string Href, string MimeType);
+}

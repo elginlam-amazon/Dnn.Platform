@@ -28,9 +28,7 @@ namespace log4net.Appender
     /// </summary>
     /// <author>Nicko Cadell</author>
     public class AppenderCollection : ICollection, IList, IEnumerable
-#if !NETSTANDARD1_3
         , ICloneable
-#endif
     {
         /// <summary>
         /// Supports type-safe iteration over a <see cref="AppenderCollection"/>.

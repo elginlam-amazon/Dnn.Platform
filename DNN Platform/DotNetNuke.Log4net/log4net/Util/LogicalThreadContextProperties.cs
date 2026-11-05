@@ -18,17 +18,9 @@
 // limitations under the License.
 // 
 
-// .NET Compact Framework 1.0 has no support for System.Runtime.Remoting.Messaging.CallContext
-#if !NETCF
-
 using System;
-#if !NETSTANDARD
-using System.Runtime.Remoting.Messaging;
-#endif
 using System.Security;
-#if NETSTANDARD
 using System.Threading;
-#endif
 
 namespace log4net.Util
 {
@@ -39,32 +31,23 @@ namespace log4net.Util
     /// The class is not synchronized as each thread has its own <see cref="PropertiesDictionary"/>.
     /// </para>
     /// <para>
-    /// This class stores its properties in a slot on the <see cref="CallContext"/> named
-    /// <c>log4net.Util.LogicalThreadContextProperties</c>.
+    /// This class stores its properties in an <see cref="AsyncLocal{T}"/>, so the
+    /// values flow with the asynchronous control flow (across <c>await</c> points and
+    /// into child tasks) just as the legacy logical call context slot
+    /// <c>log4net.Util.LogicalThreadContextProperties</c> did.
     /// </para>
     /// <para>
-    /// For .NET Standard 1.3 this class uses
-    /// System.Threading.AsyncLocal rather than <see
-    /// cref="System.Runtime.Remoting.Messaging.CallContext"/>.
-    /// </para>
-    /// <para>
-    /// The <see cref="CallContext"/> requires a link time 
-    /// <see cref="System.Security.Permissions.SecurityPermission"/> for the
-    /// <see cref="System.Security.Permissions.SecurityPermissionFlag.Infrastructure"/>.
-    /// If the calling code does not have this permission then this context will be disabled.
-    /// It will not store any property values set on it.
+    /// The stored dictionary is treated as immutable: every mutation stores a copy
+    /// (copy-on-write) so that values already captured by another control flow are
+    /// never changed underneath it.
     /// </para>
     /// </remarks>
     /// <author>Nicko Cadell</author>
     public sealed class LogicalThreadContextProperties : ContextPropertiesBase
     {
-#if NETSTANDARD
         private static readonly AsyncLocal<PropertiesDictionary> AsyncLocalDictionary = new AsyncLocal<PropertiesDictionary>();
-#else
-        private const string c_SlotName = "log4net.Util.LogicalThreadContextProperties";
-#endif
-        
-        /// <summary>Flag used to disable this context if we don't have permission to access the CallContext.</summary>
+
+        /// <summary>Flag used to disable this context if the backing store cannot be accessed.</summary>
         private bool m_disabled = false;
 
         /// <summary>Constructor</summary>
@@ -102,8 +85,8 @@ namespace log4net.Util
             {
                 // Force the dictionary to be created
                 PropertiesDictionary props = this.GetProperties(true);
-                // Reason for cloning the dictionary below: object instances set on the CallContext
-                // need to be immutable to correctly flow through async/await
+                // Reason for cloning the dictionary below: object instances held in the
+                // async-local store need to be immutable to correctly flow through async/await
                 PropertiesDictionary immutableProps = new PropertiesDictionary(props);
                 immutableProps[key] = value;
                 SetLogicalProperties(immutableProps);
@@ -144,7 +127,7 @@ namespace log4net.Util
             }
         }
 
-        /// <summary>Get the PropertiesDictionary stored in the LocalDataStoreSlot for this thread.</summary>
+        /// <summary>Get the PropertiesDictionary stored in the async-local store for the current control flow.</summary>
         /// <param name="create">create the dictionary if it does not exist, otherwise return null if is does not exist</param>
         /// <returns>the properties for this thread</returns>
         /// <remarks>
@@ -171,9 +154,9 @@ namespace log4net.Util
                 catch (SecurityException secEx)
                 {
                     this.m_disabled = true;
-                    
-                    // Thrown if we don't have permission to read or write the CallContext
-                    LogLog.Warn(declaringType, "SecurityException while accessing CallContext. Disabling LogicalThreadContextProperties", secEx);
+
+                    // Thrown if we don't have permission to read or write the async-local store
+                    LogLog.Warn(declaringType, "SecurityException while accessing the logical thread context store. Disabling LogicalThreadContextProperties", secEx);
                 }
             }
             
@@ -185,46 +168,22 @@ namespace log4net.Util
             return null;
         }
 
-        /// <summary>Gets the call context get data.</summary>
-        /// <returns>The peroperties dictionary stored in the call context</returns>
-        /// <remarks>
-        /// The <see cref="CallContext"/> method <see cref="CallContext.GetData"/> has a
-        /// security link demand, therfore we must put the method call in a seperate method
-        /// that we can wrap in an exception handler.
-        /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [SecuritySafeCritical]
-#endif
+        /// <summary>Gets the dictionary held in the async-local store.</summary>
+        /// <returns>The properties dictionary flowing with the current control flow, or <c>null</c>.</returns>
         private static PropertiesDictionary GetLogicalProperties()
         {
-#if NETSTANDARD
             return AsyncLocalDictionary.Value;
-#elif NET_2_0 || MONO_2_0 || MONO_3_5 || MONO_4_0
-            return CallContext.LogicalGetData(c_SlotName) as PropertiesDictionary;
-#else
-            return CallContext.GetData(c_SlotName) as PropertiesDictionary;
-#endif
         }
 
-        /// <summary>Sets the call context data.</summary>
+        /// <summary>Sets the dictionary held in the async-local store.</summary>
         /// <param name="properties">The properties.</param>
         /// <remarks>
-        /// The <see cref="CallContext"/> method <see cref="CallContext.SetData"/> has a
-        /// security link demand, therfore we must put the method call in a seperate method
-        /// that we can wrap in an exception handler.
+        /// The dictionary passed in must not be mutated afterwards; callers create a
+        /// copy first (copy-on-write) so that already-captured flows are unaffected.
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [SecuritySafeCritical]
-#endif
         private static void SetLogicalProperties(PropertiesDictionary properties)
         {
-#if NETSTANDARD
             AsyncLocalDictionary.Value = properties;
-#elif NET_2_0 || MONO_2_0 || MONO_3_5 || MONO_4_0
-            CallContext.LogicalSetData(c_SlotName, properties);
-#else
-            CallContext.SetData(c_SlotName, properties);
-#endif
         }
 
         /// <summary>The fully qualified type of the LogicalThreadContextProperties class.</summary>
@@ -235,5 +194,3 @@ namespace log4net.Util
         private static readonly Type declaringType = typeof(LogicalThreadContextProperties);
     }
 }
-
-#endif

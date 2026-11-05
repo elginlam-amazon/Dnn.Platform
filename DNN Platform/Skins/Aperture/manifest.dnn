@@ -21,20 +21,20 @@
             <basePath>Portals\_default\Skins\Aperture\</basePath>
             <skinName>Aperture</skinName>
 
-            <!-- Main Directory -->
+            <!-- Theme preview images, now published as static web assets under wwwroot/images -->
             <skinFile>
-              <path/>
+              <path>images</path>
               <name>default.png</name>
             </skinFile>
             <skinFile>
-              <path/>
+              <path>images</path>
               <name>thumbnail_default.png</name>
             </skinFile>
 
           </skinFiles>
         </component>
 
-        <!-- Skins Folder -->
+        <!-- Skins Folder: compiled CSS, JS, fonts and images from wwwroot -->
         <component type="ResourceFile">
           <resourceFiles>
             <basePath>Portals\_default\Skins\Aperture\</basePath>
@@ -44,15 +44,13 @@
           </resourceFiles>
         </component>
 
-        <!-- Containers Folder -->
-        <component type="ResourceFile">
-          <resourceFiles>
-            <basePath>Portals\_default\Containers\Aperture\</basePath>
-            <resourceFile>
-              <name>container.zip</name>
-            </resourceFile>
-          </resourceFiles>
-        </component>
+        <!--
+          The skin layouts, containers, partials and menu templates are no longer deployable
+          .ascx/.cshtml files. They are Blazor components (ApertureLayout, PopUpSkinLayout,
+          Containers/NoneContainer, Containers/TitleContainer, Partials/*, Menus/*) compiled into
+          Dnn.Skins.Aperture.dll, which the host references as a Razor class library, so there is no
+          container.zip component any more.
+        -->
 
         <!-- Ensure MIME types are mapped -->
         <component type="Config">

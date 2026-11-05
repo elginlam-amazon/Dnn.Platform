@@ -129,22 +129,14 @@ namespace log4net.Appender
             //
             // Write the string to the Trace system
             //
-#if NETCF
-            System.Diagnostics.Debug.Write(RenderLoggingEvent(loggingEvent), m_category.Format(loggingEvent));
-#else
             System.Diagnostics.Trace.Write(this.RenderLoggingEvent(loggingEvent), this.m_category.Format(loggingEvent));
-#endif
      
             //
             // Flush the Trace system if needed
             //
             if (this.m_immediateFlush) 
             {
-#if NETCF
-                System.Diagnostics.Debug.Flush();
-#else
                 System.Diagnostics.Trace.Flush();
-#endif
             } 
         }
 
@@ -192,11 +184,7 @@ namespace log4net.Appender
             }
 
             // System.Diagnostics.Trace and System.Diagnostics.Debug are thread-safe, so no need for lock(this).
-#if NETCF
-            System.Diagnostics.Debug.Flush();
-#else
             System.Diagnostics.Trace.Flush();
-#endif
             return true;
         }
     }

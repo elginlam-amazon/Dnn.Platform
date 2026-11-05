@@ -1,0 +1,15 @@
+@* Ported from popUpSkin.ascx — the minimal skin DNN uses for modal/popup pages.
+
+   The original was two server-side include directives plus a single ContentPane:
+     <!--#include file="partials/_registers-popUpSkin.ascx" -->  -> @using entries in _Imports.razor
+     <!--#include file="partials/_includes-popUpSkin.ascx" -->   -> the PopUpIncludes component
+     <div id="ContentPane" runat="server" />                     -> @Body, the primary module pane
+
+   It deliberately renders no header, footer or theme chrome. *@
+@inherits LayoutComponentBase
+
+<PopUpIncludes />
+
+<div id="ContentPane">
+    @this.Body
+</div>

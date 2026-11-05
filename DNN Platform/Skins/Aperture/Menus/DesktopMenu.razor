@@ -1,0 +1,34 @@
+@* Ported from menus/desktop/RazorMenu.cshtml (+ menus/desktop/menudef.xml, which only pointed the
+   DDRMenu template engine at that template and has no Blazor equivalent).
+
+   The original inherited DotNetNuke.Web.Razor.DotNetNukeWebPage<dynamic> and bound to
+   Model.Source.root.Children, which DDRMenu populated from the portal page tree according to the
+   NodeSelector on the dnn:MENU skin object. Those nodes now arrive through IApertureMenuProvider. *@
+@inject IApertureMenuProvider MenuProvider
+
+<ul class="desktop-menu h-100 @this.CssClass" id="nav-desktop">
+    <DesktopMenuItems Pages="this.nodes" />
+</ul>
+
+@code {
+    private IReadOnlyList<ApertureMenuNode> nodes = [];
+
+    /// <summary>Gets or sets the CSS class applied to the menu element.</summary>
+    /// <remarks>Replaces the <c>CssClass</c> attribute of the <c>dnn:MENU</c> skin object.</remarks>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the DDRMenu node selector that scopes the rendered nodes.</summary>
+    /// <remarks>
+    /// Defaults to <c>*,0,2</c>, the value declared for <c>menu_desktop</c> in
+    /// <c>partials/_header.ascx</c>.
+    /// </remarks>
+    [Parameter]
+    public string NodeSelector { get; set; } = "*,0,2";
+
+    /// <inheritdoc />
+    protected override async Task OnParametersSetAsync()
+    {
+        this.nodes = await this.MenuProvider.GetNodesAsync(this.NodeSelector);
+    }
+}

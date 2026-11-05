@@ -42,18 +42,29 @@ namespace log4net.Util.PatternStringConverters
         /// </remarks>
         protected override void Convert(TextWriter writer, object state) 
         {
-#if (NETCF || SSCLI || NETSTANDARD1_3)
-            // On compact framework there's no notion of current Windows user
-            writer.Write( SystemInfo.NotAvailableText );
-#else
+            if (!OperatingSystem.IsWindows())
+            {
+                // There is no Windows identity on non-Windows platforms. Fall back to the
+                // process user name, which is the closest equivalent, rather than throwing
+                // PlatformNotSupportedException from inside the layout.
+                string userName = Environment.UserName;
+                writer.Write(string.IsNullOrEmpty(userName) ? SystemInfo.NotAvailableText : userName);
+                return;
+            }
+
             try
             {
-                System.Security.Principal.WindowsIdentity windowsIdentity = null;
-                windowsIdentity = System.Security.Principal.WindowsIdentity.GetCurrent();
-                if (windowsIdentity != null && windowsIdentity.Name != null)
+                using (System.Security.Principal.WindowsIdentity windowsIdentity = System.Security.Principal.WindowsIdentity.GetCurrent())
                 {
-                    writer.Write(windowsIdentity.Name);
+                    if (windowsIdentity != null && windowsIdentity.Name != null)
+                    {
+                        writer.Write(windowsIdentity.Name);
+                    }
                 }
+            }
+            catch (PlatformNotSupportedException)
+            {
+                writer.Write(SystemInfo.NotAvailableText);
             }
             catch(System.Security.SecurityException)
             {
@@ -63,7 +74,6 @@ namespace log4net.Util.PatternStringConverters
 
                 writer.Write(SystemInfo.NotAvailableText);
             }
-#endif
         }
 
         /// <summary>The fully qualified type of the UserNamePatternConverter class.</summary>

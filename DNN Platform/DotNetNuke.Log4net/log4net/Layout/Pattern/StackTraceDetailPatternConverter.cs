@@ -18,7 +18,6 @@
 // limitations under the License.
 // 
 
-#if !NETCF && (NET_2_0 || NETSTANDARD2_0)
 
 using System;
 using System.Text;
@@ -79,4 +78,3 @@ namespace log4net.Layout.Pattern
         private static readonly Type declaringType = typeof(StackTracePatternConverter);
     }
 }
-#endif // !NETCF && NET_2_0

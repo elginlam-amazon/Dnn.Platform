@@ -18,16 +18,10 @@
 // limitations under the License.
 // 
 
-// MONO 1.0 has no support for Win32 Error APIs
-#if !MONO
-// SSCLI 1.0 has no support for Win32 Error APIs
-#if !SSCLI
-// We don't want framework or platform specific code in the CLI version of log4net
-#if !CLI_1_0
-
 using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 namespace log4net.Util 
 {
@@ -97,12 +91,6 @@ namespace log4net.Util
         /// native Win32 <c>FormatMessage</c> function.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecuritySafeCritical]
-#endif
-#if !NETCF && !NETSTANDARD1_3
-        [System.Security.Permissions.SecurityPermission(System.Security.Permissions.SecurityAction.Demand, UnmanagedCode = true)]
-#endif
         public static NativeError GetLastError() 
         {
             int number = Marshal.GetLastWin32Error();
@@ -137,12 +125,6 @@ namespace log4net.Util
         /// using the native <c>FormatMessage</c> function.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecuritySafeCritical]
-#endif
-#if !NETCF && !NETSTANDARD1_3
-        [System.Security.Permissions.SecurityPermission(System.Security.Permissions.SecurityAction.Demand, UnmanagedCode = true)]
-#endif
         public static string GetErrorMessage(int messageId) 
         {
             // Win32 constants
@@ -154,7 +136,14 @@ namespace log4net.Util
             IntPtr sourcePtr = IntPtr.Zero;	// Location of the message definition, will be ignored
             IntPtr argumentsPtr = IntPtr.Zero;	// Pointer to array of values to insert, not supported as it requires unsafe code
 
-            if (messageId != 0) 
+            if (messageId != 0 && !OperatingSystem.IsWindows())
+            {
+                // The native FormatMessage function is Windows only. On other platforms
+                // fall back to the numeric error text so callers still get a usable message.
+                return string.Format(CultureInfo.InvariantCulture, "Native error 0x{0:x8} ({1})", messageId, messageId);
+            }
+
+            if (messageId != 0 && OperatingSystem.IsWindows()) 
             {
                 // If the function succeeds, the return value is the number of TCHARs stored in the output buffer, excluding the terminating null character
                 int messageSize = FormatMessage(
@@ -229,11 +218,8 @@ namespace log4net.Util
         /// call <see cref="M:Marshal.GetLastWin32Error()" />.
         /// </para>
         /// </returns>
-#if NETCF || NETSTANDARD
-        [DllImport("CoreDll.dll", SetLastError=true, CharSet=CharSet.Unicode)]
-#else
+        [SupportedOSPlatform("windows")]
         [DllImport("Kernel32.dll", SetLastError=true, CharSet=CharSet.Auto)]
-#endif
         private static extern int FormatMessage(
             int dwFlags, 
             ref IntPtr lpSource, 
@@ -247,7 +233,3 @@ namespace log4net.Util
         private string m_message;
     }
 }
-
-#endif // !CLI_1_0
-#endif // !SSCLI
-#endif // !MONO

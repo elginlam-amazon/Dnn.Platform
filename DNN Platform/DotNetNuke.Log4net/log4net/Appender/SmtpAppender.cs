@@ -18,19 +18,11 @@
 // limitations under the License.
 // 
 
-#if NET_2_0 || NETSTANDARD2_0
-// SSCLI 1.0 has no support for System.Web.Mail
-#if !NETCF && !SSCLI
-
 using System;
 using System.IO;
 using System.Text;
 
-#if NET_2_0 || MONO_2_0 || NETSTANDARD2_0
 using System.Net.Mail;
-#else
-using System.Web.Mail;
-#endif
 
 using log4net.Core;
 
@@ -83,18 +75,12 @@ namespace log4net.Appender
         /// <summary>Gets or sets a comma- or semicolon-delimited list of recipient e-mail addresses (use semicolon on .NET 1.1 and comma for later versions).</summary>
         /// <value>
         /// <para>
-        /// For .NET 1.1 (System.Web.Mail): A semicolon-delimited list of e-mail addresses.
-        /// </para>
-        /// <para>
-        /// For .NET 2.0 (System.Net.Mail): A comma-delimited list of e-mail addresses.
+        /// A comma-delimited list of e-mail addresses (System.Net.Mail).
         /// </para>
         /// </value>
         /// <remarks>
         /// <para>
-        /// For .NET 1.1 (System.Web.Mail): A semicolon-delimited list of e-mail addresses.
-        /// </para>
-        /// <para>
-        /// For .NET 2.0 (System.Net.Mail): A comma-delimited list of e-mail addresses.
+        /// A comma-delimited list of e-mail addresses (System.Net.Mail).
         /// </para>
         /// </remarks>
         public string To
@@ -109,18 +95,12 @@ namespace log4net.Appender
         /// </summary>
         /// <value>
         /// <para>
-        /// For .NET 1.1 (System.Web.Mail): A semicolon-delimited list of e-mail addresses.
-        /// </para>
-        /// <para>
-        /// For .NET 2.0 (System.Net.Mail): A comma-delimited list of e-mail addresses.
+        /// A comma-delimited list of e-mail addresses (System.Net.Mail).
         /// </para>
         /// </value>
         /// <remarks>
         /// <para>
-        /// For .NET 1.1 (System.Web.Mail): A semicolon-delimited list of e-mail addresses.
-        /// </para>
-        /// <para>
-        /// For .NET 2.0 (System.Net.Mail): A comma-delimited list of e-mail addresses.
+        /// A comma-delimited list of e-mail addresses (System.Net.Mail).
         /// </para>
         /// </remarks>
         public string Cc
@@ -297,11 +277,7 @@ namespace log4net.Appender
             set { this.m_mailPriority = value; }
         }
 
-#if NET_2_0 || MONO_2_0 || NETSTANDARD2_0
         /// <summary>Enable or disable use of SSL when sending e-mail message</summary>
-        /// <remarks>
-        /// This is available on MS .NET 2.0 runtime and higher
-        /// </remarks>
         public bool EnableSsl
         {
             get { return this.m_enableSsl; }
@@ -309,15 +285,11 @@ namespace log4net.Appender
         }
 
         /// <summary>Gets or sets the reply-to e-mail address.</summary>
-        /// <remarks>
-        /// This is available on MS .NET 2.0 runtime and higher
-        /// </remarks>
         public string ReplyTo
         {
             get { return this.m_replyTo; }
             set { this.m_replyTo = value; }
         }
-#endif
 
         /// <summary>Gets or sets the subject encoding to be used.</summary>
         /// <remarks>
@@ -392,18 +364,12 @@ namespace log4net.Appender
         /// <param name="messageBody">the body text to include in the mail</param>
         protected virtual void SendEmail(string messageBody)
         {
-#if NET_2_0 || MONO_2_0 || NETSTANDARD2_0
-            // .NET 2.0 has a new API for SMTP email System.Net.Mail
-            // This API supports credentials and multiple hosts correctly.
-            // The old API is deprecated.
+            // System.Net.Mail is the supported SMTP API; it handles credentials,
+            // explicit ports and SSL correctly.
 
             // Create and configure the smtp client
-#if NET_4_0 || MONO_4_0 || NETSTANDARD2_0
             using (var smtpClient = new SmtpClient())
             {
-#else
-            SmtpClient smtpClient = new SmtpClient();
-#endif
                 if (!String.IsNullOrEmpty(this.m_smtpHost))
                 {
                     smtpClient.Host = this.m_smtpHost;
@@ -442,13 +408,9 @@ namespace log4net.Appender
 
                     if (!String.IsNullOrEmpty(this.m_replyTo))
                     {
-                        // .NET 4.0 warning CS0618: 'System.Net.Mail.MailMessage.ReplyTo' is obsolete:
-                        // 'ReplyTo is obsoleted for this type.  Please use ReplyToList instead which can accept multiple addresses. http://go.microsoft.com/fwlink/?linkid=14202'
-#if !NET_4_0 && !MONO_4_0 && !NETSTANDARD2_0
-                    mailMessage.ReplyTo = new MailAddress(m_replyTo);
-#else
+                        // MailMessage.ReplyTo is obsolete on modern .NET; ReplyToList supports
+                        // multiple addresses and is the supported replacement.
                         mailMessage.ReplyToList.Add(new MailAddress(this.m_replyTo));
-#endif
                     }
 
                     mailMessage.Subject = this.m_subject;
@@ -459,86 +421,7 @@ namespace log4net.Appender
                     // behaviour compared to .NET 1.x. We would need a SendCompletedCallback to log errors.
                     smtpClient.Send(mailMessage);
                 }
-#else
-                // .NET 1.x uses the System.Web.Mail API for sending Mail
-
-                MailMessage mailMessage = new MailMessage();
-                mailMessage.Body = messageBody;
-                mailMessage.BodyEncoding = m_bodyEncoding;
-                mailMessage.From = m_from;
-                mailMessage.To = m_to;
-                if (m_cc != null && m_cc.Length > 0)
-                {
-                    mailMessage.Cc = m_cc;
-                }
-                if (m_bcc != null && m_bcc.Length > 0)
-                {
-                    mailMessage.Bcc = m_bcc;
-                }
-                mailMessage.Subject = m_subject;
-#if !MONO && !NET_1_0 && !NET_1_1 && !CLI_1_0
-                mailMessage.SubjectEncoding = m_subjectEncoding;
-#endif
-                mailMessage.Priority = m_mailPriority;
-
-#if NET_1_1
-                // The Fields property on the MailMessage allows the CDO properties to be set directly.
-                // This property is only available on .NET Framework 1.1 and the implementation must understand
-                // the CDO properties. For details of the fields available in CDO see:
-                //
-                // http://msdn.microsoft.com/library/default.asp?url=/library/en-us/cdosys/html/_cdosys_configuration_coclass.asp
-                // 
-
-                try
-                {
-                    if (m_authentication == SmtpAuthentication.Basic)
-                    {
-                        // Perform basic authentication
-                        mailMessage.Fields.Add("http://schemas.microsoft.com/cdo/configuration/smtpauthenticate", 1);
-                        mailMessage.Fields.Add("http://schemas.microsoft.com/cdo/configuration/sendusername", m_username);
-                        mailMessage.Fields.Add("http://schemas.microsoft.com/cdo/configuration/sendpassword", m_password);
-                    }
-                    else if (m_authentication == SmtpAuthentication.Ntlm)
-                    {
-                        // Perform integrated authentication (NTLM)
-                        mailMessage.Fields.Add("http://schemas.microsoft.com/cdo/configuration/smtpauthenticate", 2);
-                    }
-
-                    // Set the port if not the default value
-                    if (m_port != 25) 
-                    {
-                        mailMessage.Fields.Add("http://schemas.microsoft.com/cdo/configuration/smtpserverport", m_port);
-                    }
-                }
-                catch(MissingMethodException missingMethodException)
-                {
-                    // If we were compiled against .NET 1.1 but are running against .NET 1.0 then
-                    // we will get a MissingMethodException when accessing the MailMessage.Fields property.
-
-                    ErrorHandler.Error("SmtpAppender: Authentication and server Port are only supported when running on the MS .NET 1.1 framework", missingMethodException);
-                }
-#else
-                if (m_authentication != SmtpAuthentication.None)
-                {
-                    ErrorHandler.Error("SmtpAppender: Authentication is only supported on the MS .NET 1.1 or MS .NET 2.0 builds of log4net");
-                }
-
-                if (m_port != 25)
-                {
-                    ErrorHandler.Error("SmtpAppender: Server Port is only supported on the MS .NET 1.1 or MS .NET 2.0 builds of log4net");
-                }
-#endif // if NET_1_1
-
-                if (m_smtpHost != null && m_smtpHost.Length > 0)
-                {
-                    SmtpMail.SmtpServer = m_smtpHost;
-                }
-
-                SmtpMail.Send(mailMessage);
-#endif // if NET_2_0
-#if NET_4_0 || MONO_4_0 || NETSTANDARD2_0
             }
-#endif
         }
 
         private string m_to;
@@ -560,10 +443,8 @@ namespace log4net.Appender
 
         private MailPriority m_mailPriority = MailPriority.Normal;
 
-#if NET_2_0 || MONO_2_0 || NETSTANDARD2_0
         private bool m_enableSsl = false;
         private string m_replyTo;
-#endif
 
         /// <summary>Values for the <see cref="SmtpAppender.Authentication"/> property.</summary>
         /// <remarks>
@@ -593,14 +474,7 @@ namespace log4net.Appender
             
             /// <summary>  trims leading and trailing commas or semicolons</summary>
             private static string MaybeTrimSeparators(string s) {
-#if NET_2_0 || MONO_2_0 || NETSTANDARD2_0
                 return string.IsNullOrEmpty(s) ? s : s.Trim(ADDRESS_DELIMITERS);
-#else
-                return s != null && s.Length > 0 ? s : s.Trim(ADDRESS_DELIMITERS);
-#endif
             }
         }
 }
-
-#endif // !NETCF && !SSCLI
-#endif // NET_2_0

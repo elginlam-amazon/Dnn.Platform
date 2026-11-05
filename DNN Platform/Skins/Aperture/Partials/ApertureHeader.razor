@@ -1,0 +1,26 @@
+@* Declared in the root namespace so the root _Imports.razor resolves this component by tag
+   name: a namespace created only by generated Razor components is not visible during the Razor
+   declaration pass. *@
+@namespace Dnn.Skins.Aperture
+@* Ported from partials/_header.ascx. Every element, class name and skin object of the original is
+   preserved:
+     dnn:Login / dnn:User  -> ApertureLoginLink / ApertureUserLink (authentication-dependent)
+     dnn:LOGO InjectSvg    -> ApertureLogoLink InjectSvg="true"
+     dnn:MENU menus/desktop, NodeSelector="*,0,2", CssClass="aperture-d-none aperture-d-md-block"
+     dnn:MENU menus/mobile,  NodeSelector="*,0,2", CssClass="aperture-d-flex aperture-d-md-none" *@
+
+<header class="aperture-header">
+    <div class="eyebrow-bar">
+        <div class="aperture-container">
+            <ApertureLoginLink />
+            <ApertureUserLink />
+        </div>
+    </div>
+    <div class="logo-menu-bar">
+        <div class="aperture-container">
+            <ApertureLogoLink InjectSvg="true" />
+            <DesktopMenu CssClass="aperture-d-none aperture-d-md-block" NodeSelector="*,0,2" />
+            <MobileMenu CssClass="aperture-d-flex aperture-d-md-none" NodeSelector="*,0,2" />
+        </div>
+    </div>
+</header>

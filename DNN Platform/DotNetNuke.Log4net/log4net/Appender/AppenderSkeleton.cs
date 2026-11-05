@@ -304,17 +304,6 @@ namespace log4net.Appender
                 {
                     this.ErrorHandler.Error("Failed in DoAppend", ex);
                 }
-#if !MONO && !NET_2_0 && !NETSTANDARD
-                // on .NET 2.0 (and higher) and Mono (all profiles), 
-                // exceptions that do not derive from System.Exception will be
-                // wrapped in a RuntimeWrappedException by the runtime, and as
-                // such will be catched by the catch clause above
-                catch
-                {
-                    // Catch handler for non System.Exception types
-                    ErrorHandler.Error("Failed in DoAppend (unknown exception)");
-                }
-#endif
                 finally
                 {
                     this.m_recursiveGuard = false;
@@ -407,17 +396,6 @@ namespace log4net.Appender
                 {
                     this.ErrorHandler.Error("Failed in Bulk DoAppend", ex);
                 }
-#if !MONO && !NET_2_0 && !NETSTANDARD
-                // on .NET 2.0 (and higher) and Mono (all profiles), 
-                // exceptions that do not derive from System.Exception will be
-                // wrapped in a RuntimeWrappedException by the runtime, and as
-                // such will be catched by the catch clause above
-                catch
-                {
-                    // Catch handler for non System.Exception types
-                    ErrorHandler.Error("Failed in Bulk DoAppend (unknown exception)");
-                }
-#endif
                 finally
                 {
                     this.m_recursiveGuard = false;

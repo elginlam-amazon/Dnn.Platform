@@ -1,2 +1,7 @@
 node_modules/
 temp/
+artifacts/
+wwwroot/css/*.css
+wwwroot/css/*.css.map
+wwwroot/js/*.js
+wwwroot/js/*.js.map

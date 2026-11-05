@@ -20,10 +20,9 @@
 
 using System;
 using System.Collections;
-#if NETSTANDARD1_3
-using System.Reflection;
-#endif
+using System.Collections.Concurrent;
 using System.Runtime.Serialization;
+using System.Text.Json;
 using System.Xml;
 
 namespace log4net.Util
@@ -34,19 +33,21 @@ namespace log4net.Util
     /// This collection is readonly and cannot be modified.
     /// </para>
     /// <para>
-    /// While this collection is serializable only member 
-    /// objects that are serializable will
-    /// be serialized along with this collection.
+    /// While this collection is serializable only member
+    /// objects that <c>System.Text.Json</c> can serialize will
+    /// be serialized along with this collection. Formatter-based (binary)
+    /// serialization is no longer supported on modern .NET, so JSON capability
+    /// rather than the <c>[Serializable]</c> marker decides what is carried.
     /// </para>
     /// </remarks>
     /// <author>Nicko Cadell</author>
     /// <author>Gert Driesen</author>
-#if NETCF
-    public class ReadOnlyPropertiesDictionary : IDictionary
-#else
-    [Serializable] public class ReadOnlyPropertiesDictionary : ISerializable, IDictionary
-#endif
+    [Serializable]
+    public class ReadOnlyPropertiesDictionary : ISerializable, IDictionary
     {
+        /// <summary>Caches, per type, whether <c>System.Text.Json</c> can serialize it.</summary>
+        private static readonly ConcurrentDictionary<Type, bool> JsonSerializableTypes = new ConcurrentDictionary<Type, bool>();
+
         /// <summary>The Hashtable used to store the properties data</summary>
         private readonly Hashtable m_hashtable = new Hashtable();
 
@@ -75,7 +76,6 @@ namespace log4net.Util
             }
         }
 
-#if !NETCF
         /// <summary>Deserialization constructor</summary>
         /// <param name="info">The <see cref="SerializationInfo" /> that holds the serialized object data.</param>
         /// <param name="context">The <see cref="StreamingContext" /> that contains contextual information about the source or destination.</param>
@@ -93,7 +93,6 @@ namespace log4net.Util
                 this.InnerHashtable[XmlConvert.DecodeName(entry.Name)] = entry.Value;
             }
         }
-#endif
 
         /// <summary>Gets the key names.</summary>
         /// <returns>An array of all the keys.</returns>
@@ -154,7 +153,6 @@ namespace log4net.Util
             get { return this.m_hashtable; }
         }
 
-#if !NETCF
         /// <summary>Serializes this object into the <see cref="SerializationInfo" /> provided.</summary>
         /// <param name="info">The <see cref="SerializationInfo" /> to populate with data.</param>
         /// <param name="context">The destination for this serialization.</param>
@@ -162,13 +160,12 @@ namespace log4net.Util
         /// <para>
         /// Serializes this object into the <see cref="SerializationInfo" /> provided.
         /// </para>
+        /// <para>
+        /// Only values that <c>System.Text.Json</c> is able to serialize are included;
+        /// the rest are skipped, exactly as non-<c>[Serializable]</c> values were skipped
+        /// under the former formatter-based serialization.
+        /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecurityCritical]
-#endif
-#if !NETCF && !NETSTANDARD1_3
-        [System.Security.Permissions.SecurityPermission(System.Security.Permissions.SecurityAction.Demand, SerializationFormatter = true)]
-#endif
         public virtual void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             foreach(DictionaryEntry entry in this.InnerHashtable.Clone() as IDictionary)
@@ -181,13 +178,8 @@ namespace log4net.Util
 
                 var entryValue = entry.Value;
 
-                // If value is serializable then we add it to the list
-#if NETSTANDARD1_3
-                var isSerializable = entryValue?.GetType().GetTypeInfo().IsSerializable ?? false;
-#else
-                var isSerializable = entryValue?.GetType().IsSerializable ?? false;
-#endif
-                if (!isSerializable)
+                // If the value can be serialized then we add it to the list
+                if (!IsJsonSerializable(entryValue))
                 {
                     continue;
                 }
@@ -203,7 +195,41 @@ namespace log4net.Util
                 }
             }
         }
-#endif
+
+        /// <summary>
+        /// Determines whether <paramref name="value" /> can be serialized by
+        /// <c>System.Text.Json</c>, which is the serializer this collection now uses.
+        /// </summary>
+        /// <param name="value">The value to test. <c>null</c> is not serializable.</param>
+        /// <returns><c>true</c> if the value's type can be serialized to JSON.</returns>
+        /// <remarks>
+        /// This replaces the obsolete <c>Type.IsSerializable</c> test, which only described
+        /// the removed formatter-based serializers. The verdict per type is cached because
+        /// resolving the JSON type info is comparatively expensive.
+        /// </remarks>
+        private static bool IsJsonSerializable(object value)
+        {
+            if (value is null)
+            {
+                return false;
+            }
+
+            return JsonSerializableTypes.GetOrAdd(value.GetType(), static type =>
+            {
+                try
+                {
+                    return JsonSerializerOptions.Default.GetTypeInfo(type) != null;
+                }
+                catch (NotSupportedException)
+                {
+                    return false;
+                }
+                catch (InvalidOperationException)
+                {
+                    return false;
+                }
+            });
+        }
 
         /// <summary>See <see cref="IDictionary.GetEnumerator"/></summary>
         IDictionaryEnumerator IDictionary.GetEnumerator()

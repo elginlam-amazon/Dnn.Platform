@@ -109,7 +109,9 @@ namespace log4net.Layout
     ///             Used to output all cache items in the case of <b>%aspnet-cache</b> or just one named item if used as <b>%aspnet-cache{key}</b>
     ///             </para>
     ///             <para>
-    ///             This pattern is not available for Compact Framework or Client Profile assemblies.
+    ///             Reads the current request through <see cref="log4net.Util.AspNetContextAccessor"/>;
+    ///             renders <see cref="log4net.Util.SystemInfo.NotAvailableText"/> when the host has not
+    ///             supplied an <c>IHttpContextAccessor</c> or no request is in flight.
     ///             </para>
     ///         </description>
     ///     </item>
@@ -120,7 +122,9 @@ namespace log4net.Layout
     ///             Used to output all context items in the case of <b>%aspnet-context</b> or just one named item if used as <b>%aspnet-context{key}</b>
     ///             </para>
     ///             <para>
-    ///             This pattern is not available for Compact Framework or Client Profile assemblies.
+    ///             Reads the current request through <see cref="log4net.Util.AspNetContextAccessor"/>;
+    ///             renders <see cref="log4net.Util.SystemInfo.NotAvailableText"/> when the host has not
+    ///             supplied an <c>IHttpContextAccessor</c> or no request is in flight.
     ///             </para>
     ///         </description>
     ///     </item>
@@ -131,7 +135,9 @@ namespace log4net.Layout
     ///             Used to output all request parameters in the case of <b>%aspnet-request</b> or just one named param if used as <b>%aspnet-request{key}</b>
     ///             </para>
     ///             <para>
-    ///             This pattern is not available for Compact Framework or Client Profile assemblies.
+    ///             Reads the current request through <see cref="log4net.Util.AspNetContextAccessor"/>;
+    ///             renders <see cref="log4net.Util.SystemInfo.NotAvailableText"/> when the host has not
+    ///             supplied an <c>IHttpContextAccessor</c> or no request is in flight.
     ///             </para>
     ///         </description>
     ///     </item>
@@ -142,7 +148,9 @@ namespace log4net.Layout
     ///             Used to output all session items in the case of <b>%aspnet-session</b> or just one named item if used as <b>%aspnet-session{key}</b>
     ///             </para>
     ///             <para>
-    ///             This pattern is not available for Compact Framework or Client Profile assemblies.
+    ///             Reads the current request through <see cref="log4net.Util.AspNetContextAccessor"/>;
+    ///             renders <see cref="log4net.Util.SystemInfo.NotAvailableText"/> when the host has not
+    ///             supplied an <c>IHttpContextAccessor</c> or no request is in flight.
     ///             </para>
     ///         </description>
     ///     </item>
@@ -830,15 +838,6 @@ namespace log4net.Layout
             s_globalRulesRegistry.Add("newline", typeof(NewLinePatternConverter));
             s_globalRulesRegistry.Add("n", typeof(NewLinePatternConverter));
 
-// .NET Compact Framework 1.0 has no support for ASP.NET
-// SSCLI 1.0 has no support for ASP.NET
-#if !NETCF && !SSCLI && !CLIENT_PROFILE && !NETSTANDARD
-            s_globalRulesRegistry.Add("aspnet-cache", typeof(AspNetCachePatternConverter));
-            s_globalRulesRegistry.Add("aspnet-context", typeof(AspNetContextPatternConverter));
-            s_globalRulesRegistry.Add("aspnet-request", typeof(AspNetRequestPatternConverter));
-            s_globalRulesRegistry.Add("aspnet-session", typeof(AspNetSessionPatternConverter));
-#endif
-
             s_globalRulesRegistry.Add("c", typeof(LoggerPatternConverter));
             s_globalRulesRegistry.Add("logger", typeof(LoggerPatternConverter));
 
@@ -876,10 +875,8 @@ namespace log4net.Layout
             s_globalRulesRegistry.Add("r", typeof(RelativeTimePatternConverter));
             s_globalRulesRegistry.Add("timestamp", typeof(RelativeTimePatternConverter));
             
-#if !NETCF && !NETSTANDARD1_3
             s_globalRulesRegistry.Add("stacktrace", typeof(StackTracePatternConverter));
             s_globalRulesRegistry.Add("stacktracedetail", typeof(StackTraceDetailPatternConverter));
-#endif
 
             s_globalRulesRegistry.Add("t", typeof(ThreadPatternConverter));
             s_globalRulesRegistry.Add("thread", typeof(ThreadPatternConverter));
@@ -904,6 +901,15 @@ namespace log4net.Layout
 
             s_globalRulesRegistry.Add("w", typeof(UserNamePatternConverter));
             s_globalRulesRegistry.Add("username", typeof(UserNamePatternConverter));
+
+            // ASP.NET Core pattern keywords. The converters read the current request through
+            // log4net.Util.AspNetContextAccessor (the modern replacement for HttpContext.Current);
+            // when the host has not supplied an IHttpContextAccessor, or there is no request in
+            // flight, they render SystemInfo.NotAvailableText instead of failing.
+            s_globalRulesRegistry.Add("aspnet-cache", typeof(AspNetCachePatternConverter));
+            s_globalRulesRegistry.Add("aspnet-context", typeof(AspNetContextPatternConverter));
+            s_globalRulesRegistry.Add("aspnet-request", typeof(AspNetRequestPatternConverter));
+            s_globalRulesRegistry.Add("aspnet-session", typeof(AspNetSessionPatternConverter));
         }
 
         /// <summary>Constructs a PatternLayout using the DefaultConversionPattern</summary>
