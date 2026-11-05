@@ -4,6 +4,7 @@
 
 namespace DotNetNuke.Web.Client.ResourceManager.Models;
 
+using System.Globalization;
 using System.Net;
 using System.Text;
 
@@ -43,7 +44,7 @@ public class ScriptResource : ResourceBase, IScriptResource
     public override string Render(int crmVersion, bool useCdn, string applicationPath)
     {
         var htmlString = new StringBuilder("<script");
-        htmlString.Append($" src=\"{this.GetVersionedPath(crmVersion, useCdn, applicationPath)}\"");
+        htmlString.Append(CultureInfo.InvariantCulture, $" src=\"{this.GetVersionedPath(crmVersion, useCdn, applicationPath)}\"");
         if (this.Async && !this.Attributes.ContainsKey("async"))
         {
             htmlString.Append(" async");

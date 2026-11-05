@@ -4,6 +4,7 @@
 
 namespace DotNetNuke.Web.Client.ResourceManager.Models;
 
+using System.Globalization;
 using System.Net;
 using System.Text;
 
@@ -32,7 +33,7 @@ public class FontResource : LinkResource, IFontResource
     public override string Render(int crmVersion, bool useCdn, string applicationPath)
     {
         var htmlString = new StringBuilder("<link");
-        htmlString.Append($" href=\"{this.GetVersionedPath(crmVersion, useCdn, applicationPath)}\"");
+        htmlString.Append(CultureInfo.InvariantCulture, $" href=\"{this.GetVersionedPath(crmVersion, useCdn, applicationPath)}\"");
         if (this.Preload && !this.Attributes.ContainsKey("rel") && !this.Attributes.ContainsKey("as"))
         {
             htmlString.Append($" rel=\"preload\" as=\"font\"");

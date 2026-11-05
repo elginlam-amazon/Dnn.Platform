@@ -148,7 +148,7 @@ namespace DotNetNuke.ContentSecurityPolicy
                     contributor.AddHash(quotedValue);
                 }
             }
-            else if (trimmedSource.Contains(":"))
+            else if (trimmedSource.Contains(':'))
             {
                 // Check if it's a scheme
                 if (IsScheme(trimmedSource))

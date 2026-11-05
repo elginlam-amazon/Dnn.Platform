@@ -22,10 +22,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetPreload<T>(this T input)
             where T : ILinkResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Preload = true;
             return input;
@@ -41,10 +38,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetMedia<T>(this T input, string media)
             where T : ILinkResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Media = media;
             return input;
