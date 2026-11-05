@@ -2,35 +2,40 @@
 
   <PropertyGroup>
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
-    <OutputPath>bin</OutputPath>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
     <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <DocumentationFile>bin/$(Configuration)/$(TargetFramework)/DotNetNuke.Web.Client.xml</DocumentationFile>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Dnn.ClientDependency" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.Configuration" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Web.Extensions" />
+    <!-- Microsoft.Extensions.DependencyInjection.Abstractions is supplied by the
+         Microsoft.AspNetCore.App shared framework on net10.0, so no explicit
+         PackageReference is needed (NU1510). -->
+    <PackageReference Include="NUglify" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
     <ProjectReference Include="..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
+    <ProjectReference Include="..\DotNetNuke.DependencyInjection\DotNetNuke.DependencyInjection.csproj" />
     <ProjectReference Include="..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
     <ProjectReference Include="..\DotNetNuke.Web.Client.ResourceManager\DotNetNuke.Web.Client.ResourceManager.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The async-postback client resource loader script, previously emitted inline by the
+         ClientResourceLoader / DnnResources server controls, is now a single static asset. -->
+    <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -39,8 +44,17 @@
   </ItemGroup>
 
   <Import Project="..\..\DNN_Platform.build" />
-  <Target Name="CopyBin" BeforeTargets="Build">
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.Web.Client.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.Web.Client.pdb" DestinationFolder="$(WebsitePath)\bin\" />
+  <!-- Stages this project's output into the website bin. The output layout is now the SDK
+       default (bin/$(Configuration)/net10.0) instead of the flat net48 "bin" folder, and the
+       MSBuild Copy task is used with forward slashes so staging also works on non-Windows. -->
+  <Target Name="CopyBin" AfterTargets="Build" Condition="'$(TargetFramework)' == 'net10.0'">
+    <ItemGroup>
+      <CopyBinStagedFiles Include="$(ProjectDir)bin/$(Configuration)/net10.0/DotNetNuke.Web.Client.dll" />
+      <CopyBinStagedFiles Include="$(ProjectDir)bin/$(Configuration)/net10.0/DotNetNuke.Web.Client.pdb" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CopyBinStagedFiles)" DestinationFolder="$(WebsitePath)/bin" SkipUnchangedFiles="true" />
+    <!-- Stage the client resource loader script into the website's /js folder, which is where the
+         ClientResourceLoader / DnnResources Tag Helpers reference it from (~/js/...). -->
+    <Copy SourceFiles="$(ProjectDir)wwwroot/js/dnn.clientresourceloader.js" DestinationFolder="$(WebsitePath)/js" SkipUnchangedFiles="true" />
   </Target>
 </Project>

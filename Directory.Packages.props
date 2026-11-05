@@ -60,6 +60,7 @@
     <PackageVersion Include="Microsoft.Web.Administration" Version="11.1.0" />
     <PackageVersion Include="Microsoft.Web.Infrastructure" Version="2.0.0" />
     <PackageVersion Include="Moq" Version="4.20.72" />
+    <PackageVersion Include="NUglify" Version="1.21.15" />
     <PackageVersion Include="MimeKit" Version="4.18.0" />
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageVersion Include="NUnit" Version="4.6.1" />
