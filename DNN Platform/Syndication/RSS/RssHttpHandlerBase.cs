@@ -5,8 +5,12 @@ namespace DotNetNuke.Services.Syndication
 {
     using System;
     using System.Diagnostics.CodeAnalysis;
-    using System.Web;
+    using System.Text;
+    using System.Threading.Tasks;
     using System.Xml;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A function which handles the <see cref="RssHttpHandlerBase{TRssChannelType,TRssItemType,TRssImageType}.Init"/> event.</summary>
     /// <param name="source">The event source, i.e. the <see cref="RssHttpHandlerBase{TRssChannelType,TRssItemType,TRssImageType}"/> instance.</param>
@@ -20,11 +24,16 @@ namespace DotNetNuke.Services.Syndication
     [SuppressMessage("Microsoft.Design", "CA1711:IdentifiersShouldNotHaveIncorrectSuffix", Justification = "Breaking change")]
     public delegate void PreRenderEventHandler(object source, EventArgs e);
 
-    /// <summary>Base class for RssHttpHandler - Generic handler and strongly typed ones are derived from it.</summary>
+    /// <summary>Base class for the RSS feed request handler — the generic handler and strongly typed ones are derived from it.</summary>
     /// <typeparam name="TRssChannelType">The channel type.</typeparam>
     /// <typeparam name="TRssItemType">The item type.</typeparam>
     /// <typeparam name="TRssImageType">The image type.</typeparam>
-    public abstract class RssHttpHandlerBase<TRssChannelType, TRssItemType, TRssImageType> : IHttpHandler
+    /// <remarks>
+    /// This used to be an <c>IHttpHandler</c> registered for an <c>.ashx</c> path. ASP.NET Core has
+    /// no HTTP handler pipeline, so the request is handled from an endpoint; see
+    /// <see cref="SyndicationEndpointRouteBuilderExtensions.MapGenericRssHandler"/>.
+    /// </remarks>
+    public abstract class RssHttpHandlerBase<TRssChannelType, TRssItemType, TRssImageType>
         where TRssChannelType : RssChannelBase<TRssItemType, TRssImageType>, new()
         where TRssItemType : RssElementBase, new()
         where TRssImageType : RssElementBase, new()
@@ -35,32 +44,50 @@ namespace DotNetNuke.Services.Syndication
         /// <summary>An event which is fired just before the handler's contents are rendered.</summary>
         public event PreRenderEventHandler PreRender;
 
-        /// <inheritdoc />
-        bool IHttpHandler.IsReusable => false;
-
         /// <summary>Gets the channel.</summary>
         protected TRssChannelType Channel { get; private set; }
 
         /// <summary>Gets the HTTP context.</summary>
+        [CLSCompliant(false)]
         protected HttpContext Context { get; private set; }
 
-        /// <inheritdoc />
-        void IHttpHandler.ProcessRequest(HttpContext context)
+        /// <summary>Handles a request for the feed, writing the channel's XML to the response.</summary>
+        /// <param name="context">The HTTP context of the request.</param>
+        /// <returns>A task which completes once the feed has been written to the response.</returns>
+        [CLSCompliant(false)]
+        public async Task HandleRequestAsync(HttpContext context)
         {
+            ArgumentNullException.ThrowIfNull(context);
+
             this.InternalInit(context);
 
             // let inherited handlers setup any special handling
             this.OnInit(EventArgs.Empty);
 
             // parse the channel name and the user name from the query string
-            RssHttpHandlerHelper.ParseChannelQueryString(context.Request, out var channelName, out var userName);
+            var helper = context.RequestServices.GetRequiredService<RssHttpHandlerHelper>();
+            helper.ParseChannelQueryString(context.Request, out var channelName, out var userName);
 
             // populate items (call the derived class)
             this.PopulateChannel(channelName, userName);
 
             this.OnPreRender(EventArgs.Empty);
 
-            this.Render(new XmlTextWriter(this.Context.Response.OutputStream, null));
+            // UTF8Encoding(false): the net48 handler used new XmlTextWriter(stream, null), which
+            // emitted no byte-order mark; XmlWriter.Create would add one by default.
+            var settings = new XmlWriterSettings
+            {
+                Async = true,
+                CloseOutput = false,
+                Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            };
+            using (var writer = XmlWriter.Create(this.Context.Response.Body, settings))
+            {
+                this.Render(writer);
+                await writer.FlushAsync().ConfigureAwait(false);
+            }
+
+            await this.Context.Response.Body.FlushAsync(context.RequestAborted).ConfigureAwait(false);
         }
 
         /// <summary>Triggers the <see cref="Init"/> event.</summary>
@@ -85,8 +112,8 @@ namespace DotNetNuke.Services.Syndication
         }
 
         /// <summary>Renders the channel as XML to the <paramref name="writer"/>.</summary>
-        /// <param name="writer">The write to which the channel should be rendered.</param>
-        protected virtual void Render(XmlTextWriter writer)
+        /// <param name="writer">The writer to which the channel should be rendered.</param>
+        protected virtual void Render(XmlWriter writer)
         {
             XmlDocument doc = this.Channel.SaveAsXml();
             doc.Save(writer);

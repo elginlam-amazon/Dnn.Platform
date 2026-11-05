@@ -13,7 +13,8 @@ using Spectre.Console.Cli;
 public class DeployInputTests
 {
     [InlineData("", false)]
-    [InlineData("/test", false)]
+    [InlineData("test", false)]
+    [InlineData("not a uri", false)]
     [InlineData("https://test.com", true)]
     [InlineData("http://test.com", true)]
     [Theory]
@@ -24,6 +25,22 @@ public class DeployInputTests
 
         validate.Successful.ShouldBe(isSuccess);
 
+        validate.Message.ShouldBe(isSuccess ? null : "--target-uri must be a valid URI");
+    }
+
+    /// <summary>
+    /// A rooted path such as <c>/test</c> is not an absolute URI on Windows, but on Unix it parses as an
+    /// absolute <c>file:</c> URI. <see cref="Uri.TryCreate(string, UriKind, out Uri)"/> drives the validation,
+    /// so the expected outcome is platform-dependent.
+    /// </summary>
+    [Fact]
+    public void Validate_TargetUri_WithRootedPath()
+    {
+        var input = TestHelpers.CreateDeployInput("/test");
+        var validate = ValidateInput(input);
+
+        var isSuccess = !OperatingSystem.IsWindows();
+        validate.Successful.ShouldBe(isSuccess);
         validate.Message.ShouldBe(isSuccess ? null : "--target-uri must be a valid URI");
     }
 

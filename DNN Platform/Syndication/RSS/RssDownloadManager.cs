@@ -6,8 +6,8 @@ namespace DotNetNuke.Services.Syndication
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Net;
-    using System.Web;
+    using System.Threading;
+    using System.Threading.Tasks;
     using System.Xml;
 
     using DotNetNuke.Instrumentation;
@@ -44,6 +44,15 @@ namespace DotNetNuke.Services.Syndication
             return TheManager.GetChannelDom(url);
         }
 
+        /// <summary>Gets the RSS channel at the given <paramref name="url"/>.</summary>
+        /// <param name="url">The URL.</param>
+        /// <param name="cancellationToken">A token to cancel the download.</param>
+        /// <returns>A task which resolves to the RSS feed, or an empty RSS feed if there's an error loading it.</returns>
+        public static Task<RssChannelDom> GetChannelAsync(string url, CancellationToken cancellationToken = default)
+        {
+            return TheManager.GetChannelDomAsync(url, cancellationToken);
+        }
+
         private static int GetTtlFromString(string ttlString, int defaultTtlMinutes)
         {
             if (!string.IsNullOrEmpty(ttlString))
@@ -67,7 +76,7 @@ namespace DotNetNuke.Services.Syndication
 
             try
             {
-                string d = HttpContext.Current.Server.MapPath(Settings.CacheRoot + RSSDir);
+                string d = SyndicationCachePath.MapPath(Settings.CacheRoot + RSSDir);
 
                 if (!Directory.Exists(d))
                 {
@@ -108,8 +117,29 @@ namespace DotNetNuke.Services.Syndication
             }
 
             // download the feed
-            byte[] feed = new WebClient().DownloadData(url);
+            byte[] feed = SyndicationHttpClient.Download(url);
 
+            return this.ParseAndCacheChannelDom(feed, url);
+        }
+
+        private async Task<RssChannelDom> DownloadChannelDomAsync(string url, CancellationToken cancellationToken)
+        {
+            // look for disk cache first
+            RssChannelDom dom = this.TryLoadFromDisk(url);
+
+            if (dom != null)
+            {
+                return dom;
+            }
+
+            // download the feed
+            byte[] feed = await SyndicationHttpClient.DownloadAsync(url, cancellationToken).ConfigureAwait(false);
+
+            return this.ParseAndCacheChannelDom(feed, url);
+        }
+
+        private RssChannelDom ParseAndCacheChannelDom(byte[] feed, string url)
+        {
             // parse it as XML
             var doc = new XmlDocument { XmlResolver = null };
             using (var feedReader = XmlReader.Create(new MemoryStream(feed), new XmlReaderSettings { XmlResolver = null, }))
@@ -118,7 +148,7 @@ namespace DotNetNuke.Services.Syndication
             }
 
             // parse into DOM
-            dom = RssXmlHelper.ParseChannelXml(doc);
+            RssChannelDom dom = RssXmlHelper.ParseChannelXml(doc);
 
             // set expiry
             string ttlString = null;
@@ -171,7 +201,7 @@ namespace DotNetNuke.Services.Syndication
                         int i = c.IndexOf('@');
                         long expiry;
 
-                        if (long.TryParse(c.Substring(0, i), out expiry))
+                        if (long.TryParse(c.AsSpan(0, i), out expiry))
                         {
                             utcExpiryFromRssFile = DateTime.FromBinary(expiry);
                             urlFromRssFile = c.Substring(i + 1);
@@ -262,6 +292,42 @@ namespace DotNetNuke.Services.Syndication
             }
 
             return dom;
+        }
+
+        private async Task<RssChannelDom> GetChannelDomAsync(string url, CancellationToken cancellationToken)
+        {
+            RssChannelDom dom = this.TryGetCachedChannelDom(url);
+
+            if (dom == null)
+            {
+                dom = await this.DownloadChannelDomAsync(url, cancellationToken).ConfigureAwait(false);
+
+                lock (this.cache)
+                {
+                    this.cache[url] = dom;
+                }
+            }
+
+            return dom;
+        }
+
+        private RssChannelDom TryGetCachedChannelDom(string url)
+        {
+            lock (this.cache)
+            {
+                if (this.cache.TryGetValue(url, out var dom))
+                {
+                    if (DateTime.UtcNow > dom.UtcExpiry)
+                    {
+                        this.cache.Remove(url);
+                        return null;
+                    }
+
+                    return dom;
+                }
+            }
+
+            return null;
         }
     }
 }

@@ -5,6 +5,7 @@ namespace DotNetNuke.DependencyInjection.Extensions
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
     using System.Reflection;
     using System.Text;
@@ -137,8 +138,13 @@ namespace DotNetNuke.DependencyInjection.Extensions
             var loaderMessages = loadException.LoaderExceptions.Select(e => e.Message).Distinct();
 
             return loaderMessages.Aggregate(
-                builder.AppendLine($"- Found {foundTypes} of {allTypes} types from {assembly.FullName}"),
-                (theBuilder, message) => theBuilder.AppendLine($"    - {message}"));
+                builder.AppendLine(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "- Found {0} of {1} types from {2}",
+                    foundTypes,
+                    allTypes,
+                    assembly.FullName)),
+                (theBuilder, message) => theBuilder.AppendLine("    - " + message));
         }
 
         private static IEnumerable<Type> SafeGetTypes(this IEnumerable<Assembly> assemblies, Dictionary<Assembly, ReflectionTypeLoadException> loadExceptions, Dictionary<Assembly, Exception> otherExceptions)

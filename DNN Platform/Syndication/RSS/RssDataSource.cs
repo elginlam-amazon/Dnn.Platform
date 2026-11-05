@@ -3,15 +3,18 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.Syndication
 {
-    using System.ComponentModel;
-    using System.Web.UI;
+    using System.Collections;
 
-    /// <summary>RSS data source control implementation, including the designer.</summary>
-    [DefaultProperty("Url")]
-    public class RssDataSource : DataSourceControl
+    /// <summary>Provides the items of an RSS feed for data binding.</summary>
+    /// <remarks>
+    /// This used to be a WebForms <c>DataSourceControl</c> (with a companion
+    /// <c>RssDataSourceView</c>). ASP.NET Core has no data-source control model, so this is a plain
+    /// service: set <see cref="Url"/> and <see cref="MaxItems"/>, then enumerate
+    /// <see cref="SelectItems"/> (for example from a Razor <c>@foreach</c>).
+    /// </remarks>
+    public class RssDataSource
     {
         private GenericRssChannel channel;
-        private RssDataSourceView itemsView;
         private string url;
 
         /// <summary>Gets the channel.</summary>
@@ -53,15 +56,12 @@ namespace DotNetNuke.Services.Syndication
             }
         }
 
-        /// <inheritdoc />
-        protected override DataSourceView GetView(string viewName)
+        /// <summary>Gets the channel's items, limited to <see cref="MaxItems"/>.</summary>
+        /// <returns>A sequence of <see cref="RssElementCustomTypeDescriptor"/> instances to bind to.</returns>
+        /// <remarks>This replaces <c>RssDataSourceView.ExecuteSelect</c>.</remarks>
+        public IEnumerable SelectItems()
         {
-            if (this.itemsView == null)
-            {
-                this.itemsView = new RssDataSourceView(this, viewName);
-            }
-
-            return this.itemsView;
+            return this.Channel.SelectItems(this.MaxItems);
         }
     }
 }
