@@ -653,7 +653,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Dnn.ContactList.Spa", "DNN 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Dnn.ContactList.SpaReact", "DNN Platform\Modules\Samples\Dnn.ContactList.SpaReact\Dnn.ContactList.SpaReact.csproj", "{19727E7F-6D3E-917D-920A-112FD03CA96F}"
 EndProject
-Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "DotNetNuke.WebControls", "DNN Platform\Controls\DotNetNuke.WebControls\DotNetNuke.WebControls.vbproj", "{6C10669D-7897-BEA4-F994-4F74EED33F5A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DotNetNuke.WebControls", "DNN Platform\Controls\DotNetNuke.WebControls\DotNetNuke.WebControls.csproj", "{6C10669D-7897-BEA4-F994-4F74EED33F5A}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ClientSide", "ClientSide", "{DA8AFE89-AA88-6FE2-2640-4B686BB18C9E}"
 EndProject

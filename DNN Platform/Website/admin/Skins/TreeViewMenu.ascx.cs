@@ -478,7 +478,9 @@ namespace DotNetNuke.UI.Skins.Controls
                 var objTree = (DnnTree)this.Control.NavigationControl;
                 if (objTree.SelectedTreeNodes.Count > 0)
                 {
-                    var objTNode = (TreeNode)objTree.SelectedTreeNodes[1];
+                    // SelectedTreeNodes was a 1-based Microsoft.VisualBasic.Collection before the
+                    // VB -> C# migration and is now a 0-based ArrayList; index 0 is the first node.
+                    var objTNode = (TreeNode)objTree.SelectedTreeNodes[0];
                     if (objTNode.DNNNodes.Count > 0)
                     {
                         // only expand it if nodes are not pending

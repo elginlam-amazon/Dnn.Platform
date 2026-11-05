@@ -1,0 +1,453 @@
+@* ---------------------------------------------------------------------------------------------
+    DnnTree — the Blazor replacement of the DotNetNuke.UI.WebControls.DnnTree server control.
+
+    Render mode: InteractiveServer. The tree owns @onclick (expand/collapse, node click) and
+    @onchange (node check box) handlers and performs JS interop through DnnControlBase, none of
+    which work under static server rendering.
+
+    Ported from DnnTree.cs: the state-bag/ClientProperty surface became [Parameter]s with the very
+    same defaults, the IPostBackEventHandler.RaisePostBackEvent branches became the event handlers
+    below (which keep raising the preserved DNNTreeEventArgs / DNNTreeNodeClickEventArgs), and the
+    node markup of TreeNodeWriter was ported into TreeNodeFragment.razor. DNNTreeWriter /
+    TreeNodeWriter / DNNTreeUpLevelWriter are still used verbatim for the server rendered
+    (down-level) fallback, which is what DNNTreeBuilder consumes — see RenderDownLevel below.
+
+    HttpContext is null over the circuit, so nothing here reads it: the "is this a crawler /
+    down-level browser" decision is taken from the DownLevel parameter (or from the supplied
+    Control model, which the WebForms hosts own) rather than from the request.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+@inherits DnnControlBase
+@rendermode InteractiveServer
+@inject NavigationManager NavigationManager
+
+<span>
+    @if (this.DownLevel && this.CanRenderDownLevel)
+    {
+        @((MarkupString)this.RenderDownLevel())
+    }
+    else
+    {
+        <div id="@this.ClientId"
+             class="DNNTree"
+             style="width:100%"
+             @ref="this.RootElementBinding">
+            @foreach (TreeNode node in this.Nodes)
+            {
+                <TreeNodeFragment Tree="this" Node="node" />
+            }
+        </div>
+    }
+</span>
+
+@code {
+    private TreeControl control;
+
+    /// <summary>Gets or sets the nodes of the tree.</summary>
+    [Parameter]
+    public TreeNodeCollection TreeNodes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the legacy control used as the model of the tree.
+    /// </summary>
+    /// <remarks>
+    /// Hosts that already build a <see cref="TreeControl"/> (the <see cref="DNNTreeBuilder"/> path)
+    /// can hand it over; its nodes and its styling are then used, and it is the object the HTML
+    /// writers render when <see cref="DownLevel"/> is set. When it is not supplied the component
+    /// creates one from its own parameters so that the <see cref="TreeNode"/> instances always have
+    /// an owning tree, exactly as the WebForms control guaranteed.
+    /// </remarks>
+    [Parameter]
+    public TreeControl Control { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the plain HTML fallback is rendered.</summary>
+    [Parameter]
+    public bool DownLevel { get; set; }
+
+    /// <summary>Gets or sets how the check boxes of the tree behave.</summary>
+    [Parameter]
+    public eCheckBoxMode CheckBoxMode { get; set; } = eCheckBoxMode.MultiSelect;
+
+    /// <summary>Gets or sets a value indicating whether the nodes show check boxes.</summary>
+    [Parameter]
+    public bool CheckBoxes { get; set; }
+
+    /// <summary>Gets or sets the width, in pixels, each level is indented by.</summary>
+    [Parameter]
+    public int IndentWidth { get; set; } = 10;
+
+    /// <summary>Gets or sets the width, in pixels, of the expand/collapse image.</summary>
+    [Parameter]
+    public int ExpandCollapseImageWidth { get; set; } = 12;
+
+    /// <summary>Gets or sets the CSS class of a root node.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class of a child node.</summary>
+    [Parameter]
+    public string DefaultChildNodeCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class applied while the pointer is over a node.</summary>
+    [Parameter]
+    public string DefaultNodeCssClassOver { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class applied to the selected node.</summary>
+    [Parameter]
+    public string DefaultNodeCssClassSelected { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class applied to the icon of a node.</summary>
+    [Parameter]
+    public string DefaultIconCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the image shown for a collapsed node.</summary>
+    [Parameter]
+    public string CollapsedNodeImage { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the image shown for an expanded node.</summary>
+    [Parameter]
+    public string ExpandedNodeImage { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the directory holding the tree's system images.</summary>
+    [Parameter]
+    public string SystemImagesPath { get; set; } = "images/";
+
+    /// <summary>Gets or sets the images the nodes pick their icon from.</summary>
+    [Parameter]
+    public NodeImageCollection ImageList { get; set; }
+
+    /// <summary>Gets or sets the frame navigated when a node navigates.</summary>
+    [Parameter]
+    public string Target { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets a value indicating whether children are fetched on demand.</summary>
+    [Parameter]
+    public bool PopulateNodesFromClient { get; set; } = true;
+
+    /// <summary>Occurs when a node is clicked.</summary>
+    /// <remarks>Replaces the <c>NodeClick</c> event raised from <c>RaisePostBackEvent</c>.</remarks>
+    [Parameter]
+    public EventCallback<DNNTreeNodeClickEventArgs> OnNodeClick { get; set; }
+
+    /// <summary>Occurs when the check box of a node is toggled.</summary>
+    /// <remarks>Replaces the <c>Checked</c> branch of <c>RaisePostBackEvent</c>.</remarks>
+    [Parameter]
+    public EventCallback<DNNTreeNodeClickEventArgs> OnNodeCheckChanged { get; set; }
+
+    /// <summary>Occurs when a node is expanded.</summary>
+    [Parameter]
+    public EventCallback<DNNTreeEventArgs> OnExpand { get; set; }
+
+    /// <summary>Occurs when a node is collapsed.</summary>
+    [Parameter]
+    public EventCallback<DNNTreeEventArgs> OnCollapse { get; set; }
+
+    /// <summary>Occurs when the children of a node have to be supplied.</summary>
+    [Parameter]
+    public EventCallback<DNNTreeEventArgs> OnPopulateOnDemand { get; set; }
+
+    /// <summary>Gets the nodes rendered by the tree.</summary>
+    internal TreeNodeCollection Nodes => this.TreeNodes ?? this.Model.TreeNodes;
+
+    /// <summary>Gets the model carrying the styling and the node ownership.</summary>
+    internal TreeControl Model => this.Control ?? this.control;
+
+    /// <summary>Gets the images the nodes pick their icon from.</summary>
+    internal NodeImageCollection Images => this.ImageList ?? this.Model.ImageList;
+
+    /// <summary>Gets a value indicating whether the HTML writer fallback can be used.</summary>
+    /// <remarks>
+    /// The writers emit Client API post-back hyperlinks, which need the page of the model control;
+    /// without a page bound model the interactive markup is rendered instead.
+    /// </remarks>
+    internal bool CanRenderDownLevel => this.Control is not null && this.Control.Page is not null;
+
+    /// <summary>Gets or sets the root element, exposing the protected base member to the markup.</summary>
+    private ElementReference RootElementBinding
+    {
+        get => this.RootElement;
+        set => this.RootElement = value;
+    }
+
+    /// <inheritdoc/>
+    protected override string ClientInitFunction => "initTree";
+
+    /// <inheritdoc/>
+    protected override object ClientPropertySource => this.Model;
+
+    /// <inheritdoc/>
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        // The nodes reach their styling through TreeNode.DNNTree, so a model always has to exist.
+        this.control = new TreeControl { ForceDownLevel = true };
+        this.ApplyParametersToModel();
+    }
+
+    /// <inheritdoc/>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        this.ApplyParametersToModel();
+    }
+
+    /// <summary>Determines whether the given node is expanded.</summary>
+    /// <param name="node">The node to inspect.</param>
+    /// <returns><see langword="true"/> when the node shows its children.</returns>
+    /// <remarks>
+    /// <see cref="TreeNode.IsExpanded"/> falls back to a Client API client variable, which needs a
+    /// page; over a circuit the expansion state lives in the very same <c>expanded</c> attribute of
+    /// the node the WebForms down-level path used.
+    /// </remarks>
+    internal static bool IsExpanded(TreeNode node)
+    {
+        return node is not null && node.GetCustomAttribute("expanded", "0") == "1";
+    }
+
+    /// <summary>Gets the CSS class the given node renders with.</summary>
+    /// <param name="node">The node to inspect.</param>
+    /// <returns>The CSS class of the node.</returns>
+    /// <remarks>Ported from <c>TreeNodeWriter.GetNodeCss</c>.</remarks>
+    internal string GetNodeCss(TreeNode node)
+    {
+        var cssClass = this.CssClass;
+        if (node.Level > 0)
+        {
+            cssClass = this.DefaultChildNodeCssClass;
+        }
+
+        if (!string.IsNullOrEmpty(node.CssClass))
+        {
+            cssClass = node.CssClass;
+        }
+
+        if (node.Selected)
+        {
+            cssClass = string.IsNullOrEmpty(node.CSSClassSelected)
+                ? cssClass + " " + this.DefaultNodeCssClassSelected
+                : cssClass + " " + node.CSSClassSelected;
+        }
+
+        return cssClass;
+    }
+
+    /// <summary>Gets the image the icon of the given node renders.</summary>
+    /// <param name="node">The node to inspect.</param>
+    /// <returns>The URL of the icon, or an empty string.</returns>
+    internal string GetNodeImageUrl(TreeNode node)
+    {
+        if (!string.IsNullOrEmpty(node.Image))
+        {
+            return node.Image;
+        }
+
+        var images = this.Images;
+        if (node.ImageIndex <= -1 || images is null || images.Count <= node.ImageIndex)
+        {
+            return string.Empty;
+        }
+
+        var image = images[node.ImageIndex];
+        return image is null ? string.Empty : image.ImageUrl;
+    }
+
+    /// <summary>Gets the CSS class of the icon of the given node.</summary>
+    /// <param name="node">The node to inspect.</param>
+    /// <returns>The CSS class of the icon.</returns>
+    internal string GetIconCss(TreeNode node)
+    {
+        return !string.IsNullOrEmpty(node.CSSIcon) ? node.CSSIcon : this.DefaultIconCssClass;
+    }
+
+    /// <summary>
+    /// Toggles the expansion of a node, as the parameterless branch of
+    /// <c>DnnTree.RaisePostBackEvent</c> did.
+    /// </summary>
+    /// <param name="node">The node to toggle.</param>
+    /// <returns>A task that completes once the handlers have run.</returns>
+    internal async Task ToggleNodeAsync(TreeNode node)
+    {
+        if (node is null)
+        {
+            return;
+        }
+
+        var wasExpanded = IsExpanded(node);
+        this.SetExpanded(node, !wasExpanded);
+        await (wasExpanded
+            ? this.OnCollapse.InvokeAsync(new DNNTreeEventArgs(node))
+            : this.OnExpand.InvokeAsync(new DNNTreeEventArgs(node)));
+
+        if (node.DNNNodes.Count == 0 && this.PopulateNodesFromClient)
+        {
+            await this.OnPopulateOnDemand.InvokeAsync(new DNNTreeEventArgs(node));
+        }
+    }
+
+    /// <summary>
+    /// Handles a node being clicked, as the <c>Click</c> branch of
+    /// <c>DnnTree.RaisePostBackEvent</c> did.
+    /// </summary>
+    /// <param name="node">The node that was clicked.</param>
+    /// <returns>A task that completes once the handlers have run.</returns>
+    internal async Task NodeClickAsync(TreeNode node)
+    {
+        if (node is null || !node.Enabled)
+        {
+            return;
+        }
+
+        if (!this.CheckBoxes)
+        {
+            this.ClearSelections();
+        }
+
+        if (node.ClickAction == eClickAction.Expand)
+        {
+            if (node.DNNNodes.Count == 0 && this.PopulateNodesFromClient)
+            {
+                await this.OnPopulateOnDemand.InvokeAsync(new DNNTreeEventArgs(node));
+            }
+
+            var wasExpanded = IsExpanded(node);
+            this.SetExpanded(node, !wasExpanded);
+            await (wasExpanded
+                ? this.OnCollapse.InvokeAsync(new DNNTreeEventArgs(node))
+                : this.OnExpand.InvokeAsync(new DNNTreeEventArgs(node)));
+        }
+
+        // TreeNode.Click() set Selected and raised NodeClick on the owning control.
+        node.Selected = true;
+        await this.OnNodeClick.InvokeAsync(new DNNTreeNodeClickEventArgs(node));
+
+        if (node.ClickAction == eClickAction.Navigate && !string.IsNullOrEmpty(node.NavigateURL))
+        {
+            // Replaces the "window.location.href=..." the down-level writer emitted.
+            this.NavigationManager.NavigateTo(node.NavigateURL);
+        }
+    }
+
+    /// <summary>
+    /// Handles the check box of a node being toggled, as the <c>Checked</c> branch of
+    /// <c>DnnTree.RaisePostBackEvent</c> did.
+    /// </summary>
+    /// <param name="node">The node whose check box was toggled.</param>
+    /// <param name="isChecked">The new state of the check box.</param>
+    /// <returns>A task that completes once the handlers have run.</returns>
+    internal async Task NodeCheckChangedAsync(TreeNode node, bool isChecked)
+    {
+        if (node is null)
+        {
+            return;
+        }
+
+        switch (this.CheckBoxMode)
+        {
+            case eCheckBoxMode.SingleSelect:
+                this.ClearSelections();
+                break;
+
+            case eCheckBoxMode.MultiSelectChildren:
+                SetSelection(node.TreeNodes, isChecked);
+                break;
+
+            default:
+                break;
+        }
+
+        node.Selected = isChecked;
+        await this.OnNodeCheckChanged.InvokeAsync(new DNNTreeNodeClickEventArgs(node));
+    }
+
+    /// <summary>Clears the selection of every node of the tree.</summary>
+    internal void ClearSelections()
+    {
+        SetSelection(this.Nodes, false);
+    }
+
+    /// <summary>Selects or deselects a whole sub tree.</summary>
+    /// <param name="nodes">The nodes to walk.</param>
+    /// <param name="selected">The selection to apply.</param>
+    private static void SetSelection(TreeNodeCollection nodes, bool selected)
+    {
+        if (nodes is null)
+        {
+            return;
+        }
+
+        foreach (TreeNode node in nodes)
+        {
+            node.Selected = selected;
+            if (node.DNNNodes.Count > 0)
+            {
+                SetSelection(node.TreeNodes, selected);
+            }
+        }
+    }
+
+    /// <summary>Records the expansion state of a node.</summary>
+    /// <param name="node">The node to change.</param>
+    /// <param name="expanded">The state to apply.</param>
+    private void SetExpanded(TreeNode node, bool expanded)
+    {
+        if (node.HasNodes || node.DNNNodes.Count > 0)
+        {
+            node.CustomAttribute["expanded"] = expanded ? "1" : "0";
+        }
+    }
+
+    /// <summary>Copies the parameters of the component onto the model object.</summary>
+    private void ApplyParametersToModel()
+    {
+        var model = this.Model;
+        if (model is null)
+        {
+            return;
+        }
+
+        model.CheckBoxMode = this.CheckBoxMode;
+        model.CheckBoxes = this.CheckBoxes;
+        model.IndentWidth = this.IndentWidth;
+        model.ExpandCollapseImageWidth = this.ExpandCollapseImageWidth;
+        model.CssClass = this.CssClass;
+        model.DefaultChildNodeCssClass = this.DefaultChildNodeCssClass;
+        model.DefaultNodeCssClassOver = this.DefaultNodeCssClassOver;
+        model.DefaultNodeCssClassSelected = this.DefaultNodeCssClassSelected;
+        model.DefaultIconCssClass = this.DefaultIconCssClass;
+        model.CollapsedNodeImage = this.CollapsedNodeImage;
+        model.ExpandedNodeImage = this.ExpandedNodeImage;
+        model.SystemImagesPath = this.SystemImagesPath;
+        model.Target = this.Target;
+        model.PopulateNodesFromClient = this.PopulateNodesFromClient;
+    }
+
+    /// <summary>
+    /// Renders the tree through the retained HTML writers.
+    /// </summary>
+    /// <returns>The plain HTML markup of the tree.</returns>
+    /// <remarks>
+    /// This is the server rendered fallback the checklist keeps the writers for: <see cref="DNNTreeWriter"/>
+    /// walks the nodes through <see cref="TreeNode.Render(TextWriter)"/>, which uses
+    /// <c>TreeNodeWriter</c>. The writers emit the Client API post-back hyperlinks of the original,
+    /// which need the page of the model control, so the path is only taken when a page bound
+    /// <see cref="Control"/> was supplied (the DNNTreeBuilder scenario); without one the interactive
+    /// markup above is rendered instead.
+    /// </remarks>
+    private string RenderDownLevel()
+    {
+        if (this.Control is null || this.Control.Page is null)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        using (var writer = new StringWriter(builder, CultureInfo.InvariantCulture))
+        {
+            this.Control.ForceDownLevel = true;
+            this.Control.RenderControl(writer);
+        }
+
+        return builder.ToString();
+    }
+}

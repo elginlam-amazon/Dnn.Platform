@@ -1,0 +1,123 @@
+@* ---------------------------------------------------------------------------------------------
+    MenuNodeFragment — one item of a DnnMenu plus its nested sub-menu.
+
+    Render mode: none of its own; rendered inside DnnMenu, whose InteractiveServer mode it inherits.
+
+    Ported from MenuNodeListWriter.cs (the li / a / nested ul markup, the icon, the text and the
+    sub-menu arrow) and from MenuNodeWriter.cs (the node CSS, the selected-node behavior and the
+    navigation of the anchor), with the Client API post-back hyperlinks replaced by @onclick.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+
+<li id="@this.ItemId"
+    @onmouseover="this.MouseOverAsync"
+    @onmouseout="this.MouseOutAsync">
+    @if (this.Node.IsBreak)
+    {
+        <hr />
+    }
+    else
+    {
+        <a href="@this.NodeHref"
+           class="@this.Menu.GetNodeCss(this.Node)"
+           title="@this.Node.ToolTip"
+           target="@this.LinkTarget"
+           @onclick="this.ClickAsync"
+           @onclick:preventDefault="true">
+            @if (!string.IsNullOrEmpty(this.IconUrl))
+            {
+                <img src="@this.IconUrl" alt=" " class="@this.Menu.GetIconCss(this.Node)" />
+            }
+            @if (!string.IsNullOrEmpty(this.Node.LeftHTML))
+            {
+                @((MarkupString)this.Node.LeftHTML)
+            }
+            <span title="@this.Node.ToolTip">@this.Node.Text</span>
+            @if (!string.IsNullOrEmpty(this.Node.RightHTML))
+            {
+                @((MarkupString)this.Node.RightHTML)
+            }
+            @if (!string.IsNullOrEmpty(this.ArrowUrl))
+            {
+                <img src="@this.ArrowUrl" alt="" />
+            }
+        </a>
+    }
+
+    @if (this.HasChildren)
+    {
+        <ul id="@this.SubMenuId" style="@this.Menu.GetSubMenuStyle(this.Menu.IsOpen(this.Node))">
+            @foreach (MenuNode child in this.Node.MenuNodes)
+            {
+                <MenuNodeFragment Menu="this.Menu" Node="child" />
+            }
+        </ul>
+    }
+</li>
+
+@code {
+    /// <summary>Gets or sets the menu this node belongs to.</summary>
+    [Parameter]
+    [EditorRequired]
+    public DnnMenu Menu { get; set; }
+
+    /// <summary>Gets or sets the node rendered by this fragment.</summary>
+    [Parameter]
+    [EditorRequired]
+    public MenuNode Node { get; set; }
+
+    /// <summary>Gets a value indicating whether the node has a sub-menu.</summary>
+    private bool HasChildren => this.Node.HasNodes || this.Node.DNNNodes.Count > 0;
+
+    /// <summary>Gets the identifier of the list item, as <c>MenuNodeListWriter</c> composed it.</summary>
+    private string ItemId => this.Menu.ClientId + "ctr" + this.Node.ID;
+
+    /// <summary>Gets the identifier of the sub-menu list, as <c>MenuNodeListWriter</c> composed it.</summary>
+    private string SubMenuId => this.Menu.ClientId + "sub" + this.Node.ID;
+
+    /// <summary>Gets the icon of the node.</summary>
+    private string IconUrl => this.Menu.GetNodeImageUrl(this.Node);
+
+    /// <summary>Gets the sub-menu arrow of the node.</summary>
+    private string ArrowUrl => this.Menu.GetArrowImageUrl(this.Node);
+
+    /// <summary>Gets the frame the node navigates in.</summary>
+    private string LinkTarget =>
+        this.Node.ClickAction == eClickAction.Navigate && !string.IsNullOrEmpty(this.Menu.Target)
+            ? this.Menu.Target
+            : null;
+
+    /// <summary>Gets the target of the node's anchor.</summary>
+    /// <remarks>
+    /// The writers emitted either the navigation URL or a <c>javascript:</c> post-back hyperlink; the
+    /// click is now handled on the server, so the anchor only carries the destination of a navigating
+    /// node for the benefit of crawlers and the status bar.
+    /// </remarks>
+    private string NodeHref =>
+        this.Node.Enabled
+            && this.Node.ClickAction == eClickAction.Navigate
+            && !string.IsNullOrEmpty(this.Node.NavigateURL)
+        ? this.Node.NavigateURL
+        : "javascript:void(0);";
+
+    /// <summary>Handles the node being clicked.</summary>
+    /// <returns>A task that completes once the menu has handled the click.</returns>
+    private Task ClickAsync()
+    {
+        return this.Menu.NodeClickAsync(this.Node);
+    }
+
+    /// <summary>Handles the pointer entering the node.</summary>
+    /// <returns>A task that completes once the sub-menu has opened.</returns>
+    private Task MouseOverAsync()
+    {
+        return this.Menu.NodeMouseOverAsync(this.Node);
+    }
+
+    /// <summary>Handles the pointer leaving the node.</summary>
+    /// <returns>A task that completes once the sub-menu has closed.</returns>
+    private Task MouseOutAsync()
+    {
+        return this.Menu.NodeMouseOutAsync(this.Node);
+    }
+}

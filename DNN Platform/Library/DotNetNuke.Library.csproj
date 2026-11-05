@@ -56,7 +56,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
     <ProjectReference Include="..\Controls\CountryListBox\CountryListBox.csproj" />
-    <ProjectReference Include="..\Controls\DotNetNuke.WebControls\DotNetNuke.WebControls.vbproj" />
+    <ProjectReference Include="..\Controls\DotNetNuke.WebControls\DotNetNuke.WebControls.csproj" />
     <ProjectReference Include="..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
     <ProjectReference Include="..\DotNetNuke.ContentSecurityPolicy\DotNetNuke.ContentSecurityPolicy.csproj" />
     <ProjectReference Include="..\DotNetNuke.DependencyInjection\DotNetNuke.DependencyInjection.csproj" />
