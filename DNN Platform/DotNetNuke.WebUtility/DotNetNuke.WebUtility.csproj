@@ -5,7 +5,7 @@
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -14,12 +14,25 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- The embedded js/*.js resources were previously exposed through System.Web.UI.WebResource
+         attributes; on ASP.NET Core they are served through the manifest embedded file provider,
+         which requires the embedded files manifest to be generated. -->
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+    <!-- SA1649 (file name must match the first type): the ClientApiAbstractions.cs file
+         intentionally groups the four small ClientAPI abstraction interfaces that together
+         replace the System.Web.UI control surface. No other rule is relaxed. -->
+    <NoWarn>$(NoWarn);SA1649</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.Configuration" />
-    <Reference Include="System.Web" />
+    <!-- Microsoft.Extensions.Caching.Memory, .Configuration.Abstractions, .Options and
+         .DependencyInjection.Abstractions are part of the Microsoft.AspNetCore.App shared
+         framework referenced above, so they must not be referenced explicitly (NU1510). -->
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" />
   </ItemGroup>
 
   <ItemGroup>

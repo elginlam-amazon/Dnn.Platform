@@ -27,7 +27,7 @@
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Log4net\DotNetNuke.Log4Net.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj" />
-    <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.WebUtility\DotNetNuke.WebUtility.vbproj" />
+    <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.WebUtility\DotNetNuke.WebUtility.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Web\DotNetNuke.Web.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\Library\DotNetNuke.Library.csproj" />
     <ProjectReference Include="..\..\Dnn.PersonaBar.Extensions\Dnn.PersonaBar.Extensions.csproj" />

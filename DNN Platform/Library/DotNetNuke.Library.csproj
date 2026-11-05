@@ -64,7 +64,7 @@
     <ProjectReference Include="..\DotNetNuke.Log4net\DotNetNuke.Log4Net.csproj" />
     <ProjectReference Include="..\DotNetNuke.Web.Client.ResourceManager\DotNetNuke.Web.Client.ResourceManager.csproj" />
     <ProjectReference Include="..\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj" />
-    <ProjectReference Include="..\DotNetNuke.WebUtility\DotNetNuke.WebUtility.vbproj" />
+    <ProjectReference Include="..\DotNetNuke.WebUtility\DotNetNuke.WebUtility.csproj" />
     <ProjectReference Include="..\Syndication\DotNetNuke.Syndication.csproj" />
   </ItemGroup>
 
