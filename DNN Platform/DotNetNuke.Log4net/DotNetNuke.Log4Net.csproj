@@ -40,6 +40,13 @@
     <NoWarn>SYSLIB0014</NoWarn>
     <!-- Keep the flat bin/ layout the DNN CopyBin target and the website bin/ expect. -->
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- This project shares its directory (and therefore obj/) with log4net.vs2010.csproj.
+         With a reference assembly in play, one project's IncrementalClean intermittently
+         deletes obj/Debug/ref/DotNetNuke.Log4Net.dll while a consumer (DotNetNuke.Instrumentation)
+         is compiling against it, producing a flaky CS0006 "Metadata file could not be found".
+         Disabling the reference assembly removes the contested artifact; consumers bind to
+         bin/DotNetNuke.Log4Net.dll instead. Costs only an incremental-build optimisation. -->
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">

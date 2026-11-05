@@ -30,10 +30,7 @@ internal static class SerilogController
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> is null.</exception>
     public static ILoggingBuilder AddDnnSerilog(this ILoggingBuilder builder)
     {
-        if (builder == null)
-        {
-            throw new ArgumentNullException(nameof(builder));
-        }
+        ArgumentNullException.ThrowIfNull(builder);
 
         builder.AddProvider(Provider);
         builder.AddFilter<SerilogLoggerProvider>(null, LogLevel.Trace);
@@ -51,11 +48,7 @@ internal static class SerilogController
     private static SerilogLoggerProvider CreateSerilogLoggerProvider()
     {
         // initialize Serilog
-#if NET48_OR_GREATER
-        var applicationMapPath = System.Web.Hosting.HostingEnvironment.MapPath("~") ?? AppDomain.CurrentDomain.BaseDirectory;
-#else
         var applicationMapPath = AppDomain.CurrentDomain.BaseDirectory;
-#endif
         InitializeSerilog(applicationMapPath);
         return new SerilogLoggerProvider(Log.Logger);
     }

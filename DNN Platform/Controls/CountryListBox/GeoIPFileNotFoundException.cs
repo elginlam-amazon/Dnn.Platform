@@ -5,7 +5,6 @@
 namespace DotNetNuke.UI.WebControls;
 
 using System;
-using System.Runtime.Serialization;
 
 /// <summary>An exception throw when the <c>GeoIP.dat</c> file could not be found.</summary>
 [Serializable]
@@ -25,12 +24,6 @@ public class GeoIPFileNotFoundException : Exception
     /// <inheritdoc />
     public GeoIPFileNotFoundException(string message, Exception innerException)
         : base(message, innerException)
-    {
-    }
-
-    /// <inheritdoc />
-    protected GeoIPFileNotFoundException(SerializationInfo info, StreamingContext context)
-        : base(info, context)
     {
     }
 }

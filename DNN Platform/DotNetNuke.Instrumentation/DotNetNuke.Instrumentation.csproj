@@ -4,7 +4,7 @@
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
-    <TargetFrameworks>netstandard2.0;net48</TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -13,6 +13,10 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- net48 copied every transitive package assembly into bin, which is what the CopyBin
+         target below staged into the website. The modern SDK resolves package assemblies from
+         the NuGet cache instead, so this is required to keep CopyBin's behaviour intact. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,10 +34,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.Web" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
     <ProjectReference Include="..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
     <ProjectReference Include="..\DotNetNuke.Log4net\DotNetNuke.Log4Net.csproj" />
@@ -45,30 +45,19 @@
   </ItemGroup>
 
   <Import Project="..\..\DNN_Platform.build" />
-  <Target Name="CopyBin" BeforeTargets="Build" Condition="'$(TargetFramework)' == 'net48'">
-    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Log4Net.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Instrumentation.dll" DestinationFolder="$(WebsitePath)\bin" />
-    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Instrumentation.pdb" DestinationFolder="$(WebsitePath)\bin" />
-    <Copy SourceFiles="bin\$(TargetFramework)\DotNetNuke.Instrumentation.xml" DestinationFolder="$(WebsitePath)\bin" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Abstractions.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Binder.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.FileExtensions.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Configuration.Json.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.DependencyModel.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.FileProviders.Abstractions.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.FileProviders.Physical.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Logging.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Logging.Abstractions.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Options.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Microsoft.Extensions.Primitives.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.Extensions.Logging.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.Settings.Configuration.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\Serilog.Sinks.File.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\System.Diagnostics.DiagnosticSource.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\System.Text.Encodings.Web.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\System.Text.Json.dll" DestinationFolder="$(WebsitePath)\bin\" />
-    <Copy SourceFiles="bin\$(TargetFramework)\System.Threading.Channels.dll" DestinationFolder="$(WebsitePath)\bin\" />
+  <!-- Stages this project's build output and its dependency assemblies into the website bin,
+       as the net48 leg did via an explicit 24-file list. That list named transitive package
+       assemblies that the net48 build happened to copy into bin; on net10.0 the set is taken
+       from the actual resolved output instead, so the staging stays correct as packages change.
+       Framework assemblies (System.Text.Json, System.Threading.Channels, ...) are no longer
+       copied because net10.0 supplies them from the shared framework, not from bin.
+       Runs after Build so the files it stages are the ones just produced. -->
+  <Target Name="CopyBin" AfterTargets="Build" Condition="'$(TargetFramework)' == 'net10.0'">
+    <ItemGroup>
+      <CopyBinFiles Include="$(OutputPath)*.dll" />
+      <CopyBinFiles Include="$(OutputPath)DotNetNuke.Instrumentation.pdb" />
+      <CopyBinFiles Include="$(OutputPath)DotNetNuke.Instrumentation.xml" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CopyBinFiles)" DestinationFolder="$(WebsitePath)\bin" SkipUnchangedFiles="true" />
   </Target>
 </Project>

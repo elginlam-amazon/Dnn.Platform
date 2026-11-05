@@ -8,9 +8,6 @@ namespace DotNetNuke.Instrumentation
     using System.Globalization;
     using System.IO;
     using System.Linq;
-#if NET48_OR_GREATER
-    using System.Web.Compilation;
-#endif
 
     using DotNetNuke.Internal.SourceGenerators;
     using log4net.Config;
@@ -39,11 +36,7 @@ namespace DotNetNuke.Instrumentation
                 if (stack != null)
                 {
                     Type reflectedType = stack[frameDepth].GetMethod().ReflectedType;
-#if NET48_OR_GREATER
-                    var dnnExceptionType = BuildManager.GetType("DotNetNuke.Services.Exceptions.Exceptions", false);
-#else
                     var dnnExceptionType = Type.GetType("DotNetNuke.Services.Exceptions.Exceptions", false);
-#endif
                     while (reflectedType == dnnExceptionType || reflectedType == typeof(DnnLogger) || reflectedType == typeof(DnnLog))
                     {
                         frameDepth++;
@@ -411,7 +404,7 @@ namespace DotNetNuke.Instrumentation
                     if (!isConfigured)
                     {
                         var configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFile);
-                        var originalPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Config\\" + ConfigFile);
+                        var originalPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Config", ConfigFile);
                         if (!File.Exists(configPath) && File.Exists(originalPath))
                         {
                             File.Copy(originalPath, configPath);

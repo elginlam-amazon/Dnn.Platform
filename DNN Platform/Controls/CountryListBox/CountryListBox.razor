@@ -1,0 +1,394 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.WebControls
+@attribute [System.CLSCompliant(false)]
+@implements IDisposable
+@using System
+@using System.Collections.Generic
+@using System.IO
+@using System.Linq
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Caching.Memory
+@inject IMemoryCache MemoryCache
+@inject PersistentComponentState ComponentState
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment HostEnvironment
+@inject Microsoft.AspNetCore.Http.IHttpContextAccessor HttpContextAccessor
+
+<select class="@CssClass"
+        disabled="@Disabled"
+        value="@this.selectedValue"
+        @onchange="this.OnSelectionChangedAsync"
+        @attributes="AdditionalAttributes">
+    @foreach (var item in this.items)
+    {
+        <option value="@item.Value" selected="@(string.Equals(item.Value, this.selectedValue, StringComparison.Ordinal))">@item.Text</option>
+    }
+</select>
+
+@code {
+#nullable enable
+    private const string GeoIPDataCacheKey = "GeoIPData";
+    private const string SelectedCountryStateKey = "DotNetNuke.UI.WebControls.CountryListBox.SelectedCountry";
+    private const string DetectedCountryStateKey = "DotNetNuke.UI.WebControls.CountryListBox.DetectedCountry";
+
+    private readonly List<CountryListItem> items = new List<CountryListItem>();
+
+    private IEnumerable<CountryListItem>? boundDataSource;
+    private CountryListItem? detectedItem;
+    private string? selectedValue;
+    private bool initialized;
+    private PersistingComponentStateSubscription stateSubscription;
+
+    /// <summary>Gets or sets the list of countries to render as options (the replacement for the Web Forms <c>DataSource</c>).</summary>
+    [Parameter]
+    public IEnumerable<CountryListItem>? DataSource { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether to cache the GeoIP data.</summary>
+    [Parameter]
+    public bool CacheGeoIPData { get; set; } = true;
+
+    /// <summary>Gets or sets the path to the GeoIP file (content-root relative).</summary>
+    [Parameter]
+    public string GeoIPFile { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the test IP address.</summary>
+    [Parameter]
+    public string TestIP { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets country code to use for localhost.</summary>
+    [Parameter]
+    public string LocalhostCountryCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the client IP address to use for the country lookup. When not set, the address is read from the
+    /// current <c>HttpContext</c>, which is only available during the initial render of a Blazor Server circuit.
+    /// </summary>
+    [Parameter]
+    public string? ClientIpAddress { get; set; }
+
+    /// <summary>Gets or sets the selected country code.</summary>
+    [Parameter]
+    public string? Value { get; set; }
+
+    /// <summary>Gets or sets the callback invoked when the selected country code changes.</summary>
+    [Parameter]
+    public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Gets or sets the CSS class applied to the rendered <c>select</c> element.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the rendered <c>select</c> element is disabled.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Gets or sets any additional attributes to apply to the rendered <c>select</c> element.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>Gets the rendered items. Items may be inserted or removed by the consumer (replaces <c>ListItemCollection</c>).</summary>
+    public IList<CountryListItem> Items => this.items;
+
+    /// <summary>Gets the index of the selected item, or <c>-1</c> when nothing is selected.</summary>
+    public int SelectedIndex =>
+        this.items.FindIndex(item => string.Equals(item.Value, this.selectedValue, StringComparison.Ordinal));
+
+    /// <summary>Gets the selected item, or <see langword="null"/> when nothing is selected.</summary>
+    public CountryListItem? SelectedItem
+    {
+        get
+        {
+            var index = this.SelectedIndex;
+            return index < 0 ? null : this.items[index];
+        }
+    }
+
+    /// <summary>Clears the current selection.</summary>
+    public void ClearSelection()
+    {
+        this.selectedValue = null;
+    }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        // Disabling the cache evicts the entry, as the Web Forms CacheGeoIPData setter did.
+        if (!this.CacheGeoIPData)
+        {
+            this.MemoryCache.Remove(GeoIPDataCacheKey);
+        }
+
+        // If GeoIPFile is not provided, assume the default location.
+        if (string.IsNullOrEmpty(this.GeoIPFile))
+        {
+            this.GeoIPFile = "controls/CountryListBox/Data/GeoIP.dat";
+        }
+
+        this.stateSubscription = this.ComponentState.RegisterOnPersisting(this.PersistDetectionAsync);
+
+        this.selectedValue = this.Value;
+        this.BindDataSource();
+
+        // When the component was prerendered, the detection result is handed over so it is not lost on the
+        // interactive render, where there is no HttpContext to read the caller's IP address from.
+        if (!this.TryRestoreDetection())
+        {
+            this.DetectCountry();
+        }
+
+        this.initialized = true;
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (!this.CacheGeoIPData)
+        {
+            this.MemoryCache.Remove(GeoIPDataCacheKey);
+        }
+
+        if (!this.initialized)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(this.boundDataSource, this.DataSource))
+        {
+            // The data source was replaced: rebind and re-run the country detection, as DataBind() did.
+            this.BindDataSource();
+            if (!this.TryReapplyDetection())
+            {
+                this.DetectCountry();
+            }
+        }
+        else if (this.Value is not null && !string.Equals(this.Value, this.selectedValue, StringComparison.Ordinal))
+        {
+            this.selectedValue = this.Value;
+        }
+    }
+
+    /// <summary>Rebuilds the option list from <see cref="DataSource"/> (the equivalent of <c>DropDownList.DataBind</c>).</summary>
+    private void BindDataSource()
+    {
+        this.boundDataSource = this.DataSource;
+        this.items.Clear();
+        if (this.DataSource is not null)
+        {
+            this.items.AddRange(this.DataSource);
+        }
+    }
+
+    /// <summary>
+    /// Detects the user's country from their IP address and pre-selects it, inserting the detected country at the
+    /// top of the list when it is not already present. This is the port of the Web Forms <c>OnDataBinding</c> logic.
+    /// </summary>
+    private void DetectCountry()
+    {
+        var isLocal = false;
+        string ip;
+
+        // Check to see if a TestIP is specified.
+        if (!string.IsNullOrEmpty(this.TestIP))
+        {
+            // TestIP is specified, let's use it.
+            ip = this.TestIP;
+        }
+        else
+        {
+            var remoteAddress = this.ResolveClientIpAddress();
+            if (remoteAddress is "127.0.0.1" or "::1")
+            {
+                // The country cannot be detected because the user is local.
+                isLocal = true;
+            }
+
+            // Set the IP address so we can find the country (also used when LocalhostCountryCode is not specified).
+            ip = remoteAddress;
+        }
+
+        if (string.IsNullOrEmpty(ip))
+        {
+            // There is no HTTP request to read the address from (an interactive SignalR render) and no
+            // ClientIpAddress/TestIP was supplied, so the country cannot be detected on this render.
+            return;
+        }
+
+        var geoIPFilePath = this.ResolveGeoIPFilePath();
+
+        // Check to see if we need to generate the cache for the GeoIPData file.
+        if (this.CacheGeoIPData && !this.MemoryCache.TryGetValue(GeoIPDataCacheKey, out MemoryStream? _))
+        {
+            // Store it as well as setting a dependency on the file.
+            var entryOptions = new MemoryCacheEntryOptions()
+                .AddExpirationToken(this.HostEnvironment.ContentRootFileProvider.Watch(this.GeoIPFile));
+            this.MemoryCache.Set(GeoIPDataCacheKey, CountryLookup.FileToMemory(geoIPFilePath), entryOptions);
+        }
+
+        // Check to see if the request is a localhost request and see if the LocalhostCountryCode is specified.
+        if (isLocal && !string.IsNullOrEmpty(this.LocalhostCountryCode))
+        {
+            // Pre-select the value in the drop-down based on the LocalhostCountryCode specified.
+            this.SelectByValue(this.LocalhostCountryCode);
+            return;
+        }
+
+        // Either this is a remote request or it is a local request with no LocalhostCountryCode specified.
+        CountryLookup countryLookup;
+
+        // Check to see if we are using the cached version of the GeoIPData file.
+        if (this.CacheGeoIPData && this.MemoryCache.TryGetValue(GeoIPDataCacheKey, out MemoryStream? cachedStream) && cachedStream is not null)
+        {
+            // Yes, get it from cache.
+            countryLookup = new CountryLookup(cachedStream);
+        }
+        else
+        {
+            // No, get it from file.
+            countryLookup = new CountryLookup(geoIPFilePath);
+        }
+
+        // Get the country code based on the IP address.
+        var userCountryCode = countryLookup.LookupCountryCode(ip);
+
+        // Make sure the value returned is actually in the drop-down list.
+        if (this.items.Exists(item => string.Equals(item.Value, userCountryCode, StringComparison.Ordinal)))
+        {
+            // Yes, it's there, select it based on its value.
+            this.SelectByValue(userCountryCode);
+        }
+        else
+        {
+            // No it's not there. Let's get the country description and add a new list item for the country detected.
+            var userCountry = countryLookup.LookupCountryName(ip);
+            if (userCountry != "N/A")
+            {
+                this.detectedItem = new CountryListItem(userCountryCode, userCountry);
+                this.items.Insert(0, this.detectedItem);
+
+                // Now let's pre-select it.
+                this.SelectByValue(userCountryCode);
+            }
+        }
+    }
+
+    /// <summary>Restores the detection result captured during prerendering, when one is available.</summary>
+    /// <returns><see langword="true"/> when a persisted detection result was applied.</returns>
+    private bool TryRestoreDetection()
+    {
+        if (!this.ComponentState.TryTakeFromJson<string>(SelectedCountryStateKey, out var persistedValue)
+            || string.IsNullOrEmpty(persistedValue))
+        {
+            return false;
+        }
+
+        if (this.ComponentState.TryTakeFromJson<CountryListItem>(DetectedCountryStateKey, out var persistedItem)
+            && persistedItem is not null)
+        {
+            this.detectedItem = persistedItem;
+        }
+
+        this.selectedValue = persistedValue;
+        this.InsertDetectedItemIfMissing();
+        return true;
+    }
+
+    /// <summary>Re-applies an already known detection result to a freshly bound item list.</summary>
+    /// <returns><see langword="true"/> when a known detection result was re-applied.</returns>
+    private bool TryReapplyDetection()
+    {
+        if (string.IsNullOrEmpty(this.selectedValue) || !string.IsNullOrEmpty(this.ResolveClientIpAddress()))
+        {
+            // Either nothing was detected yet, or the caller's IP address is available so detection can run again.
+            return false;
+        }
+
+        this.InsertDetectedItemIfMissing();
+        return true;
+    }
+
+    /// <summary>Re-inserts the detected country at the top of the list when it is not part of the data source.</summary>
+    private void InsertDetectedItemIfMissing()
+    {
+        var detected = this.detectedItem;
+        if (detected is not null
+            && !this.items.Exists(item => string.Equals(item.Value, detected.Value, StringComparison.Ordinal)))
+        {
+            this.items.Insert(0, detected);
+        }
+    }
+
+    /// <summary>Persists the detection result so the interactive render can reuse it.</summary>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    private Task PersistDetectionAsync()
+    {
+        if (!string.IsNullOrEmpty(this.selectedValue))
+        {
+            this.ComponentState.PersistAsJson(SelectedCountryStateKey, this.selectedValue);
+            if (this.detectedItem is not null)
+            {
+                this.ComponentState.PersistAsJson(DetectedCountryStateKey, this.detectedItem);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        this.stateSubscription.Dispose();
+    }
+
+    /// <summary>Selects the item with the given value, when it exists.</summary>
+    /// <param name="value">The country code to select.</param>
+    private void SelectByValue(string value)
+    {
+        if (this.items.Exists(item => string.Equals(item.Value, value, StringComparison.Ordinal)))
+        {
+            this.selectedValue = value;
+        }
+    }
+
+    /// <summary>Resolves the IP address of the caller.</summary>
+    /// <returns>The IP address, or an empty string when it cannot be determined.</returns>
+    private string ResolveClientIpAddress()
+    {
+        if (!string.IsNullOrEmpty(this.ClientIpAddress))
+        {
+            return this.ClientIpAddress;
+        }
+
+        return this.HttpContextAccessor.HttpContext?.Connection?.RemoteIpAddress?.ToString() ?? string.Empty;
+    }
+
+    /// <summary>Resolves the content-root relative <see cref="GeoIPFile"/> to a physical path.</summary>
+    /// <returns>The physical path of the GeoIP data file.</returns>
+    private string ResolveGeoIPFilePath()
+    {
+        // Resolve through the same file provider the cache dependency (Watch) uses, so the two always agree.
+        var physicalPath = this.HostEnvironment.ContentRootFileProvider.GetFileInfo(this.GeoIPFile).PhysicalPath;
+        if (!string.IsNullOrEmpty(physicalPath))
+        {
+            return physicalPath;
+        }
+
+        var relativePath = this.GeoIPFile
+            .Replace('\\', Path.DirectorySeparatorChar)
+            .Replace('/', Path.DirectorySeparatorChar)
+            .TrimStart(Path.DirectorySeparatorChar);
+        return Path.Combine(this.HostEnvironment.ContentRootPath, relativePath);
+    }
+
+    /// <summary>Handles a selection change in the rendered <c>select</c> element.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    private Task OnSelectionChangedAsync(ChangeEventArgs args)
+    {
+        this.selectedValue = args.Value?.ToString();
+        this.Value = this.selectedValue;
+        return this.ValueChanged.InvokeAsync(this.selectedValue);
+    }
+}

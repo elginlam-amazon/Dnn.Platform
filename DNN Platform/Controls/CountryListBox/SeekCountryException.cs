@@ -5,7 +5,6 @@
 namespace DotNetNuke.UI.WebControls;
 
 using System;
-using System.Runtime.Serialization;
 
 /// <summary>An exception throw when there's an error calling <see cref="CountryLookup.SeekCountry"/>.</summary>
 [Serializable]
@@ -25,12 +24,6 @@ public class SeekCountryException : Exception
     /// <inheritdoc />
     public SeekCountryException(string message, Exception innerException)
         : base(message, innerException)
-    {
-    }
-
-    /// <inheritdoc />
-    protected SeekCountryException(SerializationInfo info, StreamingContext context)
-        : base(info, context)
     {
     }
 }
