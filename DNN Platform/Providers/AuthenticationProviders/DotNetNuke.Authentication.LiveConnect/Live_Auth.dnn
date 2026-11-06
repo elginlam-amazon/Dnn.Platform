@@ -22,8 +22,8 @@
         <component type="AuthenticationSystem">
           <authenticationService>
             <type>Live</type>
-            <settingsControlSrc>DesktopModules/AuthenticationServices/Live/Settings.ascx</settingsControlSrc>
-            <loginControlSrc>DesktopModules/AuthenticationServices/Live/Login.ascx</loginControlSrc>
+            <settingsControlSrc>DesktopModules/AuthenticationServices/Live/Settings.razor</settingsControlSrc>
+            <loginControlSrc>DesktopModules/AuthenticationServices/Live/Login.razor</loginControlSrc>
             <logoffControlSrc/>
           </authenticationService>
         </component>
@@ -40,11 +40,11 @@
             <basePath>DesktopModules/AuthenticationServices/Live</basePath>
             <file>
               <path>App_LocalResources</path>
-              <name>Login.ascx.resx</name>
+              <name>Login.resx</name>
             </file>
             <file>
               <path>App_LocalResources</path>
-              <name>Settings.ascx.resx</name>
+              <name>Settings.resx</name>
             </file>
             <file>
               <path>Images</path>
@@ -53,12 +53,6 @@
             <file>
               <path>Images</path>
               <name>live_32X32.jpg</name>
-            </file>
-            <file>
-              <name>Login.ascx</name>
-            </file>
-            <file>
-              <name>Settings.ascx</name>
             </file>
             <file>
               <name>license.txt</name>
