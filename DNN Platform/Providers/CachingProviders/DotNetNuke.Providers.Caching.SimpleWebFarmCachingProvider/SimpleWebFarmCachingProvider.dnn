@@ -33,13 +33,12 @@
                          type="DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider.SimpleWebFarmCachingProvider, DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider"
                          providerPath="~\Providers\CachingProviders\SimpleWebFarmCachingProvider\" />
                   </node>
-				          <node path="/configuration/system.webServer/handlers" action="update" key="name" collision="overwrite">
-                    <add name="SimpleWebFarmSynchronizationHandler"
-                         verb="*"
-                         path="SimpleWebFarmSync.axd"
-                         type="DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider.SimpleWebFarmSynchronizationHandler, DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider"
-                         preCondition="integratedMode" />
-                  </node>
+                  <!-- SimpleWebFarmSync.axd is no longer an IIS <handlers> registration: on ASP.NET Core
+                       the URL is served by an endpoint. The host registers it with
+                       app.MapSimpleWebFarmSyncEndpoints() (DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider.SimpleWebFarmSyncEndpoint),
+                       and the named HttpClient used to notify the other servers is registered by this
+                       assembly's IDnnStartup. The path itself is unchanged, so servers that have not been
+                       upgraded yet keep resolving it. -->
                 </nodes>
               </configuration>
             </install>
@@ -47,7 +46,7 @@
               <configuration>
                 <nodes>
                   <node path="/configuration/dotnetnuke/caching/providers/add[@name='SimpleWebFarmCachingProvider']" action="remove" />
-				          <node path="/configuration/system.webServer/handlers/add[@name='SimpleWebFarmSynchronizationHandler']" action="remove" />
+                  <!-- Legacy IIS handler registration removed above; nothing to uninstall for SimpleWebFarmSync.axd. -->
                   <!-- Clear any default to prevent issues loading the site -->
                   <node path="/configuration/dotnetnuke/caching" action="updateattribute"  name="defaultProvider" value="" />
                 </nodes>

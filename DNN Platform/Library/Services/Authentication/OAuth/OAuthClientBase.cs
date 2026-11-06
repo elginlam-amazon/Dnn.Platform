@@ -394,6 +394,39 @@ namespace DotNetNuke.Services.Authentication.OAuth
             return !string.IsNullOrEmpty(this.AuthToken);
         }
 
+        /// <summary>Builds the URL the user's browser must be sent to in order to authorize this application.</summary>
+        /// <returns>The provider's authorization URL, including the query string.</returns>
+        /// <remarks>
+        /// <para>
+        /// On WebForms the outbound leg of the OAuth 2.0 flow was a postback whose handler called
+        /// <see cref="AuthorizeAsync"/>, which answered with an HTTP redirect
+        /// (<see cref="AuthorisationResult.RequestingCode"/>). That is not possible from a Blazor
+        /// event handler, because <see cref="HttpContextSource.Current"/> — and therefore the
+        /// response to redirect — is <see langword="null"/> once the SignalR circuit has taken
+        /// over. Login components instead obtain this URL during the initial (static) render and
+        /// render their login button as an ordinary link to it, so the browser performs the
+        /// navigation itself. The user-visible result is the same as the redirect it replaces.
+        /// </para>
+        /// <para>
+        /// This is the same URL <see cref="AuthorizeAsync"/> redirects to, built by the same code,
+        /// so the requested <see cref="Scope"/>, client id, callback and state cannot drift apart.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">The client is configured for OAuth 1.0.</exception>
+        public string GetAuthorizationUrl()
+        {
+            if (this.OAuthVersion == "1.0")
+            {
+                // OAuth 1.0 cannot produce this URL up front: it must first exchange credentials
+                // for a request token (see AuthorizeV1Async), which is a server-to-server call
+                // that has to happen while a request is in flight.
+                throw new InvalidOperationException(
+                    "An OAuth 1.0 authorization URL cannot be built in advance; it requires a request token. Use AuthorizeAsync during request processing instead.");
+            }
+
+            return this.AuthorizationEndpoint + "?" + this.GetAuthorizationParameters().ToNormalizedString();
+        }
+
         public void RemoveToken()
         {
             HttpContextSource.Current?.Response.Cookies.Delete(
@@ -573,6 +606,25 @@ namespace DotNetNuke.Services.Authentication.OAuth
             return AuthorisationResult.Authorized;
         }
 
+        /// <summary>Builds the OAuth 2.0 authorization request parameters.</summary>
+        /// <returns>The query parameters, in the order the WebForms implementation sent them.</returns>
+        /// <remarks>
+        /// Shared by <see cref="AuthorizeV2Async"/> (which redirects to them) and
+        /// <see cref="GetAuthorizationUrl"/> (which hands them to a login component as a link),
+        /// so the requested scope and the callback can never differ between the two paths.
+        /// </remarks>
+        private List<QueryParameter> GetAuthorizationParameters()
+        {
+            return new List<QueryParameter>
+            {
+                new QueryParameter("scope", this.Scope),
+                new QueryParameter(OAuthClientIdKey, this.APIKey),
+                new QueryParameter(OAuthRedirectUriKey, WebUtility.UrlEncode(this.CallbackUri.ToString())),
+                new QueryParameter("state", this.Service),
+                new QueryParameter("response_type", "code"),
+            };
+        }
+
         private async Task<AuthorisationResult> AuthorizeV2Async()
         {
             string errorReason = GetRequestValue("error_reason");
@@ -584,16 +636,7 @@ namespace DotNetNuke.Services.Authentication.OAuth
 
             if (!this.HaveVerificationCode())
             {
-                var parameters = new List<QueryParameter>
-                {
-                    new QueryParameter("scope", this.Scope),
-                    new QueryParameter(OAuthClientIdKey, this.APIKey),
-                    new QueryParameter(OAuthRedirectUriKey, WebUtility.UrlEncode(this.CallbackUri.ToString())),
-                    new QueryParameter("state", this.Service),
-                    new QueryParameter("response_type", "code"),
-                };
-
-                HttpContextSource.CurrentOrThrow.Response.Redirect(this.AuthorizationEndpoint + "?" + parameters.ToNormalizedString());
+                HttpContextSource.CurrentOrThrow.Response.Redirect(this.GetAuthorizationUrl());
                 return AuthorisationResult.RequestingCode;
             }
 

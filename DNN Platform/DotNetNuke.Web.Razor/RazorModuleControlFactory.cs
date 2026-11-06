@@ -4,11 +4,12 @@
 namespace DotNetNuke.Web.Razor
 {
     using System;
-    using System.Web.UI;
 
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.UI.Modules;
+
+    using Microsoft.AspNetCore.Components;
 
     /// <summary>A control factory for razor modules.</summary>
     [DnnDeprecated(9, 3, 2, "Use Razor Pages instead")]
@@ -25,19 +26,19 @@ namespace DotNetNuke.Web.Razor
         }
 
         /// <inheritdoc />
-        public override Control CreateControl(TemplateControl containerControl, string controlKey, string controlSrc)
+        public override IComponent CreateControl(IComponent containerControl, string controlKey, string controlSrc)
         {
             return new RazorHostControl("~/" + controlSrc);
         }
 
         /// <inheritdoc />
-        public override Control CreateModuleControl(TemplateControl containerControl, ModuleInfo moduleConfiguration)
+        public override IComponent CreateModuleControl(IComponent containerControl, ModuleInfo moduleConfiguration)
         {
             return this.CreateControl(containerControl, string.Empty, moduleConfiguration.ModuleControl.ControlSrc);
         }
 
         /// <inheritdoc />
-        public override Control CreateSettingsControl(TemplateControl containerControl, ModuleInfo moduleConfiguration, string controlSrc)
+        public override IComponent CreateSettingsControl(IComponent containerControl, ModuleInfo moduleConfiguration, string controlSrc)
         {
             return this.CreateControl(containerControl, string.Empty, controlSrc);
         }

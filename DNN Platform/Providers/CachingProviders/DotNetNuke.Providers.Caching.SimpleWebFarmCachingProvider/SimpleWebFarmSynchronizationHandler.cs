@@ -4,7 +4,6 @@
 namespace DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider
 {
     using System;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common.Utilities;
@@ -15,13 +14,21 @@ namespace DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider
     using DotNetNuke.Services.Cryptography;
     using DotNetNuke.Services.Log.EventLog;
 
+    using Microsoft.AspNetCore.Http;
+
     using ICryptographyProvider = DotNetNuke.Abstractions.Security.ICryptographyProvider;
 
     /// <summary>
     ///     This synchronization handler receives requests from other servers and passes them to the cache system for
     ///     processing.  Error handling is purposefully allowed to bubble up from here to ensure the caller is notified.
     /// </summary>
-    public class SimpleWebFarmSynchronizationHandler : IHttpHandler
+    /// <remarks>
+    ///     This is the ASP.NET Core replacement for the <c>IHttpHandler</c> which was registered in
+    ///     <c>web.config</c> for <c>SimpleWebFarmSync.axd</c>. The URL is preserved by
+    ///     <see cref="SimpleWebFarmSyncEndpoint"/>, so notifications from servers running the old
+    ///     build still resolve.
+    /// </remarks>
+    public class SimpleWebFarmSynchronizationHandler
     {
         private readonly IHostSettings hostSettings;
         private readonly ICryptographyProvider cryptographyProvider;
@@ -49,19 +56,19 @@ namespace DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider
 #pragma warning restore CS0618 // Type or member is obsolete
         }
 
-        /// <summary>Gets a value indicating whether indicates that this handler can be reused for multiple requests.</summary>
-        public bool IsReusable => true;
-
-        /// <inheritdoc />
+        /// <summary>Processes an incoming cache synchronization request from another web-farm server.</summary>
+        /// <param name="context">The request context.</param>
         public void ProcessRequest(HttpContext context)
         {
+            ArgumentNullException.ThrowIfNull(context);
+
             // Validate the request for required inputs, return if no action possible
-            if (string.IsNullOrWhiteSpace(context.Request.QueryString["command"]))
+            if (string.IsNullOrWhiteSpace(context.Request.Query["command"]))
             {
                 return; // No command we cannot process
             }
 
-            if (string.IsNullOrWhiteSpace(context.Request.QueryString["detail"]))
+            if (string.IsNullOrWhiteSpace(context.Request.Query["detail"]))
             {
                 return; // No action we cannot return
             }
@@ -72,14 +79,17 @@ namespace DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider
                 return;
             }
 
+            var commandValue = context.Request.Query["command"].ToString();
+            var detailValue = context.Request.Query["detail"].ToString();
+
             // Get the values, noting that if in debug we are not encrypted
             var command = this.hostSettings.DebugMode
-                ? context.Request.QueryString["command"]
-                : UrlUtils.DecryptParameter(this.cryptographyProvider, context.Request.QueryString["command"], this.hostSettings.Guid);
+                ? commandValue
+                : UrlUtils.DecryptParameter(this.cryptographyProvider, commandValue, this.hostSettings.Guid);
 
             var detail = this.hostSettings.DebugMode
-                ? context.Request.QueryString["detail"]
-                : UrlUtils.DecryptParameter(this.cryptographyProvider, context.Request.QueryString["detail"], this.hostSettings.Guid);
+                ? detailValue
+                : UrlUtils.DecryptParameter(this.cryptographyProvider, detailValue, this.hostSettings.Guid);
 
             // Pass the action on, if the current caching provider is ours
             provider.ProcessSynchronizationRequest(command, detail);

@@ -1,28 +1,50 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
     <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
+    <!-- Retargeting net48 -> net10.0 newly enables diagnostics the net48 build never saw, none of
+         which indicates a defect introduced by the migration:
+           * ASPDEPR003 - Razor runtime compilation is marked obsolete by ASP.NET Core 10. It is
+             nonetheless the ONLY mechanism that preserves this project's contract: DNN modules
+             ship their `.cshtml`/`.vbhtml` files on disk inside the installed site and are
+             compiled on first request, exactly as `BuildManager.GetCompiledType` did on net48.
+             Build-time compilation cannot see files that are installed after the host is built.
+           * CS0618 - DNN's own [DnnDeprecated] members (this whole assembly is deprecated in
+             favour of Razor Pages), already whitelisted in the migrated sibling projects.
+           * SA1600 - the pre-existing whitelist of the net48 project.
+         They are tracked as follow-up debt rather than migration blockers, matching the
+         convention set by the migrated DotNetNuke.Library and DotNetNuke.WebControls. -->
+    <WarningsNotAsErrors>SA1600,CS0618,ASPDEPR003</WarningsNotAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNet.WebHelpers" />
-    <PackageReference Include="Microsoft.AspNet.WebPages.WebData" />
+    <!-- Replaces the net48 <Reference Include="System.Web" />. The Razor rendering pipeline, the
+         ASP.NET Core HttpContext and the Blazor component types used by the module control
+         surface all come from the shared framework, as in DotNetNuke.Library. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.Web" />
+    <!-- Replaces System.Web.WebPages' BuildManager-backed compilation of module razor scripts.
+         Microsoft.AspNet.WebHelpers (Microsoft.Web.Helpers) and Microsoft.AspNet.WebPages.WebData
+         (WebMatrix.Data / WebMatrix.WebData) have no successor and were never referenced from
+         code here - only bin-copied by Library.build - so their PackageReferences are dropped and
+         the helper surface they nominally provided stays expressed by this project's own
+         Helpers/DnnHelper, Helpers/HtmlHelper and Helpers/UrlHelper on ASP.NET Core Razor.
+         The central <PackageVersion> entries for them remain in Directory.Packages.props because
+         DotNetNuke.Web.Mvc still consumes Microsoft.AspNet.WebHelpers. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" />
   </ItemGroup>
 
   <ItemGroup>

@@ -11,7 +11,9 @@
     <ProviderFolderName>$(WebsitePath)\Providers\ClientCapabilityProviders\AspNetClientCapabilityProvider</ProviderFolderName>
     <InstallPath>$(WebsiteInstallPath)\Provider</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <!-- The file on disk is Package.targets; the lower-case "t" matters on case-sensitive
+       (Linux) file systems, where the old "Package.Targets" spelling fails with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="CopyBin;GetFiles;DebugProject;Package" />
   <Target Name="GetFiles">
     <ItemGroup>
