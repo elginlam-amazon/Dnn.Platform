@@ -35,7 +35,7 @@
                                 <moduleControls>
                                     <moduleControl>
                                         <controlKey/>
-                                        <controlSrc>DesktopModules/TelerikRemoval/View.ascx</controlSrc>
+                                        <controlSrc>DesktopModules/TelerikRemoval/View.razor</controlSrc>
                                         <supportsPartialRendering>False</supportsPartialRendering>
                                         <controlTitle/>
                                         <controlType>View</controlType>

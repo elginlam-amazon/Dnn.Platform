@@ -4,11 +4,6 @@
 
 namespace DNN.Connectors.GoogleTagManager
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Web;
-
     /// <summary>Lists constants used across the connector.</summary>
     internal static class Constants
     {

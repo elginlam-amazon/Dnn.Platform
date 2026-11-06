@@ -3,8 +3,8 @@
 // See the LICENSE file in the project root for more information
 
 using System.Collections.Generic;
-using System.Web.UI;
 using DotNetNuke.Entities.Modules;
+using Microsoft.AspNetCore.Components;
 using DotNetNuke.Services.Tokens;
 using DotNetNuke.UI.Modules;
 
@@ -24,7 +24,7 @@ namespace Dnn.ContactList.Spa.Components
         /// <param name="page"></param>
         /// <param name="moduleContext"></param>
         /// <returns></returns>
-        public IDictionary<string, IPropertyAccess> GetTokens(Page page, ModuleInstanceContext moduleContext)
+        public IDictionary<string, IPropertyAccess> GetTokens(IComponent page, ModuleInstanceContext moduleContext)
         {
             var tokens = new Dictionary<string, IPropertyAccess>();
             tokens["preloadeddata"] = new PreloadedDataPropertyAccess(moduleContext.PortalId);

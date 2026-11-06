@@ -31,6 +31,6 @@
     <Delete Files="@(CopiedSqlDataProviderFiles)" />
     <RemoveDir Directories="$(MSBuildProjectDirectory)\Providers" />
   </Target>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
-  <Import Project="$(BuildScriptsPath)\Module.Build"/>
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
+  <Import Project="$(BuildScriptsPath)\Module.build"/>
 </Project>

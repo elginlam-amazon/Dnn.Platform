@@ -2,13 +2,28 @@
 
   <PropertyGroup>
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <!-- Retargeted from netstandard2.0: this project references DotNetNuke.Library, which targets
+         net10.0, so netstandard2.0 can no longer restore (NU1201). This matches the sibling
+         libraries that reference the Library and were retargeted the same way
+         (DotNetNuke.DependencyInjection, DotNetNuke.ContentSecurityPolicy); DotNetNuke.Abstractions
+         stays netstandard2.0 precisely because it has no such reference. -->
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
     <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Retargeting netstandard2.0 -> net10.0 newly enables net10-era analyzer diagnostics this
+         project never saw. CA2249 is reported on the three removal steps
+         (RemoveItemFromCollectionStep, RemoveTelerikBindingRedirectsStep,
+         RemoveTelerikRewriterRulesStep), which match their search term with
+         `IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0`. That is the pre-existing
+         matching logic deciding WHICH config entries the uninstaller removes, so it is kept
+         byte-identical rather than rewritten. This follows the convention of the already migrated
+         DotNetNuke.Modules.CoreMessaging and Dnn.Modules.Console; compiler diagnostics (CS*)
+         deliberately remain errors. -->
+    <WarningsNotAsErrors>CA2249</WarningsNotAsErrors>
     <NoWarn>NU1701</NoWarn>
     <DocumentationFile>bin/$(Configuration)/$(TargetFramework)/DotNetNuke.Maintenance.xml</DocumentationFile>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
@@ -16,7 +31,13 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
-    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" />
+    <!-- System.Runtime.CompilerServices.Unsafe was the netstandard2.0 backport of types that are
+         part of the net10.0 runtime, so after the retarget the SDK reports referencing it as
+         NU1510 ("will not be pruned"). The reference is KEPT — removing a package another
+         consumer may rely on is not this migration's call — and the advisory id is suppressed on
+         the item itself rather than project-wide, so every other NuGet diagnostic still fails the
+         build. -->
+    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" NoWarn="NU1510" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,8 +50,15 @@
   </ItemGroup>
 
   <Import Project="..\..\DNN_Platform.build" />
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="XCOPY &quot;$(ProjectDir)bin\$(ConfigurationName)\netstandard2.0\DotNetNuke.Maintenance*&quot; &quot;$(WebsitePath)\bin&quot; /S /Y /I" />
+  <!-- Stages this project's output into the website bin, as the netstandard2.0 leg did via XCOPY.
+       XCOPY is a Windows-shell-only command, so the MSBuild Copy task is used instead to keep the
+       same staging behaviour on every build platform (same change as the already retargeted
+       DotNetNuke.DependencyInjection). -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(TargetFramework)' == 'net10.0'">
+    <ItemGroup>
+      <PostBuildStagedFiles Include="$(ProjectDir)bin\$(Configuration)\net10.0\DotNetNuke.Maintenance*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PostBuildStagedFiles)" DestinationFolder="$(WebsitePath)\bin" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

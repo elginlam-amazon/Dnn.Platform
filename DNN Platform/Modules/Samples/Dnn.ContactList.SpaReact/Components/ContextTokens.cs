@@ -3,7 +3,7 @@
 // See the LICENSE file in the project root for more information
 
 using System.Globalization;
-using System.Web;
+using System.Net;
 using DotNetNuke.Entities.Users;
 using DotNetNuke.Services.Tokens;
 using DotNetNuke.UI.Modules;
@@ -29,9 +29,9 @@ namespace Dnn.ContactList.SpaReact.Components
             switch (propertyName.ToUpperInvariant())
             {
                 case "SECURITY":
-                    return HttpUtility.HtmlAttributeEncode(JsonConvert.SerializeObject(this.security));
+                    return WebUtility.HtmlEncode(JsonConvert.SerializeObject(this.security));
                 case "MODULE":
-                    return HttpUtility.HtmlAttributeEncode(
+                    return WebUtility.HtmlEncode(
                         JsonConvert.SerializeObject(
                             new
                             {

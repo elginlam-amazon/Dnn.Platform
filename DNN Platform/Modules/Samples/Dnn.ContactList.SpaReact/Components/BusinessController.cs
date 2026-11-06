@@ -3,7 +3,7 @@
 // See the LICENSE file in the project root for more information
 
 using System.Collections.Generic;
-using System.Web.UI;
+using Microsoft.AspNetCore.Components;
 using DotNetNuke.Entities.Modules;
 using DotNetNuke.Entities.Users;
 using DotNetNuke.Services.Tokens;
@@ -21,10 +21,10 @@ namespace Dnn.ContactList.SpaReact.Components
         /// <summary>
         /// Implementation of the interface ICustomTokenProvider
         /// </summary>
-        /// <param name="page"></param>
+        /// <param name="page">The component rendering the hosting page (was a System.Web.UI.Page).</param>
         /// <param name="moduleContext"></param>
         /// <returns></returns>
-        public IDictionary<string, IPropertyAccess> GetTokens(Page page, ModuleInstanceContext moduleContext)
+        public IDictionary<string, IPropertyAccess> GetTokens(IComponent page, ModuleInstanceContext moduleContext)
         {
             var tokens = new Dictionary<string, IPropertyAccess>();
             tokens["context"] = new ContextTokens(moduleContext, UserController.Instance.GetCurrentUserInfo());

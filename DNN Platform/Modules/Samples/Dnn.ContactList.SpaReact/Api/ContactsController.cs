@@ -1,6 +1,5 @@
 ﻿using System.Net;
-using System.Net.Http;
-using System.Web.Http;
+using Microsoft.AspNetCore.Mvc;
 using Dnn.ContactList.Api;
 using Dnn.ContactList.SpaReact.Dto;
 using DotNetNuke.Collections;
@@ -23,10 +22,10 @@ namespace Dnn.ContactList.SpaReact.Api
         /// <returns></returns>
         [HttpGet]
         [DnnModuleAuthorize(AccessLevel = DotNetNuke.Security.SecurityAccessLevel.View)]
-        public HttpResponseMessage Page(string searchTerm, int pageSize, int pageIndex)
+        public IActionResult Page(string searchTerm, int pageSize, int pageIndex)
         {
             var contactList = contactRepository.GetContacts(searchTerm, PortalSettings.PortalId, pageIndex, pageSize);
-            return Request.CreateResponse(HttpStatusCode.OK, contactList.Serialize(x => new ContactDto(x)));
+            return DnnApiResults.Response(HttpStatusCode.OK, contactList.Serialize(x => new ContactDto(x)));
         }
 
         /// <summary>
@@ -35,9 +34,9 @@ namespace Dnn.ContactList.SpaReact.Api
         /// <returns></returns>
         [HttpGet]
         [DnnModuleAuthorize(AccessLevel = DotNetNuke.Security.SecurityAccessLevel.View)]
-        public HttpResponseMessage Contact(int id)
+        public IActionResult Contact(int id)
         {
-            return Request.CreateResponse(HttpStatusCode.OK, new ContactDto(contactRepository.GetContact(id, PortalSettings.PortalId)));
+            return DnnApiResults.Response(HttpStatusCode.OK, new ContactDto(contactRepository.GetContact(id, PortalSettings.PortalId)));
         }
 
         /// <summary>
@@ -47,7 +46,7 @@ namespace Dnn.ContactList.SpaReact.Api
         /// <returns></returns>
         [HttpPost]
         [DnnModuleAuthorize(AccessLevel = DotNetNuke.Security.SecurityAccessLevel.Edit)]
-        public HttpResponseMessage Contact(int id, ContactDto viewModel)
+        public IActionResult Contact(int id, ContactDto viewModel)
         {
             Contact contact;
 
@@ -80,7 +79,7 @@ namespace Dnn.ContactList.SpaReact.Api
                 this.contactRepository.UpdateContact(contact, UserInfo.UserID);
             }
 
-            return Request.CreateResponse(HttpStatusCode.OK, new ContactDto(contactRepository.GetContact(contact.ContactId, PortalSettings.PortalId)));
+            return DnnApiResults.Response(HttpStatusCode.OK, new ContactDto(contactRepository.GetContact(contact.ContactId, PortalSettings.PortalId)));
         }
 
         /// <summary>
@@ -89,7 +88,7 @@ namespace Dnn.ContactList.SpaReact.Api
         /// <returns></returns>
         [HttpPost]
         [DnnModuleAuthorize(AccessLevel = DotNetNuke.Security.SecurityAccessLevel.Edit)]
-        public HttpResponseMessage Delete(int id)
+        public IActionResult Delete(int id)
         {
             var contact = this.contactRepository.GetContact(id, PortalSettings.PortalId);
             this.contactRepository.DeleteContact(contact);
@@ -99,7 +98,7 @@ namespace Dnn.ContactList.SpaReact.Api
                 success = true
             };
 
-            return Request.CreateResponse(HttpStatusCode.OK, response);
+            return DnnApiResults.Response(HttpStatusCode.OK, response);
         }
     }
 }

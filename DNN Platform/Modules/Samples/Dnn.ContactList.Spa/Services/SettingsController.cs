@@ -2,8 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
-using System.Net.Http;
-using System.Web.Http;
+using Microsoft.AspNetCore.Mvc;
 using Dnn.ContactList.Spa.Components;
 using Dnn.ContactList.Spa.Services.ViewModels;
 using DotNetNuke.Security;
@@ -33,7 +32,7 @@ namespace Dnn.ContactList.Spa.Services
         /// </summary>
         /// <returns></returns>
         [HttpPost]
-        public HttpResponseMessage SaveSettings(SettingsViewModel settings)
+        public IActionResult SaveSettings(SettingsViewModel settings)
         {
             _setttingsService.SaveFormEnabled(settings.IsFormEnabled, ActiveModule.ModuleID);
 
@@ -42,7 +41,7 @@ namespace Dnn.ContactList.Spa.Services
                 success = true
             };
 
-            return Request.CreateResponse(response);
+            return this.Ok(response);
         }
     }
 }
