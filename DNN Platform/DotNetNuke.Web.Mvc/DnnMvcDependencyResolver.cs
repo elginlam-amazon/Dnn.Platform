@@ -5,16 +5,20 @@ namespace DotNetNuke.Web.Mvc
 {
     using System;
     using System.Collections.Generic;
-    using System.Web.Mvc;
 
     using DotNetNuke.Services.DependencyInjection;
+
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>
-    /// The <see cref="IDependencyResolver"/> implementation used in the
-    /// MVC Modules of DNN.
+    /// Resolves services out of the current DNN request scope for the MVC Modules of DNN.
     /// </summary>
-    internal class DnnMvcDependencyResolver : IDependencyResolver
+    /// <remarks>
+    /// This replaces the legacy <c>System.Web.Mvc.IDependencyResolver</c> implementation. ASP.NET Core
+    /// activates controllers from <c>HttpContext.RequestServices</c> on its own; this type remains for the
+    /// DNN module code which needs an <see cref="IServiceProvider"/> bound to the ambient DNN scope.
+    /// </remarks>
+    internal sealed class DnnMvcDependencyResolver : IServiceProvider
     {
         private readonly IServiceProvider serviceProvider;
 
@@ -34,14 +38,7 @@ namespace DotNetNuke.Web.Mvc
         /// </returns>
         public object GetService(Type serviceType)
         {
-            var accessor = this.serviceProvider.GetRequiredService<IScopeAccessor>();
-            var scope = accessor.GetScope();
-            if (scope != null)
-            {
-                return scope.ServiceProvider.GetService(serviceType);
-            }
-
-            throw new InvalidOperationException("IServiceScope not provided");
+            return this.GetScopedServiceProvider().GetService(serviceType);
         }
 
         /// <summary>Returns the specified services from the scope.</summary>
@@ -53,11 +50,16 @@ namespace DotNetNuke.Web.Mvc
         /// </returns>
         public IEnumerable<object> GetServices(Type serviceType)
         {
+            return this.GetScopedServiceProvider().GetServices(serviceType);
+        }
+
+        private IServiceProvider GetScopedServiceProvider()
+        {
             var accessor = this.serviceProvider.GetRequiredService<IScopeAccessor>();
             var scope = accessor.GetScope();
             if (scope != null)
             {
-                return scope.ServiceProvider.GetServices(serviceType);
+                return scope.ServiceProvider;
             }
 
             throw new InvalidOperationException("IServiceScope not provided");

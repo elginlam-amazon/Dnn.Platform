@@ -3,11 +3,11 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Web.Mvc
 {
-    using System.Web.UI;
-
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.UI.Modules;
+
+    using Microsoft.AspNetCore.Components;
 
     public class MvcModuleControlFactory : BaseModuleControlFactory
     {
@@ -21,7 +21,7 @@ namespace DotNetNuke.Web.Mvc
         }
 
         /// <inheritdoc />
-        public override Control CreateControl(TemplateControl containerControl, string controlKey, string controlSrc)
+        public override IComponent CreateControl(IComponent containerControl, string controlKey, string controlSrc)
         {
             if (IsAsyncControl(controlSrc))
             {
@@ -32,7 +32,7 @@ namespace DotNetNuke.Web.Mvc
         }
 
         /// <inheritdoc />
-        public override Control CreateModuleControl(TemplateControl containerControl, ModuleInfo moduleConfiguration)
+        public override IComponent CreateModuleControl(IComponent containerControl, ModuleInfo moduleConfiguration)
         {
             if (IsAsyncControl(moduleConfiguration.ModuleControl.ControlSrc))
             {
@@ -55,7 +55,7 @@ namespace DotNetNuke.Web.Mvc
         }
 
         /// <inheritdoc />
-        public override Control CreateSettingsControl(TemplateControl containerControl, ModuleInfo moduleConfiguration, string controlSrc)
+        public override IComponent CreateSettingsControl(IComponent containerControl, ModuleInfo moduleConfiguration, string controlSrc)
         {
             if (IsAsyncControl(controlSrc))
             {

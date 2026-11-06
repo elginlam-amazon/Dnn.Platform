@@ -12,13 +12,18 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\DDRMenu</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <!-- The file on disk is Package.targets; the lower-case "t" matters on case-sensitive
+       (Linux) file systems, where the old "Package.Targets" spelling fails with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="CopyBin;GetFiles;DebugProject;Package" />
   <Target Name="GetFiles">
     <ItemGroup>
       <TextFiles Include="*.txt" Exclude="license.txt;releasenotes.txt" />
-      <SourceFiles Include="*.ascx;*.xslt;" />
-      <ResourceFiles Include="App_LocalResources/*.resx" />
+      <!-- The view, settings, skin-object and action controls are now Blazor components
+           compiled into the assembly, so no *.ascx is packaged as loose content any more;
+           only the XSLT templates remain as source content. -->
+      <SourceFiles Include="*.xslt" />
+      <ResourceFiles Include="Resources/*.resx" />
       <DNNMenuFiles Include="DNNMenu/*.*" />
       <DumpXMLFiles Include="DumpXML/*.*" />
       <JsFiles Include="js/*.*" />
@@ -33,6 +38,10 @@
   <Target Name="DebugProject" Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <Copy SourceFiles="@(TextFiles)" DestinationFolder="$(ModuleFolderName)" />
     <Copy SourceFiles="@(SourceFiles)" DestinationFolder="$(ModuleFolderName)" />
+    <!-- @(ResourceFiles) is now Resources\MenuView.resx / Resources\MenuSettings.resx; the flat
+         Copy lands them in DesktopModules\DDRMenu\App_LocalResources as MenuView.resx /
+         MenuSettings.resx, which is the name PortalModuleBase.LocalResourceFile derives from
+         the component type name. -->
     <Copy SourceFiles="@(ResourceFiles)" DestinationFolder="$(ModuleFolderName)\App_LocalResources" />
     <Copy SourceFiles="@(DNNMenuFiles)" DestinationFolder="$(ModuleFolderName)\DNNMenu" />
     <Copy SourceFiles="@(DumpXMLFiles)" DestinationFolder="$(ModuleFolderName)\DumpXML" />

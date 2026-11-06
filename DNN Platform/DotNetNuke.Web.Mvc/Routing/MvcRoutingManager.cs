@@ -5,9 +5,8 @@ namespace DotNetNuke.Web.Mvc.Routing
 {
     using System;
     using System.Collections.Generic;
-    using System.Globalization;
-    using System.Web.Http;
-    using System.Web.Routing;
+    using System.Collections.ObjectModel;
+    using System.Linq;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
@@ -18,13 +17,24 @@ namespace DotNetNuke.Web.Mvc.Routing
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Web.Mvc.Common;
 
+    using Microsoft.AspNetCore.Builder;
+    using Microsoft.AspNetCore.Routing;
+    using Microsoft.AspNetCore.Routing.Patterns;
     using Microsoft.Extensions.Logging;
 
     /// <summary>An <see cref="IRoutingManager"/> for MVC extensions.</summary>
+    /// <remarks>
+    /// The legacy implementation added <c>System.Web.Routing.Route</c> instances straight into the global
+    /// <c>RouteTable.Routes</c> collection. ASP.NET Core uses endpoint routing, where routes can only be
+    /// added while the host builds its endpoint pipeline, so <see cref="RegisterRoutes"/> collects the route
+    /// definitions of all module route mappers and <see cref="MapRoutes"/> maps them as named endpoints.
+    /// The per-portal-alias route names and the module folder namespaces are preserved on the endpoints
+    /// (as endpoint name and as <see cref="DnnMvcRoute"/> endpoint metadata).
+    /// </remarks>
     public sealed partial class MvcRoutingManager : IMapRoute, IRoutingManager
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<MvcRoutingManager>();
-        private readonly RouteCollection routes;
+        private readonly IList<DnnMvcRoute> routes;
         private readonly PortalAliasMvcRouteManager portalAliasMvcRouteManager;
 
         /// <summary>Initializes a new instance of the <see cref="MvcRoutingManager"/> class.</summary>
@@ -37,36 +47,39 @@ namespace DotNetNuke.Web.Mvc.Routing
         /// <summary>Initializes a new instance of the <see cref="MvcRoutingManager"/> class.</summary>
         /// <param name="portalAliasService">The portal alias service.</param>
         public MvcRoutingManager(IPortalAliasService portalAliasService)
-            : this(portalAliasService, RouteTable.Routes)
+            : this(portalAliasService, new List<DnnMvcRoute>())
         {
         }
 
         /// <summary>Initializes a new instance of the <see cref="MvcRoutingManager"/> class.</summary>
         /// <param name="portalAliasService">The portal alias service.</param>
-        /// <param name="routes">The routes.</param>
-        internal MvcRoutingManager(IPortalAliasService portalAliasService, RouteCollection routes)
+        /// <param name="routes">The route collection to register the routes into.</param>
+        internal MvcRoutingManager(IPortalAliasService portalAliasService, IList<DnnMvcRoute> routes)
         {
             this.routes = routes;
             this.portalAliasMvcRouteManager = new PortalAliasMvcRouteManager(portalAliasService);
             this.TypeLocator = new TypeLocator();
         }
 
+        /// <summary>Gets the routes which have been registered by the module route mappers.</summary>
+        public IReadOnlyList<DnnMvcRoute> Routes => new ReadOnlyCollection<DnnMvcRoute>(this.routes);
+
         internal ITypeLocator TypeLocator { get; set; }
 
         /// <inheritdoc />
-        public Route MapRoute(string moduleFolderName, string routeName, string url, string[] namespaces)
+        public DnnMvcRoute MapRoute(string moduleFolderName, string routeName, string url, string[] namespaces)
         {
             return this.MapRoute(moduleFolderName, routeName, url, null /* defaults */, null /* constraints */, namespaces);
         }
 
         /// <inheritdoc />
-        public Route MapRoute(string moduleFolderName, string routeName, string url, object defaults, string[] namespaces)
+        public DnnMvcRoute MapRoute(string moduleFolderName, string routeName, string url, object defaults, string[] namespaces)
         {
             return this.MapRoute(moduleFolderName, routeName, url, defaults, null /* constraints */, namespaces);
         }
 
         /// <inheritdoc />
-        public Route MapRoute(string moduleFolderName, string routeName, string url, object defaults, object constraints, string[] namespaces)
+        public DnnMvcRoute MapRoute(string moduleFolderName, string routeName, string url, object defaults, object constraints, string[] namespaces)
         {
             if (namespaces == null || namespaces.Length == 0 || string.IsNullOrEmpty(namespaces[0]))
             {
@@ -78,15 +91,12 @@ namespace DotNetNuke.Web.Mvc.Routing
 
             Requires.NotNullOrEmpty("moduleFolderName", moduleFolderName);
 
+            ArgumentNullException.ThrowIfNull(url);
+
             url = url.Trim('/', '\\');
 
             var prefixCounts = this.portalAliasMvcRouteManager.GetRoutePrefixCounts();
-            Route route = null;
-
-            if (url == null)
-            {
-                throw new ArgumentNullException(nameof(url));
-            }
+            DnnMvcRoute route = null;
 
             foreach (var count in prefixCounts)
             {
@@ -100,17 +110,50 @@ namespace DotNetNuke.Web.Mvc.Routing
             return route;
         }
 
+        /// <summary>Registers the routes of all module route mappers.</summary>
         public void RegisterRoutes()
         {
-            // add standard tab and module id provider
-            GlobalConfiguration.Configuration.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
-            using (this.routes.GetWriteLock())
-            {
-                ////routes.Clear(); -- don't use; it will remove original WEP API maps
-                this.LocateServicesAndMapRoutes();
-            }
+            // The standard tab and module id provider is registered into DI by Startup.ConfigureServices
+            // (HttpConfiguration.AddTabAndModuleInfoProvider no longer exists in ASP.NET Core); its
+            // registration is idempotent, so registering it again here would be a no-op.
+            RegisterSystemRoutes();
+            this.ClearCachedRouteData();
+
+            // No write lock: unlike RouteTable.Routes, the route definitions are local to this manager and
+            // are only published to the host's endpoint data source by MapRoutes.
+            this.LocateServicesAndMapRoutes();
 
             Logger.MvcRoutingManagerRegisteredRoutes(this.routes.Count);
+        }
+
+        /// <summary>Maps the registered module routes onto the host's endpoint route builder.</summary>
+        /// <param name="endpoints">The endpoint route builder of the host.</param>
+        /// <remarks>
+        /// Call this before the host maps its catch-all/default route: endpoint routing picks the most
+        /// specific match, but the DNN module routes must keep their own (named) endpoints so that
+        /// <c>Url.RouteUrl</c>/<c>RedirectToRoute</c> can resolve them by name.
+        /// </remarks>
+        public void MapRoutes(IEndpointRouteBuilder endpoints)
+        {
+            ArgumentNullException.ThrowIfNull(endpoints);
+
+            if (this.routes.Count == 0)
+            {
+                this.RegisterRoutes();
+            }
+
+            var handler = new DnnMvcRouteHandler();
+            var requestDelegate = handler.GetRequestDelegate();
+
+            foreach (var route in this.routes)
+            {
+                var pattern = RoutePatternFactory.Parse(route.Url, route.Defaults, route.Constraints);
+
+                endpoints.Map(pattern, requestDelegate)
+                    .WithName(route.GetName() ?? route.Name)
+                    .WithDisplayName(route.GetName() ?? route.Name)
+                    .WithMetadata(route);
+            }
         }
 
         internal static bool IsValidServiceRouteMapper(Type t)
@@ -130,17 +173,16 @@ namespace DotNetNuke.Web.Mvc.Routing
             ////routes.IgnoreRoute("{resource}.axd/{*pathInfo}");
         }
 
-        private static Route MapRouteWithNamespace(string name, string url, object defaults, object constraints, string[] namespaces)
+        private static DnnMvcRoute MapRouteWithNamespace(string name, string url, object defaults, object constraints, string[] namespaces)
         {
-            var route = new Route(url, new DnnMvcRouteHandler())
+            var route = new DnnMvcRoute
             {
+                Url = url,
                 Defaults = CreateRouteValueDictionaryUncached(defaults),
                 Constraints = CreateRouteValueDictionaryUncached(constraints),
             };
-            if (route.DataTokens == null)
-            {
-                route.DataTokens = new RouteValueDictionary();
-            }
+
+            route.DataTokens ??= new RouteValueDictionary();
 
             ConstraintValidation.Validate(route);
             if ((namespaces != null) && (namespaces.Length > 0))
@@ -159,9 +201,6 @@ namespace DotNetNuke.Web.Mvc.Routing
 
         private void LocateServicesAndMapRoutes()
         {
-            RegisterSystemRoutes();
-            this.ClearCachedRouteData();
-
             foreach (var routeMapper in this.GetServiceRouteMappers())
             {
                 try

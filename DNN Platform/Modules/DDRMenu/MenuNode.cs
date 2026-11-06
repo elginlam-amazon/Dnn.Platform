@@ -6,6 +6,7 @@ namespace DotNetNuke.Web.DDRMenu
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
     using System.Xml;
     using System.Xml.Schema;
@@ -62,8 +63,10 @@ namespace DotNetNuke.Web.DDRMenu
             this.Keywords = null;
             this.Description = null;
             this.Parent = parent;
-            this.CommandName = dnnNode.get_CustomAttribute("CommandName");
-            this.CommandArgument = dnnNode.get_CustomAttribute("CommandArgument");
+            // DNNNode's custom attributes are exposed through the CustomAttribute accessor's
+            // indexer; the generated get_CustomAttribute(name) method no longer exists.
+            this.CommandName = dnnNode.CustomAttribute["CommandName"];
+            this.CommandArgument = dnnNode.CustomAttribute["CommandArgument"];
 
             DNNAbstract.DNNNodeToMenuNode(dnnNode, this);
 
@@ -453,10 +456,43 @@ namespace DotNetNuke.Web.DDRMenu
             if (this.Url != null && this.Url.StartsWith("postback:"))
             {
                 var postbackControl = DNNContext.Current.HostControl;
-                this.Url = postbackControl.Page.ClientScript.GetPostBackClientHyperlink(postbackControl, this.Url.Substring(9));
+                if (postbackControl != null)
+                {
+                    var argument = this.Url.Substring(9);
+                    if (postbackControl.Page != null)
+                    {
+                        // Page.ClientScript is gone; IClientApiPage exposes the post back script
+                        // directly. GetPostBackClientHyperlink was GetPostBackEventReference prefixed
+                        // with the javascript: scheme, which is reproduced here.
+                        this.Url = "javascript:" + postbackControl.Page.GetPostBackEventReference(postbackControl, argument);
+                    }
+                    else
+                    {
+                        // Rendering interactively: there is no form post to carry __EVENTARGUMENT,
+                        // so the node script calls the control back directly with ITS OWN argument
+                        // (see DDR.Menu.postBack in js/DDRMenu.js and
+                        // DDRMenuControl.RaiseNodeClick). Keeping the argument per node is what
+                        // makes each menu item invoke its own action.
+                        this.Url = string.Format(
+                            CultureInfo.InvariantCulture,
+                            "javascript:return DDR.Menu.postBack('{0}','{1}');",
+                            EscapeJsLiteral(postbackControl.ClientId),
+                            EscapeJsLiteral(argument));
+                    }
+                }
             }
 
             this.Children.ForEach(c => c.ApplyContext(defaultImagePath));
+        }
+
+        /// <summary>Escapes a value for embedding in a single quoted JavaScript string literal.</summary>
+        /// <param name="value">The value to escape.</param>
+        /// <returns>The escaped value.</returns>
+        private static string EscapeJsLiteral(string value)
+        {
+            return string.IsNullOrEmpty(value)
+                ? string.Empty
+                : value.Replace("\\", "\\\\").Replace("'", "\\'");
         }
 
         private static void AddXmlAttribute(XmlWriter writer, string name, string value)

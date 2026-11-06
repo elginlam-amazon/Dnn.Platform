@@ -220,7 +220,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework
         {
             var mockApp = new Mock<ModuleApplication>();
             mockApp.Object.ViewEngines = engines;
-            (context.Controller as IDnnController).ViewEngineCollectionEx = engines;
+            (context.Controller as IDnnController).ViewEngines = engines;
 
             var activeModuleRequest = new ModuleRequestResult
             {

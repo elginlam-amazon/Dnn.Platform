@@ -7,36 +7,41 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
     using System;
     using System.Globalization;
     using System.Reflection;
+    using System.Text;
     using System.Threading.Tasks;
-    using System.Web.Mvc;
 
     using DotNetNuke.Entities.Modules.Actions;
     using DotNetNuke.Framework;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
 
-    public class ModuleActionItemsAttribute : ActionFilterAttribute
+    using Microsoft.AspNetCore.Mvc.Controllers;
+    using Microsoft.AspNetCore.Mvc.Filters;
+
+    /// <summary>Populates the module actions of a DNN controller from a factory method.</summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
+    public class ModuleActionItemsAttribute : Attribute, IAsyncActionFilter
     {
         private const string MethodNameTemplate = "Get{0}Actions";
 
+        private static readonly CompositeFormat MethodNameFormat = CompositeFormat.Parse(MethodNameTemplate);
+
+        /// <summary>Gets or sets the type which declares the module actions factory method.</summary>
         public Type Type { get; set; }
 
+        /// <summary>Gets or sets the name of the module actions factory method.</summary>
         public string MethodName { get; set; }
 
         /// <inheritdoc />
-        public override void OnActionExecuting(ActionExecutingContext filterContext)
+        public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
         {
-            var controller = filterContext.Controller as IDnnController;
-            var result = this.InvokeMethod(filterContext, controller, false);
-            if (result is ModuleActionCollection moduleActions)
-            {
-                controller.ModuleActions = moduleActions;
-            }
-        }
+            ArgumentNullException.ThrowIfNull(context);
 
-        public async Task OnActionExecutingAsync(ActionExecutingContext filterContext)
-        {
-            var controller = filterContext.Controller as IDnnController;
-            var result = this.InvokeMethod(filterContext, controller, true);
+            ArgumentNullException.ThrowIfNull(next);
+
+            var controller = context.Controller as IDnnController;
+
+            // The asynchronous filter pipeline supports both synchronous and asynchronous factory methods.
+            var result = this.InvokeMethod(context, controller, true);
             if (result is ModuleActionCollection moduleActions)
             {
                 controller.ModuleActions = moduleActions;
@@ -45,6 +50,8 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
             {
                 controller.ModuleActions = await taskResult;
             }
+
+            await next();
         }
 
         private static MethodInfo GetMethod(Type type, string methodName, bool supportsAsync)
@@ -53,7 +60,7 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 
             if (method == null)
             {
-                throw new NotImplementedException($"The expected method to get the module actions cannot be found. Type: {type.FullName}, Method: {methodName}");
+                throw new InvalidOperationException($"The expected method to get the module actions cannot be found. Type: {type.FullName}, Method: {methodName}");
             }
 
             var returnType = method.ReturnType;
@@ -90,7 +97,9 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 
             if (string.IsNullOrEmpty(this.MethodName))
             {
-                methodName = string.Format(CultureInfo.InvariantCulture, MethodNameTemplate, filterContext.ActionDescriptor.ActionName);
+                var actionName = (filterContext.ActionDescriptor as ControllerActionDescriptor)?.ActionName
+                                 ?? filterContext.ActionDescriptor.DisplayName;
+                methodName = string.Format(CultureInfo.InvariantCulture, MethodNameFormat, actionName);
             }
             else
             {

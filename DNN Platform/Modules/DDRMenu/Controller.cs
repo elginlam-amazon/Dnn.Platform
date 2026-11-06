@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -8,7 +8,6 @@ namespace DotNetNuke.Web.DDRMenu
     using System.IO;
     using System.Security;
     using System.Text.RegularExpressions;
-    using System.Web;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Application;
@@ -109,8 +108,7 @@ namespace DotNetNuke.Web.DDRMenu
             const string navName = "DDRMenuNavigationProvider";
             const string navType = "DotNetNuke.Web.DDRMenu.DDRMenuNavigationProvider, DotNetNuke.Web.DDRMenu";
 
-            var server = HttpContext.Current.Server;
-            var webConfig = server.MapPath("~/web.config");
+            var webConfig = HttpContextSource.MapPath("~/web.config");
 
             var configXml = new XmlDocument { XmlResolver = null };
             using (var configReader = XmlReader.Create(webConfig, new XmlReaderSettings { XmlResolver = null, }))
@@ -200,8 +198,7 @@ namespace DotNetNuke.Web.DDRMenu
         {
             var assembliesToRemove = new[] { "DNNDoneRight.DDRMenu.dll", "DNNGarden.DDRMenu.dll", };
 
-            var server = HttpContext.Current.Server;
-            var assemblyPath = server.MapPath("~/bin/");
+            var assemblyPath = HttpContextSource.MapPath("~/bin/");
             foreach (var assembly in assembliesToRemove)
             {
                 File.Delete(Path.Combine(assemblyPath, assembly));
@@ -210,8 +207,7 @@ namespace DotNetNuke.Web.DDRMenu
 
         private static void CheckSkinReferences()
         {
-            var server = HttpContext.Current.Server;
-            var portalsRoot = server.MapPath("~/Portals/");
+            var portalsRoot = HttpContextSource.MapPath("~/Portals/");
             foreach (var portal in Directory.GetDirectories(portalsRoot))
             {
                 foreach (var skinControl in Directory.GetFiles(portal, "*.ascx", SearchOption.AllDirectories))

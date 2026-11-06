@@ -5,11 +5,11 @@
 namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 {
     using System;
-    using System.Web.Mvc;
 
     using DotNetNuke.Entities.Modules.Actions;
     using DotNetNuke.Security;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
+    using Microsoft.AspNetCore.Mvc.Filters;
 
     /// <summary>
     /// The ModuleActionAttribute is used to define a single ModuleAction.  It can be applied at the Controller level if all
@@ -39,9 +39,9 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
         public string TitleKey { get; set; }
 
         /// <inheritdoc />
-        public override void OnActionExecuting(ActionExecutingContext filterContext)
+        public override void OnActionExecuting(ActionExecutingContext context)
         {
-            var controller = filterContext.Controller as IDnnController;
+            var controller = context.Controller as IDnnController;
 
             if (controller == null)
             {

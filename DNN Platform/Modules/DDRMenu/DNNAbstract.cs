@@ -5,7 +5,7 @@
 namespace DotNetNuke.Web.DDRMenu
 {
     using System.Collections.Generic;
-    using System.Web;
+    using System.Net;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
@@ -25,38 +25,49 @@ namespace DotNetNuke.Web.DDRMenu
     {
         /// <summary>Gets the Dnn login url.</summary>
         /// <returns>The url to login.</returns>
+        /// <remarks>
+        /// <c>Request.IsAuthenticated</c> is replaced by the portal user lookup, which needs no
+        /// <c>HttpContext</c>: this runs while the menu renders, and on a Blazor circuit
+        /// <c>HttpContextSource.Current</c> is null, which would have made every authenticated user
+        /// look anonymous. The request is still used, when it is available, for the return url and
+        /// the <c>override</c> flag.
+        /// </remarks>
         public static string GetLoginUrl()
         {
-            var request = HttpContext.Current.Request;
-            if (request.IsAuthenticated)
+            var navigationManager = Globals.GetCurrentServiceProvider().GetRequiredService<INavigationManager>();
+            if (IsAuthenticated())
             {
-                var navigationManager = Globals.GetCurrentServiceProvider().GetRequiredService<INavigationManager>();
                 return navigationManager.NavigateURL(PortalSettings.Current.ActiveTab.TabID, "Logoff");
             }
 
-            var returnUrl = HttpContext.Current.Request.RawUrl;
+            var request = HttpContextSource.Current?.Request;
+
+            // Core's HttpRequest has no RawUrl; PathBase + Path + QueryString is the same value.
+            // Without a request in flight the current tab's url is the equivalent return target.
+            var returnUrl = request == null
+                ? navigationManager.NavigateURL()
+                : request.PathBase + request.Path + request.QueryString;
             if (returnUrl.IndexOf("?returnurl=") != -1)
             {
                 returnUrl = returnUrl.Substring(0, returnUrl.IndexOf("?returnurl="));
             }
 
-            returnUrl = HttpUtility.UrlEncode(returnUrl);
+            returnUrl = WebUtility.UrlEncode(returnUrl);
 
-            return Globals.LoginURL(returnUrl, !string.IsNullOrEmpty(request.QueryString["override"]));
+            return Globals.LoginURL(returnUrl, !string.IsNullOrEmpty(request?.Query["override"]));
         }
 
         /// <summary>Gets a url to the user profile or or the registration page.</summary>
         /// <returns>If the user is logged in, returns the url to the user profile page, if not returns the url to the registration page.</returns>
         public static string GetUserUrl()
         {
-            var request = HttpContext.Current.Request;
             var portalSettings = PortalSettings.Current;
-            if (!request.IsAuthenticated)
+            if (!IsAuthenticated())
             {
                 if (portalSettings.UserRegistration != (int)Globals.PortalRegistrationType.NoRegistration)
                 {
                     var navigationManager = Globals.GetCurrentServiceProvider().GetRequiredService<INavigationManager>();
-                    return Globals.RegisterURL(HttpUtility.UrlEncode(navigationManager.NavigateURL()), Null.NullString);
+                    return Globals.RegisterURL(WebUtility.UrlEncode(navigationManager.NavigateURL()), Null.NullString);
                 }
             }
             else
@@ -114,6 +125,18 @@ namespace DotNetNuke.Web.DDRMenu
         public static void DNNNodeToMenuNode(DNNNode dnnNode, MenuNode menuNode)
         {
             menuNode.LargeImage = dnnNode.LargeImage;
+        }
+
+        /// <summary>Gets a value indicating whether a portal user is signed in.</summary>
+        /// <returns><see langword="true"/> when a portal user is signed in.</returns>
+        /// <remarks>
+        /// Replaces <c>Request.IsAuthenticated</c>. The menu renders both during the initial
+        /// request and over a Blazor circuit, where there is no <c>HttpContext</c> at all; the
+        /// portal user lookup is request independent and gives the same answer in both cases.
+        /// </remarks>
+        internal static bool IsAuthenticated()
+        {
+            return UserController.Instance.GetCurrentUserInfo().UserID > Null.NullInteger;
         }
     }
 }

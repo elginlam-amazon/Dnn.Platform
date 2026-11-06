@@ -9,8 +9,6 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
     using System.IO;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.UI;
     using System.Xml;
     using System.Xml.Xsl;
 
@@ -183,13 +181,13 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
         }
 
         /// <inheritdoc />
-        public void Render(object source, HtmlTextWriter htmlWriter, TemplateDefinition liveDefinition)
+        public void Render(object source, TextWriter htmlWriter, TemplateDefinition liveDefinition)
         {
             var resolver = new PathResolver(this.hostSettings, liveDefinition.Folder);
             var args = new XsltArgumentList();
             args.AddExtensionObject("urn:ddrmenu", new XsltFunctions());
             args.AddExtensionObject("urn:dnngarden", new XsltFunctions());
-            args.AddParam("controlid", string.Empty, DNNContext.Current.HostControl.ClientID);
+            args.AddParam("controlid", string.Empty, DNNContext.Current.ClientId);
             args.AddParam("options", string.Empty, ConvertToJson(liveDefinition.ClientOptions));
             args.AddParam("dnnpath", string.Empty, resolver.Resolve("/", PathResolver.RelativeTo.Dnn));
             args.AddParam("manifestpath", string.Empty, resolver.Resolve("/", PathResolver.RelativeTo.Manifest));
@@ -208,7 +206,9 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
                 this.xsl.Transform(xmlReader, args, outputWriter);
             }
 
-            htmlWriter.Write(HttpUtility.HtmlDecode(sb.ToString()));
+            // HttpUtility.HtmlDecode is replaced by the WebUtility equivalent, which performs the
+            // same HTML entity decoding.
+            htmlWriter.Write(System.Net.WebUtility.HtmlDecode(sb.ToString()));
         }
 
         protected static string ConvertToJson(List<ClientOption> options)

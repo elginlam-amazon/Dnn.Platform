@@ -6,13 +6,13 @@ namespace DotNetNuke.Web.DDRMenu
     using System;
     using System.Collections.Generic;
     using System.Reflection;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Extensions;
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Modules.NavigationProvider;
+    using DotNetNuke.UI;
     using DotNetNuke.UI.Skins;
     using DotNetNuke.UI.WebControls;
     using DotNetNuke.Web.DDRMenu.Localisation;
@@ -55,7 +55,7 @@ namespace DotNetNuke.Web.DDRMenu
         }
 
         /// <inheritdoc />
-        public override Control NavigationControl
+        public override IDnnControl NavigationControl
         {
             get { return this.menuControl; }
         }

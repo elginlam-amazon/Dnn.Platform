@@ -4,16 +4,28 @@
 
 namespace DotNetNuke.Web.Mvc.Common
 {
-    using System;
+    using DotNetNuke.Common;
 
-    using DotNetNuke.Framework;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.DependencyInjection;
 
-    public class AntiForgery : ServiceLocator<IAntiForgery, AntiForgery>
+    /// <summary>Provides the ambient <see cref="IAntiForgery"/> instance.</summary>
+    public static class AntiForgery
     {
-        /// <inheritdoc />
-        protected override Func<IAntiForgery> GetFactory()
+        /// <summary>Gets the <see cref="IAntiForgery"/> implementation registered in the application container.</summary>
+        /// <remarks>
+        /// The instance is resolved from the host container (the same one the application was built with).
+        /// When a request is in flight, resolution goes through the request scope so that scoped
+        /// dependencies of the implementation are honored.
+        /// </remarks>
+        public static IAntiForgery Instance
         {
-            return () => new AntiForgeryImpl();
+            get
+            {
+                var serviceProvider = Globals.GetCurrentServiceProvider();
+                var requestServices = serviceProvider.GetService<IHttpContextAccessor>()?.HttpContext?.RequestServices;
+                return (requestServices ?? serviceProvider).GetRequiredService<IAntiForgery>();
+            }
         }
     }
 }

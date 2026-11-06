@@ -32,14 +32,14 @@
                 <moduleControls>
                   <moduleControl>
                     <controlKey/>
-                    <controlSrc>DesktopModules/DDRMenu/MenuView.ascx</controlSrc>
+                    <controlSrc>DesktopModules/DDRMenu/MenuView.razor</controlSrc>
                     <supportsPartialRendering>False</supportsPartialRendering>
                     <controlTitle>DDR menu</controlTitle>
                     <controlType>View</controlType>
                   </moduleControl>
                   <moduleControl>
                     <controlKey>Settings</controlKey>
-                    <controlSrc>DesktopModules/DDRMenu/MenuSettings.ascx</controlSrc>
+                    <controlSrc>DesktopModules/DDRMenu/MenuSettings.razor</controlSrc>
                     <supportsPartialRendering>False</supportsPartialRendering>
                     <supportsPopUps>True</supportsPopUps>
                     <controlTitle>DDR menu settings</controlTitle>
@@ -60,6 +60,11 @@
           </eventMessage>
         </component>
         <component type="SkinObject">
+          <!-- This controlSrc deliberately keeps the historical "Menu.ascx" string: installed
+               third-party skins reference that exact value, so changing it would break them.
+               Menu.ascx no longer exists on disk - the skin object is now the Blazor component
+               DotNetNuke.Web.DDRMenu.SkinObject, and App_Start/Startup.cs registers this path
+               with IDnnControlTypeResolver so it resolves to typeof(SkinObject). -->
           <moduleControl>
             <controlKey>DDRMENU</controlKey>
             <controlSrc>DesktopModules/DDRMenu/Menu.ascx</controlSrc>

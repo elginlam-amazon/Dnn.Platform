@@ -4,44 +4,74 @@
 
 namespace DotNetNuke.Web.Mvc.Framework.ActionResults
 {
-    using System;
     using System.Collections.Generic;
-    using System.Globalization;
     using System.IO;
-    using System.Linq;
-    using System.Text;
     using System.Threading.Tasks;
-    using System.Web.Mvc;
 
     using DotNetNuke.Common;
 
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.ViewEngines;
+
+    /// <summary>A <see cref="PartialViewResult"/> which can render itself into a caller supplied <see cref="TextWriter"/>.</summary>
     public class DnnPartialViewResult : PartialViewResult, IDnnViewResult
     {
-        public void ExecuteResult(ControllerContext context, TextWriter writer)
+        /// <summary>Gets or sets the already resolved view to render, if any.</summary>
+        public IView View { get; set; }
+
+        /// <summary>Gets or sets the view engines of the module which produced this result.</summary>
+        public IReadOnlyList<IViewEngine> ViewEngines { get; set; }
+
+        /// <inheritdoc />
+        public async Task ExecuteResultAsync(ActionContext context, TextWriter writer)
         {
             Requires.NotNull("context", context);
             Requires.NotNull("writer", writer);
 
             if (string.IsNullOrEmpty(this.ViewName))
             {
-                this.ViewName = context.RouteData.GetRequiredString("action");
+                this.ViewName = context.RouteData.Values["action"] as string;
             }
 
-            ViewEngineResult result = null;
+            this.View = await DnnViewResultExecutor.RenderAsync(
+                context,
+                writer,
+                this.View,
+                this.ViewName,
+                null,
+                false,
+                this.ViewData,
+                this.TempData,
+                this.ViewEngine,
+                this.ViewEngines);
+        }
 
-            if (this.View == null)
+        /// <inheritdoc />
+        public override async Task ExecuteResultAsync(ActionContext context)
+        {
+            Requires.NotNull("context", context);
+
+            if (this.View is null && this.ViewEngines is null)
             {
-                result = this.FindView(context);
-                this.View = result.View;
+                // Not a module request: let MVC execute the result the regular way.
+                await base.ExecuteResultAsync(context);
+                return;
             }
 
-            var viewContext = new ViewContext(context, this.View, this.ViewData, this.TempData, writer);
-            this.View.Render(viewContext, writer);
-
-            if (result != null)
+            var response = context.HttpContext.Response;
+            if (!string.IsNullOrEmpty(this.ContentType))
             {
-                result.ViewEngine.ReleaseView(context, this.View);
+                response.ContentType = this.ContentType;
             }
+
+            if (this.StatusCode.HasValue)
+            {
+                response.StatusCode = this.StatusCode.Value;
+            }
+
+            await using var writer = new StreamWriter(response.Body, leaveOpen: true);
+            await this.ExecuteResultAsync(context, writer);
+            await writer.FlushAsync();
         }
     }
 }

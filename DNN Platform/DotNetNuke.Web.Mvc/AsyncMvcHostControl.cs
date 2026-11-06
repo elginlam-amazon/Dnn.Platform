@@ -3,84 +3,29 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Web.Mvc
 {
-    using System;
-    using System.Globalization;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using System.Web;
-    using System.Web.UI;
-
-    using DotNetNuke.Services.Exceptions;
     using DotNetNuke.UI.Modules;
-    using DotNetNuke.Web.Mvc.Routing;
 
+    /// <summary>Hosts an MVC module control whose action executes asynchronously.</summary>
+    /// <remarks>
+    /// Was a WebForms control that registered a <c>PageAsyncTask</c> in <c>OnInit</c> and deferred
+    /// rendering to a second async task so that it ran after the WebForms async point. There is no
+    /// such async point on ASP.NET Core: the module execution and the rendering of its output are
+    /// simply awaited in <see cref="MvcHostControl.OnInitializedAsync"/>, which this class marks as
+    /// the asynchronous module control implementation.
+    /// </remarks>
     public class AsyncMvcHostControl : MvcHostControl, IAsyncModuleControl
     {
+        /// <summary>Initializes a new instance of the <see cref="AsyncMvcHostControl"/> class.</summary>
         public AsyncMvcHostControl()
             : base()
         {
         }
 
+        /// <summary>Initializes a new instance of the <see cref="AsyncMvcHostControl"/> class.</summary>
+        /// <param name="controlKey">The module control key.</param>
         public AsyncMvcHostControl(string controlKey)
             : base(controlKey)
         {
-        }
-
-        protected override void OnInitInternal(EventArgs e)
-        {
-            if (this.ExecuteModuleImmediately)
-            {
-                this.Page.RegisterAsyncTask(new PageAsyncTask(this.ExecuteModuleAsync));
-            }
-        }
-
-        protected override void OnPreRenderInternal(EventArgs e)
-        {
-            // We need to defer execution to after the async task registered in OnInitInternal above, which will only get executed at the WebForms async point, just before PreRenderComplete.
-            this.Page.RegisterAsyncTask(new PageAsyncTask(this.OnPreRenderAsync));
-        }
-
-        protected async Task ExecuteModuleAsync(CancellationToken cancellationToken)
-        {
-            try
-            {
-                HttpContextBase httpContext = new HttpContextWrapper(HttpContext.Current);
-
-                var moduleExecutionEngine = GetModuleExecutionEngine();
-
-                this.Result = await moduleExecutionEngine.ExecuteModuleAsync(this.GetModuleRequestContext(httpContext), cancellationToken);
-
-                this.ModuleActions = this.LoadActions(this.Result);
-
-                httpContext.SetModuleRequestResult(this.Result);
-            }
-            catch (Exception exc)
-            {
-                Exceptions.ProcessModuleLoadException(this, exc);
-            }
-        }
-
-        private Task OnPreRenderAsync(CancellationToken cancellationToken)
-        {
-            try
-            {
-                if (this.Result == null)
-                {
-                    return Task.CompletedTask;
-                }
-
-                var mvcString = RenderModule(this.Result);
-                if (!string.IsNullOrEmpty(Convert.ToString(mvcString, CultureInfo.InvariantCulture)))
-                {
-                    this.Controls.Add(new LiteralControl(Convert.ToString(mvcString, CultureInfo.InvariantCulture)));
-                }
-            }
-            catch (Exception exc)
-            {
-                Exceptions.ProcessModuleLoadException(this, exc);
-            }
-
-            return Task.CompletedTask;
         }
     }
 }

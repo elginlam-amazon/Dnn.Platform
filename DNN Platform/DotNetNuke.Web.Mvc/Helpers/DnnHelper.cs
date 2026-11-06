@@ -7,10 +7,6 @@ namespace DotNetNuke.Web.Mvc.Helpers
 {
     using System;
     using System.Diagnostics.CodeAnalysis;
-    using System.Web.Hosting;
-    using System.Web.Mvc;
-    using System.Web.Routing;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
@@ -21,13 +17,15 @@ namespace DotNetNuke.Web.Mvc.Helpers
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Framework.JavaScriptLibraries;
-    using DotNetNuke.Services.ClientDependency;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.UI.Modules;
-    using DotNetNuke.Web.Client.ClientResourceManagement;
-    using DotNetNuke.Web.Client.ResourceManager;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
+    using DotNetNuke.Web.Mvc.Framework.Modules;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Mvc.Rendering;
+    using Microsoft.AspNetCore.Mvc.ViewFeatures;
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.DependencyInjection;
 
     using FileOrder = DotNetNuke.Web.Client.FileOrder;
@@ -39,11 +37,30 @@ namespace DotNetNuke.Web.Mvc.Helpers
         private readonly IEventLogger eventLogger;
 
         /// <summary>Initializes a new instance of the <see cref="DnnHelper"/> class.</summary>
-        /// <param name="viewContext">The view context.</param>
-        /// <param name="viewDataContainer">The ViewData container.</param>
+        /// <param name="clientResourceController">The client resource controller.</param>
+        /// <param name="appStatus">The application status.</param>
+        /// <param name="eventLogger">The event logger.</param>
+        /// <param name="viewContext">The view context (carries the view data in ASP.NET Core).</param>
+        [ActivatorUtilitiesConstructor]
+        public DnnHelper(IClientResourceController clientResourceController, IApplicationStatusInfo appStatus, IEventLogger eventLogger, ViewContext viewContext)
+            : this(clientResourceController, appStatus, eventLogger, HtmlHelperFactory.Create(viewContext), null)
+        {
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="DnnHelper"/> class.</summary>
+        /// <param name="viewContext">The view context (carries the view data in ASP.NET Core).</param>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IClientResourceController. Scheduled removal in v12.0.0.")]
-        public DnnHelper(ViewContext viewContext, IViewDataContainer viewDataContainer)
-            : this(null, null, null, viewContext, viewDataContainer, RouteTable.Routes)
+        public DnnHelper(ViewContext viewContext)
+            : this(null, null, null, HtmlHelperFactory.Create(viewContext), null)
+        {
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="DnnHelper"/> class.</summary>
+        /// <param name="viewContext">The view context (carries the view data in ASP.NET Core).</param>
+        /// <param name="routeCollection">The route collection.</param>
+        [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IClientResourceController. Scheduled removal in v12.0.0.")]
+        public DnnHelper(ViewContext viewContext, RouteCollection routeCollection)
+            : this(null, null, null, HtmlHelperFactory.Create(viewContext), routeCollection)
         {
         }
 
@@ -51,40 +68,18 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="clientResourceController">The client resource controller.</param>
         /// <param name="appStatus">The application status.</param>
         /// <param name="eventLogger">The event logger.</param>
-        /// <param name="viewContext">The view context.</param>
-        /// <param name="viewDataContainer">The ViewData container.</param>
-        public DnnHelper(IClientResourceController clientResourceController, IApplicationStatusInfo appStatus, IEventLogger eventLogger, ViewContext viewContext, IViewDataContainer viewDataContainer)
-            : this(clientResourceController, appStatus, eventLogger, viewContext, viewDataContainer, RouteTable.Routes)
-        {
-        }
-
-        /// <summary>Initializes a new instance of the <see cref="DnnHelper"/> class.</summary>
-        /// <param name="viewContext">The view context.</param>
-        /// <param name="viewDataContainer">The ViewData container.</param>
+        /// <param name="viewContext">The view context (carries the view data in ASP.NET Core).</param>
         /// <param name="routeCollection">The route collection.</param>
-        [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IClientResourceController. Scheduled removal in v12.0.0.")]
-        public DnnHelper(ViewContext viewContext, IViewDataContainer viewDataContainer, RouteCollection routeCollection)
-            : this(null, null, null, new HtmlHelper(viewContext, viewDataContainer, routeCollection))
+        public DnnHelper(IClientResourceController clientResourceController, IApplicationStatusInfo appStatus, IEventLogger eventLogger, ViewContext viewContext, RouteCollection routeCollection)
+            : this(clientResourceController, appStatus, eventLogger, HtmlHelperFactory.Create(viewContext), routeCollection)
         {
         }
 
         /// <summary>Initializes a new instance of the <see cref="DnnHelper"/> class.</summary>
-        /// <param name="clientResourceController">The client resource controller.</param>
-        /// <param name="appStatus">The application status.</param>
-        /// <param name="eventLogger">The event logger.</param>
-        /// <param name="viewContext">The view context.</param>
-        /// <param name="viewDataContainer">The ViewData container.</param>
-        /// <param name="routeCollection">The route collection.</param>
-        public DnnHelper(IClientResourceController clientResourceController, IApplicationStatusInfo appStatus, IEventLogger eventLogger, ViewContext viewContext, IViewDataContainer viewDataContainer, RouteCollection routeCollection)
-            : this(clientResourceController, appStatus, eventLogger, new HtmlHelper(viewContext, viewDataContainer, routeCollection))
-        {
-        }
-
-        /// <summary>Initializes a new instance of the <see cref="DnnHelper"/> class.</summary>
-        /// <param name="htmlHelper">The HtmlHelper instance to wrap.</param>
+        /// <param name="htmlHelper">The HTML helper instance to wrap.</param>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IClientResourceController. Scheduled removal in v12.0.0.")]
-        protected DnnHelper(HtmlHelper htmlHelper)
-            : this(null, null, null, htmlHelper)
+        protected DnnHelper(IHtmlHelper htmlHelper)
+            : this(null, null, null, htmlHelper, null)
         {
         }
 
@@ -93,15 +88,31 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="appStatus">The application status.</param>
         /// <param name="eventLogger">The event logger.</param>
         /// <param name="htmlHelper">The HTML helper.</param>
-        /// <exception cref="InvalidOperationException">The DnnHelper class can only be used in Views that inherit from DnnWebViewPage.</exception>
-        protected DnnHelper(IClientResourceController clientResourceController, IApplicationStatusInfo appStatus, IEventLogger eventLogger, HtmlHelper htmlHelper)
+        protected DnnHelper(IClientResourceController clientResourceController, IApplicationStatusInfo appStatus, IEventLogger eventLogger, IHtmlHelper htmlHelper)
+            : this(clientResourceController, appStatus, eventLogger, htmlHelper, null)
         {
-            this.clientResourceController = clientResourceController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IClientResourceController>();
-            this.appStatus = appStatus ?? Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
-            this.eventLogger = eventLogger ?? Globals.GetCurrentServiceProvider().GetRequiredService<IEventLogger>();
-            this.HtmlHelper = htmlHelper;
+        }
 
-            if (htmlHelper.ViewContext.Controller is not IDnnController controller)
+        /// <summary>Initializes a new instance of the <see cref="DnnHelper"/> class.</summary>
+        /// <param name="clientResourceController">The client resource controller.</param>
+        /// <param name="appStatus">The application status.</param>
+        /// <param name="eventLogger">The event logger.</param>
+        /// <param name="htmlHelper">The HTML helper.</param>
+        /// <param name="routeCollection">The route collection.</param>
+        /// <exception cref="InvalidOperationException">The DnnHelper class can only be used in Views that inherit from DnnWebViewPage.</exception>
+        protected DnnHelper(IClientResourceController clientResourceController, IApplicationStatusInfo appStatus, IEventLogger eventLogger, IHtmlHelper htmlHelper, RouteCollection routeCollection)
+        {
+            Requires.NotNull("htmlHelper", htmlHelper);
+
+            var serviceProvider = htmlHelper.ViewContext?.HttpContext?.RequestServices ?? Globals.GetCurrentServiceProvider();
+
+            this.clientResourceController = clientResourceController ?? serviceProvider.GetRequiredService<IClientResourceController>();
+            this.appStatus = appStatus ?? serviceProvider.GetRequiredService<IApplicationStatusInfo>();
+            this.eventLogger = eventLogger ?? serviceProvider.GetRequiredService<IEventLogger>();
+            this.HtmlHelper = htmlHelper;
+            this.RouteCollection = routeCollection;
+
+            if (ModuleApplication.GetCurrentDnnController(htmlHelper.ViewContext?.HttpContext) is not IDnnController controller)
             {
                 throw new InvalidOperationException("The DnnHelper class can only be used in Views that inherit from DnnWebViewPage");
             }
@@ -118,7 +129,10 @@ namespace DotNetNuke.Web.Mvc.Helpers
 
         public PortalSettings PortalSettings => this.ModuleContext?.PortalSettings;
 
-        public RouteCollection RouteCollection => this.HtmlHelper.RouteCollection;
+        /// <summary>Gets the route collection this helper was created with, if any.</summary>
+        /// <remarks>ASP.NET Core uses endpoint routing; there is no ambient route table, so this is only
+        /// populated when a route collection was passed to the constructor.</remarks>
+        public RouteCollection RouteCollection { get; }
 
         public UserInfo User => this.PortalSettings?.UserInfo;
 
@@ -128,15 +142,14 @@ namespace DotNetNuke.Web.Mvc.Helpers
 
         public ViewDataDictionary ViewData => this.HtmlHelper.ViewData;
 
-        public IViewDataContainer ViewDataContainer => this.HtmlHelper.ViewDataContainer;
-
-        public Page DnnPage { get; set; }
+        /// <summary>Gets or sets the DNN page (host component) the module is rendered into.</summary>
+        public IComponent DnnPage { get; set; }
 
         public string LocalResourceFile { get; set; }
 
         public ModuleInstanceContext ModuleContext { get; set; }
 
-        internal HtmlHelper HtmlHelper { get; set; }
+        internal IHtmlHelper HtmlHelper { get; set; }
 
         public string LocalizeString(string key)
         {
@@ -147,7 +160,7 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="filePath">The relative file path to the CSS resource.</param>
         public void DnnCssInclude(string filePath)
         {
-            this.clientResourceController.RegisterStylesheet(filePath);
+            this.clientResourceController.CreateStylesheet(filePath).Register();
         }
 
         /// <summary>Requests that a CSS file be registered on the client browser. Defaults to rendering in the page header.</summary>
@@ -155,7 +168,9 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="priority">The relative priority in which the file should be loaded.</param>
         public void DnnCssInclude(string filePath, int priority)
         {
-            this.clientResourceController.RegisterStylesheet(filePath, (Abstractions.ClientResources.FileOrder.Css)priority);
+            var stylesheet = this.clientResourceController.CreateStylesheet(filePath);
+            stylesheet.Priority = priority;
+            stylesheet.Register();
         }
 
         /// <summary>Requests that a CSS file be registered on the client browser. Defaults to rendering in the page header.</summary>
@@ -163,7 +178,7 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="priority">The relative priority in which the file should be loaded.</param>
         public void DnnCssInclude(string filePath, FileOrder.Css priority)
         {
-            this.clientResourceController.RegisterStylesheet(filePath, (Abstractions.ClientResources.FileOrder.Css)priority);
+            this.DnnCssInclude(filePath, (int)priority);
         }
 
         /// <summary>Requests that a CSS file be registered on the client browser. Allows for overriding the default provider.</summary>
@@ -172,10 +187,10 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="provider">The provider name to be used to render the CSS file on the page.</param>
         public void DnnCssInclude(string filePath, int priority, string provider)
         {
-            this.clientResourceController.CreateStylesheet(filePath)
-                .SetPriority(priority)
-                .SetProvider(provider)
-                .Register();
+            var stylesheet = this.clientResourceController.CreateStylesheet(filePath);
+            stylesheet.Priority = priority;
+            stylesheet.Provider = provider;
+            stylesheet.Register();
         }
 
         /// <summary>Requests that a CSS file be registered on the client browser. Allows for overriding the default provider.</summary>
@@ -186,18 +201,20 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="version">Version nr of framework.</param>
         public void DnnCssInclude(string filePath, int priority, string provider, string name, string version)
         {
-            this.clientResourceController.CreateStylesheet(filePath)
-                .SetPriority(priority)
-                .SetProvider(provider)
-                .SetNameAndVersion(name, version, false)
-                .Register();
+            var stylesheet = this.clientResourceController.CreateStylesheet(filePath);
+            stylesheet.Priority = priority;
+            stylesheet.Provider = provider;
+            stylesheet.Name = name;
+            stylesheet.Version = version;
+            stylesheet.ForceVersion = false;
+            stylesheet.Register();
         }
 
         /// <summary>Requests that a JavaScript file be registered on the client browser.</summary>
         /// <param name="filePath">The relative file path to the JavaScript resource.</param>
         public void DnnJsInclude(string filePath)
         {
-            this.clientResourceController.RegisterScript(filePath);
+            this.clientResourceController.CreateScript(filePath).Register();
         }
 
         /// <summary>Requests that a JavaScript file be registered on the client browser.</summary>
@@ -205,7 +222,9 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="priority">The relative priority in which the file should be loaded.</param>
         public void DnnJsInclude(string filePath, int priority)
         {
-            this.clientResourceController.RegisterScript(filePath, (Abstractions.ClientResources.FileOrder.Js)priority);
+            var script = this.clientResourceController.CreateScript(filePath);
+            script.Priority = priority;
+            script.Register();
         }
 
         /// <summary>Requests that a JavaScript file be registered on the client browser.</summary>
@@ -213,7 +232,7 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="priority">The relative priority in which the file should be loaded.</param>
         public void DnnJsInclude(string filePath, FileOrder.Js priority)
         {
-            this.clientResourceController.RegisterScript(filePath, (Abstractions.ClientResources.FileOrder.Js)priority);
+            this.DnnJsInclude(filePath, (int)priority);
         }
 
         /// <summary>Requests that a JavaScript file be registered on the client browser.</summary>
@@ -222,10 +241,10 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="provider">The name of the provider responsible for rendering the script output.</param>
         public void DnnJsInclude(string filePath, int priority, string provider)
         {
-            this.clientResourceController.CreateScript(filePath)
-                .SetPriority(priority)
-                .SetProvider(provider)
-                .Register();
+            var script = this.clientResourceController.CreateScript(filePath);
+            script.Priority = priority;
+            script.Provider = provider;
+            script.Register();
         }
 
         /// <summary>Requests that a JavaScript file be registered on the client browser.</summary>
@@ -236,11 +255,19 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="version">Version nr of framework.</param>
         public void DnnJsInclude(string filePath, int priority, string provider, string name, string version)
         {
-            this.clientResourceController.CreateStylesheet(filePath)
-                .SetPriority(priority)
-                .SetProvider(provider)
-                .SetNameAndVersion(name, version, false)
-                .Register();
+            // Note: this overload has always registered a *stylesheet* resource (see the MVC 5
+            // implementation, which called CreateStylesheet(filePath).SetPriority(..).SetProvider(..)
+            // .SetNameAndVersion(name, version, false).Register()). That looks like a long standing
+            // defect for a JavaScript include, but the behavior is preserved here on purpose so the
+            // migration does not change what existing modules get rendered; the fluent setters simply
+            // became settable properties on IResource.
+            var resource = this.clientResourceController.CreateStylesheet(filePath);
+            resource.Priority = priority;
+            resource.Provider = provider;
+            resource.Name = name;
+            resource.Version = version;
+            resource.ForceVersion = false;
+            resource.Register();
         }
 
         /// <summary>Requests that a script from a JavaScript Library be registered on the client browser.</summary>

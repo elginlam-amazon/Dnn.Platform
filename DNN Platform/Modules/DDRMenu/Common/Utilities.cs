@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -7,11 +7,13 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Web;
-    using System.Web.Caching;
+    using System.Text.Encodings.Web;
     using System.Xml;
     using System.Xml.Serialization;
     using System.Xml.Xsl;
+
+    using DotNetNuke.Common.Utilities;
+    using DotNetNuke.Services.Cache;
 
     /// <summary>Provides various utilities for the DDN Menu.</summary>
     internal static class Utilities
@@ -23,12 +25,11 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
         /// <returns>A cached version of the file contents in a string.</returns>
         internal static string CachedFileContent(string filename)
         {
-            var cache = HttpContext.Current.Cache;
-            var result = cache[filename] as string;
+            var result = DataCache.GetCache<string>(filename);
             if (result == null)
             {
                 result = File.ReadAllText(filename);
-                cache.Insert(filename, result, new CacheDependency(filename));
+                DataCache.SetCache(filename, result, new DNNCacheDependency(filename));
             }
 
             return result;
@@ -39,8 +40,7 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
         /// <returns>A <see cref="XmlDocument"/> representing the cached file contents.</returns>
         internal static XmlDocument CachedXml(string filename)
         {
-            var cache = HttpContext.Current.Cache;
-            var result = cache[filename] as XmlDocument;
+            var result = DataCache.GetCache<XmlDocument>(filename);
             if (result == null)
             {
                 result = new XmlDocument { XmlResolver = null };
@@ -49,7 +49,7 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
                     result.Load(xmlReader);
                 }
 
-                cache.Insert(filename, result, new CacheDependency(filename));
+                DataCache.SetCache(filename, result, new DNNCacheDependency(filename));
             }
 
             return result;
@@ -60,8 +60,7 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
         /// <returns>An <see cref="XslCompiledTransform"/> object with the content of cached content of the file.</returns>
         internal static XslCompiledTransform CachedXslt(string filename)
         {
-            var cache = HttpContext.Current.Cache;
-            var result = cache[filename] as XslCompiledTransform;
+            var result = DataCache.GetCache<XslCompiledTransform>(filename);
             if (result == null)
             {
                 result = new XslCompiledTransform();
@@ -70,7 +69,7 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
                     result.Load(reader);
                 }
 
-                cache.Insert(filename, result, new CacheDependency(filename));
+                DataCache.SetCache(filename, result, new DNNCacheDependency(filename));
             }
 
             return result;
@@ -122,7 +121,9 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
             }
             else
             {
-                result = $"'{HttpUtility.JavaScriptStringEncode(obj.ToString())}'";
+                // HttpUtility.JavaScriptStringEncode is gone; JavaScriptEncoder performs the same
+                // JavaScript string escaping, and the single quotes are kept around the result.
+                result = $"'{JavaScriptEncoder.Default.Encode(obj.ToString())}'";
             }
 
             return result;

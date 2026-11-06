@@ -4,13 +4,12 @@
 
 namespace DotNetNuke.Web.Mvc.Routing
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Text;
-    using System.Threading.Tasks;
-    using System.Web.Routing;
-
+    /// <summary>Extension methods to read and write the DNN route metadata (name, controller namespaces).</summary>
+    /// <remarks>
+    /// The legacy versions of these methods hung off <c>System.Web.Routing.Route</c> and used its
+    /// <c>DataTokens</c>. The ASP.NET Core equivalent of the route's data tokens are the endpoint metadata,
+    /// which are populated from <see cref="DnnMvcRoute.DataTokens"/> when the route is mapped.
+    /// </remarks>
     public static class MvcRouteExtensions
     {
         private const string NamespaceKey = "namespaces";
@@ -19,12 +18,12 @@ namespace DotNetNuke.Web.Mvc.Routing
         /// <summary>Get the name of the route.</summary>
         /// <param name="route">The route.</param>
         /// <returns>Route name.</returns>
-        public static string GetName(this Route route)
+        public static string GetName(this DnnMvcRoute route)
         {
-            return (string)route.DataTokens[NameKey];
+            return route.DataTokens.TryGetValue(NameKey, out var name) ? (string)name : null;
         }
 
-        internal static void SetNameSpaces(this Route route, string[] namespaces)
+        internal static void SetNameSpaces(this DnnMvcRoute route, string[] namespaces)
         {
             route.DataTokens[NamespaceKey] = namespaces;
         }
@@ -32,14 +31,15 @@ namespace DotNetNuke.Web.Mvc.Routing
         /// <summary>Get Namespaces that are searched for controllers for this route.</summary>
         /// <param name="route">The route.</param>
         /// <returns>Namespaces.</returns>
-        internal static string[] GetNameSpaces(this Route route)
+        internal static string[] GetNameSpaces(this DnnMvcRoute route)
         {
-            return (string[])route.DataTokens[NamespaceKey];
+            return route.DataTokens.TryGetValue(NamespaceKey, out var namespaces) ? (string[])namespaces : null;
         }
 
-        internal static void SetName(this Route route, string name)
+        internal static void SetName(this DnnMvcRoute route, string name)
         {
             route.DataTokens[NameKey] = name;
+            route.Name = name;
         }
     }
 }

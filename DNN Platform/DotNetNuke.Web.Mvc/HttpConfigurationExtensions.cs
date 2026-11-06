@@ -4,48 +4,74 @@
 
 namespace DotNetNuke.Web.Mvc
 {
+    using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
-    using System.Web.Http;
+    using System.Linq;
 
     using DotNetNuke.Common;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.DependencyInjection;
+
+    /// <summary>
+    /// Registration and retrieval of the <see cref="ITabAndModuleInfoProvider"/>s. ASP.NET Core has no
+    /// <c>HttpConfiguration</c>, so the configuration-property collection became a DI registered collection:
+    /// <see cref="AddTabAndModuleInfoProvider(IServiceCollection, ITabAndModuleInfoProvider)"/> registers a
+    /// provider and the <c>GetTabAndModuleInfoProviders</c> overloads return the registered providers in
+    /// registration order, exactly like the legacy <c>ConcurrentQueue</c> did.
+    /// </summary>
     public static class HttpConfigurationExtensions
     {
-        private const string Key = "MvcTabAndModuleInfoProvider";
+        private static readonly ConcurrentQueue<ITabAndModuleInfoProvider> FallbackProviders = new();
 
-        public static void AddTabAndModuleInfoProvider(this HttpConfiguration configuration, ITabAndModuleInfoProvider tabAndModuleInfoProvider)
+        /// <summary>Adds a tab and module info provider to the service collection.</summary>
+        /// <param name="services">The service collection.</param>
+        /// <param name="tabAndModuleInfoProvider">The provider to register.</param>
+        /// <returns>The <paramref name="services"/>, for chaining.</returns>
+        public static IServiceCollection AddTabAndModuleInfoProvider(this IServiceCollection services, ITabAndModuleInfoProvider tabAndModuleInfoProvider)
         {
-            Requires.NotNull("configuration", configuration);
+            Requires.NotNull("services", services);
             Requires.NotNull("tabAndModuleInfoProvider", tabAndModuleInfoProvider);
 
-            var providers = configuration.Properties.GetOrAdd(Key, InitValue) as ConcurrentQueue<ITabAndModuleInfoProvider>;
-
-            if (providers == null)
+            if (!FallbackProviders.Contains(tabAndModuleInfoProvider))
             {
-                providers = new ConcurrentQueue<ITabAndModuleInfoProvider>();
-                configuration.Properties[Key] = providers;
+                FallbackProviders.Enqueue(tabAndModuleInfoProvider);
             }
 
-            providers.Enqueue(tabAndModuleInfoProvider);
+            services.AddSingleton(tabAndModuleInfoProvider);
+            return services;
         }
 
-        public static IEnumerable<ITabAndModuleInfoProvider> GetTabAndModuleInfoProviders(this HttpConfiguration configuration)
+        /// <summary>Gets the registered tab and module info providers.</summary>
+        /// <param name="serviceProvider">The service provider of the current request scope, may be <see langword="null"/>.</param>
+        /// <returns>The registered providers.</returns>
+        public static IEnumerable<ITabAndModuleInfoProvider> GetTabAndModuleInfoProviders(this IServiceProvider serviceProvider)
         {
-            Requires.NotNull("configuration", configuration);
-
-            if (configuration.Properties.GetOrAdd(Key, InitValue) is not ConcurrentQueue<ITabAndModuleInfoProvider> providers)
+            var providers = serviceProvider?.GetServices<ITabAndModuleInfoProvider>().ToArray();
+            if (providers is { Length: > 0 })
             {
-                // shouldn't ever happen outside of unit tests
-                return [];
+                return providers;
             }
 
-            return providers.ToArray();
+            // Shouldn't ever happen outside of unit tests or background (non-request) code paths.
+            return FallbackProviders.ToArray();
         }
 
-        private static object InitValue(object o)
+        /// <summary>Gets the registered tab and module info providers for the current request.</summary>
+        /// <param name="httpContext">The current request context.</param>
+        /// <returns>The registered providers.</returns>
+        public static IEnumerable<ITabAndModuleInfoProvider> GetTabAndModuleInfoProviders(this HttpContext httpContext)
         {
-            return new ConcurrentQueue<ITabAndModuleInfoProvider>();
+            return GetTabAndModuleInfoProviders(httpContext?.RequestServices);
+        }
+
+        /// <summary>Gets the registered tab and module info providers for the given request.</summary>
+        /// <param name="request">The current request.</param>
+        /// <returns>The registered providers.</returns>
+        public static IEnumerable<ITabAndModuleInfoProvider> GetTabAndModuleInfoProviders(this HttpRequest request)
+        {
+            return GetTabAndModuleInfoProviders(request?.HttpContext?.RequestServices);
         }
     }
 }

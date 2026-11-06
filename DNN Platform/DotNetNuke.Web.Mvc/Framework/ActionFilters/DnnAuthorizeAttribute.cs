@@ -6,13 +6,12 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Threading;
-    using System.Web;
 
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
+    using Microsoft.AspNetCore.Http;
 
-    public class DnnAuthorizeAttribute : AuthorizeAttributeBase
+    public class DnnAuthorizeAttribute : DnnAuthorizeBaseAttribute
     {
         private string staticRoles;
         private string[] staticRolesSplit = [];
@@ -50,9 +49,12 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
             }
         }
 
-        protected virtual bool IsAuthenticated()
+        /// <summary>Determines whether the current request is authenticated.</summary>
+        /// <param name="httpContext">The current HTTP context.</param>
+        /// <returns><see langword="true"/> when the current user is authenticated.</returns>
+        protected virtual bool IsAuthenticated(HttpContext httpContext)
         {
-            return Thread.CurrentPrincipal.Identity.IsAuthenticated;
+            return httpContext?.User?.Identity?.IsAuthenticated == true;
         }
 
         protected virtual UserInfo GetCurrentUser()
@@ -61,9 +63,9 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
         }
 
         /// <inheritdoc />
-        protected override bool AuthorizeCore(HttpContextBase httpContext)
+        protected override bool AuthorizeCore(HttpContext httpContext)
         {
-            if (!this.IsAuthenticated())
+            if (!this.IsAuthenticated(httpContext))
             {
                 return false;
             }

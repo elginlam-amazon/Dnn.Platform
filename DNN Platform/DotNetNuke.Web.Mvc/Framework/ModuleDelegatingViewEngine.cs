@@ -5,86 +5,122 @@ namespace DotNetNuke.Web.Mvc.Framework
 {
     using System;
     using System.Collections.Generic;
-    using System.Web.Mvc;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
     using DotNetNuke.Web.Mvc.Framework.Modules;
     using DotNetNuke.Web.Mvc.Routing;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.ViewEngines;
+    using Microsoft.AspNetCore.Routing;
 
     /// <summary>A View Engine that will delegate to whatever ViewEngine(s) the module application defines.</summary>
     public class ModuleDelegatingViewEngine : IViewEngine
     {
         private readonly IHostSettings hostSettings;
-        private readonly Dictionary<IView, IViewEngine> viewEngineMappings = new Dictionary<IView, IViewEngine>();
+        private readonly IHttpContextAccessor httpContextAccessor;
 
         /// <summary>Initializes a new instance of the <see cref="ModuleDelegatingViewEngine"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IHostSettings. Scheduled removal in v12.0.0.")]
         public ModuleDelegatingViewEngine()
-            : this(null)
+            : this(null, null)
         {
         }
 
         /// <summary>Initializes a new instance of the <see cref="ModuleDelegatingViewEngine"/> class.</summary>
         /// <param name="hostSettings">The host settings.</param>
         public ModuleDelegatingViewEngine(IHostSettings hostSettings)
+            : this(hostSettings, null)
+        {
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="ModuleDelegatingViewEngine"/> class.</summary>
+        /// <param name="hostSettings">The host settings.</param>
+        /// <param name="httpContextAccessor">The HTTP context accessor, used by <see cref="GetView"/> which gets no action context.</param>
+        public ModuleDelegatingViewEngine(IHostSettings hostSettings, IHttpContextAccessor httpContextAccessor)
         {
             this.hostSettings = hostSettings;
+            this.httpContextAccessor = httpContextAccessor;
         }
 
-        /// <summary>Finds the specified partial view by using the specified controller context.</summary>
-        /// <returns>The partial view.</returns>
-        /// <param name="controllerContext">The controller context.</param><param name="partialViewName">The name of the partial view.</param><param name="useCache">true to specify that the view engine returns the cached view, if a cached view exists; otherwise, false.</param>
-        public ViewEngineResult FindPartialView(ControllerContext controllerContext, string partialViewName, bool useCache)
+        /// <summary>Finds the specified view by using the specified action context.</summary>
+        /// <param name="context">The action context.</param>
+        /// <param name="viewName">The name of the view.</param>
+        /// <param name="isMainPage"><see langword="true"/> when locating a page (view), <see langword="false"/> for a partial view.</param>
+        /// <returns>The view engine result.</returns>
+        public ViewEngineResult FindView(ActionContext context, string viewName, bool isMainPage)
         {
-            return this.RunAgainstModuleViewEngines(controllerContext, e => e.FindPartialView(this.hostSettings, controllerContext, partialViewName, useCache));
+            ArgumentNullException.ThrowIfNull(context);
+
+            return RunAgainstModuleViewEngines(
+                context,
+                viewName,
+                engines => isMainPage
+                    ? engines.FindView(this.hostSettings, context, viewName, null, true)
+                    : engines.FindPartialView(this.hostSettings, context, viewName, true));
         }
 
-        /// <summary>Finds the specified view by using the specified controller context.</summary>
-        /// <returns>The page view.</returns>
-        /// <param name="controllerContext">The controller context.</param><param name="viewName">The name of the view.</param><param name="masterName">The name of the master.</param><param name="useCache">true to specify that the view engine returns the cached view, if a cached view exists; otherwise, false.</param>
-        public ViewEngineResult FindView(ControllerContext controllerContext, string viewName, string masterName, bool useCache)
+        /// <summary>Gets the view at the given path.</summary>
+        /// <param name="executingFilePath">The path of the view which is executing (may be <see langword="null"/>).</param>
+        /// <param name="viewPath">The path of the view to get.</param>
+        /// <param name="isMainPage"><see langword="true"/> when locating a page (view), <see langword="false"/> for a partial view.</param>
+        /// <returns>The view engine result.</returns>
+        public ViewEngineResult GetView(string executingFilePath, string viewPath, bool isMainPage)
         {
-            return this.RunAgainstModuleViewEngines(controllerContext, e => e.FindView(this.hostSettings, controllerContext, viewName, masterName, useCache));
-        }
+            // GetView receives no ActionContext, so the module's engines are resolved from the current request.
+            var httpContext = this.httpContextAccessor?.HttpContext;
+            var moduleRequestResult = GetCurrentModuleRequestResult(httpContext);
+            var engines = ViewEngineCollectionExt.ResolveViewEngines(
+                ModuleApplication.GetCurrentDnnController(httpContext)?.ViewEngines,
+                moduleRequestResult?.ActionContext ?? CreateActionContext(httpContext));
 
-        /// <summary>Releases the specified view by using the specified controller context.</summary>
-        /// <param name="controllerContext">The controller context.</param><param name="view">The view.</param>
-        public void ReleaseView(ControllerContext controllerContext, IView view)
-        {
-            if (this.viewEngineMappings.TryGetValue(view, out var viewEngine))
+            var searchedLocations = new List<string>();
+            foreach (var engine in engines)
             {
-                viewEngine.ReleaseView(controllerContext, view);
+                var result = engine.GetView(executingFilePath, viewPath, isMainPage);
+                if (result.Success)
+                {
+                    return result;
+                }
+
+                if (result.SearchedLocations is not null)
+                {
+                    searchedLocations.AddRange(result.SearchedLocations);
+                }
             }
+
+            return ViewEngineResult.NotFound(viewPath, searchedLocations);
         }
 
-        private static ModuleRequestResult GetCurrentModuleRequestResult(ControllerContext controllerContext)
+        private static ModuleRequestResult GetCurrentModuleRequestResult(HttpContext httpContext)
         {
-            if (controllerContext.HttpContext.HasModuleRequestResult())
+            if (httpContext is not null && httpContext.HasModuleRequestResult())
             {
-                return controllerContext.HttpContext.GetModuleRequestResult();
+                return httpContext.GetModuleRequestResult();
             }
 
             return null;
         }
 
-        private ViewEngineResult RunAgainstModuleViewEngines(ControllerContext controllerContext, Func<ViewEngineCollection, ViewEngineResult> engineRequest)
+        private static ActionContext CreateActionContext(HttpContext httpContext)
         {
-            var controller = controllerContext.Controller as IDnnController;
-            if (controller?.ViewEngineCollectionEx == null)
+            return httpContext is null
+                ? null
+                : new ActionContext(httpContext, httpContext.GetRouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        }
+
+        private static ViewEngineResult RunAgainstModuleViewEngines(ActionContext context, string viewName, Func<IReadOnlyList<IViewEngine>, ViewEngineResult> engineRequest)
+        {
+            var controller = ModuleApplication.GetCurrentDnnController(context.HttpContext);
+            if (controller?.ViewEngines is null || controller.ViewEngines.Count == 0)
             {
-                return new ViewEngineResult([]);
+                // Not a module request (or the module defined no engines): let the next engine in the
+                // MvcViewOptions.ViewEngines collection handle the lookup.
+                return ViewEngineResult.NotFound(viewName ?? string.Empty, []);
             }
 
-            var result = engineRequest(controller.ViewEngineCollectionEx);
-
-            // If there is a view, store the view<->viewengine mapping so release works correctly
-            if (result.View != null)
-            {
-                this.viewEngineMappings[result.View] = result.ViewEngine;
-            }
-
-            return result;
+            return engineRequest(controller.ViewEngines);
         }
     }
 }

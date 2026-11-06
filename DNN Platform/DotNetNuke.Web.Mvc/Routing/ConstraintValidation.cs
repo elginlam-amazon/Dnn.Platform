@@ -5,24 +5,21 @@
 namespace DotNetNuke.Web.Mvc.Routing
 {
     using System;
-    using System.Collections.Generic;
     using System.Diagnostics.Contracts;
     using System.Linq;
-    using System.Text;
-    using System.Threading.Tasks;
-    using System.Web.Routing;
 
-    /// <summary>Validates that the constraints on a Route are of a type that can be processed by <see cref="System.Web.Routing.Route" />.</summary>
+    using Microsoft.AspNetCore.Routing;
+
+    /// <summary>Validates that the constraints on a DNN MVC route are of a type that endpoint routing can process.</summary>
     /// <remarks>
-    /// This validation is only applicable when the <see cref="System.Web.Routing.Route" /> is one that we created. A user-defined
-    /// type that is derived from <see cref="System.Web.Routing.RouteBase" /> may have different semantics.
-    ///
-    /// The logic here is duplicated from System.Web, but we need it to validate correctness of routes on startup. Since we can't
-    /// change System.Web, this just lives in a static class for MVC.
+    /// A constraint of an ASP.NET Core <see cref="RouteEndpoint"/> is either an inline/parsable constraint
+    /// expression (a <see cref="string"/>, resolved by the inline constraint resolver) or an
+    /// <c>IRouteConstraint</c> instance. Anything else cannot be mapped, so the routes are validated
+    /// when the module registers them rather than when the host builds its endpoints.
     /// </remarks>
     internal static class ConstraintValidation
     {
-        public static void Validate(Route route)
+        public static void Validate(DnnMvcRoute route)
         {
             Contract.Assert(route != null);
             Contract.Assert(route.Url != null);

@@ -5,26 +5,34 @@
 namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 {
     using System;
-    using System.Web.Mvc;
 
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
+    using DotNetNuke.Web.Mvc.Framework.Modules;
 
-    public class DnnHandleErrorAttribute : HandleErrorAttribute
+    using Microsoft.AspNetCore.Mvc.Filters;
+
+    /// <summary>An exception filter which logs unhandled DNN module exceptions.</summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
+    public class DnnHandleErrorAttribute : Attribute, IExceptionFilter
     {
         /// <inheritdoc />
-        public override void OnException(ExceptionContext filterContext)
+        public virtual void OnException(ExceptionContext context)
         {
-            var controller = filterContext.Controller as IDnnController;
+            // ExceptionContext does not expose the controller instance in ASP.NET Core; the module
+            // application publishes the executing DNN controller on the request instead.
+            var controller = ModuleApplication.GetCurrentDnnController(context.HttpContext);
 
             if (controller == null)
             {
                 throw new InvalidOperationException("This attribute can only be applied to Controllers that implement IDnnController");
             }
 
-            this.LogException(filterContext.Exception);
+            this.LogException(context.Exception);
         }
 
+        /// <summary>Logs the exception.</summary>
+        /// <param name="exception">The exception to log.</param>
         protected virtual void LogException(Exception exception)
         {
             Exceptions.LogException(exception);

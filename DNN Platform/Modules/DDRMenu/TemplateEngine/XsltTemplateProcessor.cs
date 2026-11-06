@@ -8,8 +8,7 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
     using System.Collections.Generic;
     using System.IO;
     using System.Text;
-    using System.Web;
-    using System.Web.UI;
+    using System.Threading;
     using System.Xml;
     using System.Xml.Xsl;
 
@@ -23,8 +22,45 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
     /// <param name="hostSettings">The host settings.</param>
     public class XsltTemplateProcessor(IHostSettings hostSettings) : ITemplateProcessor
     {
-        private readonly IHostSettings hostSettings = hostSettings ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
+        private const string ResolverKey = "Resolver";
+
+        private static readonly AsyncLocal<PathResolver> AmbientResolver = new AsyncLocal<PathResolver>();
+
+        private readonly IHostSettings hostSettings = hostSettings ?? DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
         private XslCompiledTransform xsl;
+
+        /// <summary>Gets or sets the path resolver of the template being rendered.</summary>
+        /// <remarks>
+        /// The slot was <c>HttpContext.Current.Items["Resolver"]</c>, which XsltFunctions reads
+        /// back. The request items are still written whenever a request is in flight (so a
+        /// cross-component read during a request behaves as before), with an
+        /// <see cref="AsyncLocal{T}"/> carrying the value during interactive (SignalR) rendering,
+        /// when <see cref="HttpContextSource.Current"/> is <see langword="null"/>.
+        /// </remarks>
+        internal static PathResolver CurrentResolver
+        {
+            get
+            {
+                var items = HttpContextSource.Current?.Items;
+                if (items != null && items.TryGetValue(ResolverKey, out var stored))
+                {
+                    return (PathResolver)stored;
+                }
+
+                return AmbientResolver.Value;
+            }
+
+            set
+            {
+                AmbientResolver.Value = value;
+
+                var items = HttpContextSource.Current?.Items;
+                if (items != null)
+                {
+                    items[ResolverKey] = value;
+                }
+            }
+        }
 
         /// <summary>Initializes a new instance of the <see cref="XsltTemplateProcessor"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.4. Please use overload with IHostSettings. Scheduled removal in v12.0.0.")]
@@ -55,23 +91,28 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
         }
 
         /// <inheritdoc />
-        public void Render(object source, HtmlTextWriter htmlWriter, TemplateDefinition liveDefinition)
+        public void Render(object source, TextWriter htmlWriter, TemplateDefinition liveDefinition)
         {
             var resolver = new PathResolver(this.hostSettings, liveDefinition.Folder);
-            var hostPage = DNNContext.Current.Page;
 
             var args = new XsltArgumentList();
             args.AddExtensionObject("urn:ddrmenu", new XsltFunctions());
             args.AddExtensionObject("urn:dnngarden", new XsltFunctions());
-            args.AddParam("ControlID", string.Empty, DNNContext.Current.HostControl.ClientID);
+            args.AddParam("ControlID", string.Empty, DNNContext.Current.ClientId);
             args.AddParam("Options", string.Empty, ConvertToJson(liveDefinition.ClientOptions));
-            args.AddParam("DNNPath", string.Empty, hostPage.ResolveUrl(resolver.Resolve("/", PathResolver.RelativeTo.Dnn)));
-            args.AddParam("ManifestPath", string.Empty, hostPage.ResolveUrl(resolver.Resolve("/", PathResolver.RelativeTo.Manifest)));
-            args.AddParam("PortalPath", string.Empty, hostPage.ResolveUrl(resolver.Resolve("/", PathResolver.RelativeTo.Portal)));
-            args.AddParam("SkinPath", string.Empty, hostPage.ResolveUrl(resolver.Resolve("/", PathResolver.RelativeTo.Skin)));
+            // Page.ResolveUrl has no IClientApiPage equivalent; the DNN context performs the same
+            // application-relative resolution and works for module-control hosts, which have no page.
+            var context = DNNContext.Current;
+            args.AddParam("DNNPath", string.Empty, context.ResolveUrl(resolver.Resolve("/", PathResolver.RelativeTo.Dnn)));
+            args.AddParam("ManifestPath", string.Empty, context.ResolveUrl(resolver.Resolve("/", PathResolver.RelativeTo.Manifest)));
+            args.AddParam("PortalPath", string.Empty, context.ResolveUrl(resolver.Resolve("/", PathResolver.RelativeTo.Portal)));
+            args.AddParam("SkinPath", string.Empty, context.ResolveUrl(resolver.Resolve("/", PathResolver.RelativeTo.Skin)));
             liveDefinition.TemplateArguments.ForEach(a => args.AddParam(a.Name, string.Empty, a.Value));
 
-            HttpContext.Current.Items["Resolver"] = resolver;
+            // The resolver is handed to the XSLT extension functions through the request items
+            // when a request is in flight; HttpContextSource.Current is null during interactive
+            // (SignalR) rendering, so the AsyncLocal fallback carries it instead.
+            CurrentResolver = resolver;
 
             using var xmlStream = new MemoryStream();
             Utilities.SerialiserFor(source.GetType()).Serialize(xmlStream, source);

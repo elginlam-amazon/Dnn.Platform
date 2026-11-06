@@ -10,16 +10,16 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
     using System.IO;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web.Caching;
-    using System.Web.UI;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Framework.JavaScriptLibraries;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.ClientDependency;
     using DotNetNuke.Web.DDRMenu.DNNCommon;
 
@@ -62,6 +62,13 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
         private static readonly Regex RegexLinks =
             new Regex(
                 "( (href|src)=['\"]?)(?!http:|ftp:|mailto:|file:|javascript:|/)([^'\">]+['\">])",
+                RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // Matches a stylesheet <link> element in a template head file so it can be routed to the
+        // client resource controller (a real <head> sink) instead of a body-level literal.
+        private static readonly Regex RegexStylesheetLinks =
+            new Regex(
+                "<link\\b(?=[^>]*\\brel=['\"]?stylesheet)[^>]*\\bhref=(?:['\"](?<href>[^'\"]+)['\"]|(?<href>[^\\s'\">]+))[^>]*>",
                 RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private readonly IApplicationStatusInfo appStatus = appStatus ?? Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
@@ -149,11 +156,12 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
 
         internal static TemplateDefinition FromManifest(IHostSettings hostSettings, string manifestUrl)
         {
-            var httpContext = HttpContextSource.Current;
-            var cache = httpContext.Cache;
-            var manifestPath = httpContext.Server.MapPath(manifestUrl);
+            // HttpContext.Server.MapPath and the System.Web cache are replaced by
+            // HttpContextSource.MapPath and DataCache, which work without a current request.
+            var manifestPath = HttpContextSource.MapPath(manifestUrl);
 
-            if (cache[manifestPath] is not TemplateDefinition baseDef)
+            var baseDef = DataCache.GetCache<TemplateDefinition>(manifestPath);
+            if (baseDef is null)
             {
                 baseDef = ActivatorUtilities.CreateInstance<TemplateDefinition>(Globals.DependencyProvider);
                 baseDef.Folder = Path.GetDirectoryName(manifestUrl);
@@ -176,10 +184,10 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
                         {
                             case "template":
                                 baseDef.TemplateVirtualPath = GetResolvedPath(elt, resolver);
-                                baseDef.TemplatePath = httpContext.Server.MapPath(baseDef.TemplateVirtualPath);
+                                baseDef.TemplatePath = HttpContextSource.MapPath(baseDef.TemplateVirtualPath);
                                 break;
                             case "templateHead":
-                                baseDef.TemplateHeadPath = httpContext.Server.MapPath(GetResolvedPath(elt, resolver));
+                                baseDef.TemplateHeadPath = HttpContextSource.MapPath(GetResolvedPath(elt, resolver));
                                 break;
                             case "scripts":
                                 foreach (XmlElement scriptElt in elt.GetElementsByTagName("script"))
@@ -306,7 +314,13 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
                     throw new ApplicationException($"Can't find processor for manifest {manifestPath}");
                 }
 
-                cache.Insert(manifestPath, baseDef, new CacheDependency([manifestPath, baseDef.TemplatePath]));
+                // The two-file System.Web CacheDependency becomes a DNNCacheDependency over the
+                // same two paths, so a change to either the manifest or the template file still
+                // invalidates the cached definition.
+                DataCache.SetCache(
+                    manifestPath,
+                    baseDef,
+                    new DNNCacheDependency(new[] { manifestPath, baseDef.TemplatePath, }));
             }
 
             var result = baseDef.Clone();
@@ -316,7 +330,14 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
 
         internal void PreRender()
         {
-            var page = DNNContext.Current.Page;
+            // DNNContext.Current.Page is the host control's page, which exists only when the menu
+            // is hosted by a client-API control (the skin object, the action menu and the
+            // navigation provider's menu control). The View and Settings module controls are plain
+            // components with no control tree, so their page is null; the host registers its
+            // IClientApiPage in the request services, which is where we pick it up. Without this
+            // fallback the View module — the primary surface of this module — would silently lose
+            // every template <script> block and its template head markup.
+            var page = DNNContext.Current.Page ?? GetClientApiPage();
 
             var clientResourcesController = GetClientResourcesController();
             foreach (var stylesheet in this.StyleSheets)
@@ -347,21 +368,45 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
                 }
             }
 
-            foreach (var scriptKey in this.ScriptKeys)
+            // Page.ClientScript is gone: IClientApiPage carries the script registration members
+            // itself.
+            if (page != null)
             {
-                var clientScript = page.ClientScript;
-                if (!clientScript.IsClientScriptBlockRegistered(typeof(TemplateDefinition), scriptKey))
+                foreach (var scriptKey in this.ScriptKeys)
                 {
-                    clientScript.RegisterClientScriptBlock(typeof(TemplateDefinition), scriptKey, this.Scripts[scriptKey], false);
+                    if (!page.IsClientScriptBlockRegistered(typeof(TemplateDefinition), scriptKey))
+                    {
+                        page.RegisterClientScriptBlock(typeof(TemplateDefinition), scriptKey, this.Scripts[scriptKey]);
+                    }
                 }
             }
 
             var headContent = string.IsNullOrEmpty(this.TemplateHeadPath) ? string.Empty : Utilities.CachedFileContent(this.TemplateHeadPath);
             var expandedHead = RegexLinks.Replace(headContent, "$1" + DNNContext.Current.ActiveTab.SkinPath + "$3");
-            page.Header.Controls.Add(new LiteralControl(expandedHead));
+
+            if (!string.IsNullOrEmpty(expandedHead))
+            {
+                // Page.Header.Controls.Add(new LiteralControl(head)) has no component-tree
+                // equivalent. Stylesheet links are the common case and have a real head sink: the
+                // client resource controller emits them into <head> with the right CSS ordering,
+                // which a body-level literal could not guarantee. Anything else in the head file
+                // keeps the literal-markup behavior through a once-per-page script block.
+                var remainingHead = RegexStylesheetLinks.Replace(
+                    expandedHead,
+                    match =>
+                    {
+                        clientResourcesController.RegisterStylesheet(match.Groups["href"].Value.Trim());
+                        return string.Empty;
+                    });
+
+                if (page != null && !string.IsNullOrWhiteSpace(remainingHead))
+                {
+                    page.RegisterClientScriptBlock(typeof(TemplateDefinition), "DDRMenuTemplateHead:" + this.TemplateHeadPath, remainingHead);
+                }
+            }
         }
 
-        internal void Render(object source, HtmlTextWriter htmlWriter)
+        internal void Render(object source, TextWriter htmlWriter)
         {
             this.Processor.Render(source, htmlWriter, this);
         }
@@ -434,6 +479,20 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
         {
             var serviceProvider = Globals.GetCurrentServiceProvider();
             return serviceProvider.GetRequiredService<IClientResourceController>();
+        }
+
+        /// <summary>
+        /// Gets the host's page for the current request, for hosts whose menu is not inside a
+        /// client-API control tree (the View and Settings module controls).
+        /// </summary>
+        /// <returns>The current <see cref="DotNetNuke.UI.Utilities.IClientApiPage"/>, or <see langword="null"/> outside a request.</returns>
+        /// <remarks>
+        /// The host registers its <see cref="DotNetNuke.UI.Utilities.IClientApiPage"/> implementation in the request
+        /// services; see <c>DotNetNuke.UI.Utilities.ServiceCollectionExtensions.UseDnnWebUtility</c>.
+        /// </remarks>
+        private static DotNetNuke.UI.Utilities.IClientApiPage GetClientApiPage()
+        {
+            return Globals.GetCurrentServiceProvider().GetService<DotNetNuke.UI.Utilities.IClientApiPage>();
         }
     }
 }

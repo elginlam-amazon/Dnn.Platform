@@ -6,14 +6,16 @@ namespace DotNetNuke.Web.Mvc
 {
     using System.Globalization;
     using System.Linq;
-    using System.Web;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Instrumentation;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.Logging;
+    using Microsoft.Extensions.Primitives;
 
     public sealed class StandardTabAndModuleInfoProvider : ITabAndModuleInfoProvider
     {
@@ -25,19 +27,19 @@ namespace DotNetNuke.Web.Mvc
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<StandardTabAndModuleInfoProvider>();
 
         /// <inheritdoc />
-        public bool TryFindTabId(HttpRequestBase request, out int tabId)
+        public bool TryFindTabId(HttpRequest request, out int tabId)
         {
             return TryFindTabId(request, out tabId, true);
         }
 
         /// <inheritdoc />
-        public bool TryFindModuleId(HttpRequestBase request, out int moduleId)
+        public bool TryFindModuleId(HttpRequest request, out int moduleId)
         {
             return TryFindModuleId(request, out moduleId, true);
         }
 
         /// <inheritdoc />
-        public bool TryFindModuleInfo(HttpRequestBase request, out ModuleInfo moduleInfo)
+        public bool TryFindModuleInfo(HttpRequest request, out ModuleInfo moduleInfo)
         {
             int tabId, moduleId;
             if (TryFindTabId(request, out tabId, false) && TryFindModuleId(request, out moduleId, false))
@@ -49,7 +51,7 @@ namespace DotNetNuke.Web.Mvc
             return TryFindByMoniker(request, out moduleInfo);
         }
 
-        private static bool TryFindTabId(HttpRequestBase request, out int tabId, bool tryMoniker)
+        private static bool TryFindTabId(HttpRequest request, out int tabId, bool tryMoniker)
         {
             tabId = FindInt(request, TabIdKey);
             if (tabId > Null.NullInteger)
@@ -70,7 +72,7 @@ namespace DotNetNuke.Web.Mvc
             return false;
         }
 
-        private static bool TryFindModuleId(HttpRequestBase request, out int moduleId, bool tryMoniker)
+        private static bool TryFindModuleId(HttpRequest request, out int moduleId, bool tryMoniker)
         {
             moduleId = FindInt(request, ModuleIdKey);
             if (moduleId > Null.NullInteger)
@@ -91,25 +93,37 @@ namespace DotNetNuke.Web.Mvc
             return false;
         }
 
-        private static int FindInt(HttpRequestBase requestBase, string key)
+        private static int FindInt(HttpRequest request, string key)
         {
-            string value = null;
-            if (requestBase.Headers[key] != null)
-            {
-                value = requestBase.Headers[key];
-            }
-
-            if (string.IsNullOrEmpty(value) && requestBase.Url != null)
-            {
-                var queryString = HttpUtility.ParseQueryString(requestBase.Url.Query);
-                value = queryString[key];
-            }
+            var value = FindValue(request, key);
 
             int id;
             return int.TryParse(value, out id) ? id : Null.NullInteger;
         }
 
-        private static bool TryFindByMoniker(HttpRequestBase requestBase, out ModuleInfo moduleInfo)
+        /// <summary>Reads a value from the request headers, falling back to the query string and the route values.</summary>
+        private static string FindValue(HttpRequest request, string key)
+        {
+            if (request is null)
+            {
+                return null;
+            }
+
+            if (request.Headers.TryGetValue(key, out var headerValues) && !StringValues.IsNullOrEmpty(headerValues))
+            {
+                return headerValues.ToString();
+            }
+
+            if (request.Query.TryGetValue(key, out var queryValues) && !StringValues.IsNullOrEmpty(queryValues))
+            {
+                return queryValues.ToString();
+            }
+
+            var routeValue = request.HttpContext?.GetRouteValue(key);
+            return routeValue?.ToString();
+        }
+
+        private static bool TryFindByMoniker(HttpRequest requestBase, out ModuleInfo moduleInfo)
         {
             var id = FindIntInHeader(requestBase, MonikerHeaderKey);
             if (id <= Null.NullInteger)
@@ -121,24 +135,23 @@ namespace DotNetNuke.Web.Mvc
             return moduleInfo != null;
         }
 
-        private static int FindIntInHeader(HttpRequestBase requestBase, string key)
+        private static int FindIntInHeader(HttpRequest requestBase, string key)
         {
             string value = null;
-            if (requestBase.Headers[key] != null)
+            if (requestBase is not null && requestBase.Headers.TryGetValue(key, out var headerValues) && !StringValues.IsNullOrEmpty(headerValues))
             {
-                value = requestBase.Headers[key];
+                value = headerValues.ToString();
             }
 
             return GetTabModuleInfoFromMoniker(value);
         }
 
-        private static int FindIntInQueryString(HttpRequestBase requestBase, string key)
+        private static int FindIntInQueryString(HttpRequest requestBase, string key)
         {
             string value = null;
-            if (requestBase.Url != null)
+            if (requestBase is not null && requestBase.Query.TryGetValue(key, out var queryValues) && !StringValues.IsNullOrEmpty(queryValues))
             {
-                var queryString = HttpUtility.ParseQueryString(requestBase.Url.Query);
-                value = queryString[key];
+                value = queryValues.ToString();
             }
 
             return GetTabModuleInfoFromMoniker(value);

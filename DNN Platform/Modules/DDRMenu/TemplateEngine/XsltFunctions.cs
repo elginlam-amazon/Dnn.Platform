@@ -7,11 +7,11 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
     using System.IO;
     using System.Reflection;
     using System.Security;
-    using System.Web;
-    using System.Web.UI;
 
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Entities.Users;
+    using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Web.DDRMenu.DNNCommon;
 
@@ -32,7 +32,7 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
             try
             {
                 return Localization.GetString(
-                    HttpContext.Current.Request.IsAuthenticated ? "Logout" : "Login",
+                    DNNAbstract.IsAuthenticated() ? "Logout" : "Login",
                     DNNContext.Current.ResolveUrl("~/Admin/Skins/" + Localization.LocalResourceDirectory + "/Login.ascx"));
             }
             catch (Exception)
@@ -50,20 +50,26 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
         {
             try
             {
-                if (HttpContextSource.Current.Request.IsAuthenticated)
+                if (DNNAbstract.IsAuthenticated())
                 {
                     return UserController.Instance.GetCurrentUserInfo().DisplayName;
                 }
                 else
                 {
-                    var hostControl = (Control)HttpContextSource.Current.Items["DDRMenuHostControl"];
-                    var resourceFileRoot = hostControl.ResolveUrl($"~/Admin/Skins/{Localization.LocalResourceDirectory}/User.ascx");
+                    // The host control used to come from the Items["DDRMenuHostControl"] slot and
+                    // only served to call Control.ResolveUrl, which IClientApiControl does not
+                    // carry. The DNN context performs the identical application-relative
+                    // resolution and also works when the host is a module control.
+                    var resourceFileRoot = DNNContext.Current.ResolveUrl($"~/Admin/Skins/{Localization.LocalResourceDirectory}/User.ascx");
                     return Localization.GetString("Register", resourceFileRoot);
                 }
             }
             catch (Exception exc)
             {
-                return exc.ToString();
+                // Never render the exception text into the menu; log it and fall back to the
+                // anonymous label, which is what a visitor would otherwise have seen.
+                Exceptions.LogException(exc);
+                return Localization.GetString("Register");
             }
         }
 
@@ -74,12 +80,14 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
 
         public string HtmlEncode(string s)
         {
-            return HttpUtility.HtmlEncode(s);
+            // HttpUtility.HtmlEncode is replaced by the WebUtility equivalent, which performs the
+            // same HTML entity encoding.
+            return System.Net.WebUtility.HtmlEncode(s);
         }
 
         public string GetString(string name, string resourceFile)
         {
-            var resolver = HttpContext.Current.Items["Resolver"] as PathResolver;
+            var resolver = XsltTemplateProcessor.CurrentResolver;
             var resolvedFile = string.Empty;
             if (resolver != null)
             {
@@ -89,7 +97,7 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
                     PathResolver.RelativeTo.Skin,
                     PathResolver.RelativeTo.Module,
                     PathResolver.RelativeTo.Dnn);
-                if (File.Exists(HttpContext.Current.Server.MapPath(localFile)))
+                if (File.Exists(HttpContextSource.MapPath(localFile)))
                 {
                     resolvedFile = localFile;
                 }

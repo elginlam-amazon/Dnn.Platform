@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -10,9 +10,23 @@ namespace DotNetNuke.Web.DDRMenu
 
     public class ModuleBase : PortalModuleBase
     {
+        /// <summary>
+        /// Gets the client side identifier of this module control, which the menu renders as the id
+        /// of its root element and passes to the navigation provider.
+        /// </summary>
+        /// <remarks>
+        /// Replaces <c>Control.ClientID</c>. A module control is a Blazor component and has no
+        /// WebForms naming container, so the id is built from the module instance, which is what
+        /// made the WebForms id unique on the page as well.
+        /// </remarks>
+        public string ClientId => $"dnn_ctr{this.ModuleId}_{this.GetType().Name}";
+
         protected string GetStringSetting(string name, string defaultValue)
         {
-            var result = this.Request.QueryString[name];
+            // Read from the request captured by UserControlBase during the initial (static) render;
+            // HttpContextSource.Current is null for the rest of a Blazor Server circuit.
+            var request = this.Request;
+            var result = request == null ? null : (string)request.Query[name];
             if (string.IsNullOrEmpty(result))
             {
                 result = (string)this.Settings[name];

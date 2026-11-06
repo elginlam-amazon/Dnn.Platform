@@ -4,16 +4,15 @@
 
 namespace DotNetNuke.Web.Mvc
 {
-    using System.Web;
-
     using DotNetNuke.Entities.Modules;
+    using Microsoft.AspNetCore.Http;
 
     public interface ITabAndModuleInfoProvider
     {
-        bool TryFindTabId(HttpRequestBase request, out int tabId);
+        bool TryFindTabId(HttpRequest request, out int tabId);
 
-        bool TryFindModuleId(HttpRequestBase request, out int moduleId);
+        bool TryFindModuleId(HttpRequest request, out int moduleId);
 
-        bool TryFindModuleInfo(HttpRequestBase request, out ModuleInfo moduleInfo);
+        bool TryFindModuleInfo(HttpRequest request, out ModuleInfo moduleInfo);
     }
 }

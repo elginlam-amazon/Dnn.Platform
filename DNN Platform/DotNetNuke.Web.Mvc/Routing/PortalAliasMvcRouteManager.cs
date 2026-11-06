@@ -8,13 +8,12 @@ namespace DotNetNuke.Web.Mvc.Routing
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Web.Routing;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Internal;
     using DotNetNuke.Entities.Portals;
-    using DotNetNuke.Internal.SourceGenerators;
+    using Microsoft.AspNetCore.Routing;
 
     /// <summary>Gets MVC routes.</summary>
     internal partial class PortalAliasMvcRouteManager : IPortalAliasMvcRouteManager
@@ -37,8 +36,8 @@ namespace DotNetNuke.Web.Mvc.Routing
         }
 
         /// <inheritdoc cref="IPortalAliasMvcRouteManager.GetRouteName(string,string,int)"/>
-        [DnnDeprecated(9, 10, 0, "Use overload taking DotNetNuke.Abstractions.Portals.IPortalAliasInfo instead")]
-        public partial string GetRouteName(string moduleFolderName, string routeName, PortalAliasInfo portalAlias)
+        [Obsolete("Deprecated in DotNetNuke 9.10.0. Use overload taking DotNetNuke.Abstractions.Portals.IPortalAliasInfo instead. Scheduled for removal in v11.0.0.")]
+        public string GetRouteName(string moduleFolderName, string routeName, PortalAliasInfo portalAlias)
         {
             return this.GetRouteName(moduleFolderName, routeName, (IPortalAliasInfo)portalAlias);
         }
@@ -60,8 +59,8 @@ namespace DotNetNuke.Web.Mvc.Routing
         }
 
         /// <inheritdoc cref="IPortalAliasMvcRouteManager.GetAllRouteValues"/>
-        [DnnDeprecated(9, 10, 0, "Use overload taking DotNetNuke.Abstractions.Portals.IPortalAliasInfo instead")]
-        public partial RouteValueDictionary GetAllRouteValues(PortalAliasInfo portalAliasInfo, object routeValues)
+        [Obsolete("Deprecated in DotNetNuke 9.10.0. Use overload taking DotNetNuke.Abstractions.Portals.IPortalAliasInfo instead. Scheduled for removal in v11.0.0.")]
+        public RouteValueDictionary GetAllRouteValues(PortalAliasInfo portalAliasInfo, object routeValues)
         {
             return this.GetAllRouteValues((IPortalAliasInfo)portalAliasInfo, routeValues);
         }

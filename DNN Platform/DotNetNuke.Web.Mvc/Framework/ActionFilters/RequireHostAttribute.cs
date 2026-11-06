@@ -4,21 +4,27 @@
 namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 {
     using System;
-    using System.Threading;
-    using System.Web;
-    using System.Web.Mvc;
 
     using DotNetNuke.Entities.Users;
-    using DotNetNuke.Web.Mvc.Framework.Controllers;
+    using DotNetNuke.Web.Mvc.Framework.Modules;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc.Filters;
 
-    public class RequireHostAttribute : AuthorizeAttributeBase
+    public class RequireHostAttribute : DnnAuthorizeBaseAttribute
     {
         private UserInfo user;
 
         /// <inheritdoc />
-        public override void OnAuthorization(AuthorizationContext filterContext)
+        /// <remarks>This rule needs the DNN module controller, so it is evaluated on the action stage.</remarks>
+        protected override bool RequiresController => true;
+
+        /// <inheritdoc />
+        public override void OnAuthorization(AuthorizationFilterContext context)
         {
-            var controller = filterContext.Controller as IDnnController;
+            // The module application publishes the configured DNN controller on the request, which is
+            // where it is read from (the filter context exposes the controller only on the action stage,
+            // and this rule is evaluated there - see RequiresController).
+            var controller = ModuleApplication.GetCurrentDnnController(context.HttpContext);
 
             if (controller == null)
             {
@@ -27,14 +33,13 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 
             this.user = controller.ModuleContext.PortalSettings.UserInfo;
 
-            base.OnAuthorization(filterContext);
+            base.OnAuthorization(context);
         }
 
         /// <inheritdoc />
-        protected override bool AuthorizeCore(HttpContextBase httpContext)
+        protected override bool AuthorizeCore(HttpContext httpContext)
         {
-            var principal = Thread.CurrentPrincipal;
-            if (!principal.Identity.IsAuthenticated)
+            if (httpContext?.User?.Identity?.IsAuthenticated != true)
             {
                 return false;
             }
