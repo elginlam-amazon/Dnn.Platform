@@ -6,8 +6,9 @@ namespace DotNetNuke.Providers.FolderProviders
 {
     using System;
 
+    using Amazon.S3;
+
     using Microsoft.Extensions.Logging;
-    using Microsoft.WindowsAzure.Storage;
 
     using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
@@ -19,13 +20,13 @@ namespace DotNetNuke.Providers.FolderProviders
         public static partial void SettingsStorageCredentialsException(this ILogger logger, Exception exception);
 
         [LoggerMessage(EventId = 2_500_001, Level = LogLevel.Error)]
-        public static partial void SettingsCreateContainerStorageException(this ILogger logger, StorageException exception);
+        public static partial void SettingsCreateContainerStorageException(this ILogger logger, AmazonS3Exception exception);
 
         [LoggerMessage(EventId = 2_500_002, Level = LogLevel.Error)]
         public static partial void SettingsCreateContainerGeneralException(this ILogger logger, Exception exception);
 
         [LoggerMessage(EventId = 2_500_003, Level = LogLevel.Error)]
-        public static partial void SettingsLoadContainersStorageException(this ILogger logger, StorageException exception);
+        public static partial void SettingsLoadContainersStorageException(this ILogger logger, AmazonS3Exception exception);
 
         [LoggerMessage(EventId = 2_500_004, Level = LogLevel.Error)]
         public static partial void SettingsLoadContainersGeneralException(this ILogger logger, Exception exception);

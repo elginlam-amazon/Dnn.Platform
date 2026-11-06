@@ -59,7 +59,7 @@ namespace DotNetNuke.Web.Mvc
                 RoleController.Instance,
                 Globals.GetCurrentServiceProvider().GetRequiredService<IEventLogger>(),
                 Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>(),
-                this.RequestContext.HttpContext,
+                HttpContextSource.Current,
                 allowUnknownExtensions: true);
 
             var httpContextBase = new HttpContextWrapper(context);

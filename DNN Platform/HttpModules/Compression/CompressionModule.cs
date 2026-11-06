@@ -3,31 +3,18 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.HttpModules.Compression
 {
-    using System.Web;
-
     using DotNetNuke.Internal.SourceGenerators;
 
-    /// <summary>An HTTP module which compresses responses.</summary>
+    /// <summary>A deprecated type which used to compress responses.</summary>
+    /// <remarks>
+    /// This type was an <c>IHttpModule</c> with an empty <c>Init</c>, i.e. it had no behavior
+    /// left, so nothing was lost in the move to ASP.NET Core and nothing is wired up in its
+    /// place. A host that wants response compression opts in for itself with
+    /// <c>services.AddResponseCompression()</c> / <c>app.UseResponseCompression()</c>; that is a
+    /// new behavior, not a restoration of this type's.
+    /// </remarks>
     [DnnDeprecated(9, 2, 0, "No replacement")]
-    public partial class CompressionModule : IHttpModule
+    public partial class CompressionModule
     {
-        /// <summary>Init the handler and fulfill <see cref="IHttpModule"/>.</summary>
-        /// <remarks>
-        /// This implementation hooks the ReleaseRequestState and PreSendRequestHeaders events to
-        /// figure out as late as possible if we should install the filter.  Previous versions did
-        /// not do this as well.
-        /// </remarks>
-        /// <param name="context">The <see cref="HttpApplication"/> this handler is working for.</param>
-        public void Init(HttpApplication context)
-        {
-        }
-
-        /// <summary>Implementation of <see cref="IHttpModule"/>.</summary>
-        /// <remarks>
-        /// Currently empty.  Nothing to really do, as I have no member variables.
-        /// </remarks>
-        public void Dispose()
-        {
-        }
     }
 }

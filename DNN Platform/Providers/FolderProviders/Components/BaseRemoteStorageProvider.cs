@@ -9,15 +9,13 @@ namespace DotNetNuke.Providers.FolderProviders.Components
     using System.IO;
     using System.Linq;
     using System.Text.RegularExpressions;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
-    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
+    using DotNetNuke.Framework;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.FileSystem;
-
-    using Microsoft.Extensions.DependencyInjection;
 
     /// <inheritdoc />
     public abstract class BaseRemoteStorageProvider : FolderProvider
@@ -33,7 +31,10 @@ namespace DotNetNuke.Providers.FolderProviders.Components
         /// <param name="hostSettings">The host settings.</param>
         protected BaseRemoteStorageProvider(IHostSettings hostSettings)
         {
-            this.HostSettings = hostSettings ?? HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<IHostSettings>();
+            // The obsolete parameterless overload has no injected settings, so they are resolved
+            // from the platform's service locator (the request scope when there is one, otherwise
+            // the root provider). This replaces the HttpContext-bound service-locator call.
+            this.HostSettings = hostSettings ?? ServiceLocator.GetRequiredService<IHostSettings>();
         }
 
         /// <inheritdoc />

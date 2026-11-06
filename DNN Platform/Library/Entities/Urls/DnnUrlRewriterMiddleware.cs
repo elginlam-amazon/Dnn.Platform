@@ -69,13 +69,20 @@ namespace DotNetNuke.Entities.Urls
         {
             ArgumentNullException.ThrowIfNull(context);
 
-            var rewriter = new AdvancedUrlRewriter(
-                hostSettings,
-                portalAliasService,
-                hostSettingsService,
-                portalController,
-                appStatus,
-                portalGroupController);
+            // The rewriter the installation is configured for. DotNetNuke.HttpModules registers
+            // UrlRewriterBase from its UrlRewriterFactory, which picks the basic or the advanced
+            // rewriter from Config.GetFriendlyUrlProvider() — so a site using the basic provider
+            // gets BasicUrlRewriter here. When that registration is absent (a host that does not
+            // reference DotNetNuke.HttpModules), fall back to the advanced rewriter, which is the
+            // DNN default.
+            var rewriter = context.RequestServices?.GetService<UrlRewriterBase>()
+                           ?? new AdvancedUrlRewriter(
+                               hostSettings,
+                               portalAliasService,
+                               hostSettingsService,
+                               portalController,
+                               appStatus,
+                               portalGroupController);
 
             rewriter.RewriteUrl(context);
 

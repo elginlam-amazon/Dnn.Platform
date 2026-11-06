@@ -137,6 +137,44 @@ namespace DotNetNuke.Common
         /// </remarks>
         public static WebApplication UseDnnPlatform(this WebApplication app)
         {
+            return app.UseDnnPlatform(configureEarly: null, configureAfterAuthentication: null);
+        }
+
+        /// <summary>
+        /// Builds the DNN request pipeline and maps the legacy handler URLs, letting the host
+        /// insert the middleware that live outside this assembly at the two positions where the
+        /// platform needs them.
+        /// </summary>
+        /// <param name="app">The host's application builder.</param>
+        /// <param name="configureEarly">
+        /// Invoked BEFORE <c>UseRouting</c>, i.e. at the position of the <c>BeginRequest</c>
+        /// <c>IHttpModule</c> stage. <c>DotNetNuke.HttpModules</c> fills this with
+        /// <c>UseDnnEarlyRequestMiddleware()</c> (request DI scope, request filter, services
+        /// framework, mobile redirect). May be <see langword="null"/>.
+        /// </param>
+        /// <param name="configureAfterAuthentication">
+        /// Invoked immediately AFTER the URL rewriter (which itself runs after
+        /// <c>UseAuthorization</c>), i.e. at the position of the
+        /// <c>AuthenticateRequest</c>/<c>AuthorizeRequest</c> stage — on ASP.NET that stage ran
+        /// after every <c>BeginRequest</c> module, the rewriter included, and these middleware
+        /// need the <c>PortalSettings</c> the rewriter publishes.
+        /// <c>DotNetNuke.HttpModules</c> fills this with
+        /// <c>UseDnnPostAuthenticationMiddleware()</c> (membership, users online, mobile
+        /// redirect, localization, personalization, output caching, analytics). May be
+        /// <see langword="null"/>.
+        /// </param>
+        /// <returns>The same <paramref name="app"/>, for chaining.</returns>
+        /// <remarks>
+        /// These are delegates rather than direct calls because <c>DotNetNuke.Library</c> cannot
+        /// reference <c>DotNetNuke.HttpModules</c> (the dependency runs the other way), yet the
+        /// ported modules must sit at an exact position in this pipeline. The hooks never add
+        /// routing or authentication themselves — those stay owned by this method.
+        /// </remarks>
+        public static WebApplication UseDnnPlatform(
+            this WebApplication app,
+            Action<IApplicationBuilder> configureEarly,
+            Action<IApplicationBuilder> configureAfterAuthentication)
+        {
             Requires.NotNull(nameof(app), app);
 
             // ---- static seams -----------------------------------------------------------
@@ -154,12 +192,29 @@ namespace DotNetNuke.Common
             app.UseRequestTimeouts();
             app.UseStaticFiles();
             app.UseRequestLocalization();
+
+            // BeginRequest-stage modules: before routing, so a filtered or redirected request
+            // never reaches an endpoint, and so the per-request DI scope exists for everything
+            // that follows.
+            configureEarly?.Invoke(app);
+
             app.UseRouting();
             app.UseAuthentication();
             app.UseAuthorization();
 
             // AFTER auth (reads the user), BEFORE endpoints (rewrites the path).
             app.UseDnnUrlRewriter();
+
+            // AuthenticateRequest/AuthorizeRequest-stage modules. They must run AFTER the URL
+            // rewriter even though their legacy events fired "before" it, because on ASP.NET the
+            // rewriter was a BeginRequest module and the runtime raises events by STAGE: every
+            // AuthenticateRequest/ResolveRequestCache/PreRequestHandlerExecute handler therefore
+            // ran once all BeginRequest handlers had completed. The rewriter is what publishes
+            // the resolved PortalSettings into HttpContext.Items, and membership, users online,
+            // localization and output caching all read it — placing this hook before the rewriter
+            // would make every one of them a silent no-op. This is still before the endpoint
+            // executes, which the output-cache and analytics response rewriting depend on.
+            configureAfterAuthentication?.Invoke(app);
 
             // Emits the DNN client variables / keyed client scripts for the current request.
             app.UseDnnWebUtility();

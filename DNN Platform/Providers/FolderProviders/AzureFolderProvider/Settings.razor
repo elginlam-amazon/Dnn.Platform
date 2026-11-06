@@ -1,0 +1,642 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
+@inherits DotNetNuke.Services.FileSystem.FolderMappingSettingsControlBase
+@using System
+@using System.Collections
+@using System.Collections.Generic
+@using System.Globalization
+@using System.Linq
+@using System.Text.RegularExpressions
+@using System.Threading.Tasks
+@using Amazon.S3
+@using Amazon.S3.Model
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Security
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Services.FileSystem
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Localization
+@using Microsoft.Extensions.Logging
+@inject IStringLocalizer<Settings> Localizer
+@inject ICryptographyProvider CryptographyProvider
+@inject IHostSettings HostSettings
+
+<div class="dnnFormItem">
+    <label for="tbAccountName">
+        <span id="plAccountName" title="@this.Localizer["plAccountName.Help"]">@this.Localizer["plAccountName.Text"]</span>
+    </label>
+    <input id="tbAccountName" type="text" class="dnnFormRequired" value="@this.accountName" @onchange="this.OnAccountNameChanged" />
+    @if (!string.IsNullOrEmpty(this.accountNameError))
+    {
+        <span id="valAccountName" class="dnnFormMessage dnnFormError">@this.accountNameError</span>
+    }
+</div>
+<div class="dnnFormItem">
+    <label for="tbAccountKey">
+        <span id="plAccountKey" title="@this.Localizer["plAccountKey.Help"]">@this.Localizer["plAccountKey.Text"]</span>
+    </label>
+    <input id="tbAccountKey" type="text" class="dnnFormRequired" value="@this.accountKey" @onchange="this.OnAccountKeyChanged" />
+    @if (!string.IsNullOrEmpty(this.accountKeyError))
+    {
+        <span id="valAccountKey" class="dnnFormMessage dnnFormError">@this.accountKeyError</span>
+    }
+</div>
+<div class="dnnFormItem">
+    <label for="ddlContainers">
+        <span id="plContainerName" title="@this.Localizer["plContainerName.Help"]">@this.Localizer["plContainerName.Text"]</span>
+    </label>
+    @if (this.selectContainerPanelVisible)
+    {
+        <div id="SelectContainerPanel" class="dnnLeft">
+            <select id="ddlContainers" value="@this.SelectedContainerValue" @onchange="this.ContainersSelectedIndexChangedAsync">
+                @for (var i = 0; i < this.containerValues.Count; i++)
+                {
+                    var index = i;
+                    <option value="@this.containerValues[index]">@this.ContainerItemText(index)</option>
+                }
+            </select>
+            <a id="btnNewContainer" href="javascript:void(0);" class="dnnSecondaryAction"
+               @onclick="this.NewContainerClick" @onclick:preventDefault="true">@this.Localizer["NewContainer.Text"]</a>
+        </div>
+    }
+    else
+    {
+        <div id="CreateContainerPanel" class="dnnLeft">
+            <input id="tbContainerName" type="text" class="dnnFormRequired" value="@this.containerName" @onchange="this.OnContainerNameChanged" />
+            <a id="btnSelectExistingContainer" href="javascript:void(0);" class="dnnSecondaryAction"
+               @onclick="this.SelectExistingContainerClick" @onclick:preventDefault="true">@this.Localizer["SelectExistingContainer.Text"]</a>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(this.containerNameError))
+    {
+        <span id="valContainerName" class="dnnFormMessage dnnFormError">@this.containerNameError</span>
+    }
+</div>
+<div class="dnnFormItem">
+    <label for="chkUseHttps">
+        <span id="plUseHttps" title="@this.Localizer["plUseHttps.Help"]">@this.Localizer["plUseHttps.Text"]</span>
+    </label>
+    <input id="chkUseHttps" type="checkbox" checked="@this.useHttps" @onchange="this.OnUseHttpsChanged" />
+</div>
+<div class="dnnFormItem">
+    <label for="chkDirectLink">
+        <span id="plDirectLink" title="@this.Localizer["plDirectLink.Help"]">@this.Localizer["plDirectLink.Text"]</span>
+    </label>
+    <input id="chkDirectLink" type="checkbox" checked="@this.directLink" @onchange="this.OnDirectLinkChanged" />
+</div>
+<div class="dnnFormItem">
+    <label for="tbCustomDomain">
+        <span id="plCustomDomain" title="@this.Localizer["plCustomDomain.Help"]">@this.Localizer["plCustomDomain.Text"]</span>
+    </label>
+    <input id="tbCustomDomain" type="text" maxlength="200" style="width:200px" title="@this.Localizer["tbCustomDomain.Help"]"
+           value="@this.customDomain" @onchange="this.OnCustomDomainChanged" />
+    @if (!string.IsNullOrEmpty(this.customDomainError))
+    {
+        <span id="rgBlobEndpoint" class="dnnFormMessage dnnFormError">@this.customDomainError</span>
+    }
+</div>
+<div class="dnnFormItem">
+    <label for="tbSyncBatchSize">
+        <span id="plSyncBatchSize" title="@this.Localizer["plSyncBatchSize.Help"]">@this.Localizer["plSyncBatchSize.Text"]</span>
+    </label>
+    <input id="tbSyncBatchSize" type="text" maxlength="6" style="width:200px"
+           value="@this.syncBatchSize" @onchange="this.OnSyncBatchSizeChanged" />
+    @if (!string.IsNullOrEmpty(this.syncBatchSizeError))
+    {
+        <span id="rgInteger" class="dnnFormMessage dnnFormError">@this.syncBatchSizeError</span>
+    }
+</div>
+
+@code {
+    /// <summary>The value of the first drop-down entry, which is the "nothing selected" entry.</summary>
+    private const string SelectContainerValue = "SelectContainer";
+
+    /// <summary>The value of the second drop-down entry, which reloads the bucket list.</summary>
+    private const string RefreshValue = "Refresh";
+
+    /// <summary>The URL pattern of the custom domain, from the <c>rgBlobEndpoint</c> validator.</summary>
+    private const string CustomDomainPattern = @"^http[s]?://([a-zA-Z0-9\-]+\.)*([a-zA-Z]{3,61}|[a-zA-Z]{1,}\.[a-zA-Z]{2,3})$";
+
+    /// <summary>The pattern of the synchronization batch size, from the <c>rgInteger</c> validator.</summary>
+    private const string IntegerPattern = @"^\d+$";
+
+    private static readonly ILogger Logger = DnnLoggingController.GetLogger<Settings>();
+
+    /// <summary>The values of the bucket drop-down, mirroring the <c>ddlContainers</c> list items.</summary>
+    private readonly List<string> containerValues = new List<string> { SelectContainerValue, RefreshValue };
+
+    private string accountName = string.Empty;
+    private string accountKey = string.Empty;
+    private string containerName = string.Empty;
+    private string customDomain = string.Empty;
+    private string syncBatchSize = string.Empty;
+    private bool useHttps;
+    private bool directLink = true;
+    private int selectedContainerIndex;
+    private bool selectContainerPanelVisible = true;
+
+    private string accountNameError;
+    private string accountKeyError;
+    private string containerNameError;
+    private string customDomainError;
+    private string syncBatchSizeError;
+
+    /// <summary>Gets the selected bucket drop-down value, replacing <c>ddlContainers.SelectedValue</c>.</summary>
+    private string SelectedContainerValue =>
+        this.selectedContainerIndex >= 0 && this.selectedContainerIndex < this.containerValues.Count
+            ? this.containerValues[this.selectedContainerIndex]
+            : SelectContainerValue;
+
+    /// <summary>Loads concrete settings.</summary>
+    /// <param name="folderMappingSettings">The Hashtable containing the folder mapping settings.</param>
+    public override void LoadSettings(Hashtable folderMappingSettings)
+    {
+        if (folderMappingSettings.ContainsKey(Constants.AccountName))
+        {
+            this.accountName = FolderProvider.GetEncryptedSetting(this.CryptographyProvider, this.HostSettings, folderMappingSettings, Constants.AccountName);
+        }
+
+        if (folderMappingSettings.ContainsKey(Constants.AccountKey))
+        {
+            this.accountKey = FolderProvider.GetEncryptedSetting(this.CryptographyProvider, this.HostSettings, folderMappingSettings, Constants.AccountKey);
+        }
+
+        if (this.accountName?.Length > 0 && this.accountKey?.Length > 0)
+        {
+            var bucketName = string.Empty;
+
+            if (folderMappingSettings.ContainsKey(Constants.Container))
+            {
+                bucketName = folderMappingSettings[Constants.Container].ToString();
+            }
+
+            this.LoadContainers();
+
+            var bucketIndex = this.containerValues.FindIndex(
+                value => string.Equals(value, bucketName, StringComparison.Ordinal));
+
+            if (bucketIndex >= 0)
+            {
+                this.selectedContainerIndex = bucketIndex;
+            }
+        }
+
+        if (folderMappingSettings.ContainsKey(Constants.UseHttps))
+        {
+            this.useHttps = bool.Parse(folderMappingSettings[Constants.UseHttps].ToString());
+        }
+
+        this.directLink = !folderMappingSettings.ContainsKey(Constants.DirectLink) || folderMappingSettings[Constants.DirectLink].ToString().ToLowerInvariant() == "true";
+
+        if (folderMappingSettings.ContainsKey(Constants.CustomDomain))
+        {
+            this.customDomain = FolderProvider.GetEncryptedSetting(this.CryptographyProvider, this.HostSettings, folderMappingSettings, Constants.CustomDomain);
+        }
+
+        if (folderMappingSettings.ContainsKey(Constants.SyncBatchSize) && folderMappingSettings[Constants.SyncBatchSize] != null)
+        {
+            this.syncBatchSize = folderMappingSettings[Constants.SyncBatchSize].ToString();
+        }
+        else
+        {
+            this.syncBatchSize = Constants.DefaultSyncBatchSize.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>Updates concrete settings for the specified folder mapping.</summary>
+    /// <param name="folderMappingID">The folder mapping identifier.</param>
+    public override void UpdateSettings(int folderMappingID)
+    {
+        // Replaces Page.Validate() / Page.IsValid: Blazor has no page-level validator collection,
+        // so the ported field validators are run here and the same exception contract is kept
+        // (FolderMappingSettingsControlBase requires an exception when the settings are invalid).
+        if (!this.Validate())
+        {
+            throw new Exception();
+        }
+
+        var folderMappingController = FolderMappingController.Instance;
+        var folderMapping = folderMappingController.GetFolderMapping(folderMappingID);
+
+        var encryptedAccountName = FolderProvider.EncryptValue(this.CryptographyProvider, this.HostSettings, this.accountName).EncryptedMessage;
+        var container = this.GetContainer();
+
+        if (AreThereFolderMappingsWithSameSettings(folderMapping, encryptedAccountName, container))
+        {
+            this.containerNameError = this.Localizer["MultipleFolderMappingsWithSameSettings.ErrorMessage"];
+
+            throw new Exception();
+        }
+
+        this.SetEncryptedSetting(folderMapping, Constants.AccountName, this.accountName);
+        this.SetEncryptedSetting(folderMapping, Constants.AccountKey, this.accountKey);
+        folderMapping.FolderMappingSettings[Constants.Container] = container;
+        folderMapping.FolderMappingSettings[Constants.UseHttps] = this.GetUseHttps();
+        folderMapping.FolderMappingSettings[Constants.DirectLink] = this.directLink;
+        this.SetEncryptedSetting(folderMapping, Constants.CustomDomain, this.customDomain);
+        folderMapping.FolderMappingSettings[Constants.SyncBatchSize] = this.GetSynchBatchSize();
+
+        folderMappingController.UpdateFolderMapping(folderMapping);
+    }
+
+    /// <summary>Builds the bucket policy granting anonymous read access to every object.</summary>
+    /// <param name="bucketName">The bucket the policy applies to.</param>
+    /// <returns>The policy document.</returns>
+    /// <remarks>This is the Amazon S3 equivalent of <c>BlobContainerPublicAccessType.Container</c>.</remarks>
+    private static string PublicReadPolicy(string bucketName)
+    {
+        return "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"DnnPublicRead\"," +
+               "\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":\"s3:GetObject\"," +
+               "\"Resource\":\"arn:aws:s3:::" + bucketName + "/*\"}]}";
+    }
+
+    private static bool AreThereFolderMappingsWithSameSettings(FolderMappingInfo folderMapping, string accountName, string container)
+    {
+        var folderMappingController = FolderMappingController.Instance;
+        var folderMappings = folderMappingController.GetFolderMappings(folderMapping.PortalID);
+
+        return folderMappings
+            .Where(fm => fm.FolderMappingID != folderMapping.FolderMappingID && fm.FolderProviderType == folderMapping.FolderProviderType)
+            .Any(fm => fm.FolderMappingSettings[Constants.AccountName].ToString().Equals(accountName, StringComparison.InvariantCulture) &&
+                       fm.FolderMappingSettings[Constants.Container].ToString().Equals(container, StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    /// <summary>Gets the display text of a bucket drop-down entry.</summary>
+    /// <param name="index">The index of the entry.</param>
+    /// <returns>The localized text of the two fixed entries, or the bucket name.</returns>
+    private string ContainerItemText(int index)
+    {
+        var value = this.containerValues[index];
+
+        if (index == 0 && value == SelectContainerValue)
+        {
+            return this.Localizer["SelectContainer.Text"];
+        }
+
+        if (index == 1 && value == RefreshValue)
+        {
+            return this.Localizer["RefreshContainerList.Text"];
+        }
+
+        return value;
+    }
+
+    private void OnAccountNameChanged(ChangeEventArgs e)
+    {
+        this.accountName = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnAccountKeyChanged(ChangeEventArgs e)
+    {
+        this.accountKey = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnContainerNameChanged(ChangeEventArgs e)
+    {
+        this.containerName = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnCustomDomainChanged(ChangeEventArgs e)
+    {
+        this.customDomain = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnSyncBatchSizeChanged(ChangeEventArgs e)
+    {
+        this.syncBatchSize = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnUseHttpsChanged(ChangeEventArgs e)
+    {
+        this.useHttps = e.Value is bool value && value;
+    }
+
+    private void OnDirectLinkChanged(ChangeEventArgs e)
+    {
+        this.directLink = e.Value is bool value && value;
+    }
+
+    /// <summary>Reloads the bucket list, replacing <c>ddlContainers_SelectedIndexChanged</c>.</summary>
+    /// <param name="e">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task ContainersSelectedIndexChangedAsync(ChangeEventArgs e)
+    {
+        var selectedValue = e.Value?.ToString() ?? SelectContainerValue;
+        var newIndex = this.containerValues.IndexOf(selectedValue);
+        this.selectedContainerIndex = newIndex < 0 ? 0 : newIndex;
+
+        if (this.selectedContainerIndex != 1)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (this.accountName.Trim().Length > 0 && this.accountKey.Trim().Length > 0)
+        {
+            this.containerValues.Clear();
+
+            this.containerValues.Add(SelectContainerValue);
+            this.containerValues.Add(RefreshValue);
+
+            this.LoadContainers();
+
+            if (this.containerValues.Count == 3)
+            {
+                // If there is only one bucket, then select it
+                this.selectedContainerIndex = 2;
+            }
+            else
+            {
+                this.selectedContainerIndex = 0;
+            }
+        }
+        else
+        {
+            this.containerNameError = this.Localizer["CredentialsRequired.ErrorMessage"];
+            this.selectedContainerIndex = 0;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Shows the create-bucket panel, replacing <c>btnNewContainer_Click</c>.</summary>
+    private void NewContainerClick()
+    {
+        this.selectContainerPanelVisible = false;
+    }
+
+    /// <summary>Shows the select-bucket panel, replacing <c>btnSelectExistingContainer_Click</c>.</summary>
+    private void SelectExistingContainerClick()
+    {
+        this.selectContainerPanelVisible = true;
+    }
+
+    /// <summary>Validates every field, replacing the Web Forms validator controls.</summary>
+    /// <returns><see langword="true"/> when every field is valid.</returns>
+    private bool Validate()
+    {
+        this.accountNameError = null;
+        this.accountKeyError = null;
+        this.containerNameError = null;
+        this.customDomainError = null;
+        this.syncBatchSizeError = null;
+
+        // valAccountName (RequiredFieldValidator)
+        if (string.IsNullOrWhiteSpace(this.accountName))
+        {
+            this.accountNameError = this.Localizer["valAccountName.ErrorMessage"];
+        }
+
+        // valAccountKey (RequiredFieldValidator)
+        if (string.IsNullOrWhiteSpace(this.accountKey))
+        {
+            this.accountKeyError = this.Localizer["valAccountKey.ErrorMessage"];
+        }
+
+        // valContainerName (CustomValidator, valContainerName_ServerValidate)
+        this.ValidateContainerName();
+
+        // rgBlobEndpoint (RegularExpressionValidator); like Web Forms, an empty value is valid.
+        if (!string.IsNullOrEmpty(this.customDomain)
+            && !Regex.IsMatch(this.customDomain, CustomDomainPattern, RegexOptions.None, TimeSpan.FromSeconds(2)))
+        {
+            this.customDomainError = this.Localizer["tbCustomDomain.Error"];
+        }
+
+        // rgInteger (RegularExpressionValidator)
+        if (!string.IsNullOrEmpty(this.syncBatchSize)
+            && !Regex.IsMatch(this.syncBatchSize, IntegerPattern, RegexOptions.None, TimeSpan.FromSeconds(2)))
+        {
+            this.syncBatchSizeError = this.Localizer["tbSyncBatchSize.Error"];
+        }
+
+        return string.IsNullOrEmpty(this.accountNameError)
+               && string.IsNullOrEmpty(this.accountKeyError)
+               && string.IsNullOrEmpty(this.containerNameError)
+               && string.IsNullOrEmpty(this.customDomainError)
+               && string.IsNullOrEmpty(this.syncBatchSizeError);
+    }
+
+    /// <summary>Validates the bucket selection, replacing <c>valContainerName_ServerValidate</c>.</summary>
+    private void ValidateContainerName()
+    {
+        if (this.selectContainerPanelVisible)
+        {
+            if (this.selectedContainerIndex > 1)
+            {
+                return;
+            }
+        }
+        else
+        {
+            if (this.containerName.Trim().Length > 0)
+            {
+                return;
+            }
+        }
+
+        this.containerNameError = this.Localizer["valContainerName.ErrorMessage"];
+    }
+
+    private void SetEncryptedSetting(FolderMappingInfo folderMapping, string settingName, string settingValue)
+    {
+        var (encryptedValue, algorithmName, initializationVector) = FolderProvider.EncryptValue(this.CryptographyProvider, this.HostSettings, settingValue);
+        folderMapping.FolderMappingSettings[settingName] = encryptedValue;
+        folderMapping.FolderMappingSettings[FolderProvider.GetAlgorithmSettingKey(settingName)] = algorithmName;
+        folderMapping.FolderMappingSettings[FolderProvider.GetInitializationVectorSettingKey(settingName)] = initializationVector;
+    }
+
+    private string GetUseHttps()
+    {
+        return this.useHttps.ToString();
+    }
+
+    private string GetContainer()
+    {
+        string container;
+
+        if (this.selectContainerPanelVisible)
+        {
+            container = this.SelectedContainerValue;
+        }
+        else
+        {
+            container = this.containerName.Trim().ToLowerInvariant();
+            if (!this.CreateContainer(container))
+            {
+                throw new Exception();
+            }
+        }
+
+        return container;
+    }
+
+    /// <summary>Creates the bucket, replacing the Azure <c>CreateIfNotExists</c> + <c>SetPermissions</c> pair.</summary>
+    /// <param name="containerName">The bucket name.</param>
+    /// <returns><see langword="true"/> when the bucket exists afterwards.</returns>
+    private bool CreateContainer(string containerName)
+    {
+        var accountName = this.accountName.Trim();
+        var accountKey = this.accountKey.Trim();
+
+        IAmazonS3 s3Client;
+
+        try
+        {
+            s3Client = AzureFolderProvider.CreateS3Client(accountName, accountKey, this.useHttps);
+        }
+        catch (Exception ex)
+        {
+            Logger.SettingsStorageCredentialsException(ex);
+
+            this.containerNameError = this.Localizer["AuthenticationFailure.ErrorMessage"];
+
+            return false;
+        }
+
+        try
+        {
+            AzureFolderProvider.RunSync(async () =>
+            {
+                // A public-read canned ACL is rejected on every account created since April 2023
+                // (S3 Block Public Access and ObjectOwnership=BucketOwnerEnforced are on by
+                // default), so the bucket is created plainly - in the client's own region, without
+                // which creation outside that region fails - and public read is then granted the
+                // modern way, which is the equivalent of the Azure
+                // BlobContainerPublicAccessType.Container setting this replaces.
+                await s3Client.PutBucketAsync(new PutBucketRequest
+                {
+                    BucketName = containerName,
+                    BucketRegionName = s3Client.Config.RegionEndpoint?.SystemName,
+                }).ConfigureAwait(false);
+
+                await s3Client.PutPublicAccessBlockAsync(new PutPublicAccessBlockRequest
+                {
+                    BucketName = containerName,
+                    PublicAccessBlockConfiguration = new PublicAccessBlockConfiguration
+                    {
+                        BlockPublicAcls = false,
+                        IgnorePublicAcls = false,
+                        BlockPublicPolicy = false,
+                        RestrictPublicBuckets = false,
+                    },
+                }).ConfigureAwait(false);
+
+                await s3Client.PutBucketPolicyAsync(new PutBucketPolicyRequest
+                {
+                    BucketName = containerName,
+                    Policy = PublicReadPolicy(containerName),
+                }).ConfigureAwait(false);
+            });
+
+            return true;
+        }
+        catch (AmazonS3Exception ex)
+        {
+            switch (ex.ErrorCode)
+            {
+                case "NoSuchBucket":
+                    this.containerNameError = this.Localizer["AccountNotFound.ErrorMessage"];
+                    break;
+                case "InvalidAccessKeyId":
+                case "SignatureDoesNotMatch":
+                    this.containerNameError = this.Localizer["AuthenticationFailure.ErrorMessage"];
+                    break;
+                case "AccessDenied":
+                    this.containerNameError = this.Localizer["AccessDenied.ErrorMessage"];
+                    break;
+                case "BucketAlreadyOwnedByYou":
+                case "BucketAlreadyExists":
+                    return true;
+                case null:
+                case "":
+                    // The Azure code surfaced the raw status message when the service sent no
+                    // extended error information; the same is done here so unmapped failures stay
+                    // diagnosable instead of collapsing into the generic message.
+                    this.containerNameError = ex.Message;
+                    break;
+                default:
+                    Logger.SettingsCreateContainerStorageException(ex);
+                    this.containerNameError = this.Localizer["NewContainer.ErrorMessage"];
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.SettingsCreateContainerGeneralException(ex);
+            this.containerNameError = this.Localizer["NewContainer.ErrorMessage"];
+        }
+        finally
+        {
+            s3Client.Dispose();
+        }
+
+        return false;
+    }
+
+    private string GetSynchBatchSize()
+    {
+        return this.syncBatchSize;
+    }
+
+    /// <summary>Fills the bucket drop-down, replacing the Azure <c>ListContainers</c> call.</summary>
+    private void LoadContainers()
+    {
+        var accountName = this.accountName.Trim();
+        var accountKey = this.accountKey.Trim();
+
+        IAmazonS3 s3Client;
+
+        try
+        {
+            s3Client = AzureFolderProvider.CreateS3Client(accountName, accountKey, this.useHttps);
+        }
+        catch (Exception ex)
+        {
+            Logger.SettingsStorageCredentialsException(ex);
+
+            this.containerNameError = this.Localizer["AuthenticationFailure.ErrorMessage"];
+
+            return;
+        }
+
+        try
+        {
+            var response = AzureFolderProvider.RunSync(() => s3Client.ListBucketsAsync());
+            foreach (var bucket in response.Buckets)
+            {
+                this.containerValues.Add(bucket.BucketName);
+            }
+        }
+        catch (AmazonS3Exception ex)
+        {
+            switch (ex.ErrorCode)
+            {
+                case "InvalidAccessKeyId":
+                case "SignatureDoesNotMatch":
+                    this.containerNameError = this.Localizer["AuthenticationFailure.ErrorMessage"];
+                    break;
+                case null:
+                case "":
+                    // See CreateContainer: the raw service error is kept for unmapped failures.
+                    this.containerNameError = ex.Message;
+                    break;
+                default:
+                    Logger.SettingsLoadContainersStorageException(ex);
+                    this.containerNameError = this.Localizer["ListContainers.ErrorMessage"];
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.SettingsLoadContainersGeneralException(ex);
+            this.containerNameError = this.Localizer["ListContainers.ErrorMessage"];
+        }
+        finally
+        {
+            s3Client.Dispose();
+        }
+    }
+}

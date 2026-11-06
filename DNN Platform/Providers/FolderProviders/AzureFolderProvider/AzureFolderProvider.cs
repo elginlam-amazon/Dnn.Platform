@@ -5,28 +5,34 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
 {
     using System;
     using System.Collections.Generic;
-    using System.Globalization;
     using System.IO;
     using System.Linq;
-    using System.Net;
-    using System.Threading;
-    using System.Web.Caching;
+    using System.Threading.Tasks;
+
+    using Amazon;
+    using Amazon.Runtime;
+    using Amazon.S3;
+    using Amazon.S3.Model;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Security;
     using DotNetNuke.Common;
-    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
+    using DotNetNuke.Framework;
     using DotNetNuke.Framework.Providers;
     using DotNetNuke.Providers.FolderProviders.Components;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.FileSystem;
 
-    using Microsoft.Extensions.DependencyInjection;
-    using Microsoft.WindowsAzure.Storage;
-    using Microsoft.WindowsAzure.Storage.Auth;
-    using Microsoft.WindowsAzure.Storage.Blob;
-
-    /// <summary>Windows Azure Storage Folder Provider.</summary>
+    /// <summary>Amazon S3 Storage Folder Provider.</summary>
+    /// <remarks>
+    /// This provider stored its objects in Azure Blob Storage through the
+    /// <c>WindowsAzure.Storage</c> SDK. It now stores them in Amazon S3 through
+    /// <c>AWSSDK.S3</c>: the <c>Container</c> setting names an S3 bucket, the
+    /// <c>AccountName</c>/<c>AccountKey</c> settings are the AWS access key id and secret access
+    /// key, and a blob name is an object key. The provider name, the setting names and the public
+    /// surface are unchanged so existing folder mappings keep working.
+    /// </remarks>
     /// <inheritdoc />
     public class AzureFolderProvider : BaseRemoteStorageProvider
     {
@@ -50,11 +56,9 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
         public AzureFolderProvider(IHostSettings hostSettings, ICryptographyProvider cryptographyProvider)
             : base(hostSettings)
         {
-            this.cryptographyProvider = cryptographyProvider ?? HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<ICryptographyProvider>();
-
-            ServicePointManager.DefaultConnectionLimit = 100;
-            ServicePointManager.UseNagleAlgorithm = false;
-            ServicePointManager.Expect100Continue = false;
+            // The obsolete parameterless overload has nothing injected, so the provider is resolved
+            // from the platform's service locator. This replaces the HttpContext-bound lookup.
+            this.cryptographyProvider = cryptographyProvider ?? ServiceLocator.GetRequiredService<ICryptographyProvider>();
 
             // Read the configuration specific information for this provider
             var objProvider = (Provider)this.providerConfiguration.Providers[ProviderName];
@@ -75,7 +79,7 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
         protected override string ListObjectsCacheKey => "Azure_ListObjects_{0}";
 
         /// <remarks>
-        /// Azure Storage doesn't support folders, so we create a file in order for the folder to not be deleted during future synchronizations.
+        /// Object storage doesn't support folders, so we create a file in order for the folder to not be deleted during future synchronizations.
         /// The file has an extension not allowed by host. This way the file won't be added during synchronizations.
         /// </remarks>
         /// <inheritdoc />
@@ -98,67 +102,50 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
             if (directLink)
             {
                 var folder = FolderManager.Instance.GetFolder(file.FolderId);
-                var uri = folder.MappedPath + file.FileName;
+                var key = folder.MappedPath + file.FileName;
 
-                var container = this.GetContainer(folderMapping);
-                var blob = container.GetBlobReference(uri);
-                var absuri = blob.Uri.AbsoluteUri;
+                var useHttps = GetBooleanSetting(folderMapping, Constants.UseHttps);
+
+                string absuri;
+                using (var s3Client = this.GetS3Client(folderMapping))
+                {
+                    absuri = GetObjectUrl(s3Client, GetBucketName(folderMapping), key, useHttps);
+                }
+
                 var customDomain = GetEncryptedSetting(this.cryptographyProvider, this.HostSettings, folderMapping.FolderMappingSettings, Constants.CustomDomain);
 
+                // Rewriting the host of a pre-signed URL would break it, because an Amazon S3
+                // signature version 4 signature covers the Host header (an Azure shared access
+                // signature did not). The URL above is deliberately unsigned, which both preserves
+                // the custom domain / CDN rewrite and keeps the link permanent, as the Azure
+                // 100-year stored access policy was.
                 if (!string.IsNullOrEmpty(customDomain))
                 {
                     var customUri = new UriBuilder(customDomain).Uri;
                     absuri =
-                        new UriBuilder(blob.Uri.AbsoluteUri) { Host = customUri.Host, Scheme = customUri.Scheme, Port = customUri.Port }
+                        new UriBuilder(absuri) { Host = customUri.Host, Scheme = customUri.Scheme, Port = customUri.Port }
                             .Uri.AbsoluteUri;
                 }
 
-                const string groupPolicyIdentifier = "DNNFileManagerPolicy";
-
-                var permissions = container.GetPermissions();
-
-                SharedAccessBlobPolicy policy;
-
-                permissions.SharedAccessPolicies.TryGetValue(groupPolicyIdentifier, out policy);
-
-                if (policy == null)
-                {
-                    policy = new SharedAccessBlobPolicy { Permissions = SharedAccessBlobPermissions.Read, SharedAccessExpiryTime = DateTime.UtcNow.AddYears(100) };
-
-                    permissions.SharedAccessPolicies.Add(groupPolicyIdentifier, policy);
-                }
-                else
-                {
-                    policy.Permissions = SharedAccessBlobPermissions.Read;
-                    policy.SharedAccessExpiryTime = DateTime.UtcNow.AddYears(100);
-                }
-
-                /*
-                 * Workaround for CONTENT-3662
-                 * The Azure Client Storage api has issue when used with Italian Thread.Culture or eventually other cultures
-                 * (see this article for further information https://connect.microsoft.com/VisualStudio/feedback/details/760974/windows-azure-sdk-cloudblobcontainer-setpermissions-permissions-as-microsoft-windowsazure-storageclient-blobcontainerpermissions-error).
-                 * This code changes the thread culture to en-US
-                 */
-                var currentCulture = Thread.CurrentThread.CurrentCulture;
-                if (currentCulture.Name != "en-US")
-                {
-                    Thread.CurrentThread.CurrentCulture = CultureInfo.CreateSpecificCulture("en-US");
-                }
-
-                container.SetPermissions(permissions);
-
-                var signature = blob.GetSharedAccessSignature(new SharedAccessBlobPolicy(), groupPolicyIdentifier);
-
-                // Reset original Thread Culture
-                if (currentCulture.Name != "en-US")
-                {
-                    Thread.CurrentThread.CurrentCulture = currentCulture;
-                }
-
-                return absuri + signature;
+                return absuri;
             }
 
             return FileLinkClickController.Instance.GetFileLinkClick(file);
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// The settings user control of this provider is no longer the deployed file
+        /// <c>Settings.ascx</c> but the Blazor component <c>Settings</c>
+        /// (<c>AzureFolderProvider/Settings.razor</c>), which is compiled into this assembly. There
+        /// is therefore no virtual path to return, and the host renders the component type instead.
+        /// TODO: return the component through a type-based hook once DotNetNuke.Library replaces
+        /// the file-based lookup (FolderProvider.SettingsControlId / GetSettingsControlVirtualPath)
+        /// and DNN Platform/Modules/ResourceManager (EditFolderMapping) is migrated to Blazor.
+        /// </remarks>
+        public override string GetSettingsControlVirtualPath()
+        {
+            return string.Empty;
         }
 
         /// <inheritdoc />
@@ -167,24 +154,26 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
             return Globals.ResolveUrl("~/Providers/FolderProviders/AzureFolderProvider/images/FolderAzure_32x32_Standard.png");
         }
 
+        /// <summary>Gets the names of every bucket the configured credentials can see.</summary>
+        /// <param name="folderMapping">The folder mapping holding the credentials.</param>
+        /// <returns>The list of bucket names.</returns>
         public List<string> GetAllContainers(FolderMappingInfo folderMapping)
         {
             List<string> containers = [];
-            var accountName = GetEncryptedSetting(this.cryptographyProvider, this.HostSettings, folderMapping.FolderMappingSettings, Constants.AccountName);
-            var accountKey = GetEncryptedSetting(this.cryptographyProvider, this.HostSettings, folderMapping.FolderMappingSettings, Constants.AccountKey);
-            var useHttps = GetBooleanSetting(folderMapping, Constants.UseHttps);
 
-            var sc = new StorageCredentials(accountName, accountKey);
-            var csa = new CloudStorageAccount(sc, useHttps);
-            var blobClient = csa.CreateCloudBlobClient();
-            blobClient.ListContainers().ToList().ForEach(x => containers.Add(x.Name));
+            using (var s3Client = this.GetS3Client(folderMapping))
+            {
+                var response = RunSync(() => s3Client.ListBucketsAsync());
+                response.Buckets.ToList().ForEach(x => containers.Add(x.BucketName));
+            }
+
             return containers;
         }
 
-        /// <summary>Updates a file in Azure folder provider.</summary>
+        /// <summary>Updates a file in the Amazon S3 folder provider.</summary>
         /// <remarks>
-        /// Azure is case sensitive.  If you update dnninternals.pdf with DNNINTERNALS.pdf, to DNN it's the same
-        /// so it just re-uploads it, causing both files to exist in Azure. This azure specific method deletes the
+        /// Object keys are case sensitive. If you update dnninternals.pdf with DNNINTERNALS.pdf, to DNN it's the same
+        /// so it just re-uploads it, causing both files to exist in the bucket. This provider specific method deletes the
         /// old existing duplicate that only differs in case as part of the update.
         /// </remarks>
         /// <inheritdoc />
@@ -201,15 +190,76 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
             }
         }
 
+        /// <summary>Runs an asynchronous AWS SDK call from one of the synchronous
+        /// <see cref="FolderProvider"/> members.</summary>
+        /// <typeparam name="TResult">The result of the operation.</typeparam>
+        /// <param name="operation">The operation to run.</param>
+        /// <returns>The result of <paramref name="operation"/>.</returns>
+        /// <remarks>
+        /// The <see cref="FolderProvider"/> contract this provider implements is synchronous and is
+        /// shared with every other folder provider, while AWSSDK.S3 exposes asynchronous operations
+        /// only. The call is dispatched onto the thread pool so it never continues on - and
+        /// therefore cannot deadlock against - the calling thread.
+        /// </remarks>
+        internal static TResult RunSync<TResult>(Func<Task<TResult>> operation)
+        {
+            return Task.Run(operation).GetAwaiter().GetResult();
+        }
+
+        /// <summary>Runs an asynchronous AWS SDK call from one of the synchronous
+        /// <see cref="FolderProvider"/> members.</summary>
+        /// <param name="operation">The operation to run.</param>
+        /// <remarks>See the generic overload for why this bridge is needed.</remarks>
+        internal static void RunSync(Func<Task> operation)
+        {
+            Task.Run(operation).GetAwaiter().GetResult();
+        }
+
+        /// <summary>Creates an S3 client for the given credentials.</summary>
+        /// <param name="accessKeyId">The AWS access key id (the <c>AccountName</c> setting).</param>
+        /// <param name="secretAccessKey">The AWS secret access key (the <c>AccountKey</c> setting).</param>
+        /// <param name="useHttps">Whether to talk to the service over HTTPS.</param>
+        /// <returns>A new <see cref="IAmazonS3"/> which the caller must dispose.</returns>
+        internal static IAmazonS3 CreateS3Client(string accessKeyId, string secretAccessKey, bool useHttps)
+        {
+            var config = new AmazonS3Config
+            {
+                UseHttp = !useHttps,
+
+                // Replaces ServicePointManager.DefaultConnectionLimit = 100. The Nagle algorithm
+                // and 100-continue behaviour the provider used to turn off are already disabled by
+                // default on the HttpClient the SDK uses.
+                MaxConnectionsPerServer = 100,
+            };
+
+            // Unlike an Azure storage account, an S3 client needs its region explicitly: without
+            // one the SDK silently falls back to us-east-1 and requests against buckets in another
+            // region fail with AuthorizationHeaderMalformed or a 301 redirect. It is read from the
+            // AWS_REGION environment variable, falling back to the SDK's own resolution chain
+            // (shared config profile, then EC2/ECS/Lambda instance metadata).
+            var regionName = Environment.GetEnvironmentVariable("AWS_REGION");
+            config.RegionEndpoint = string.IsNullOrEmpty(regionName)
+                ? FallbackRegionFactory.GetRegionEndpoint()
+                : RegionEndpoint.GetBySystemName(regionName);
+
+            return new AmazonS3Client(new BasicAWSCredentials(accessKeyId, secretAccessKey), config);
+        }
+
         /// <inheritdoc />
         protected override void CopyFileInternal(FolderMappingInfo folderMapping, string sourceUri, string newUri)
         {
-            var container = this.GetContainer(folderMapping);
+            var bucketName = GetBucketName(folderMapping);
 
-            var sourceBlob = container.GetBlobReference(sourceUri);
-            var newBlob = container.GetBlobReference(newUri);
-
-            newBlob.StartCopy(sourceBlob.Uri);
+            using (var s3Client = this.GetS3Client(folderMapping))
+            {
+                RunSync(() => s3Client.CopyObjectAsync(new CopyObjectRequest
+                {
+                    SourceBucket = bucketName,
+                    SourceKey = sourceUri,
+                    DestinationBucket = bucketName,
+                    DestinationKey = newUri,
+                }));
+            }
 
             this.ClearCache(folderMapping.FolderMappingID);
         }
@@ -217,10 +267,12 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
         /// <inheritdoc />
         protected override void DeleteFileInternal(FolderMappingInfo folderMapping, string uri)
         {
-            var container = this.GetContainer(folderMapping);
-            var blob = container.GetBlobReference(uri);
-
-            blob.DeleteIfExists();
+            using (var s3Client = this.GetS3Client(folderMapping))
+            {
+                // DeleteObjectAsync is already idempotent on Amazon S3, so there is no
+                // existence check to port from DeleteIfExists().
+                RunSync(() => s3Client.DeleteObjectAsync(GetBucketName(folderMapping), uri));
+            }
 
             this.ClearCache(folderMapping.FolderMappingID);
         }
@@ -234,11 +286,33 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
         /// <inheritdoc />
         protected override Stream GetFileStreamInternal(FolderMappingInfo folderMapping, string uri)
         {
-            var container = this.GetContainer(folderMapping);
-            var blob = container.GetBlockBlobReference(uri);
-
             var memoryStream = new MemoryStream();
-            blob.DownloadToStream(memoryStream);
+
+            try
+            {
+                using (var s3Client = this.GetS3Client(folderMapping))
+                {
+                    RunSync(async () =>
+                    {
+                        using (var response = await s3Client.GetObjectAsync(GetBucketName(folderMapping), uri).ConfigureAwait(false))
+                        using (var responseStream = response.ResponseStream)
+                        {
+                            await responseStream.CopyToAsync(memoryStream).ConfigureAwait(false);
+                        }
+                    });
+                }
+            }
+            catch (AmazonS3Exception ex) when (IsNotFound(ex))
+            {
+                memoryStream.Dispose();
+                throw new FileNotFoundException(this.FileNotFoundMessage, uri, ex);
+            }
+            catch
+            {
+                memoryStream.Dispose();
+                throw;
+            }
+
             memoryStream.Seek(0, SeekOrigin.Begin);
 
             return memoryStream;
@@ -258,36 +332,38 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
                     folderMapping.FolderMappingID),
                 _ =>
                 {
-                    var container = this.GetContainer(folderMapping);
                     var synchBatchSize = GetIntegerSetting(
                         folderMapping,
                         Constants.SyncBatchSize,
                         Constants.DefaultSyncBatchSize);
 
-                    BlobContinuationToken continuationToken = null;
-
                     var list = new List<IRemoteStorageItem>();
-                    do
-                    {
-                        // This overload allows control of the page size. You can return all remaining results by passing null for the maxResults parameter,
-                        // or by calling a different overload.
-                        var resultSegment = container.ListBlobsSegmented(
-                            string.Empty,
-                            true,
-                            BlobListingDetails.All,
-                            synchBatchSize,
-                            continuationToken,
-                            null,
-                            null);
-                        foreach (var blobItem in resultSegment.Results)
-                        {
-                            list.Add(new AzureRemoteStorageItem { Blob = new AzureBlob(blobItem as CloudBlob), });
-                        }
 
-                        // Get the continuation token.
-                        continuationToken = resultSegment.ContinuationToken;
+                    using (var s3Client = this.GetS3Client(folderMapping))
+                    {
+                        string continuationToken = null;
+
+                        do
+                        {
+                            // MaxKeys controls the page size, exactly as the maxResults argument of
+                            // the Azure ListBlobsSegmented overload used to.
+                            var resultSegment = RunSync(() => s3Client.ListObjectsV2Async(new ListObjectsV2Request
+                            {
+                                BucketName = GetBucketName(folderMapping),
+                                MaxKeys = synchBatchSize,
+                                ContinuationToken = continuationToken,
+                            }));
+
+                            foreach (var s3Object in resultSegment.S3Objects)
+                            {
+                                list.Add(new AzureRemoteStorageItem { Blob = new AzureBlob(s3Object), });
+                            }
+
+                            // Get the continuation token.
+                            continuationToken = resultSegment.IsTruncated ? resultSegment.NextContinuationToken : null;
+                        }
+                        while (continuationToken != null);
                     }
-                    while (continuationToken != null);
 
                     return list;
                 });
@@ -296,13 +372,23 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
         /// <inheritdoc />
         protected override void MoveFileInternal(FolderMappingInfo folderMapping, string sourceUri, string newUri)
         {
-            var container = this.GetContainer(folderMapping);
+            var bucketName = GetBucketName(folderMapping);
 
-            var sourceBlob = container.GetBlobReference(sourceUri);
-            var newBlob = container.GetBlobReference(newUri);
+            using (var s3Client = this.GetS3Client(folderMapping))
+            {
+                RunSync(async () =>
+                {
+                    await s3Client.CopyObjectAsync(new CopyObjectRequest
+                    {
+                        SourceBucket = bucketName,
+                        SourceKey = sourceUri,
+                        DestinationBucket = bucketName,
+                        DestinationKey = newUri,
+                    }).ConfigureAwait(false);
 
-            newBlob.StartCopy(sourceBlob.Uri);
-            sourceBlob.Delete();
+                    await s3Client.DeleteObjectAsync(bucketName, sourceUri).ConfigureAwait(false);
+                });
+            }
 
             this.ClearCache(folderMapping.FolderMappingID);
         }
@@ -310,16 +396,42 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
         /// <inheritdoc />
         protected override void MoveFolderInternal(FolderMappingInfo folderMapping, string sourceUri, string newUri)
         {
-            var container = this.GetContainer(folderMapping);
-            var directory = container.GetDirectoryReference(sourceUri);
-            var blobs = directory.ListBlobs(true);
+            var bucketName = GetBucketName(folderMapping);
 
-            foreach (var blobItem in blobs)
+            using (var s3Client = this.GetS3Client(folderMapping))
             {
-                var blob = (CloudBlob)blobItem;
-                var newBlob = container.GetBlobReference(newUri + blobItem.Uri.LocalPath.Substring(directory.Uri.LocalPath.Length));
-                newBlob.StartCopy(blob.Uri);
-                blob.Delete();
+                RunSync(async () =>
+                {
+                    // Object storage has no directories; the "folder" is the key prefix, so every
+                    // object under it is copied to the new prefix and then deleted.
+                    string continuationToken = null;
+
+                    do
+                    {
+                        var resultSegment = await s3Client.ListObjectsV2Async(new ListObjectsV2Request
+                        {
+                            BucketName = bucketName,
+                            Prefix = sourceUri,
+                            ContinuationToken = continuationToken,
+                        }).ConfigureAwait(false);
+
+                        foreach (var s3Object in resultSegment.S3Objects)
+                        {
+                            await s3Client.CopyObjectAsync(new CopyObjectRequest
+                            {
+                                SourceBucket = bucketName,
+                                SourceKey = s3Object.Key,
+                                DestinationBucket = bucketName,
+                                DestinationKey = string.Concat(newUri, s3Object.Key.AsSpan(sourceUri.Length)),
+                            }).ConfigureAwait(false);
+
+                            await s3Client.DeleteObjectAsync(bucketName, s3Object.Key).ConfigureAwait(false);
+                        }
+
+                        continuationToken = resultSegment.IsTruncated ? resultSegment.NextContinuationToken : null;
+                    }
+                    while (continuationToken != null);
+                });
             }
 
             this.ClearCache(folderMapping.FolderMappingID);
@@ -328,22 +440,33 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
         /// <inheritdoc />
         protected override void UpdateFileInternal(Stream stream, FolderMappingInfo folderMapping, string uri)
         {
-            var container = this.GetContainer(folderMapping);
-            var blob = container.GetBlockBlobReference(uri);
-
             stream.Seek(0, SeekOrigin.Begin);
-            blob.UploadFromStream(stream);
 
-            // Set the content type
-            blob.Properties.ContentType = FileContentTypeManager.Instance.GetContentType(Path.GetExtension(uri));
+            var request = new PutObjectRequest
+            {
+                BucketName = GetBucketName(folderMapping),
+                Key = uri,
+                InputStream = stream,
+
+                // The stream belongs to the caller (DNN's file manager), so the SDK must not
+                // dispose it after the upload.
+                AutoCloseStream = false,
+
+                // The new SDK sets the object's headers during the upload instead of in a
+                // separate SetProperties() round trip.
+                ContentType = FileContentTypeManager.Instance.GetContentType(Path.GetExtension(uri)),
+            };
 
             // Set cache control
             if (!string.IsNullOrEmpty(this.cacheControl))
             {
-                blob.Properties.CacheControl = this.cacheControl;
+                request.Headers.CacheControl = this.cacheControl;
             }
 
-            blob.SetProperties();
+            using (var s3Client = this.GetS3Client(folderMapping))
+            {
+                RunSync(() => s3Client.PutObjectAsync(request));
+            }
 
             this.ClearCache(folderMapping.FolderMappingID);
         }
@@ -361,19 +484,66 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
             }
         }
 
-        private CloudBlobContainer GetContainer(FolderMappingInfo folderMapping)
+        /// <summary>Gets the name of the S3 bucket the folder mapping stores its objects in.</summary>
+        /// <param name="folderMapping">The folder mapping.</param>
+        /// <returns>The bucket name.</returns>
+        private static string GetBucketName(FolderMappingInfo folderMapping)
+        {
+            return GetSetting(folderMapping, Constants.Container);
+        }
+
+        /// <summary>Gets the public URL of an object, the equivalent of the Azure <c>blob.Uri</c>.</summary>
+        /// <param name="s3Client">The S3 client, which knows the endpoint of the configured region.</param>
+        /// <param name="bucketName">The bucket holding the object.</param>
+        /// <param name="key">The object key.</param>
+        /// <param name="useHttps">Whether the URL should use HTTPS.</param>
+        /// <returns>The unsigned URL of the object.</returns>
+        /// <remarks>
+        /// The URL is taken from a pre-signed request with its query string removed, so the host
+        /// and path come from the SDK's own endpoint resolution (region, dual-stack, path style)
+        /// instead of a hard-coded <c>s3.amazonaws.com</c> pattern, and nothing is signed.
+        /// </remarks>
+        private static string GetObjectUrl(IAmazonS3 s3Client, string bucketName, string key, bool useHttps)
+        {
+            var signedUrl = s3Client.GetPreSignedURL(new GetPreSignedUrlRequest
+            {
+                BucketName = bucketName,
+                Key = key,
+                Verb = HttpVerb.GET,
+                Expires = DateTime.UtcNow.AddMinutes(1),
+                Protocol = useHttps ? Protocol.HTTPS : Protocol.HTTP,
+            });
+
+            return new UriBuilder(signedUrl) { Query = string.Empty }.Uri.AbsoluteUri;
+        }
+
+        /// <summary>Determines whether <paramref name="exception"/> reports a missing object or bucket.</summary>
+        /// <param name="exception">The exception to inspect.</param>
+        /// <returns><see langword="true"/> when the object or its bucket does not exist.</returns>
+        private static bool IsNotFound(AmazonS3Exception exception)
+        {
+            return exception.StatusCode == System.Net.HttpStatusCode.NotFound
+                   || exception.ErrorCode == "NoSuchKey"
+                   || exception.ErrorCode == "NoSuchBucket";
+        }
+
+        /// <summary>Creates an S3 client for the credentials of <paramref name="folderMapping"/>.</summary>
+        /// <param name="folderMapping">The folder mapping holding the credentials.</param>
+        /// <returns>A new <see cref="IAmazonS3"/> which the caller must dispose.</returns>
+        /// <remarks>
+        /// Amazon S3 has no per-bucket client, so this replaces both
+        /// <c>CloudStorageAccount.CreateCloudBlobClient()</c> and
+        /// <c>GetContainerReference(container)</c>; the bucket is passed to each operation instead.
+        /// </remarks>
+        private IAmazonS3 GetS3Client(FolderMappingInfo folderMapping)
         {
             CheckSettings(folderMapping);
 
             var accountName = GetEncryptedSetting(this.cryptographyProvider, this.HostSettings, folderMapping.FolderMappingSettings, Constants.AccountName);
             var accountKey = GetEncryptedSetting(this.cryptographyProvider, this.HostSettings, folderMapping.FolderMappingSettings, Constants.AccountKey);
-            var container = GetSetting(folderMapping, Constants.Container);
             var useHttps = GetBooleanSetting(folderMapping, Constants.UseHttps);
 
-            var sc = new StorageCredentials(accountName, accountKey);
-            var csa = new CloudStorageAccount(sc, useHttps);
-            var blobClient = csa.CreateCloudBlobClient();
-            return blobClient.GetContainerReference(container);
+            return CreateS3Client(accountName, accountKey, useHttps);
         }
     }
 }

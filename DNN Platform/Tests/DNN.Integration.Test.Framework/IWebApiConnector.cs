@@ -44,10 +44,10 @@ namespace DNN.Integration.Test.Framework
             string relativeUrl,
             object content, IDictionary<string, string> contentHeaders = null, bool waitHttpResponse = true, bool ignoreLoggedIn = false);
 
-        HttpWebResponse PostUserForm(string relativeUrl, IDictionary<string, object> formFields,
+        HttpResponseMessage PostUserForm(string relativeUrl, IDictionary<string, object> formFields,
             List<string> excludedInputPrefixes, bool checkUserLoggedIn = true, bool followRedirect = false);
 
-        HttpWebResponse MultipartFormDataPost(
+        HttpResponseMessage MultipartFormDataPost(
             string relativeUrl, IDictionary<string, object> postParameters, IDictionary<string, string> headers = null, bool followRedirect = false);
 
         HttpResponseMessage GetContent(

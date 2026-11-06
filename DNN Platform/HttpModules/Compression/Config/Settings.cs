@@ -91,7 +91,7 @@ namespace DotNetNuke.HttpModules.Compression
         /// <returns>true if excluded, false if not.</returns>
         public bool IsExcludedPath(string relUrl)
         {
-            return this.excludedPaths.Any(path => relUrl.ToLowerInvariant().Contains(path));
+            return this.excludedPaths.Any(path => relUrl.Contains(path, StringComparison.OrdinalIgnoreCase));
         }
     }
 }

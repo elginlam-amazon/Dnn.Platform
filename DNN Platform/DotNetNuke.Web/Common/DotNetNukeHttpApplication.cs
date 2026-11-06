@@ -17,7 +17,6 @@ namespace DotNetNuke.Web.Common.Internal
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Data;
     using DotNetNuke.Framework;
-    using DotNetNuke.HttpModules.DependencyInjection;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Modules.HTMLEditorProvider;
     using DotNetNuke.Modules.NavigationProvider;
@@ -86,7 +85,9 @@ namespace DotNetNuke.Web.Common.Internal
             ComponentFactory.InstallComponents(new ProviderInstaller("mail", typeof(MailProvider)));
 
             dependencyProvider.SetProvider(DependencyInjectionInitialize.BuildServiceProvider());
-            ServiceRequestScopeModule.SetServiceProvider(Globals.DependencyProvider);
+            // The per-request DI scope is now created by DotNetNuke.HttpModules'
+            // DnnServiceScopeMiddleware, which injects IServiceScopeFactory, so there is no
+            // static service-provider seam left to prime here.
             HttpRuntime.WebObjectActivator = new WebFormsServiceProvider();
         }
 

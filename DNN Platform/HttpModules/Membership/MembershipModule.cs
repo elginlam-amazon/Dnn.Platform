@@ -4,19 +4,15 @@
 namespace DotNetNuke.HttpModules.Membership
 {
     using System;
-    using System.ComponentModel;
+    using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
     using System.Linq;
-    using System.Runtime.CompilerServices;
-    using System.Security.Principal;
     using System.Threading;
-    using System.Web;
-    using System.Web.Security;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Abstractions.Pages;
-    using DotNetNuke.Collections;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
@@ -27,6 +23,7 @@ namespace DotNetNuke.HttpModules.Membership
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security;
+    using DotNetNuke.Security.Authentication;
     using DotNetNuke.Security.Roles;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.UserRequest;
@@ -34,12 +31,36 @@ namespace DotNetNuke.HttpModules.Membership
     using DotNetNuke.UI.Skins.Controls;
     using DotNetNuke.UI.Skins.EventListeners;
 
+    using Microsoft.AspNetCore.Authentication;
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+    using Microsoft.Extensions.Primitives;
 
     /// <summary>Information about membership.</summary>
-    public partial class MembershipModule : IHttpModule
+    /// <remarks>
+    /// The <c>IHttpModule</c> implementation that used to hook <c>AuthenticateRequest</c>,
+    /// <c>PreRequestHandlerExecute</c> and <c>PreSendRequestHeaders</c> is now
+    /// <see cref="DnnMembershipMiddleware"/>; the authentication logic itself still lives in the
+    /// <see cref="AuthenticateRequest(IHostSettingsService,IPortalController,IUserRequestIPAddressController,IRoleController,IEventLogger,IHostSettings,HttpContext,bool)"/>
+    /// overloads so that external callers keep working.
+    /// </remarks>
+    public partial class MembershipModule
     {
+        /// <summary>
+        /// The <see cref="HttpContext.Items"/> key set when <c>AuthenticateRequest</c> had to
+        /// force a logout and already wrote a redirect to the response. The middleware uses it
+        /// instead of the legacy <c>Response.Redirect(url, endResponse: true)</c>
+        /// thread-abort to stop the request from reaching an endpoint.
+        /// </summary>
+        internal const string ForcedLogoutRedirectKey = "DNN_MembershipForcedLogout";
+
+        /// <summary>
+        /// The <see cref="HttpContext.Items"/> slot holding the authentication ticket's issue date
+        /// (local time), as resolved by <see cref="ResolveAuthTicketIssueDateAsync"/>.
+        /// </summary>
+        internal const string AuthTicketIssueDateKey = "DNN_AuthTicketIssueDate";
+
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<MembershipModule>();
 
         /// <summary>Initializes a new instance of the <see cref="MembershipModule"/> class.</summary>
@@ -79,7 +100,7 @@ namespace DotNetNuke.HttpModules.Membership
         /// <param name="context">The context.</param>
         /// <param name="allowUnknownExtensions">if set to <see langword="true"/> to allow unknown extensions.</param>
         [DnnDeprecated(10, 0, 2, "Use overload taking IHostSettingsService")]
-        public static partial void AuthenticateRequest(HttpContextBase context, bool allowUnknownExtensions)
+        public static partial void AuthenticateRequest(HttpContext context, bool allowUnknownExtensions)
             => AuthenticateRequest(
                 Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettingsService>(),
                 Globals.GetCurrentServiceProvider().GetRequiredService<IPortalController>(),
@@ -96,7 +117,7 @@ namespace DotNetNuke.HttpModules.Membership
         /// <param name="context">The context.</param>
         /// <param name="allowUnknownExtensions">if set to <c>true</c> to allow unknown extensions.</param>
         [DnnDeprecated(10, 2, 2, "Use overload taking IEventLogger")]
-        public static partial void AuthenticateRequest(IHostSettingsService hostSettingsService, IPortalController portalController, IUserRequestIPAddressController ipAddressController, IRoleController roleController, HttpContextBase context, bool allowUnknownExtensions)
+        public static partial void AuthenticateRequest(IHostSettingsService hostSettingsService, IPortalController portalController, IUserRequestIPAddressController ipAddressController, IRoleController roleController, HttpContext context, bool allowUnknownExtensions)
             => AuthenticateRequest(hostSettingsService, portalController, ipAddressController, roleController, Globals.GetCurrentServiceProvider().GetRequiredService<IEventLogger>(), context, allowUnknownExtensions);
 
         /// <summary>Authenticates the request.</summary>
@@ -108,7 +129,7 @@ namespace DotNetNuke.HttpModules.Membership
         /// <param name="context">The context.</param>
         /// <param name="allowUnknownExtensions">if set to <c>true</c> to allow unknown extensions.</param>
         [DnnDeprecated(10, 2, 4, "Use overload taking IHostSettings")]
-        public static partial void AuthenticateRequest(IHostSettingsService hostSettingsService, IPortalController portalController, IUserRequestIPAddressController ipAddressController, IRoleController roleController, IEventLogger eventLogger, HttpContextBase context, bool allowUnknownExtensions)
+        public static partial void AuthenticateRequest(IHostSettingsService hostSettingsService, IPortalController portalController, IUserRequestIPAddressController ipAddressController, IRoleController roleController, IEventLogger eventLogger, HttpContext context, bool allowUnknownExtensions)
             => AuthenticateRequest(hostSettingsService, portalController, ipAddressController, roleController, eventLogger, Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>(), context, allowUnknownExtensions);
 
         /// <summary>Authenticates the request.</summary>
@@ -120,13 +141,15 @@ namespace DotNetNuke.HttpModules.Membership
         /// <param name="hostSettings">The host settings.</param>
         /// <param name="context">The context.</param>
         /// <param name="allowUnknownExtensions">if set to <c>true</c> to allow unknown extensions.</param>
-        public static void AuthenticateRequest(IHostSettingsService hostSettingsService, IPortalController portalController, IUserRequestIPAddressController ipAddressController, IRoleController roleController, IEventLogger eventLogger, IHostSettings hostSettings, HttpContextBase context, bool allowUnknownExtensions)
+        public static void AuthenticateRequest(IHostSettingsService hostSettingsService, IPortalController portalController, IUserRequestIPAddressController ipAddressController, IRoleController roleController, IEventLogger eventLogger, IHostSettings hostSettings, HttpContext context, bool allowUnknownExtensions)
         {
-            HttpRequestBase request = context.Request;
-            HttpResponseBase response = context.Response;
+            ArgumentNullException.ThrowIfNull(context);
+
+            var request = context.Request;
+            var response = context.Response;
 
             // First check if we are upgrading/installing
-            if (!Initialize.ProcessHttpModule(context.ApplicationInstance.Request, allowUnknownExtensions, false))
+            if (!Initialize.ProcessHttpModule(request, allowUnknownExtensions, false))
             {
                 return;
             }
@@ -134,12 +157,13 @@ namespace DotNetNuke.HttpModules.Membership
             // Obtain PortalSettings from Current Context
             var portalSettings = portalController.GetCurrentSettings();
 
-            if (request.IsAuthenticated && !IsActiveDirectoryAuthHeaderPresent() && portalSettings != null)
+            var isAuthenticated = context.User?.Identity?.IsAuthenticated == true;
+            if (isAuthenticated && !IsActiveDirectoryAuthHeaderPresent(context) && portalSettings != null)
             {
                 var user = UserController.GetCachedUser(hostSettings, portalSettings.PortalId, context.User.Identity.Name);
 
                 // if current login is from windows authentication, the ignore the process
-                if (user == null && context.User is WindowsPrincipal)
+                if (user == null && IsWindowsPrincipal(context))
                 {
                     return;
                 }
@@ -157,14 +181,15 @@ namespace DotNetNuke.HttpModules.Membership
                     }
 
                     // Redirect browser back to home page
-                    response.Redirect(request.RawUrl, true);
+                    response.Redirect(GetRawUrl(request));
+                    context.Items[ForcedLogoutRedirectKey] = true;
                     return;
                 }
 
                 // if users LastActivityDate is outside the UsersOnlineTimeWindow then record user activity
-    #pragma warning disable CS0618 // Type or member is obsolete
+#pragma warning disable CS0618 // Type or member is obsolete
                 var usersOnlineTimeWindow = Host.UsersOnlineTimeWindow;
-    #pragma warning restore CS0618 // Type or member is obsolete
+#pragma warning restore CS0618 // Type or member is obsolete
                 if (user != null && DateTime.Compare(user.Membership.LastActivityDate.AddMinutes(usersOnlineTimeWindow), DateTime.Now) < 0)
                 {
                     // update LastActivityDate and IP Address for user
@@ -174,11 +199,12 @@ namespace DotNetNuke.HttpModules.Membership
                 }
 
                 // check for RSVP code
-                if (user != null && request.QueryString["rsvp"] != null && !string.IsNullOrEmpty(request.QueryString["rsvp"]))
+                var rsvp = request.Query["rsvp"].ToString();
+                if (user != null && !string.IsNullOrEmpty(rsvp))
                 {
                     foreach (var role in roleController.GetRoles(portalSettings.PortalId, r => (r.SecurityMode != SecurityMode.SocialGroup || r.IsPublic) && r.Status == RoleStatus.Approved))
                     {
-                        if (role.RSVPCode == request.QueryString["rsvp"])
+                        if (role.RSVPCode == rsvp)
                         {
                             roleController.UpdateUserRole(portalSettings.PortalId, user.UserID, role.RoleID, RoleStatus.Approved, false, false);
                         }
@@ -186,50 +212,204 @@ namespace DotNetNuke.HttpModules.Membership
                 }
 
                 // save userinfo object in context
-                if (context.Items["UserInfo"] != null)
-                {
-                    context.Items["UserInfo"] = user;
-                }
-                else
-                {
-                    context.Items.Add("UserInfo", user);
-                }
+                context.Items["UserInfo"] = user;
 
                 // Add user id to log context for better logging
                 DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<LogRequestContext>()?.AddToLogContext("UserId", user?.UserID ?? Null.NullInteger);
 
                 // Localization.SetLanguage also updates the user profile, so this needs to go after the profile is loaded
-                if (user != null && request.RawUrl != null && !ServicesModule.ServiceApi.IsMatch(request.RawUrl))
+                var rawUrl = GetRawUrl(request);
+                if (user != null && rawUrl != null && !DnnServicesFrameworkMiddleware.ServiceApi.IsMatch(rawUrl))
                 {
                     Localization.SetLanguage(user.Profile.PreferredLocale);
                 }
             }
 
-            if (context.Items["UserInfo"] == null)
+            if (!context.Items.TryGetValue("UserInfo", out var userInfoItem) || userInfoItem is null)
             {
-                context.Items.Add("UserInfo", new UserInfo());
+                context.Items["UserInfo"] = new UserInfo();
                 DotNetNuke.Common.Globals.GetCurrentServiceProvider().GetRequiredService<LogRequestContext>()?.AddToLogContext("UserId", Null.NullInteger);
             }
         }
 
-        /// <summary>Initializes the specified application.</summary>
-        /// <param name="application">The application.</param>
-        [SuppressMessage("Microsoft.Naming", "CA1725:ParameterNamesShouldMatchBaseDeclaration", Justification = "Breaking change")]
-        public void Init(HttpApplication application)
+        /// <summary>
+        /// The <c>PreRequestHandlerExecute</c> work: shows the unverified-user warning and the
+        /// e-mail-verification success message by putting them in <see cref="HttpContext.Items"/>
+        /// where <see cref="Skin"/> picks them up while rendering the page.
+        /// </summary>
+        /// <param name="context">The current request.</param>
+        internal static void AddSkinInitMessages(HttpContext context)
         {
-            application.AuthenticateRequest += OnAuthenticateRequest;
-            application.PreRequestHandlerExecute += Context_PreRequestHandlerExecute;
-            application.PreSendRequestHeaders += OnPreSendRequestHeaders;
+            var request = context.Request;
+            var serviceProvider = context.GetScope().ServiceProvider;
+            var portalController = serviceProvider.GetRequiredService<IPortalController>();
+            var userController = serviceProvider.GetRequiredService<IUserController>();
+
+            var portalSettings = portalController.GetCurrentSettings();
+            var user = userController.GetCurrentUserInfo();
+            var isAuthenticated = context.User?.Identity?.IsAuthenticated == true;
+            if (!isAuthenticated || IsActiveDirectoryAuthHeaderPresent(context) || portalSettings == null)
+            {
+                return;
+            }
+
+            var contextItems = context.Items;
+            if (user is not null && !user.IsSuperUser && user.IsInRole("Unverified Users") && !contextItems.ContainsKey(Skin.OnInitMessage))
+            {
+                contextItems.Add(Skin.OnInitMessage, Localization.GetString("UnverifiedUser", Localization.SharedResourceFile, Thread.CurrentThread.CurrentCulture.Name));
+            }
+
+            if (user is not null && !user.IsSuperUser && request.Query.ContainsKey("VerificationSuccess") && !contextItems.ContainsKey(Skin.OnInitMessage))
+            {
+                contextItems.Add(Skin.OnInitMessage, Localization.GetString("VerificationSuccess", Localization.SharedResourceFile, Thread.CurrentThread.CurrentCulture.Name));
+                contextItems.Add(Skin.OnInitMessageType, ModuleMessage.ModuleMessageType.GreenSuccess);
+            }
         }
 
-        /// <summary>Disposes of the resources (other than memory) used by the module that implements <see cref="System.Web.IHttpModule" />.</summary>
-        public void Dispose()
+        /// <summary>
+        /// DNN-6973: if the authentication cookie was set by the cookie slide in membership and
+        /// the current portal is in a portal group, re-issue it through
+        /// <see cref="PortalSecurity.SignInAsync"/> so that it gets the portal-group cookie
+        /// domain. Replaces the <c>PreSendRequestHeaders</c> handler.
+        /// </summary>
+        /// <param name="context">The current request.</param>
+        /// <returns>A task that completes once the cookie has been re-issued (if it had to be).</returns>
+        internal static async System.Threading.Tasks.Task FixUpAuthCookieDomainAsync(HttpContext context)
         {
+            var serviceProvider = GetOrCreateServiceProvider(context);
+            var portalController = serviceProvider.GetRequiredService<IPortalController>();
+            var cookieService = serviceProvider.GetRequiredService<IAuthenticationCookieService>();
+            var cookieName = cookieService.CookieName;
+
+            var portalSettings = portalController.GetCurrentSettings();
+            var setCookieHeaders = context.Response.Headers.SetCookie;
+            var hasAuthCookie = setCookieHeaders.Any(value => value != null && value.Contains(cookieName, StringComparison.Ordinal));
+            if (portalSettings == null || !hasAuthCookie || context.Items.ContainsKey(DnnAuthenticationDefaults.UserSignInContextKey))
+            {
+                return;
+            }
+
+            var isInPortalGroup = PortalController.IsMemberOfPortalGroup(portalController, portalSettings.PortalId);
+            if (!isInPortalGroup)
+            {
+                return;
+            }
+
+            // The legacy code read the cookie back out of Response.Cookies; on ASP.NET Core the
+            // response cookies are only visible as Set-Cookie headers, so the "has a value but no
+            // domain" test is performed against the header itself.
+            var kept = new List<string>();
+            var needsReissue = false;
+            foreach (var header in setCookieHeaders)
+            {
+                if (header is null)
+                {
+                    continue;
+                }
+
+                if (IsValuedAuthCookieWithoutDomain(header, cookieName))
+                {
+                    needsReissue = true;
+                    continue;
+                }
+
+                kept.Add(header);
+            }
+
+            if (!needsReissue)
+            {
+                return;
+            }
+
+            // Equivalent of Response.Cookies.Remove(FormsAuthentication.FormsCookieName): drop the
+            // domain-less cookie instead of expiring it, then sign in again so a correct one is written.
+            context.Response.Headers.SetCookie = new StringValues(kept.ToArray());
+            await PortalSecurity.Instance.SignInAsync(UserController.Instance.GetCurrentUserInfo(), false).ConfigureAwait(false);
         }
 
-        private static bool IsActiveDirectoryAuthHeaderPresent()
+        /// <summary>
+        /// Resolves the current authentication ticket's issue date and publishes it on
+        /// <see cref="HttpContext.Items"/> for <c>RequireLogout</c> to read.
+        /// </summary>
+        /// <param name="context">The current request.</param>
+        /// <returns>A task that completes once the issue date has been resolved.</returns>
+        /// <remarks>
+        /// This replaces the legacy <c>FormsIdentity.Ticket.IssueDate</c>. It is async because
+        /// <see cref="AuthenticationHttpContextExtensions.AuthenticateAsync(HttpContext, string)"/>
+        /// is the fallback when <see cref="IAuthenticateResultFeature"/> has not been populated;
+        /// <c>RequireLogout</c> itself runs inside the synchronous <c>AuthenticateRequest</c> and
+        /// so cannot await, and blocking on the call there would risk a thread-pool deadlock.
+        /// </remarks>
+        internal static async Task ResolveAuthTicketIssueDateAsync(HttpContext context)
         {
-            var auth = HttpContext.Current.Request.Headers.Get("Authorization");
+            if (context is null || context.User?.Identity?.IsAuthenticated != true)
+            {
+                return;
+            }
+
+            try
+            {
+                var issuedUtc = context.Features.Get<IAuthenticateResultFeature>()?.AuthenticateResult?.Properties?.IssuedUtc;
+
+                if (issuedUtc is null)
+                {
+                    var result = await context.AuthenticateAsync(DnnAuthenticationDefaults.AuthenticationScheme).ConfigureAwait(false);
+                    issuedUtc = result?.Properties?.IssuedUtc;
+                }
+
+                if (issuedUtc is not null)
+                {
+                    context.Items[AuthTicketIssueDateKey] = issuedUtc.Value.LocalDateTime;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Leaving the item unset makes RequireLogout fail closed, which is the safe
+                // outcome; the failure itself is still logged.
+                Logger.MembershipModuleRequireLogoutException(ex);
+            }
+        }
+
+        private static bool IsValuedAuthCookieWithoutDomain(string setCookieHeader, string cookieName)
+        {
+            var separatorIndex = setCookieHeader.IndexOf('=');
+            if (separatorIndex <= 0)
+            {
+                return false;
+            }
+
+            var name = setCookieHeader.Substring(0, separatorIndex).Trim();
+            if (!string.Equals(name, cookieName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var attributes = setCookieHeader.Substring(separatorIndex + 1).Split(';');
+            var value = attributes[0];
+            var hasDomain = attributes.Skip(1).Any(attribute => attribute.TrimStart().StartsWith("domain=", StringComparison.OrdinalIgnoreCase));
+            return !string.IsNullOrEmpty(value) && !hasDomain;
+        }
+
+        private static bool IsWindowsPrincipal(HttpContext context)
+        {
+            // Windows (Negotiate/NTLM) authentication is handled by the server, not by DNN
+            // membership. Checked through the authentication type rather than a
+            // WindowsPrincipal type test so this does not become a Windows-only code path.
+            var authenticationType = context.User?.Identity?.AuthenticationType;
+            return string.Equals(authenticationType, "Negotiate", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(authenticationType, "NTLM", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(authenticationType, "Windows", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetRawUrl(HttpRequest request)
+        {
+            // Replacement for HttpRequest.RawUrl, which does not exist on ASP.NET Core.
+            return $"{request.PathBase}{request.Path}{request.QueryString}";
+        }
+
+        private static bool IsActiveDirectoryAuthHeaderPresent(HttpContext context)
+        {
+            var auth = context?.Request.Headers.Authorization.ToString();
             if (!string.IsNullOrEmpty(auth))
             {
                 if (auth.StartsWith("Negotiate", StringComparison.OrdinalIgnoreCase))
@@ -241,7 +421,7 @@ namespace DotNetNuke.HttpModules.Membership
             return false;
         }
 
-        private static bool RequireLogout(IHostSettingsService hostSettingsService, HttpContextBase context, UserInfo user)
+        private static bool RequireLogout(IHostSettingsService hostSettingsService, HttpContext context, UserInfo user)
         {
             try
             {
@@ -259,88 +439,29 @@ namespace DotNetNuke.HttpModules.Membership
                 }
 
                 // if user's password changed after the user cookie created, then force user to login again.
-                DateTime? issueDate = null;
-                if (context.User.Identity is FormsIdentity formsIdentity)
+                // The forms-authentication ticket issue date is now the cookie authentication
+                // ticket's IssuedUtc, resolved by ResolveAuthTicketIssueDateAsync (which can
+                // await) and published on HttpContext.Items.
+                var issueDate = context.Items.TryGetValue(AuthTicketIssueDateKey, out var resolved)
+                    ? resolved as DateTime?
+                    : null;
+
+                if (issueDate is null)
                 {
-                    issueDate = formsIdentity.Ticket.IssueDate;
+                    // The ticket issue date could not be determined for an authenticated user.
+                    // Fail CLOSED: returning false here would silently keep alive exactly the
+                    // sessions this host setting exists to terminate.
+                    Logger.MembershipModuleRequireLogoutException(new InvalidOperationException(
+                        "ForceLogoutAfterPasswordChanged is enabled but the authentication ticket issue date could not be determined; forcing a logout."));
+                    return true;
                 }
 
-                return !Null.IsNull(issueDate) && issueDate < user.Membership.LastPasswordChangeDate;
+                return issueDate < user.Membership.LastPasswordChangeDate;
             }
             catch (Exception ex)
             {
                 Logger.MembershipModuleRequireLogoutException(ex);
                 return true;
-            }
-        }
-
-        private static void OnAuthenticateRequest(object sender, EventArgs e)
-        {
-            var application = (HttpApplication)sender;
-            var serviceProvider = application.Context.GetScope().ServiceProvider;
-
-            AuthenticateRequest(
-                serviceProvider.GetRequiredService<IHostSettingsService>(),
-                serviceProvider.GetRequiredService<IPortalController>(),
-                serviceProvider.GetRequiredService<IUserRequestIPAddressController>(),
-                serviceProvider.GetRequiredService<IRoleController>(),
-                serviceProvider.GetRequiredService<IEventLogger>(),
-                serviceProvider.GetRequiredService<IHostSettings>(),
-                new HttpContextWrapper(application.Context),
-                false);
-        }
-
-        // DNN-6973: if the authentication cookie set by cookie slide in membership,
-        // then use SignIn method instead if current portal is in portal group.
-        private static void OnPreSendRequestHeaders(object sender, EventArgs e)
-        {
-            var application = (HttpApplication)sender;
-            var serviceProvider = GetOrCreateServiceProvider(application.Context);
-            var portalController = serviceProvider.GetRequiredService<IPortalController>();
-
-            var portalSettings = portalController.GetCurrentSettings();
-            var hasAuthCookie = application.Response.Headers["Set-Cookie"] != null
-                                    && application.Response.Headers["Set-Cookie"].Contains(FormsAuthentication.FormsCookieName);
-            if (portalSettings != null && hasAuthCookie && !application.Context.Items.Contains("DNN_UserSignIn"))
-            {
-                var isInPortalGroup = PortalController.IsMemberOfPortalGroup(portalController, portalSettings.PortalId);
-                if (isInPortalGroup)
-                {
-                    var authCookie = application.Response.Cookies[FormsAuthentication.FormsCookieName];
-                    if (authCookie != null && !string.IsNullOrEmpty(authCookie.Value) && string.IsNullOrEmpty(authCookie.Domain))
-                    {
-                        application.Response.Cookies.Remove(FormsAuthentication.FormsCookieName);
-                        PortalSecurity.Instance.SignIn(UserController.Instance.GetCurrentUserInfo(), false);
-                    }
-                }
-            }
-        }
-
-        private static void Context_PreRequestHandlerExecute(object sender, EventArgs e)
-        {
-            var content = HttpContextSource.Current;
-            var request = content.Request;
-            var serviceProvider = content.GetScope().ServiceProvider;
-            var portalController = serviceProvider.GetRequiredService<IPortalController>();
-            var userController = serviceProvider.GetRequiredService<IUserController>();
-
-            var portalSettings = portalController.GetCurrentSettings();
-            var user = userController.GetCurrentUserInfo();
-            if (!request.IsAuthenticated || IsActiveDirectoryAuthHeaderPresent() || portalSettings == null)
-            {
-                return;
-            }
-
-            var contextItems = HttpContext.Current.Items;
-            if (!user.IsSuperUser && user.IsInRole("Unverified Users") && !contextItems.Contains(Skin.OnInitMessage))
-            {
-                contextItems.Add(Skin.OnInitMessage, Localization.GetString("UnverifiedUser", Localization.SharedResourceFile, Thread.CurrentThread.CurrentCulture.Name));
-            }
-
-            if (!user.IsSuperUser && request.QueryString.AllKeys.Contains("VerificationSuccess") && !contextItems.Contains(Skin.OnInitMessage))
-            {
-                contextItems.Add(Skin.OnInitMessage, Localization.GetString("VerificationSuccess", Localization.SharedResourceFile, Thread.CurrentThread.CurrentCulture.Name));
-                contextItems.Add(Skin.OnInitMessageType, ModuleMessage.ModuleMessageType.GreenSuccess);
             }
         }
 

@@ -6,7 +6,6 @@ namespace DNN.Integration.Test.Framework
 {
     using System;
     using System.Globalization;
-    using System.Net;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -18,8 +17,6 @@ namespace DNN.Integration.Test.Framework
         // public static string DatabaseName { get; }
         static IntegrationTestBase()
         {
-            ServicePointManager.Expect100Continue = false;
-
             // setup of the whole system: take a snapshot and keep using it for all tests
             Thread.CurrentThread.CurrentCulture =
                 Thread.CurrentThread.CurrentUICulture = new CultureInfo("en-US");

@@ -4,7 +4,9 @@
 
 namespace DNN.Integration.Test.Framework.Helpers
 {
-    using System.Configuration;
+    using System;
+
+    using Microsoft.Extensions.Configuration;
 
     public static class AppConfigHelper
     {
@@ -12,6 +14,8 @@ namespace DNN.Integration.Test.Framework.Helpers
         private const string DefaultHostName = "host";
         private const string DefaultHostPwd = "dnnhost";
         private const string DefaultLoginCookie = ".DOTNETNUKE";
+
+        private static readonly Lazy<IConfigurationRoot> LazyConfiguration = new Lazy<IConfigurationRoot>(BuildConfiguration);
 
         private static string _siteUrl;
         private static string _hostUserName;
@@ -21,7 +25,7 @@ namespace DNN.Integration.Test.Framework.Helpers
         private static string _loginCookieString;
 
         public static string ConnectionString =>
-            _connectionString ?? (_connectionString = ConfigurationManager.ConnectionStrings["SiteSqlServer"].ConnectionString);
+            _connectionString ?? (_connectionString = Configuration.GetConnectionString("SiteSqlServer"));
 
         public static string ObjectQualifier =>
             _objectQualifier ?? (_objectQualifier = GetAppSetting("objectQualifier"));
@@ -38,9 +42,20 @@ namespace DNN.Integration.Test.Framework.Helpers
         public static string LoginCookie =>
             _loginCookieString ?? (_loginCookieString = GetAppSetting("loginCookie") ?? DefaultLoginCookie);
 
+        private static IConfigurationRoot Configuration => LazyConfiguration.Value;
+
         public static string GetAppSetting(string key)
         {
-            return ConfigurationManager.AppSettings[key];
+            // Values live under the "appSettings" section (the appsettings.json equivalent of the
+            // legacy web.config/app.config <appSettings> element); a flat top-level key or an
+            // environment variable of the same name is also honoured.
+            var value = Configuration[$"appSettings:{key}"];
+            if (value is null)
+            {
+                value = Configuration[key];
+            }
+
+            return value;
         }
 
         public static bool GetAppSettingAsBool(string key, bool defaultValue)
@@ -53,6 +68,15 @@ namespace DNN.Integration.Test.Framework.Helpers
         {
             int value;
             return int.TryParse(GetAppSetting(key), out value) ? value : defaultValue;
+        }
+
+        private static IConfigurationRoot BuildConfiguration()
+        {
+            return new ConfigurationBuilder()
+                .SetBasePath(AppContext.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+                .AddEnvironmentVariables()
+                .Build();
         }
     }
 }
