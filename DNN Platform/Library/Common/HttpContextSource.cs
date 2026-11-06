@@ -217,6 +217,27 @@ namespace DotNetNuke.Common
                 return relative;
             }
 
+            // A rooted virtual path is application-absolute, so the application's own virtual
+            // path is not part of the path *below* the content root. Legacy Request.MapPath
+            // stripped it; without this, an install in a virtual directory ("/Test") maps
+            // "/Test" to "<root>/Test" instead of "<root>".
+            var applicationVirtualPath = ApplicationVirtualPath;
+            if (applicationVirtualPath.Length > 1 && relative.Length > 0 && relative[0] == Path.DirectorySeparatorChar)
+            {
+                var prefix = applicationVirtualPath
+                    .Replace('/', Path.DirectorySeparatorChar)
+                    .TrimEnd(Path.DirectorySeparatorChar);
+
+                if (relative.Equals(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    relative = string.Empty;
+                }
+                else if (relative.StartsWith(prefix + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    relative = relative.Substring(prefix.Length);
+                }
+            }
+
             relative = relative.TrimStart(Path.DirectorySeparatorChar);
             return relative.Length == 0 ? root : Path.Combine(root, relative);
         }

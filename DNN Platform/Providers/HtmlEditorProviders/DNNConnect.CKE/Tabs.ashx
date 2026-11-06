@@ -1,1 +1,0 @@
-﻿<%@ language="c#" Codebehind="Tabs.ashx.cs" Class="DNNConnect.CKEditorProvider.Tabs" %>

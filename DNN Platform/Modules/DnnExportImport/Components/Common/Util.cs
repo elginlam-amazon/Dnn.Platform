@@ -330,7 +330,7 @@ namespace Dnn.ExportImport.Components.Common
             }
 
             var differenceInUtcTimes =
-                TimeZone.CurrentTimeZone.GetUtcOffset(DateUtils.GetDatabaseUtcTime()).TotalMilliseconds;
+                TimeZoneInfo.Local.GetUtcOffset(DateUtils.GetDatabaseUtcTime()).TotalMilliseconds;
             var d = dateTime.Value.ToLocalTime().AddMilliseconds(differenceInUtcTimes);
             return new DateTime(d.Year, d.Month, d.Day, d.Hour, d.Minute, d.Second, d.Millisecond, DateTimeKind.Local);
         }
@@ -351,7 +351,7 @@ namespace Dnn.ExportImport.Components.Common
             }
 
             var differenceInUtcTimes =
-                TimeZone.CurrentTimeZone.GetUtcOffset(DateUtils.GetDatabaseUtcTime()).TotalMilliseconds;
+                TimeZoneInfo.Local.GetUtcOffset(DateUtils.GetDatabaseUtcTime()).TotalMilliseconds;
             var d = dateTime.Value.ToUniversalTime().AddMilliseconds(differenceInUtcTimes);
             return new DateTime(d.Year, d.Month, d.Day, d.Hour, d.Minute, d.Second, d.Millisecond, DateTimeKind.Utc);
         }

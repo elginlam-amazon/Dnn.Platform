@@ -47,9 +47,15 @@
             $('[id*="Options_ToolbarSet"]').val($('.groups').SerializeToolbars());
         });
 
-        $('#SettingsTabs').tabs({
+        // The jQuery UI tabs container is the settings form that holds ul.dnnAdminTabNav and the
+        // #dnnMainSettings / #dnnFileBrowserSettings / #dnnCustomToolbars / #dnnEditorConfig /
+        // #dnnAbout panels its anchors point at. On WebForms this selector read '#SettingsTabs',
+        // an element neither Options.aspx nor CKEditorOptions.ascx ever rendered, so the call was
+        // a silent no-op and the tabs never initialized; it now names the element the migrated
+        // CKEditorOptions component renders, so the tab strip works.
+        $('#CKEditor_Options_pnlEditor').tabs({
             activate: function () {
-                var sel = $('#SettingsTabs').tabs('option', 'active');
+                var sel = $('#CKEditor_Options_pnlEditor').tabs('option', 'active');
                 $('[id*="CKEditor_Options_LastTabId"]').val(sel);
             },
             active: $('[id*="CKEditor_Options_LastTabId"]').val()
@@ -70,7 +76,9 @@
                     $(this).dialog("close");
                 }, 
                 "Export Now": function() {
-                    window.location = $(".ExportHidden").attr("href"); $(this).dialog("close");
+                    // The LinkButton's href was a __doPostBack(...) URL; the migrated anchor
+                    // raises its Blazor click handler instead, so click it.
+                    $(".ExportHidden")[0].click(); $(this).dialog("close");
                 }
             },
             open: function () {
@@ -90,7 +98,9 @@
                      $(this).dialog("close");
                  },
                  "Import Now": function() {
-                     window.location = $(".ImportHidden").attr("href"); $(this).dialog("close");
+                     // The LinkButton's href was a __doPostBack(...) URL; the migrated anchor
+                     // raises its Blazor click handler instead, so click it.
+                     $(".ImportHidden")[0].click(); $(this).dialog("close");
                  }
             },
             open: function () {

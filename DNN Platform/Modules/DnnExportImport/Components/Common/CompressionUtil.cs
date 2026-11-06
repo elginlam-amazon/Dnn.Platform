@@ -63,7 +63,7 @@ namespace Dnn.ExportImport.Components.Common
                 archive.Entries.Where(
                     entry =>
                         ((exceptionList != null && !exceptionList.Contains(entry.FullName)) || exceptionList == null) &&
-                        !entry.FullName.EndsWith(@"\", StringComparison.Ordinal) && !entry.FullName.EndsWith("/", StringComparison.Ordinal) && entry.Length > 0))
+                        !entry.FullName.EndsWith('\\') && !entry.FullName.EndsWith('/') && entry.Length > 0))
             {
                 entry.CheckZipEntry();
                 var path = Path.GetDirectoryName(Path.Combine(extractFolder, entry.FullName));

@@ -1,23 +1,30 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
     <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
+    <!-- CA1863: the five flagged string.Format calls in Controllers/ModulesController.cs format
+         strings returned by Localization.GetString, so they vary per culture at run time and
+         cannot be hoisted into a static readonly CompositeFormat. DotNetNuke.Library made the
+         same call for the same reason; the one call site here with a const format
+         (MenuPermissionController.GetCacheKey) IS pre-parsed into a CompositeFormat. -->
+    <WarningsNotAsErrors>SA1600,CA1863</WarningsNotAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
-
   <ItemGroup>
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Web" />
+    <!-- The public surface now exposes ASP.NET Core types (HttpRequest, IActionResult) and
+         Blazor's ComponentBase via DnnComponentBase, matching DotNetNuke.Web. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />

@@ -1,0 +1,610 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DNNConnect.CKEditorProvider.Module
+@inherits DotNetNuke.Entities.Modules.ModuleSettingsBase
+
+@using System.Globalization
+@using Microsoft.JSInterop
+@using DNNConnect.CKEditorProvider.Constants
+@using DNNConnect.CKEditorProvider.Helper
+@using DNNConnect.CKEditorProvider.Objects
+@using DNNConnect.CKEditorProvider.Utilities
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Portals
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Tabs
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using Globals = DotNetNuke.Common.Globals
+
+@*
+    This is Module/EditorConfigManager.ascx, markup element for markup element. It is the
+    extension's host settings control, named in DNNConnect.CKEditorProvider.dnn's
+    settingsControlPath and resolved by ExtensionControlResolver.
+
+    * <asp:TreeView ID="PortalTabsAndModulesTree" ExpandDepth="0"> is the project's own
+      Controls/DnnTreeView.razor over the Helper/DnnTreeNode graph (ASP.NET Core has no TreeView
+      and the platform offers no replacement). SelectedNodeChanged becomes OnNodeClick;
+      SelectedNodeStyle.ForeColor = Color.Gray is the .dnnTreeNodeSelected rule of css/Options.css,
+      which is why System.Drawing is gone from this file.
+    * <asp:CheckBox ID="PortalOnly" AutoPostBack="True"> is a check box whose change handler is
+      the former CheckedChanged handler; an interactive-server component re-renders on change,
+      which is what the auto post back did.
+    * <asp:PlaceHolder id="OptionsPlaceHolder"> held the control Page.LoadControl(
+      "CKEditorOptions.ascx") created; it is now the <CKEditorOptions> component rendered below
+      with the same five properties as parameters.
+    * <asp:PlaceHolder ID="ModuleInstanceInfoPlaceHolder" Visible="False"> is the @if block at the
+      bottom, shown when a module instance node is selected.
+    * The 8 <asp:Image> "has setting" legend icons keep their ImageUrl, resolved through
+      Globals.ResolveUrl, and the 12 <asp:Label>s read the text SetLanguage() localizes.
+    * The inline <script> holding the six strings js/Options.js reads is emitted through
+      js/optionsInterop.js, because a <script> element written by a Blazor render never executes.
+
+    No @rendermode is declared: this control is rendered inside the module settings page, which
+    owns the render mode. Declaring one on a child of an interactive component fails at runtime.
+*@
+
+<div>
+    <h3><span id="ModuleHeader">@this.moduleHeaderText</span></h3>
+
+    <div class="optionsSidebar">
+        <div class="managerSettingHeader">
+            <span id="PortalOnlyLabel">@this.portalOnlyLabelText</span>
+        </div>
+        <div class="managerSettingHeader">
+            <div class="portalOnlyCheckBox">
+                <input type="checkbox"
+                       id="PortalOnly"
+                       checked="@this.portalOnly"
+                       @onchange="this.PortalOnlyCheckedChangedAsync" />
+                <label for="PortalOnly">@this.portalOnlyText</label>
+            </div>
+            <hr />
+        </div>
+        <div class="managerSettingHeader">
+            <div class="portalTabsAndModulesTree">
+                <DnnTreeView Nodes="this.portalTabsAndModulesTree"
+                             ExpandDepth="0"
+                             SelectedValue="@this.selectedValue"
+                             OnNodeClick="this.PortalTabsAndModulesTreeSelectedNodeChangedAsync" />
+            </div>
+            <hr />
+        </div>
+        <div class="managerSettingContent">
+            <h4><span id="IconLegendLabel">@this.iconLegendLabelText</span></h4>
+            <div class="iconLegend">
+                <ul>
+                    <li>
+                        <img id="HostHasSettingImage" src="@ImageUrl("HostHasSetting.png")" alt="" />&nbsp;
+                        <span id="HostHasSettingLabel">@this.hostHasSettingLabelText</span>
+                    </li>
+                    <li>
+                        <img id="HostNoSettingImage" src="@ImageUrl("HostNoSetting.png")" alt="" />&nbsp;
+                        <span id="HostNoSettingLabel">@this.hostNoSettingLabelText</span>
+                    </li>
+                    <li>
+                        <img id="PortalHasSettingImage" src="@ImageUrl("PortalHasSetting.png")" alt="" />&nbsp;
+                        <span id="PortalHasSettingLabel">@this.portalHasSettingLabelText</span>
+                    </li>
+                    <li>
+                        <img id="PortalNoSettingImage" src="@ImageUrl("PortalNoSetting.png")" alt="" />&nbsp;
+                        <span id="PortalNoSettingLabel">@this.portalNoSettingLabelText</span>
+                    </li>
+                    <li>
+                        <img id="PageHasSettingImage" src="@ImageUrl("PageHasSetting.png")" alt="" />&nbsp;
+                        <span id="PageHasSettingLabel">@this.pageHasSettingLabelText</span>
+                    </li>
+                    <li>
+                        <img id="PageNoSettingImage" src="@ImageUrl("PageNoSetting.png")" alt="" />&nbsp;
+                        <span id="PageNoSettingLabel">@this.pageNoSettingLabelText</span>
+                    </li>
+                    <li>
+                        <img id="ModuleHasSettingImage" src="@ImageUrl("ModuleHasSetting.png")" alt="" />&nbsp;
+                        <span id="ModuleHasSettingLabel">@this.moduleHasSettingLabelText</span>
+                    </li>
+                    <li>
+                        <img id="ModuleNoSettingImage" src="@ImageUrl("ModuleNoSetting.png")" alt="" />&nbsp;
+                        <span id="ModuleNoSettingLabel">@this.moduleNoSettingLabelText</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="optionsContainer">
+        @* OptionsPlaceHolder.Controls.Add(LoadControl("CKEditorOptions.ascx")) *@
+        @if (this.editorOptionsVisible)
+        {
+            <CKEditorOptions @ref="this.editorOptions"
+                             ID="CKEditor_Options"
+                             IsHostMode="true"
+                             CurrentPortalOnly="this.portalOnly"
+                             CurrentOrSelectedTabId="this.currentOrSelectedTabId"
+                             CurrentOrSelectedPortalId="this.currentOrSelectedPortalId"
+                             DefaultHostLoadMode="this.defaultHostLoadMode" />
+        }
+        @if (this.moduleInstanceInfoVisible)
+        {
+            <div class="ui-widget">
+                <div class="ui-state-error ui-corner-all" style="padding: 0 .7em;">
+                    <p>
+                        <span class="ui-icon ui-icon-alert" style="float: left; margin-right: .3em;"></span>
+                        <span id="ModuleInstanceInfo">@this.moduleInstanceInfoText</span>
+                    </p>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private readonly List<DnnTreeNode> portalTabsAndModulesTree = new List<DnnTreeNode>();
+
+    private CKEditorOptions editorOptions;
+
+    private bool portalOnly = true;
+    private bool editorOptionsVisible = true;
+    private bool moduleInstanceInfoVisible;
+    private string selectedValue;
+
+    private int currentOrSelectedTabId;
+    private int currentOrSelectedPortalId;
+    private int defaultHostLoadMode;
+
+    // Set when a node click (or the PortalOnly toggle) changed the parameters handed to
+    // CKEditorOptions: the original called BindOptionsData(true) straight after assigning the
+    // properties, which here has to wait until the re-render has applied them to the child.
+    private bool pendingOptionsBind;
+
+    private bool localizedStringsEmitted;
+
+    private string moduleHeaderText;
+    private string portalOnlyLabelText;
+    private string portalOnlyText = "The Portal Only";
+    private string hostHasSettingLabelText;
+    private string hostNoSettingLabelText;
+    private string portalHasSettingLabelText;
+    private string portalNoSettingLabelText;
+    private string pageHasSettingLabelText;
+    private string pageNoSettingLabelText;
+    private string moduleHasSettingLabelText;
+    private string moduleNoSettingLabelText;
+    private string iconLegendLabelText;
+    private string moduleInstanceInfoText;
+
+    /// <summary>Gets the JavaScript runtime the control's client side seam is called through.</summary>
+    [Inject]
+    protected IJSRuntime JsRuntime { get; set; }
+
+    [Inject]
+    private IHostSettings HostSettingsService { get; set; }
+
+    [Inject]
+    private IPortalController PortalControllerService { get; set; }
+
+    [Inject]
+    private IModuleController ModuleControllerService { get; set; }
+
+    [Inject]
+    private IApplicationStatusInfo AppStatus { get; set; }
+
+    /// <summary>Gets Current Language from Url.</summary>
+    protected string LangCode => CultureInfo.CurrentCulture.Name;
+
+    /// <summary>Gets the Name for the Current Resource file name.</summary>
+    /// <remarks>
+    /// Replaces the <c>ResolveUrl</c>-derived path of the original. The control's own
+    /// <see cref="DotNetNuke.Entities.Modules.PortalModuleBase.LocalResourceFile"/> is derived
+    /// from the component name (<c>App_LocalResources/EditorConfigManager.resx</c>, which carries
+    /// the extension's package name/description read by <c>Module/UpgradeController.cs</c>); the
+    /// labels of this control have always lived in the shared <c>Options</c> resource file, as the
+    /// <c>.ascx.cs</c> did, so every key and every portal level override is preserved.
+    /// </remarks>
+    protected string ResXFile =>
+        Globals.ResolveUrl($"~/Providers/HtmlEditorProviders/DNNConnect.CKE/{Localization.LocalResourceDirectory}/Options.resx");
+
+    /// <inheritdoc />
+    /// <remarks>This is <c>OnInit</c> + <c>InitializeComponent</c> of the original.</remarks>
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.InitializeComponent();
+    }
+
+    /// <inheritdoc />
+    /// <remarks>This is <c>Page_Load</c> of the original.</remarks>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            // The CKEditorOptions control the original created with
+            // Page.LoadControl("~/Providers/HtmlEditorProviders/DNNConnect.CKE/CKEditorOptions.ascx")
+            // and added to OptionsPlaceHolder is the <CKEditorOptions> component in the markup
+            // above; these are the five properties it set on it, and the ID it gave it.
+            this.editorOptionsVisible = true;
+
+            this.currentOrSelectedTabId = this.PortalSettings?.ActiveTab?.TabID ?? -1;
+            this.currentOrSelectedPortalId = this.PortalSettings?.PortalId ?? this.HostSettingsService.HostPortalId;
+
+            this.defaultHostLoadMode = 0;
+
+            // "if (this.Page.IsPostBack) return;" — a component's state survives the interaction,
+            // so the labels are localized once, when the control is first loaded.
+            this.SetLanguage();
+        }
+        catch (Exception exception)
+        {
+            Exceptions.ProcessPageLoadException(exception);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Emits the six localized strings <c>js/Options.js</c> reads (the inline <c>&lt;script&gt;</c>
+    /// of the original markup) and performs the deferred <c>BindOptionsData(true)</c> of the node
+    /// click handlers, once the re-render has pushed the new parameters into the child control.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!this.localizedStringsEmitted)
+        {
+            this.localizedStringsEmitted = true;
+            await this.SetClientLocalizedStringsAsync();
+        }
+
+        if (this.pendingOptionsBind)
+        {
+            this.pendingOptionsBind = false;
+            this.editorOptions?.BindOptionsData(true);
+            this.StateHasChanged();
+        }
+    }
+
+    private static Dictionary<int, HashSet<DnnTreeNode>> GetModuleNodes(int portalId, IModuleController moduleController, List<EditorHostSetting> editorHostSettings)
+    {
+        var portalModules = moduleController.GetModules(portalId).Cast<ModuleInfo>();
+        Dictionary<int, HashSet<DnnTreeNode>> modulesNodes = new Dictionary<int, HashSet<DnnTreeNode>>();
+
+        foreach (var m in portalModules)
+        {
+            var moduleNode = new DnnTreeNode
+                             {
+                                 Value = $"m{m.ModuleID}",
+                                 Text = m.ModuleTitle,
+                                 ImageUrl =
+                                     SettingsUtil.CheckSettingsExistByKey(editorHostSettings, $"DNNCKMI#{m.ModuleID}#INS#")
+                                         ? ImageUrl("ModuleHasSetting.png")
+                                         : ImageUrl("ModuleNoSetting.png"),
+                             };
+
+            if (modulesNodes.ContainsKey(m.TabID))
+            {
+                var nodes = modulesNodes[m.TabID];
+                nodes.Add(moduleNode);
+            }
+            else
+            {
+                var nodes = new HashSet<DnnTreeNode>();
+                nodes.Add(moduleNode);
+                modulesNodes.Add(m.TabID, nodes);
+            }
+        }
+
+        return modulesNodes;
+    }
+
+    private static void LoadNodesByTreeViewHelper(
+        List<EditorHostSetting> editorHostSettings,
+        DnnTreeNode portalNode,
+        Dictionary<int, HashSet<DnnTreeNode>> modulesNodes,
+        List<TabInfo> tabs)
+    {
+        Func<TabInfo, int> getNodeId = x => x.TabID;
+        Func<TabInfo, int> getParentId = x => x.ParentId;
+        Func<TabInfo, string> getNodeText = x => x.TabName;
+        Func<TabInfo, string> getNodeValue = x => $"t{x.TabID}";
+        Func<int, bool> getParentIdCheck = x => x != -1;
+        Func<TabInfo, string> getNodeImageURL =
+            x => SettingsUtil.CheckSettingsExistByKey(editorHostSettings, $"DNNCKT#{x.TabID}#")
+                     ? ImageUrl("PageHasSetting.png")
+                     : ImageUrl("PageNoSetting.png");
+
+        TreeViewHelper<int> tvh = new TreeViewHelper<int>();
+        tvh.LoadNodes(tabs, portalNode.ChildNodes, getNodeId, getParentId, getNodeText, getNodeValue, getNodeImageURL, getParentIdCheck, modulesNodes);
+    }
+
+    /// <summary>Resolves one of the extension's legend/node images.</summary>
+    /// <param name="fileName">The file name of the image inside the extension's images folder.</param>
+    /// <returns>The application relative URL of the image.</returns>
+    /// <remarks>
+    /// Replaces the control-relative <c>~/Providers/.../images/X.png</c> (legend) and
+    /// <c>../images/X.png</c> (tree nodes) paths: a Blazor component has no
+    /// <c>TemplateSourceDirectory</c> to resolve a relative path against, and the casing below is
+    /// the on-disk casing, which matters on Linux.
+    /// </remarks>
+    private static string ImageUrl(string fileName) =>
+        Globals.ResolveUrl($"~/Providers/HtmlEditorProviders/DNNConnect.CKE/images/{fileName}");
+
+    /// <summary>
+    /// Required method for Designer support - do not modify
+    ///  the contents of the method with the code editor.
+    /// </summary>
+    /// <remarks>
+    /// The two event wire ups are the <c>@onchange</c>/<c>OnNodeClick</c> bindings in the markup
+    /// and the selected node style is <c>.dnnTreeNodeSelected</c> in css/Options.css, so only the
+    /// initial data binding of the tree is left to do here.
+    /// </remarks>
+    private void InitializeComponent()
+    {
+        try
+        {
+            this.BindPortalTabsAndModulesTree();
+        }
+        catch (Exception exception)
+        {
+            Exceptions.ProcessModuleLoadException(this, exception);
+        }
+    }
+
+    /// <summary>Handles the change of the PortalOnly check box.</summary>
+    /// <param name="args">The change event arguments carrying the new checked state.</param>
+    /// <returns>A task.</returns>
+    private Task PortalOnlyCheckedChangedAsync(ChangeEventArgs args)
+    {
+        this.portalOnly = args.Value is bool isChecked
+            ? isChecked
+            : bool.TryParse(args.Value?.ToString(), out var parsed) && parsed;
+
+        this.BindPortalTabsAndModulesTree();
+
+        this.editorOptionsVisible = true;
+        this.moduleInstanceInfoVisible = false;
+
+        if (this.portalTabsAndModulesTree.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        var rootNode = this.portalTabsAndModulesTree[0];
+        this.portalTabsAndModulesTree.ClearSelection();
+        rootNode.Selected = true;
+        this.selectedValue = rootNode.Value;
+
+        // SelectedNode.ExpandAll()
+        rootNode.Expanded = true;
+        rootNode.ChildNodes.ExpandToDepth(-1);
+
+        // Load Portal Settings for the selected Portal if exist
+        var portalId = rootNode.Value.Substring(1);
+        var tabId = rootNode.ChildNodes.Count > 0 ? rootNode.ChildNodes[0].Value.Substring(1) : "-1";
+
+        this.currentOrSelectedPortalId = this.portalOnly ? Convert.ToInt32(portalId, CultureInfo.InvariantCulture) : -1;
+        this.currentOrSelectedTabId = this.portalOnly ? Convert.ToInt32(tabId, CultureInfo.InvariantCulture) : -1;
+
+        this.defaultHostLoadMode = 0;
+
+        this.BindPortalTabsAndModulesTree();
+
+        // Load Settings — performed from OnAfterRenderAsync, once the child control has been
+        // handed the parameters assigned above.
+        this.pendingOptionsBind = true;
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Loads the Settings based on the Selected Portal/Tab/Module.</summary>
+    /// <param name="node">The node the user clicked.</param>
+    /// <returns>A task.</returns>
+    private Task PortalTabsAndModulesTreeSelectedNodeChangedAsync(DnnTreeNode node)
+    {
+        if (node == null)
+        {
+            return Task.CompletedTask;
+        }
+
+        this.portalTabsAndModulesTree.ClearSelection();
+        node.Selected = true;
+        this.selectedValue = node.Value;
+
+        var selectedValue = node.Value ?? string.Empty;
+
+        if (selectedValue.StartsWith("h", StringComparison.Ordinal))
+        {
+            this.editorOptionsVisible = true;
+            this.moduleInstanceInfoVisible = false;
+
+            // Load Portal Settings for the selected Portal if exist
+            var portalId = selectedValue.Substring(1);
+            var tabId = node.ChildNodes.Count > 0 ? node.ChildNodes[0].Value.Substring(1) : "-1";
+
+            int temp;
+            this.currentOrSelectedPortalId = int.TryParse(portalId, NumberStyles.Integer, CultureInfo.InvariantCulture, out temp) ? temp : -1;
+            this.currentOrSelectedTabId = Convert.ToInt32(tabId, CultureInfo.InvariantCulture);
+
+            this.defaultHostLoadMode = -1;
+
+            // Load Settings
+            this.pendingOptionsBind = true;
+        }
+
+        if (selectedValue.StartsWith("p", StringComparison.Ordinal))
+        {
+            this.editorOptionsVisible = true;
+            this.moduleInstanceInfoVisible = false;
+
+            // Load Portal Settings for the selected Portal if exist
+            var portalId = selectedValue.Substring(1);
+            var tabId = node.ChildNodes.Count > 0 ? node.ChildNodes[0].Value.Substring(1) : "-1";
+
+            this.currentOrSelectedPortalId = Convert.ToInt32(portalId, CultureInfo.InvariantCulture);
+            this.currentOrSelectedTabId = Convert.ToInt32(tabId, CultureInfo.InvariantCulture);
+
+            this.defaultHostLoadMode = 0;
+
+            // Load Settings
+            this.pendingOptionsBind = true;
+        }
+        else if (selectedValue.StartsWith("t", StringComparison.Ordinal))
+        {
+            this.editorOptionsVisible = true;
+            this.moduleInstanceInfoVisible = false;
+
+            // Load Tab Settings for the selected Tab if exist
+            var portalId = node.Parent != null ? node.Parent.Value.Substring(1) : "-1";
+            var tabId = selectedValue.Substring(1);
+
+            this.currentOrSelectedPortalId = Convert.ToInt32(portalId, CultureInfo.InvariantCulture);
+            this.currentOrSelectedTabId = Convert.ToInt32(tabId, CultureInfo.InvariantCulture);
+
+            this.defaultHostLoadMode = 1;
+
+            // Load Settings
+            this.pendingOptionsBind = true;
+        }
+        else if (selectedValue.StartsWith("m", StringComparison.Ordinal))
+        {
+            this.editorOptionsVisible = false;
+
+            // Show Info Notice
+            this.moduleInstanceInfoVisible = true;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Sets the language for all Controls.</summary>
+    private void SetLanguage()
+    {
+        this.moduleHeaderText = Localization.GetString("ModuleHeader.Text", this.ResXFile, this.LangCode);
+        this.portalOnlyLabelText = Localization.GetString("PortalOnlyLabel.Text", this.ResXFile, this.LangCode);
+        this.portalOnlyText = Localization.GetString("PortalOnly.Text", this.ResXFile, this.LangCode);
+        this.hostHasSettingLabelText = Localization.GetString("HostHasSettingLabel.Text", this.ResXFile, this.LangCode);
+        this.hostNoSettingLabelText = Localization.GetString("HostNoSettingLabel.Text", this.ResXFile, this.LangCode);
+        this.portalHasSettingLabelText = Localization.GetString("PortalHasSettingLabel.Text", this.ResXFile, this.LangCode);
+        this.portalNoSettingLabelText = Localization.GetString("PortalNoSettingLabel.Text", this.ResXFile, this.LangCode);
+        this.pageHasSettingLabelText = Localization.GetString("PageHasSettingLabel.Text", this.ResXFile, this.LangCode);
+        this.pageNoSettingLabelText = Localization.GetString("PageNoSettingLabel.Text", this.ResXFile, this.LangCode);
+        this.moduleHasSettingLabelText = Localization.GetString("ModuleHasSettingLabel.Text", this.ResXFile, this.LangCode);
+        this.moduleNoSettingLabelText = Localization.GetString("ModuleNoSettingLabel.Text", this.ResXFile, this.LangCode);
+        this.iconLegendLabelText = Localization.GetString("IconLegendLabel.Text", this.ResXFile, this.LangCode);
+        this.moduleInstanceInfoText = Localization.GetString("ModuleError.Text", this.ResXFile, this.LangCode);
+    }
+
+    /// <summary>Emits the six strings <c>js/Options.js</c> reads off the page.</summary>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// Replaces the inline <c>&lt;script&gt;</c> block of the original markup; a script element a
+    /// Blazor render writes is never executed, so the values are handed to js/optionsInterop.js.
+    /// </remarks>
+    private async Task SetClientLocalizedStringsAsync()
+    {
+        IJSObjectReference module;
+        try
+        {
+            module = await this.JsRuntime.InvokeAsync<IJSObjectReference>(
+                "import", "/Providers/HtmlEditorProviders/DNNConnect.CKE/js/optionsInterop.js");
+        }
+        catch (JSException)
+        {
+            // the extension's assets are not reachable; the control degrades to plain markup.
+            return;
+        }
+
+        await module.InvokeVoidAsync(
+            "setLocalizedStrings",
+            new
+            {
+                saveGroupName = Localization.GetString("SaveGroupName.Text", this.ResXFile, this.LangCode),
+                deleteGroup = Localization.GetString("DeleteGroup.Text", this.ResXFile, this.LangCode),
+                editGroupName = Localization.GetString("EditGroupName.Text", this.ResXFile, this.LangCode),
+                newGroupName = Localization.GetString("NewGroupName.Text", this.ResXFile, this.LangCode),
+                deleteToolbar = Localization.GetString("DeleteToolbarButton.Text", this.ResXFile, this.LangCode),
+                newRowName = Localization.GetString("RowBreak.Text", this.ResXFile, this.LangCode),
+            });
+    }
+
+    /// <summary>Renders the Portal Tabs and Module Tree.</summary>
+    private void BindPortalTabsAndModulesTree()
+    {
+        this.portalTabsAndModulesTree.Clear();
+
+        var settingsDictionary = EditorController.GetEditorHostSettings(this.HostSettingsService);
+
+        if (this.portalOnly)
+        {
+            this.RenderPortalNode(this.PortalControllerService.GetPortal(this.PortalSettings.PortalId), settingsDictionary);
+        }
+        else
+        {
+            var portals = this.PortalControllerService.GetPortals().Cast<IPortalInfo>();
+            this.RenderHostNode(portals, settingsDictionary);
+        }
+    }
+
+    private void RenderHostNode(IEnumerable<IPortalInfo> portals, List<EditorHostSetting> editorHostSettings)
+    {
+        var hostKey = SettingConstants.HostKey;
+        var hostSettingsExist = SettingsUtil.CheckSettingsExistByKey(editorHostSettings, hostKey);
+
+        var hostNode = new DnnTreeNode()
+        {
+            Text = Localization.GetString("AllPortals.Text", this.ResXFile, this.LangCode),
+            Value = "h",
+            ImageUrl =
+                hostSettingsExist
+                    ? ImageUrl("HostHasSetting.png")
+                    : ImageUrl("HostNoSetting.png"),
+            Expanded = true,
+        };
+
+        foreach (var portal in portals)
+        {
+            this.RenderPortalNode(portal, editorHostSettings, hostNode);
+        }
+
+        this.portalTabsAndModulesTree.AddChild(null, hostNode);
+    }
+
+    /// <summary>Renders the <paramref name="portal" /> node.</summary>
+    /// <param name="portal">The <paramref name="portal" />.</param>
+    /// <param name="editorHostSettings">The editor host settings.</param>
+    /// <param name="parentNode">The parent node.</param>
+    private void RenderPortalNode(IPortalInfo portal, List<EditorHostSetting> editorHostSettings, DnnTreeNode parentNode = null)
+    {
+        var portalKey = SettingConstants.PortalKey(portal.PortalId);
+
+        var portalSettingsExists = SettingsUtil.CheckSettingsExistByKey(editorHostSettings, portalKey);
+
+        // Portals
+        var portalNode = new DnnTreeNode
+        {
+            Text = portal.PortalName,
+            Value = $"p{portal.PortalId}",
+            ImageUrl =
+                portalSettingsExists
+                    ? ImageUrl("PortalHasSetting.png")
+                    : ImageUrl("PortalNoSetting.png"),
+            Expanded = this.portalOnly,
+        };
+
+        Dictionary<int, HashSet<DnnTreeNode>> modulesNodes = GetModuleNodes(portal.PortalId, this.ModuleControllerService, editorHostSettings);
+        var tabs = TabController.GetPortalTabs(this.HostSettingsService, this.AppStatus, portal.PortalId, -1, false, null, true, false, true, true, false);
+
+        LoadNodesByTreeViewHelper(editorHostSettings, portalNode, modulesNodes, tabs);
+
+        if (parentNode == null)
+        {
+            this.portalTabsAndModulesTree.AddChild(null, portalNode);
+        }
+        else
+        {
+            parentNode.ChildNodes.AddChild(parentNode, portalNode);
+        }
+    }
+}

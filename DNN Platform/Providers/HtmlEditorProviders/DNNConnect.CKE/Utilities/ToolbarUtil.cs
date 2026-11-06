@@ -10,12 +10,12 @@ namespace DNNConnect.CKEditorProvider.Utilities
     using System.Linq;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
     using System.Xml.Serialization;
 
     using DNNConnect.CKEditorProvider.Constants;
     using DNNConnect.CKEditorProvider.Objects;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Utilities;
 
     /// <summary>Toolbar Helper Class.</summary>
     public class ToolbarUtil
@@ -38,7 +38,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
                             FileAccess.Read,
                             FileShare.Read)))
             {
-                buttons = (List<ToolbarButton>)serializer.Deserialize(textReader);
+                buttons = (List<ToolbarButton>)SafeXml.Deserialize(serializer, textReader);
 
                 textReader.Close();
             }
@@ -132,22 +132,22 @@ namespace DNNConnect.CKEditorProvider.Utilities
                 }
                 else
                 {
-                    stringBuilder.Append("{");
+                    stringBuilder.Append('{');
 
-                    stringBuilder.AppendFormat("name:'{0}',items:", HttpUtility.JavaScriptStringEncode(t.name));
+                    stringBuilder.AppendFormat("name:'{0}',items:", HtmlUtils.JavaScriptStringEncode(t.name));
 
-                    stringBuilder.Append("[");
+                    stringBuilder.Append('[');
 
                     var buttons = t.items;
 
                     foreach (var button in buttons)
                     {
-                        stringBuilder.AppendFormat("'{0}',", HttpUtility.JavaScriptStringEncode(button));
+                        stringBuilder.AppendFormat("'{0}',", HtmlUtils.JavaScriptStringEncode(button));
                     }
 
                     stringBuilder.Remove(stringBuilder.Length - 1, 1);
 
-                    stringBuilder.Append("]");
+                    stringBuilder.Append(']');
 
                     stringBuilder.Append(i.Equals(@toolbarSet.ToolbarGroups.Count - 1) ? "}" : "},");
                 }
@@ -942,7 +942,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
                                 FileAccess.Read,
                                 FileShare.Read)))
                 {
-                    toolBarSets = (List<ToolbarSet>)serializer.Deserialize(textReader);
+                    toolBarSets = (List<ToolbarSet>)SafeXml.Deserialize(serializer, textReader);
 
                     textReader.Close();
                 }
@@ -970,7 +970,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
                                     FileAccess.Read,
                                     FileShare.Read)))
                     {
-                        toolBarSets = (List<ToolbarSet>)serializer.Deserialize(textReader);
+                        toolBarSets = (List<ToolbarSet>)SafeXml.Deserialize(serializer, textReader);
 
                         textReader.Close();
                     }
@@ -1033,7 +1033,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
 
             using (var textReader = new StreamReader(new FileStream(oldXmlPath, FileMode.Open, FileAccess.Read, FileShare.Read)))
             {
-                toolBars = (List<Toolbar>)oldSerializer.Deserialize(textReader);
+                toolBars = (List<Toolbar>)SafeXml.Deserialize(oldSerializer, textReader);
 
                 textReader.Close();
             }

@@ -8,6 +8,7 @@ namespace Dnn.ExportImport.Components.Services
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
+    using System.Text;
 
     using Dnn.ExportImport.Components.Common;
     using Dnn.ExportImport.Components.Dto;
@@ -27,6 +28,8 @@ namespace Dnn.ExportImport.Components.Services
     /// <summary>An export service for roles.</summary>
     public class RolesExportService : BasePortableService
     {
+        private static readonly CompositeFormat RoleGroupsCacheKeyFormat = CompositeFormat.Parse(DataCache.RoleGroupsCacheKey);
+
         private readonly RoleProvider roleProvider;
         private readonly IEventLogger eventLogger;
         private readonly IUserController userController;
@@ -307,7 +310,7 @@ namespace Dnn.ExportImport.Components.Services
                             };
                             RoleController.UpdateRoleGroup(roleGroup, false);
                             changedGroups.Add(new RoleGroupItem(roleGroup.RoleGroupID, createdBy, modifiedBy));
-                            DataCache.ClearCache(string.Format(CultureInfo.InvariantCulture, DataCache.RoleGroupsCacheKey, local.RoleGroupID));
+                            DataCache.ClearCache(string.Format(CultureInfo.InvariantCulture, RoleGroupsCacheKeyFormat, local.RoleGroupID));
                             this.Result.AddLogEntry("Updated role group", other.RoleGroupName);
                             break;
                         default:

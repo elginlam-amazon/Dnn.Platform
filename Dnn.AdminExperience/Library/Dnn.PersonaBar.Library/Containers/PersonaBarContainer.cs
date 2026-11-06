@@ -8,8 +8,6 @@ namespace Dnn.PersonaBar.Library.Containers
     using System.Globalization;
     using System.IO;
     using System.Threading;
-    using System.Web.Hosting;
-    using System.Web.UI;
 
     using Dnn.PersonaBar.Library.Common;
     using Dnn.PersonaBar.Library.Controllers;
@@ -23,6 +21,7 @@ namespace Dnn.PersonaBar.Library.Containers
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Portals.Extensions;
     using DotNetNuke.Services.Personalization;
+    using DotNetNuke.UI;
 
     using Microsoft.Extensions.DependencyInjection;
 
@@ -87,7 +86,7 @@ namespace Dnn.PersonaBar.Library.Containers
         }
 
         /// <inheritdoc />
-        public virtual void Initialize(UserControl personaBarControl)
+        public virtual void Initialize(DnnComponentBase personaBarControl)
         {
         }
 
@@ -124,7 +123,7 @@ namespace Dnn.PersonaBar.Library.Containers
             settings.Add("userSettings", PersonaBarUserSettingsController.Instance.GetPersonaBarUserSettings());
             settings.Add("menuStructure", JObject.FromObject(menuStructure));
             settings.Add("sku", DotNetNukeContext.Current.Application.SKU);
-            settings.Add("debugMode", HttpContextSource.Current != null && HttpContextSource.Current.IsDebuggingEnabled);
+            settings.Add("debugMode", this.hostSettings.DebugMode);
             settings.Add("portalId", portalId);
             settings.Add("preferredTimeZone", preferredTimeZone);
 
@@ -146,7 +145,7 @@ namespace Dnn.PersonaBar.Library.Containers
             var cssVariablesPath = $"{portalSettings.HomeSystemDirectory}{portalSettings.GetStyles().FileName}";
             settings.Add("cssVariablesPath", cssVariablesPath);
 
-            var customPersonaBarThemePath = HostingEnvironment.MapPath("~/Portals/_default/PersonaBarTheme.css");
+            var customPersonaBarThemePath = HttpContextSource.MapPath("~/Portals/_default/PersonaBarTheme.css");
             var customPersonaBarThemeExists = File.Exists(customPersonaBarThemePath);
             settings.Add("personaBarTheme", customPersonaBarThemeExists);
 

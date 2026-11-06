@@ -6,7 +6,6 @@ namespace Dnn.ExportImport.Components.Controllers
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web.Caching;
 
     using Dnn.ExportImport.Components.Entities;
     using Dnn.ExportImport.Components.Interfaces;
@@ -16,6 +15,7 @@ namespace Dnn.ExportImport.Components.Controllers
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Framework;
+    using DotNetNuke.Services.Cache;
 
     using Microsoft.Extensions.DependencyInjection;
 

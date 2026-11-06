@@ -4,9 +4,10 @@
 namespace Dnn.PersonaBar.Library.Containers
 {
     using System.Collections.Generic;
-    using System.Web.UI;
 
     using Dnn.PersonaBar.Library.Model;
+
+    using DotNetNuke.UI;
 
     /// <summary>Persona Bar Container.</summary>
     public interface IPersonaBarContainer
@@ -18,8 +19,12 @@ namespace Dnn.PersonaBar.Library.Containers
         bool Visible { get; }
 
         /// <summary>Initialize the persona bar container.</summary>
-        /// <param name="personaBarControl">The Persona Bar Container control.</param>
-        void Initialize(UserControl personaBarControl);
+        /// <param name="personaBarControl">The Persona Bar Container component.</param>
+        /// <remarks>
+        /// Took a Web Forms <c>System.Web.UI.UserControl</c>, which does not exist on ASP.NET Core.
+        /// The parameter is now the <see cref="DnnComponentBase"/> that replaces it.
+        /// </remarks>
+        void Initialize(DnnComponentBase personaBarControl);
 
         /// <summary>Get Persona Bar Settings.</summary>
         /// <returns>An <see cref="IDictionary{TKey,TValue}"/> instance.</returns>

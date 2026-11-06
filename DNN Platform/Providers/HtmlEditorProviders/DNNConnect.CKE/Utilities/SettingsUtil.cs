@@ -10,7 +10,6 @@ namespace DNNConnect.CKEditorProvider.Utilities
     using System.IO;
     using System.Linq;
     using System.Reflection;
-    using System.Web;
     using System.Xml;
     using System.Xml.Serialization;
 
@@ -20,11 +19,14 @@ namespace DNNConnect.CKEditorProvider.Utilities
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security;
     using DotNetNuke.Security.Roles;
+
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Settings Base Helper Class.</summary>
     public partial class SettingsUtil
@@ -150,26 +152,26 @@ namespace DNNConnect.CKEditorProvider.Utilities
                     case "ToolbarLocation":
                         info.SetValue(
                             currentSettings.Config,
-                            (ToolBarLocation)Enum.Parse(typeof(ToolBarLocation), settingValue),
+                            Enum.Parse<ToolBarLocation>(settingValue),
                             null);
                         break;
                     case "DefaultLinkType":
                         info.SetValue(
                             currentSettings.Config,
-                            (LinkType)Enum.Parse(typeof(LinkType), settingValue),
+                            Enum.Parse<LinkType>(settingValue),
                             null);
                         break;
                     case "EnterMode":
                     case "ShiftEnterMode":
                         info.SetValue(
                             currentSettings.Config,
-                            (EnterModus)Enum.Parse(typeof(EnterModus), settingValue),
+                            Enum.Parse<EnterModus>(settingValue),
                             null);
                         break;
                     case "ContentsLangDirection":
                         info.SetValue(
                             currentSettings.Config,
-                            (LanguageDirection)Enum.Parse(typeof(LanguageDirection), settingValue),
+                            Enum.Parse<LanguageDirection>(settingValue),
                             null);
                         break;
                     case "CodeMirror":
@@ -675,7 +677,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
 
                 if (!string.IsNullOrEmpty(settingValue))
                 {
-                    currentSettings.FileListViewMode = (FileListView)Enum.Parse(typeof(FileListView), settingValue);
+                    currentSettings.FileListViewMode = Enum.Parse<FileListView>(settingValue);
                 }
             }
 
@@ -689,7 +691,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
 
                 if (!string.IsNullOrEmpty(settingValue))
                 {
-                    currentSettings.DefaultLinkMode = (LinkMode)Enum.Parse(typeof(LinkMode), settingValue);
+                    currentSettings.DefaultLinkMode = Enum.Parse<LinkMode>(settingValue);
                 }
             }
 
@@ -1050,9 +1052,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
                 switch (info.Name)
                 {
                     case "ToolbarLocation":
-                        var toolBarLocation = (ToolBarLocation)Enum.Parse(
-                            typeof(ToolBarLocation),
-                            (string)hshModSet[string.Format("{0}{1}", key, info.Name)]);
+                        var toolBarLocation = Enum.Parse<ToolBarLocation>((string)hshModSet[string.Format("{0}{1}", key, info.Name)]);
                         info.SetValue(
                             currentSettings.Config,
                             toolBarLocation,
@@ -1061,20 +1061,18 @@ namespace DNNConnect.CKEditorProvider.Utilities
                     case "DefaultLinkType":
                         info.SetValue(
                             currentSettings.Config,
-                            (LinkType)Enum.Parse(typeof(LinkType), (string)hshModSet[string.Format("{0}{1}", key, info.Name)]),
+                            Enum.Parse<LinkType>((string)hshModSet[string.Format("{0}{1}", key, info.Name)]),
                             null);
                         break;
                     case "EnterMode":
                     case "ShiftEnterMode":
                         info.SetValue(
                             currentSettings.Config,
-                            (EnterModus)Enum.Parse(typeof(EnterModus), (string)hshModSet[string.Format("{0}{1}", key, info.Name)]),
+                            Enum.Parse<EnterModus>((string)hshModSet[string.Format("{0}{1}", key, info.Name)]),
                             null);
                         break;
                     case "ContentsLangDirection":
-                        var languageDirection = (LanguageDirection)Enum.Parse(
-                            typeof(LanguageDirection),
-                            (string)hshModSet[string.Format("{0}{1}", key, info.Name)]);
+                        var languageDirection = Enum.Parse<LanguageDirection>((string)hshModSet[string.Format("{0}{1}", key, info.Name)]);
                         info.SetValue(
                             currentSettings.Config,
                             languageDirection,
@@ -1365,13 +1363,13 @@ namespace DNNConnect.CKEditorProvider.Utilities
             if (!string.IsNullOrEmpty((string)hshModSet[string.Format("{0}{1}", key, SettingConstants.FILELISTVIEWMODE)]))
             {
                 currentSettings.FileListViewMode =
-                    (FileListView)Enum.Parse(typeof(FileListView), (string)hshModSet[string.Format("{0}{1}", key, SettingConstants.FILELISTVIEWMODE)]);
+                    Enum.Parse<FileListView>((string)hshModSet[string.Format("{0}{1}", key, SettingConstants.FILELISTVIEWMODE)]);
             }
 
             if (!string.IsNullOrEmpty((string)hshModSet[string.Format("{0}{1}", key, SettingConstants.DEFAULTLINKMODE)]))
             {
                 currentSettings.DefaultLinkMode =
-                    (LinkMode)Enum.Parse(typeof(LinkMode), (string)hshModSet[string.Format("{0}{1}", key, SettingConstants.DEFAULTLINKMODE)]);
+                    Enum.Parse<LinkMode>((string)hshModSet[string.Format("{0}{1}", key, SettingConstants.DEFAULTLINKMODE)]);
             }
 
             if (!string.IsNullOrEmpty((string)hshModSet[string.Format("{0}{1}", key, SettingConstants.USEANCHORSELECTOR)]))
@@ -1564,7 +1562,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
                     new FileStream(
                         Path.Combine(homeDirPath, SettingConstants.XmlSettingsFileName), FileMode.Open, FileAccess.Read, FileShare.Read));
 
-            var settings = (EditorProviderSettings)serializer.Deserialize(reader);
+            var settings = (EditorProviderSettings)SafeXml.Deserialize(serializer, reader);
 
             if (!string.IsNullOrEmpty(settings.EditorWidth))
             {
@@ -1863,7 +1861,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
 
             foreach (var roleUploadSize in settings.UploadSizeRoles)
             {
-                if (roleUploadSize.RoleId.Equals(-1) && !httpRequest.IsAuthenticated)
+                if (roleUploadSize.RoleId.Equals(-1) && !httpRequest.IsAuthenticated())
                 {
                     return roleUploadSize.UploadFileLimit;
                 }

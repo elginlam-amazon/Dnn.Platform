@@ -1,0 +1,729 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@page "/Providers/HtmlEditorProviders/DNNConnect.CKE/Browser/Browser.aspx"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@namespace DNNConnect.CKEditorProvider.Browser
+@inherits DotNetNuke.UI.DnnComponentBase
+
+@using DNNConnect.CKEditorProvider.Controls
+
+@*
+    This is Browser/Browser.aspx. The route is the original URL, so every CKEditor
+    window.open(".../Browser/Browser.aspx?Type=...&CKEditor=...&CKEditorFuncNum=...") keeps
+    working, and so does the "deny anonymous" rule of the .dnn manifest, which is now the
+    [Authorize] attribute above.
+
+    The <html>/<head>/<body> document, the <form id="fBrowser"> and the <dnncrm:DnnResources>/
+    ClientDependency place holders belong to the host (Website/Components/App.razor) now: the
+    title and the portal favicon are contributed through <PageTitle>/<HeadContent>, and the
+    scripts and stylesheets OnPreRender registered are registered on IClientResourceController
+    (see RegisterClientResources in the code-behind).
+
+    <asp:ScriptManager> is dropped: there is no ASP.NET AJAX on ASP.NET Core, and nothing on the
+    page used it other than the SetFile page method, which is now Browser/SetFileEndpoint.cs.
+
+    Every element ID the extension's client scripts bind to is preserved - BrowserContainer,
+    BrowserMode, FoldersBox, FilesBox, ListViewState, panelLoading (Browser.js); TabsBox,
+    panUploadDiv, fileupload, dropzone (jquery.fileupload*); SliderWidth, SliderHeight, txtWidth,
+    txtHeight (jquery.ImageResizer.js, jquery.ImageSlider.js); ImageOriginal, imgResized,
+    PreviewCrop, ClearCrop, CropNow (jquery.cropzoom.js) - as are the FilesList_ListRow_{i} /
+    FilesList_FileListItem_{i} IDs the repeater generated, which the scroll script addresses.
+
+    The page is a descendant of <Routes @rendermode="InteractiveServer"> in the host document, so
+    it is interactive without (and must not repeat) a per-page @rendermode directive.
+*@
+
+<PageTitle>@this.titleText</PageTitle>
+
+<HeadContent>
+    @((MarkupString)this.faviconHeaderLink)
+</HeadContent>
+
+@if (!this.accessDenied)
+{
+    <div id="BrowserContainer">
+        <h1>@this.browserModusText</h1>
+        <hr />
+        <div class="ui-tabs ui-widget ui-widget-content ui-corner-all" style="width:820px">
+            @if (this.browserModeVisible)
+            {
+                @* asp:RadioButtonList id="BrowserMode" - the table/label shape Browser.js styles. *@
+                <table id="BrowserMode" class="ui-tabs-nav ui-helper-reset ui-helper-clearfix ui-widget-header ui-corner-all">
+                    <tr>
+                        @foreach (var item in this.browserModeItems)
+                        {
+                            var modeValue = item.Value;
+                            <td class="@(string.Equals(this.browserModeSelectedValue, modeValue, StringComparison.Ordinal) ? "SelectedPager" : null)">
+                                <input type="radio"
+                                       name="BrowserMode"
+                                       id="@($"BrowserMode_{modeValue}")"
+                                       value="@modeValue"
+                                       checked="@string.Equals(this.browserModeSelectedValue, modeValue, StringComparison.Ordinal)"
+                                       @onchange="@(() => this.OnBrowserModeChanged(modeValue))" />
+                                <label for="@($"BrowserMode_{modeValue}")">@item.Text</label>
+                            </td>
+                        }
+                    </tr>
+                </table>
+            }
+
+            @* ----------------------------------------------------------------------------------
+                The page-link mode and the image editor (Browser.razor.Editing.cs, tasks 45/46).
+                These were <asp:Panel id="panPageMode">, "panImageEdHead", "panThumb",
+                "panImageEditor" and "panImagePreview"; every element ID the extension's client
+                scripts bind to is preserved - TabsBox (the page tree), SliderWidth/SliderHeight,
+                txtWidth/txtHeight (jquery.ImageSlider.js, jquery.ImageResizer.js), ImageOriginal,
+                imgResized, lblCropInfo, PreviewCrop, ClearCrop, CropNow, txtCropImageName
+                (jquery.cropzoom.js).
+               ---------------------------------------------------------------------------------- *@
+
+            @if (this.panPageModeVisible)
+            {
+                <div>
+                    <table>
+                        <tr>
+                            <td>
+                                <strong>@this.Text("lblChoosetab")</strong>
+                            </td>
+                            <td>
+                                <div id="TabsBox">
+                                    @* asp:TreeView ID="dnntreeTabs" ExpandDepth="1" Width="683" Image="Images/folder.gif" *@
+                                    <DnnTreeView Nodes="this.tabTreeNodes"
+                                                 ExpandDepth="1"
+                                                 SelectedValue="this.selectedTabNodeValue"
+                                                 OnNodeClick="this.OnTabNodeClickAsync" />
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <strong>@this.Text("ExtraTabOptions")</strong>
+                            </td>
+                            <td>
+                                <table>
+                                    <tr>
+                                        <td></td>
+                                        <td>
+                                            @* asp:CheckBox ID="chkHumanFriendy" Checked="true" *@
+                                            <input type="checkbox"
+                                                   id="chkHumanFriendy"
+                                                   checked="@this.humanFriendlyChecked"
+                                                   @onchange="@(args => this.humanFriendlyChecked = (bool)args.Value)" />
+                                            <label for="chkHumanFriendy">@this.Text("chkHumanFriendy")</label>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            @if (this.labelAnchorVisible)
+                                            {
+                                                <em>@this.Text("LabelAnchor")</em>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (this.anchorListVisible)
+                                            {
+                                                @* asp:DropDownList ID="AnchorList" *@
+                                                <select id="AnchorList" @bind="this.anchorListSelectedValue">
+                                                    @foreach (var item in this.anchorListItems)
+                                                    {
+                                                        <option value="@item.Value">@item.Text</option>
+                                                    }
+                                                </select>
+                                            }
+                                        </td>
+                                    </tr>
+                                    @if (this.languageRowVisible)
+                                    {
+                                        <tr id="LanguageRow">
+                                            <td>
+                                                <em>@this.Text("LabelTabLanguage")</em>
+                                            </td>
+                                            <td>
+                                                @* asp:DropDownList ID="LanguageList" *@
+                                                <select id="LanguageList" @bind="this.languageListSelectedValue">
+                                                    @foreach (var item in this.languageListItems)
+                                                    {
+                                                        <option value="@item.Value">@item.Text</option>
+                                                    }
+                                                </select>
+                                            </td>
+                                        </tr>
+                                    }
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            }
+
+            @if (this.panImageEdHeadVisible)
+            {
+                <div>
+                    <h1>@this.Text("lblResizeHeader")</h1>
+                    <div style="margin:5px 0 5px 0;">
+                        <span>@this.Text("lblOtherTools")</span>
+                        @if (this.cmdCropVisible)
+                        {
+                            @* asp:Button ID="cmdCrop": the crop tool is the same panel the rotate tool opens. *@
+                            <button type="button" id="cmdCrop" @onclick="this.OnRotateClick">@this.Text("cmdCrop")</button>
+                        }
+                        @if (this.cmdZoomVisible)
+                        {
+                            <button type="button" id="cmdZoom" @onclick="this.OnRotateClick">@this.Text("cmdZoom")</button>
+                        }
+                        @if (this.cmdRotateVisible)
+                        {
+                            <button type="button" id="cmdRotate" @onclick="this.OnRotateClick">@this.Text("cmdRotate")</button>
+                        }
+                        @if (this.cmdResize2Visible)
+                        {
+                            @* asp:Button ID="cmdResize2": goes back to the resize panel. *@
+                            <button type="button" id="cmdResize2" @onclick="this.OnResizerClick">@this.Text("cmdResize2")</button>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (this.panThumbVisible)
+            {
+                <div>
+                    <div style="margin-top:5px">
+                        <div class="PanelSubDivs">
+                            <strong>@this.Text("lblWidth")</strong>
+                            &nbsp;<input type="text"
+                                         id="txtWidth"
+                                         style="width:30px"
+                                         value="@this.txtWidthText"
+                                         @onchange="@(args => this.txtWidthText = args.Value?.ToString())" />px&nbsp;
+                            <strong>@this.Text("lblHeight")</strong>
+                            &nbsp;<input type="text"
+                                         id="txtHeight"
+                                         style="width:30px"
+                                         value="@this.txtHeightText"
+                                         @onchange="@(args => this.txtHeightText = args.Value?.ToString())" />px
+                            &nbsp;<input type="checkbox"
+                                         id="chkAspect"
+                                         checked="@this.chkAspectChecked"
+                                         @onchange="@(args => this.chkAspectChecked = (bool)args.Value)" />
+                            <label for="chkAspect">@this.Text("chkAspect")</label>
+                            <div id="SliderHeight"></div>
+                            <div id="SliderWidth"></div>
+                        </div>
+                        <div class="PanelSubDivs">
+                            <strong>@this.Text("lblThumbName")</strong>&nbsp;
+                            <input type="text" id="txtThumbName" style="width:500px" @bind="this.txtThumbNameText" />
+                        </div>
+                        <div class="PanelSubDivs">
+                            <strong>@this.Text("lblImgQuality")</strong>&nbsp;
+                            @* asp:DropDownList id="dDlQuality" - the 0..100 items FillQualityPercentages added. *@
+                            <select id="dDlQuality" @bind="this.qualitySelectedValue">
+                                @foreach (var item in this.qualityItems)
+                                {
+                                    <option value="@item.Value">@item.Text</option>
+                                }
+                            </select>&nbsp;%
+                        </div>
+                        <div class="PanelSubDivs" style="padding-bottom:5px;">
+                            <button type="button" id="cmdResizeNow" class="DefaultButton" @onclick="this.OnResizeNowClickAsync">@this.Text("cmdResizeNow")</button>&nbsp;
+                            <button type="button" id="cmdResizeCancel" @onclick="this.OnResizeCancelClick">@this.Text("cmdResizeCancel")</button>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (this.panImageEditorVisible)
+            {
+                <div>
+                    <div class="PanelSubDivs">
+                        <strong>@this.Text("lblCropImageName")</strong>&nbsp;
+                        <input type="text" id="txtCropImageName" style="width:500px" @bind="this.txtCropImageNameText" />
+                    </div>
+                    <div class="PanelSubDivs" style="padding-bottom:5px;">
+                        @* jquery.cropzoom.js binds #CropNow and sends the crop to ProcessImage. *@
+                        <button type="button" id="CropNow" class="DefaultButton">@this.Text("cmdCropNow")</button>&nbsp;
+                        <button type="button" id="cmdCropCancel" @onclick="this.OnResizeCancelClick">@this.Text("cmdCropCancel")</button>
+                    </div>
+                    <div class="CropButtons">
+                        <div id="PreviewCrop">
+                            <img src="images/Preview.png" alt="Show Preview" />&nbsp;<span>@this.Text("lblShowPreview")</span>
+                        </div>
+                        <div id="ClearCrop">
+                            <img src="images/Clear.png" alt="Clear Preview" />&nbsp;<span>@this.Text("lblClearPreview")</span>
+                        </div>
+                        <div style="clear:both"></div>
+                    </div>
+                </div>
+            }
+
+            @if (this.panImagePreviewVisible)
+            {
+                <div>
+                    <table id="ImageTable">
+                        <tr>
+                            <td><strong>@this.Text("lblOriginal")</strong></td>
+                            <td><strong>@this.Text("lblPreview")</strong></td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <div id="ImageOriginal">
+                                    @if (this.imgOriginalVisible)
+                                    {
+                                        <img id="imgOriginal"
+                                             src="@this.imgOriginalUrl"
+                                             width="@this.imgOriginalWidth"
+                                             height="@this.imgOriginalHeight"
+                                             alt="@this.imgOriginalToolTip"
+                                             title="@this.imgOriginalToolTip" />
+                                    }
+                                </div>
+                            </td>
+                            <td>
+                                <div class="ImagePreview">
+                                    @if (this.lblCropInfoVisible)
+                                    {
+                                        <em id="lblCropInfo">@this.Text("lblCropInfo")</em>
+                                    }
+                                    <img id="imgResized"
+                                         src="@this.imgResizedUrl"
+                                         width="@this.imgResizedWidth"
+                                         height="@this.imgResizedHeight"
+                                         alt="@this.imgResizedToolTip"
+                                         title="@this.imgResizedToolTip" />
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            }
+
+            @if (this.panLinkModeVisible)
+            {
+                <div>
+                    <p style="margin:5px 0 5px 5px">
+                        <strong>@this.Text("lblCurrent")</strong> @this.currentDirectoryText
+                    </p>
+
+                    @* asp:Panel id="panUploadDiv" - the jQuery-File-Upload dialog. The inline
+                        <script> that configured it moved to Browser/js/browserInterop.js
+                        (setupFileUpload), because a <script> rendered by a component never runs. *@
+                    @if (this.panUploadDivVisible)
+                    {
+                        <div id="panUploadDiv">
+                            <div class="MessageBox">
+                                <div class="ModalDialog">
+                                    <div class="popup">
+                                        <div class="DialogContent">
+                                            <div class="modalHeader">
+                                                <h3>@this.Text("UploadTitle")</h3>
+                                            </div>
+                                            <div>
+                                                <div id="fileupload">
+                                                    <div class="fileupload-buttonbar">
+                                                        <div id="dropzone" class="fade ui-widget-header">@this.LocalizeString("DropHere.Text")</div>
+                                                        <div class="fileupload-buttons">
+                                                            <span class="fileinput-button">
+                                                                <span id="AddFiles">@this.Text("AddFiles")</span>
+                                                                <input type="file" name="files[]" multiple />
+                                                            </span>
+                                                            <button type="submit" class="start">@this.LocalizeString("StartUploads.Text")</button>
+                                                            <span class="fileupload-process"></span>
+                                                        </div>
+                                                        <div class="fileupload-progress fade" style="display:none">
+                                                            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"></div>
+                                                            <div class="progress-extended">&nbsp;</div>
+                                                        </div>
+                                                    </div>
+                                                    <div id="UploadFilesBox">
+                                                        <table role="presentation" class="table table-striped UploadFiles"><tbody class="files"></tbody></table>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="OverrideFile">
+                                                @* asp:CheckBox ID="OverrideFile" - the upload set-up watches #OverrideFile. *@
+                                                <input type="checkbox"
+                                                       id="OverrideFile"
+                                                       checked="@this.overrideFileChecked"
+                                                       @onchange="@(args => this.overrideFileChecked = (bool)args.Value)" />
+                                                <label for="OverrideFile">@this.Text("OverrideFile")</label>
+                                            </div>
+                                            <div class="maximumFileUploadInfo ui-state-highlight ui-corner-all">
+                                                <span class="ui-icon ui-icon-info" style="float: left; margin-right: .3em;"></span>
+                                                <span id="MaximumUploadSizeInfo">@this.Text("MaximumUploadSizeInfo")</span>
+                                            </div>
+                                            <hr />
+                                            <div class="ModalFooter">
+                                                <button type="button" id="cmdUploadCancel" @onclick="this.OnUploadCancelClick">@this.Text("cmdUploadCancel")</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @* asp:Panel id="panCreate" - the "create new folder" dialog. *@
+                    @if (this.panCreateVisible)
+                    {
+                        <div id="panCreate">
+                            <div class="ModalDialog_overlayBG"></div>
+                            <div class="MessageBox">
+                                <div class="ModalDialog">
+                                    <div class="popup">
+                                        <div class="DialogContent">
+                                            <div class="modalHeader">
+                                                <h3>@this.Text("NewFolderTitle")</h3>
+                                            </div>
+                                            <div>@this.Text("lblNewFoldName")</div>
+                                            <input type="text" id="tbFolderName" style="width:100%" @bind="this.tbFolderNameText" />
+                                            <hr />
+                                            <div class="ModalFooter">
+                                                <button type="button"
+                                                        id="cmdCreateFolder"
+                                                        class="DefaultButton ui-state-focus"
+                                                        @onclick="this.OnCreateFolderClick">@this.Text("cmdCreateFolder")</button>
+                                                <button type="button"
+                                                        id="cmdCreateCancel"
+                                                        @onclick="this.OnCreateCancelClick">@this.Text("cmdCreateCancel")</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <table class="LinkModeTable">
+                        <tr>
+                            <td>
+                                <span class="Toolbar">
+                                    <a id="cmdCreate"
+                                       class="@this.cmdCreateCssClass"
+                                       href="javascript:void(0);"
+                                       title="@this.ToolTip("cmdCreate")"
+                                       @onclick="this.OnCreateClick"
+                                       @onclick:preventDefault="true">@((MarkupString)this.Text("cmdCreate"))</a>
+                                    <a id="Syncronize"
+                                       class="@this.syncronizeCssClass"
+                                       href="javascript:void(0);"
+                                       title="@this.ToolTip("Syncronize")"
+                                       @onclick="this.OnSyncronizeClick"
+                                       @onclick:preventDefault="true">@((MarkupString)this.Text("Syncronize"))</a>
+                                </span>
+                            </td>
+                            <td>
+                                <span class="Toolbar">
+                                    <a id="cmdUpload"
+                                       class="@this.cmdUploadCssClass"
+                                       href="javascript:void(0);"
+                                       title="@this.ToolTip("cmdUpload")"
+                                       @onclick="this.OnUploadClick"
+                                       @onclick:preventDefault="true">@((MarkupString)this.Text("cmdUpload"))</a>
+                                    &nbsp;<a id="cmdDownload"
+                                             class="@this.cmdDownloadCssClass"
+                                             href="javascript:void(0);"
+                                             title="@this.ToolTip("cmdDownload")"
+                                             @onclick="this.OnDownloadClick"
+                                             @onclick:preventDefault="true">@((MarkupString)this.Text("cmdDownload"))</a>
+                                    &nbsp;<a id="cmdDelete"
+                                             class="@this.cmdDeleteCssClass"
+                                             href="javascript:void(0);"
+                                             title="@this.ToolTip("cmdDelete")"
+                                             @onclick="this.OnDeleteClickAsync"
+                                             @onclick:preventDefault="true">@((MarkupString)this.Text("cmdDelete"))</a>
+                                    &nbsp;<a id="cmdResizer"
+                                             class="@this.cmdResizerCssClass"
+                                             href="javascript:void(0);"
+                                             title="@this.ToolTip("cmdResizer")"
+                                             @onclick="this.OnResizerClick"
+                                             @onclick:preventDefault="true">@((MarkupString)this.Text("cmdResizer"))</a>
+                                </span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding-top:9px">
+                                @this.Text("lblSubDirs")<br />
+                                <div id="FoldersBox">
+                                    @* asp:TreeView ID="FoldersTree" ExpandDepth="1" *@
+                                    <DnnTreeView Nodes="this.folderTreeNodes"
+                                                 ExpandDepth="1"
+                                                 SelectedValue="this.selectedFolderNodeValue"
+                                                 OnNodeClick="this.OnFolderNodeClick" />
+                                </div>
+                                <span class="fileSpaceUsedLabel" id="FileSpaceUsedLabel">@this.fileSpaceUsedText</span>
+                            </td>
+                            <td style="width:550px">
+                                @this.Text("lblConFiles")&nbsp;
+                                <span id="SwitchDetailView" title="@this.ToolTip("SwitchDetailView")">@((MarkupString)this.Text("SwitchDetailView"))</span>&nbsp;
+                                <span id="SwitchListView" title="@this.ToolTip("SwitchListView")">@((MarkupString)this.Text("SwitchListView"))</span>&nbsp;
+                                <span id="SwitchIconsView" title="@this.ToolTip("SwitchIconsView")">@((MarkupString)this.Text("SwitchIconsView"))</span>&nbsp;|
+                                <a id="SortAscending"
+                                   class="@this.sortAscendingCssClass"
+                                   href="javascript:void(0);"
+                                   title="@this.ToolTip("SortAscending")"
+                                   @onclick="this.OnSortAscendingClick"
+                                   @onclick:preventDefault="true">@((MarkupString)this.Text("SortAscending"))</a>&nbsp;
+                                <a id="SortDescending"
+                                   class="@this.sortDescendingCssClass"
+                                   href="javascript:void(0);"
+                                   title="@this.ToolTip("SortDescending")"
+                                   @onclick="this.OnSortDescendingClick"
+                                   @onclick:preventDefault="true">@((MarkupString)this.Text("SortDescending"))</a>&nbsp;
+                                <a id="SortByDateAscending"
+                                   class="@this.sortByDateAscendingCssClass"
+                                   href="javascript:void(0);"
+                                   title="@this.ToolTip("SortByDateAscending")"
+                                   @onclick="this.OnSortByDateAscendingClick"
+                                   @onclick:preventDefault="true">@((MarkupString)this.Text("SortByDateAscending"))</a>&nbsp;
+                                <a id="SortByDateDescending"
+                                   class="@this.sortByDateDescendingCssClass"
+                                   href="javascript:void(0);"
+                                   title="@this.ToolTip("SortByDateDescending")"
+                                   @onclick="this.OnSortByDateDescendingClick"
+                                   @onclick:preventDefault="true">@((MarkupString)this.Text("SortByDateDescending"))</a>
+                                <br />
+                                @* asp:HiddenField ID="ListViewState" - Browser.js reads and writes it. *@
+                                <input type="hidden" id="ListViewState" name="ListViewState" value="@this.listViewState" />
+                                <div id="FilesBox">
+                                    @* asp:Repeater ID="FilesList": the header/item/alternating-item/footer templates. *@
+                                    <ul class="FilesDetailView">
+                                        @for (var index = 0; index < this.pagedFiles.Count; index++)
+                                        {
+                                            var file = this.pagedFiles[index];
+                                            var fileIndex = index;
+                                            <li class="@this.ListRowCssClass(file, fileIndex)"
+                                                id="@($"FilesList_ListRow_{fileIndex}")"
+                                                title="@this.ListRowTitleFor(file)">
+                                                <a id="@($"FilesList_FileListItem_{fileIndex}")"
+                                                   class="FilesListItem"
+                                                   href="javascript:void(0);"
+                                                   @onclick="@(() => this.OnFileClick(file))"
+                                                   @onclick:preventDefault="true">
+                                                    <img class="FilePreview"
+                                                         src="@file.PictureUrl"
+                                                         alt="@file.FileName"
+                                                         title="@file.FileName" />
+                                                    <span class="ItemInfo">@file.Info</span>
+                                                </a>
+                                            </li>
+                                        }
+                                    </ul>
+                                </div>
+                                @if (this.pagerVisible)
+                                {
+                                    @* wnet:Pager id="PagerFileLinks" *@
+                                    <Pager PageCount="this.pagerPageCount"
+                                           CurrentPageIndex="this.pagerCurrentPageIndex"
+                                           RessourceFile="this.ResXFile"
+                                           LanguageCode="this.LanguageCode"
+                                           PageChanged="this.OnPagerPageChanged" />
+                                }
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            }
+        </div>
+
+        @if (this.panInfoVisible)
+        {
+            <div id="panInfo">
+                <table>
+                    <tr>
+                        <td>
+                            @* asp:Label id="FileId"/"lblFileName" Visible="false": the selected file, carried as state. *@
+                            <strong>@this.Text("lblUrlType")</strong>
+                        </td>
+                        <td>
+                            @* asp:RadioButtonList id="rblLinkType" *@
+                            <span class="ButtonList" id="rblLinkType" title="@this.ToolTip("rblLinkType")">
+                                @foreach (var item in this.linkTypeItems)
+                                {
+                                    var linkTypeValue = item.Value;
+                                    <div>
+                                        <input type="radio"
+                                               name="rblLinkType"
+                                               id="@($"rblLinkType_{linkTypeValue}")"
+                                               value="@linkTypeValue"
+                                               checked="@string.Equals(this.linkTypeSelectedValue, linkTypeValue, StringComparison.Ordinal)"
+                                               @onchange="@(() => this.linkTypeSelectedValue = linkTypeValue)" />
+                                        <label for="@($"rblLinkType_{linkTypeValue}")">@item.Text</label>
+                                    </div>
+                                }
+                            </span>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        }
+
+        @* The OK (<asp:Button id="cmdClose" onclick="CmdCloseClick">) and Cancel
+            (<asp:Button id="cmdCancel">) buttons. *@
+        @if (this.cmdCloseVisible)
+        {
+            <button type="button"
+                    id="cmdClose"
+                    class="DefaultButton ui-state-focus"
+                    @onclick="this.OnCloseClick">@this.Text("cmdClose")</button>
+        }
+        &nbsp;<button type="button" id="cmdCancel" @onclick="this.OnCancelClick">@this.Text("cmdCancel")</button>
+    </div>
+
+    @* Loading screen - asp:Panel id="panelLoading" style="display:none"; the page tree shows it. *@
+    <div id="panelLoading" style="@(this.panelLoadingVisible ? null : "display:none")">
+        <div class="ModalDialog_overlayBG" id="LoadingScreen"></div>
+        <div class="MessageBox">
+            <div class="ModalDialog">
+                <div class="popup">
+                    <div class="DialogContent LoadingContent">
+                        <div class="modalHeader">
+                            <h3>@this.Text("Wait")</h3>
+                        </div>
+                        <div class="LoadingMessage">@this.Text("WaitMessage")</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Gets the CSS class of a file's row, including the "Selected" marker.</summary>
+    /// <param name="file">The file the row renders.</param>
+    /// <param name="index">The zero based index of the row.</param>
+    /// <returns>The CSS class.</returns>
+    /// <remarks>
+    /// This is what the repeater's ItemTemplate/AlternatingItemTemplate and the
+    /// FilesList_ItemCommand/GoToSelectedFile class juggling produced: FilesListRow for an item,
+    /// FilesListRowAlt for an alternating one, plus " Selected" on the selected file.
+    /// </remarks>
+    private string ListRowCssClass(BrowserFile file, int index)
+    {
+        var cssClass = index % 2 == 0 ? "FilesListRow" : "FilesListRowAlt";
+        var isSelected = !string.IsNullOrEmpty(this.selectedFileId)
+                         && string.Equals(this.selectedFileId, file.FileId.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
+        return isSelected ? $"{cssClass} Selected" : cssClass;
+    }
+
+    /// <summary>Gets the <c>title</c> attribute of a file's row.</summary>
+    /// <param name="file">The file the row renders.</param>
+    /// <returns>The title.</returns>
+    private string ListRowTitleFor(BrowserFile file) => ListRowTitle(file);
+
+    /// <summary>Handles a click on a file of the list.</summary>
+    /// <param name="file">The clicked file.</param>
+    private void OnFileClick(BrowserFile file) => this.FilesList_ItemCommand(file);
+
+    /// <summary>Handles a click on a node of the folder tree.</summary>
+    /// <param name="node">The clicked node.</param>
+    private void OnFolderNodeClick(DnnTreeNode node) => this.FoldersTree_NodeClick(node);
+
+    /// <summary>Handles a page change of the file list pager.</summary>
+    /// <param name="pageIndex">The new page index.</param>
+    private void OnPagerPageChanged(int pageIndex) => this.PagerFileLinks_PageChanged(pageIndex);
+
+    /// <summary>Handles the selection of one of the two browser mode tabs.</summary>
+    /// <param name="selectedValue">The selected value.</param>
+    private void OnBrowserModeChanged(string selectedValue)
+    {
+        this.browserModeSelectedValue = selectedValue;
+        this.BrowserMode_SelectedIndexChanged(selectedValue);
+    }
+
+    /// <summary>Sorts the files by name, ascending.</summary>
+    private void OnSortAscendingClick() => this.SortAscendingClick();
+
+    /// <summary>Sorts the files by name, descending.</summary>
+    private void OnSortDescendingClick() => this.SortDescendingClick();
+
+    /// <summary>Sorts the files by date, ascending.</summary>
+    private void OnSortByDateAscendingClick() => this.SortByDateAscendingClick();
+
+    /// <summary>Sorts the files by date, descending.</summary>
+    private void OnSortByDateDescendingClick() => this.SortByDateDescendingClick();
+
+    /// <summary>Shows the "create folder" dialog, when the user may write to the folder.</summary>
+    private void OnCreateClick()
+    {
+        if (this.cmdCreateEnabled)
+        {
+            this.Create_Click();
+        }
+    }
+
+    /// <summary>Synchronizes the current folder, when the user may write to it.</summary>
+    private void OnSyncronizeClick()
+    {
+        if (this.syncronizeEnabled)
+        {
+            this.Syncronize_Click();
+        }
+    }
+
+    /// <summary>Shows the upload dialog, when the user may write to the folder.</summary>
+    private void OnUploadClick()
+    {
+        if (this.cmdUploadEnabled)
+        {
+            this.Upload_Click();
+        }
+    }
+
+    /// <summary>Downloads the selected file, when one is selected.</summary>
+    private void OnDownloadClick()
+    {
+        if (this.cmdDownloadEnabled)
+        {
+            this.Download_Click();
+        }
+    }
+
+    /// <summary>Deletes the selected file, after confirmation, when one is selected.</summary>
+    /// <returns>A task.</returns>
+    private async Task OnDeleteClickAsync()
+    {
+        if (this.cmdDeleteEnabled)
+        {
+            await this.DeleteWithConfirmAsync();
+        }
+    }
+
+    /// <summary>Opens the image resizer, when a resizable file is selected.</summary>
+    private void OnResizerClick()
+    {
+        if (this.cmdResizerEnabled)
+        {
+            this.Resizer_Click();
+        }
+    }
+
+    /// <summary>Shows the preview of the clicked page - TreeTabs_NodeClick.</summary>
+    /// <param name="node">The clicked page node.</param>
+    /// <returns>A task.</returns>
+    private Task OnTabNodeClickAsync(DnnTreeNode node) => this.TreeTabs_NodeClickAsync(node);
+
+    /// <summary>Opens the crop/zoom/rotate editor - Rotate_Click.</summary>
+    private void OnRotateClick() => this.Rotate_Click();
+
+    /// <summary>Resizes the selected image - ResizeNow_Click.</summary>
+    /// <returns>A task.</returns>
+    private Task OnResizeNowClickAsync() => this.ResizeNow_ClickAsync();
+
+    /// <summary>Leaves the image editor - ResizeCancel_Click/CropCancel.</summary>
+    private void OnResizeCancelClick() => this.ResizeCancel_Click();
+
+    /// <summary>Hides the upload dialog - UploadCancel_Click.</summary>
+    private void OnUploadCancelClick() => this.UploadCancel_Click();
+
+    /// <summary>Creates the new sub folder - CreateFolder_Click.</summary>
+    private void OnCreateFolderClick() => this.CreateFolder_Click();
+
+    /// <summary>Hides the "create folder" dialog - CreateCancel_Click.</summary>
+    private void OnCreateCancelClick() => this.CreateCancel_Click();
+
+    /// <summary>Hands the selection back to CKEditor and closes the window - CmdCloseClick.</summary>
+    private void OnCloseClick() => this.CmdCloseClick();
+
+    /// <summary>Closes the window without picking anything - Cancel_Click.</summary>
+    private void OnCancelClick() => this.Cancel_Click();
+}

@@ -44,7 +44,7 @@ namespace DNNConnect.CKEditorProvider.Module
             try
             {
                 const string ResourceFile =
-                    "~/Providers/HtmlEditorProviders/DNNConnect.CKE/App_LocalResources/EditorConfigManager.ascx.resx";
+                    "~/Providers/HtmlEditorProviders/DNNConnect.CKE/App_LocalResources/EditorConfigManager.resx";
 
                 var pageName = Localization.GetString("EditorMangerPageName.Text", ResourceFile);
                 var moduleTitle = Localization.GetString("EditorMangerName.Text", ResourceFile);
@@ -54,11 +54,15 @@ namespace DNNConnect.CKEditorProvider.Module
                 Upgrade.RemoveHostPage(moduleTitle);
 
                 // Create Config Page (or get existing one)
+                // The two icons live in the extension's images folder, which is where
+                // Provider.build packages them; the "CKEditor/images" path the net48 code passed
+                // never existed, so the host page came up without its icons. On a case sensitive
+                // file system a wrong path is not silently tolerated, so it is corrected here.
                 var editorManagerPage = Upgrade.AddHostPage(
                     pageName,
                     pageDescription,
-                    "~/Providers/HtmlEditorProviders/DNNConnect.CKE/CKEditor/images/editor_config_small.png",
-                    "~/Providers/HtmlEditorProviders/DNNConnect.CKE/CKEditor/images/editor_config_large.png",
+                    "~/Providers/HtmlEditorProviders/DNNConnect.CKE/images/editor_config_small.png",
+                    "~/Providers/HtmlEditorProviders/DNNConnect.CKE/images/editor_config_large.png",
                     false);
 
                 // Add Module To Page

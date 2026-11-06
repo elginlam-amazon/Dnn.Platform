@@ -1,0 +1,19 @@
+@* Routable components live in this assembly AND in the DotNetNuke platform RCL (the migrated
+   .aspx/.ascx UI) and in the skin RCLs. Every assembly that contributes routes must be named
+   here as well as in Program.cs's AddAdditionalAssemblies(...), or its routes 404. *@
+<Router AppAssembly="@typeof(Program).Assembly"
+        AdditionalAssemblies="AdditionalAssemblies">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+</Router>
+
+@code {
+    private static readonly System.Reflection.Assembly[] AdditionalAssemblies =
+    [
+        DotNetNuke.Common.DnnPlatformComponents.Assembly,
+        DotNetNuke.Web.DnnWebComponents.Assembly,
+        DNNConnect.CKEditorProvider.CKEditorProviderComponents.Assembly,
+    ];
+}

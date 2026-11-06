@@ -6,9 +6,6 @@ namespace DotNetNuke.Tests.Utilities;
 
 using System;
 using System.Net;
-using System.Reflection;
-using System.Web;
-using System.Web.Security;
 
 using DotNetNuke.Common;
 using DotNetNuke.Common.Utilities;
@@ -31,13 +28,18 @@ using DotNetNuke.Services.Sitemap;
 using DotNetNuke.Services.Url.FriendlyUrl;
 using DotNetNuke.Web;
 
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+
 using MembershipProvider = DotNetNuke.Security.Membership.MembershipProvider;
 using RoleProvider = DotNetNuke.Security.Roles.RoleProvider;
 
+/// <summary>Base class for test fixtures that need a simulated DNN web request and the DNN provider stack.</summary>
 public class DnnWebTest : DnnUnitTest
 {
     private static bool alreadyLoaded;
 
+    /// <summary>Gets the portal id of the simulated portal.</summary>
     public int PortalId { get; private set; }
 
     /// <inheritdoc />
@@ -48,28 +50,60 @@ public class DnnWebTest : DnnUnitTest
         var simulator = new Instance.Utilities.HttpSimulator.HttpSimulator("/", this.WebsitePhysicalAppPath);
         simulator.SimulateRequest(new Uri(this.WebsiteAppPath));
 
-        SetupContainer();
+        // SimulateRequest publishes the simulated Microsoft.AspNetCore.Http.HttpContext through
+        // HttpContextSource (replacing `new HttpContextWrapper(HttpContext.Current)`), and owns the
+        // fake IWebHostEnvironment that backs HttpContextSource.MapPath.
+        SetupContainer(simulator.HostingEnvironment);
         InstallComponents();
 
-        HttpContextBase httpContextBase = new HttpContextWrapper(HttpContext.Current);
-        HttpContextSource.RegisterInstance(httpContextBase);
+        var httpContext = HttpContextSource.CurrentOrThrow;
 
         LoadDnnProviders("data", "logging", "caching", "authentication", "members", "roles", "profiles", "permissions", "folder", "clientcapability");
 
         // fix membership
-        var providerProp = typeof(Membership).GetField("s_Provider", BindingFlags.Static | BindingFlags.NonPublic);
-        providerProp.SetValue(null, Membership.Providers["AspNetSqlMembershipProvider"]);
+        SetupMembershipProvider();
 
         var objPortalAliasInfo = new Entities.Portals.PortalAliasInfo { PortalID = Constants.PORTAL_Zero, };
         var ps = new Entities.Portals.PortalSettings(59, objPortalAliasInfo);
-        httpContextBase.Items.Add("PortalSettings", ps);
+        httpContext.Items["PortalSettings"] = ps;
 
         this.PortalId = Constants.PORTAL_Zero;
     }
 
-    private static void SetupContainer()
+    private static void SetupContainer(IWebHostEnvironment environment)
     {
-        Globals.DependencyProvider = DependencyInjectionInitialize.BuildServiceProvider();
+        // The net48 fixture called DependencyInjectionInitialize.BuildServiceProvider(), which built
+        // a second container out of every IDnnStartup. That method now just returns the host's
+        // container (which does not exist in a test host), so the fixture builds the platform
+        // container itself — same registrations, through the supported entry point.
+        var services = new ServiceCollection();
+        services.AddDnnPlatform(Instance.Utilities.TestConfiguration.Configuration, environment);
+        Globals.DependencyProvider = services.BuildServiceProvider();
+    }
+
+    /// <summary>
+    /// Makes the DNN membership provider the active one.
+    /// </summary>
+    /// <remarks>
+    /// The net48 fixture reflected <c>System.Web.Security.Membership.s_Provider</c> and forced it to
+    /// <c>Membership.Providers["AspNetSqlMembershipProvider"]</c>, because ASP.NET resolved the
+    /// membership provider from <c>&lt;system.web&gt;&lt;membership&gt;</c> lazily and the simulated
+    /// request did not trigger it. <c>System.Web.Security</c> does not exist on modern .NET: the
+    /// membership store is now the <c>IAspNetMembershipStore</c> service (same database, same stored
+    /// procedures) and <see cref="MembershipProvider.Instance"/> resolves
+    /// <see cref="AspNetMembershipProvider"/> from the container. This therefore resolves the real
+    /// provider (and its store) from the container built in <c>SetupContainer</c> and also publishes
+    /// it to <see cref="ComponentFactory"/>, which is the fallback <c>MembershipProvider.Instance()</c>
+    /// uses and the registration the <c>ProviderInstaller("members", …)</c> call above populates.
+    /// </remarks>
+    private static void SetupMembershipProvider()
+    {
+        var provider = Globals.DependencyProvider.GetService<MembershipProvider>()
+                       ?? ActivatorUtilities.CreateInstance<AspNetMembershipProvider>(Globals.DependencyProvider);
+
+        ComponentFactory.RegisterComponentInstance<MembershipProvider>(provider);
+        ComponentFactory.RegisterComponentInstance<IAspNetMembershipStore>(
+            Globals.DependencyProvider.GetRequiredService<IAspNetMembershipStore>());
     }
 
     private static void InstallComponents()

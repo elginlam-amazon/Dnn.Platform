@@ -18,10 +18,10 @@ namespace Dnn.ExportImport.Components.Scheduler
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Instrumentation;
-    using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Scheduling;
 
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Localization;
     using Microsoft.Extensions.Logging;
 
     /// <summary>Implements a SchedulerClient for the Exporting/Importing of site items.</summary>
@@ -44,6 +44,7 @@ namespace Dnn.ExportImport.Components.Scheduler
 
         private readonly ExportImportEngine engine;
         private readonly IEntitiesController entitiesController;
+        private readonly IStringLocalizer<SharedResources> localizer;
 
         /// <summary>Initializes a new instance of the <see cref="ExportImportScheduler"/> class.</summary>
         /// <param name="objScheduleHistoryItem">The schedule history item.</param>
@@ -62,6 +63,10 @@ namespace Dnn.ExportImport.Components.Scheduler
             this.ScheduleHistoryItem = objScheduleHistoryItem;
             this.entitiesController = entitiesController ?? Globals.DependencyProvider.GetRequiredService<IEntitiesController>();
             this.engine = engine ?? Globals.DependencyProvider.GetRequiredService<ExportImportEngine>();
+
+            // The scheduler runs outside of a request, so the localizer is resolved from the root
+            // service provider (never from an HttpContext-bound scope).
+            this.localizer = Globals.DependencyProvider.GetRequiredService<IStringLocalizer<SharedResources>>();
         }
 
         /// <inheritdoc />
@@ -165,8 +170,8 @@ namespace Dnn.ExportImport.Components.Scheduler
                     }
 
                     var sb = new StringBuilder();
-                    var jobType = Localization.GetString("JobType_" + job.JobType, Constants.SharedResources);
-                    var jobStatus = Localization.GetString("JobStatus_" + job.JobStatus, Constants.SharedResources);
+                    var jobType = this.GetLocalizedString("JobType_" + job.JobType + ".Text");
+                    var jobStatus = this.GetLocalizedString("JobStatus_" + job.JobStatus + ".Text");
                     sb.AppendFormat(CultureInfo.InvariantCulture, "<br/><b>{0} {1}</b>", jobType, jobStatus);
                     var summary = result.Summary;
                     if (summary.Count > 0)
@@ -174,7 +179,7 @@ namespace Dnn.ExportImport.Components.Scheduler
                         sb.Append("<br/><b>Summary:</b><ul>");
                         foreach (var entry in summary)
                         {
-                            sb.Append($"<li>{entry.Name}: {entry.Value}</li>");
+                            sb.Append(CultureInfo.InvariantCulture, $"<li>{entry.Name}: {entry.Value}</li>");
                         }
 
                         sb.Append("</ul>");
@@ -200,6 +205,17 @@ namespace Dnn.ExportImport.Components.Scheduler
                 ////   Exceptions.LogException(ex);
                 ////}
             }
+        }
+
+        /// <summary>Reads a localized string, reproducing the legacy
+        /// <c>Localization.GetString</c> behavior of returning an empty string (rather than the key)
+        /// when the resource key does not exist.</summary>
+        /// <param name="key">The resource key, including the DNN <c>.Text</c> suffix.</param>
+        /// <returns>The localized value, or <see cref="string.Empty"/> when the key is not found.</returns>
+        private string GetLocalizedString(string key)
+        {
+            var value = this.localizer[key];
+            return value.ResourceNotFound ? string.Empty : value.Value;
         }
     }
 }

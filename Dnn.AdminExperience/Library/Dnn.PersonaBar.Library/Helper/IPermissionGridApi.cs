@@ -3,14 +3,20 @@
 // See the LICENSE file in the project root for more information
 namespace Dnn.PersonaBar.Library.Helper
 {
-    using System.Net.Http;
+    using Microsoft.AspNetCore.Mvc;
 
+    /// <summary>Contract for the permission grid service endpoints.</summary>
+    /// <remarks>
+    /// The members returned a Web API 2 <c>HttpResponseMessage</c>, which is a client type on
+    /// ASP.NET Core; they now return <see cref="IActionResult"/>, matching the migrated
+    /// <c>DnnApiController</c> surface. The member names are unchanged.
+    /// </remarks>
     public interface IPermissionGridApi
     {
-        // TODO: ? HttpResponseMessage GetPermissionsData();
+        // TODO: ? IActionResult GetPermissionsData();
 
         /// <summary>Returns all roles/role groups info.</summary>
-        /// <returns>A response with the roles.</returns>
-        HttpResponseMessage GetRoles();
+        /// <returns>An <see cref="IActionResult"/> with the roles.</returns>
+        IActionResult GetRoles();
     }
 }

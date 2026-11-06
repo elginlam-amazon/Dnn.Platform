@@ -1,48 +1,53 @@
 ﻿<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <PropertyGroup>
-    <RootDirectory>$(MSBuildProjectDirectory)\..\..\..\..</RootDirectory>
+    <RootDirectory>$(MSBuildProjectDirectory)/../../../..</RootDirectory>
   </PropertyGroup>
-  <Import Project="..\..\..\..\DNN_Platform.build" />
+  <Import Project="../../../../DNN_Platform.build" />
   <PropertyGroup>
     <Extension>zip</Extension>
     <DNNFileName>DNNConnect.CKEditorProvider</DNNFileName>
     <PackageName>DNNConnect.CKEditorProvider</PackageName>
-    <InstallPath>$(WebsiteInstallPath)\Provider</InstallPath>
+    <InstallPath>$(WebsiteInstallPath)/Provider</InstallPath>
     <Providers></Providers>
-    <ProviderFolderName>$(WebsitePath)\Providers\HtmlEditorProviders\DNNConnect.CKE</ProviderFolderName>
+    <ProviderFolderName>$(WebsitePath)/Providers/HtmlEditorProviders/DNNConnect.CKE</ProviderFolderName>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <!-- The file on disk is Package.targets; the lower-case "t" matters on case-sensitive
+       (Linux) file systems, where the old "Package.Targets" spelling fails with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)/Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="GetFiles;DebugProject;Package" />
   <Target Name="GetFiles">
     <ItemGroup>
       <TextFiles Include="*.txt" Exclude="license.txt;releasenotes.txt;*.Cleanup.txt" />
-      <Views Include="**\*.ashx;**\*.aspx;**\*.ascx" />
-      <CssFiles Include="css\*.css" />
-      <BrowserCssFiles Include="Browser\*.css" />
-      <JsFiles Include="js\**\*.*" />
-      <BrowserJsFiles Include="Browser\js\*.js" />
-      <ImagesFiles Include="images\**\*.*" />
-      <IconsFiles Include="icons\**\*.*" />
-      <BrowserImagesFiles Include="Browser\images\**\*.*" />
-      <ResourceFiles Include="App_LocalResources\*.resx" />
-      <CKEditor Include="CKEditor\**\*.*" />
-      <Resources Include="@(ResourceFiles);@(TextFiles);@(CKEditor);@(Views);@(CssFiles);@(BrowserCssFiles);@(JsFiles);@(BrowserJsFiles);@(ImagesFiles);@(IconsFiles);@(BrowserImagesFiles);" />
+      <!-- The .aspx/.ascx/.ashx surface is gone: the pages and user controls are now Blazor
+           components compiled into the assembly and the handlers are minimal-API endpoints
+           mapped from the website's Program.cs, so no markup is packaged any more. -->
+      <CssFiles Include="css/*.css" />
+      <BrowserCssFiles Include="Browser/*.css" />
+      <JsFiles Include="js/**/*.*" />
+      <BrowserJsFiles Include="Browser/js/*.js" />
+      <ImagesFiles Include="images/**/*.*" />
+      <IconsFiles Include="icons/**/*.*" />
+      <BrowserImagesFiles Include="Browser/images/**/*.*" />
+      <ResourceFiles Include="Resources/*.resx" />
+      <BrowserBundleFiles Include="Browser/*.css.bundle" />
+      <CKEditor Include="CKEditor/**/*.*" />
+      <Resources Include="@(ResourceFiles);@(BrowserBundleFiles);@(TextFiles);@(CKEditor);@(CssFiles);@(BrowserCssFiles);@(JsFiles);@(BrowserJsFiles);@(ImagesFiles);@(IconsFiles);@(BrowserImagesFiles);" />
     </ItemGroup>
   </Target>
   <Target Name="DebugProject" Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <Copy SourceFiles="$(MSBuildProjectDirectory)/bin/$(AssemblyName).dll" DestinationFolder="$(WebsitePath)/bin$(Providers)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)/bin/$(AssemblyName).pdb" DestinationFolder="$(WebsitePath)/bin$(Providers)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)/bin/$(AssemblyName).xml" DestinationFolder="$(WebsitePath)/bin$(Providers)" />
-    <Copy SourceFiles="@(TextFiles)" DestinationFolder="$(ProviderFolderName)\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(Views)" DestinationFolder="$(ProviderFolderName)\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(CssFiles)" DestinationFolder="$(ProviderFolderName)\css\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(BrowserCssFiles)" DestinationFolder="$(ProviderFolderName)\Browser\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(JsFiles)" DestinationFolder="$(ProviderFolderName)\js\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(BrowserJsFiles)" DestinationFolder="$(ProviderFolderName)\Browser\js\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(ImagesFiles)" DestinationFolder="$(ProviderFolderName)\images\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(IconsFiles)" DestinationFolder="$(ProviderFolderName)\icons\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(BrowserImagesFiles)" DestinationFolder="$(ProviderFolderName)\Browser\images\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(ResourceFiles)" DestinationFolder="$(ProviderFolderName)\App_LocalResources\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(CKEditor)" DestinationFolder="$(ProviderFolderName)\CKEditor\%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(TextFiles)" DestinationFolder="$(ProviderFolderName)/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(CssFiles)" DestinationFolder="$(ProviderFolderName)/css/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(BrowserCssFiles)" DestinationFolder="$(ProviderFolderName)/Browser/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(BrowserBundleFiles)" DestinationFolder="$(ProviderFolderName)/Browser/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(JsFiles)" DestinationFolder="$(ProviderFolderName)/js/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(BrowserJsFiles)" DestinationFolder="$(ProviderFolderName)/Browser/js/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ImagesFiles)" DestinationFolder="$(ProviderFolderName)/images/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(IconsFiles)" DestinationFolder="$(ProviderFolderName)/icons/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(BrowserImagesFiles)" DestinationFolder="$(ProviderFolderName)/Browser/images/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ResourceFiles)" DestinationFolder="$(ProviderFolderName)/App_LocalResources/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(CKEditor)" DestinationFolder="$(ProviderFolderName)/CKEditor/%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>

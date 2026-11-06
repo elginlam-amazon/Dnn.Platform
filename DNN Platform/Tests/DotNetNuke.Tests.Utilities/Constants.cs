@@ -7,9 +7,9 @@ namespace DotNetNuke.Tests.Utilities
 {
     using System.IO;
     using System.IO.Compression;
-    using System.Web.Caching;
 
     using DotNetNuke.Entities.Content.Taxonomy;
+    using DotNetNuke.Services.Cache;
 
     public class Constants
     {

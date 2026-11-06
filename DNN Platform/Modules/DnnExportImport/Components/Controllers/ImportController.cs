@@ -175,8 +175,8 @@ namespace Dnn.ExportImport.Components.Controllers
         {
             Func<ImportPackageInfo, bool> keywordFunc =
                 packageInfo =>
-                    packageInfo.Name.ToLowerInvariant().Contains(keyword.ToLowerInvariant()) ||
-                    packageInfo.Description.ToLowerInvariant().Contains(keyword.ToLowerInvariant());
+                    packageInfo.Name.Contains(keyword, StringComparison.InvariantCultureIgnoreCase) ||
+                    packageInfo.Description.Contains(keyword, StringComparison.InvariantCultureIgnoreCase);
             return keywordFunc;
         }
 

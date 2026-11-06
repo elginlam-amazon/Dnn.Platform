@@ -7,7 +7,7 @@ namespace Dnn.PersonaBar.Library.Permissions
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web.Caching;
+    using System.Text;
 
     using Dnn.PersonaBar.Library.Data;
     using Dnn.PersonaBar.Library.Model;
@@ -23,6 +23,7 @@ namespace Dnn.PersonaBar.Library.Permissions
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security;
     using DotNetNuke.Security.Roles;
+    using DotNetNuke.Services.Cache;
 
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
@@ -37,6 +38,9 @@ namespace Dnn.PersonaBar.Library.Permissions
         private const string PermissionInitializedKey = "PersonaBarMenuPermissionsInitialized";
 
         private const string ViewPermissionKey = "VIEW";
+
+        /// <summary>The pre-parsed <see cref="PersonaBarMenuPermissionsCacheKey"/> format, as CA1863 asks for.</summary>
+        private static readonly CompositeFormat PersonaBarMenuPermissionsCacheKeyFormat = CompositeFormat.Parse(PersonaBarMenuPermissionsCacheKey);
 
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<MenuPermissionController>();
 
@@ -235,7 +239,7 @@ namespace Dnn.PersonaBar.Library.Permissions
         public static bool HasMenuPermission(MenuPermissionCollection menuPermissions, string permissionKey)
         {
             bool hasPermission = Null.NullBoolean;
-            if (permissionKey.Contains(","))
+            if (permissionKey.Contains(','))
             {
                 foreach (string permission in permissionKey.Split(','))
                 {
@@ -493,7 +497,7 @@ namespace Dnn.PersonaBar.Library.Permissions
 
         private static string GetCacheKey(int portalId)
         {
-            return string.Format(CultureInfo.InvariantCulture, PersonaBarMenuPermissionsCacheKey, portalId);
+            return string.Format(CultureInfo.InvariantCulture, PersonaBarMenuPermissionsCacheKeyFormat, portalId);
         }
 
         private static IList<PermissionInfo> GetAllPermissions(IHostSettings hostSettings)

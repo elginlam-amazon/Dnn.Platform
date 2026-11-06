@@ -4,23 +4,30 @@
 
 namespace DotNetNuke.Tests.Utilities;
 
+using System;
 using System.IO;
-using System.Reflection;
-using System.Web;
 
+/// <summary>Base class for test fixtures that need the website's app path and physical path.</summary>
 public class DnnUnitTest
 {
+    /// <summary>Gets or sets the website's application (virtual) path.</summary>
     public string WebsiteAppPath { get; set; }
 
+    /// <summary>Gets or sets the website's physical application path.</summary>
     public string WebsitePhysicalAppPath { get; set; }
 
+    /// <summary>One-time fixture setup: resolves the website paths from the test host's location.</summary>
     public virtual void OneTimeSetUp()
     {
-        var uri = new System.Uri(Assembly.GetExecutingAssembly().CodeBase);
-        var path = HttpUtility.UrlDecode(Path.GetFullPath(uri.AbsolutePath));
+        // Assembly.CodeBase is .NET Framework-only (it throws on modern .NET); AppContext.BaseDirectory
+        // is the directory the test host runs from, which is what the old Uri/CodeBase dance produced.
+        // No URL-decoding here: the old code decoded Uri.AbsolutePath (where escaping was real),
+        // whereas AppContext.BaseDirectory is already an unescaped filesystem path — decoding it
+        // would corrupt any path containing '+' or '%'.
+        var path = Path.GetFullPath(AppContext.BaseDirectory);
 
         this.WebsiteAppPath = "http://localhost/DNN_Platform";
-        var websiteRootPath = path.Substring(0, path.IndexOf("DNN Platform", System.StringComparison.Ordinal));
+        var websiteRootPath = path.Substring(0, path.IndexOf("DNN Platform", StringComparison.Ordinal));
         this.WebsitePhysicalAppPath = Path.Combine(websiteRootPath, "Website");
     }
 }

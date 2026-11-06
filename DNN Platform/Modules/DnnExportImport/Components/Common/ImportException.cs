@@ -5,10 +5,8 @@
 namespace Dnn.ExportImport.Components.Common;
 
 using System;
-using System.Runtime.Serialization;
 
 /// <summary>An exception thrown when issues are encountered importing.</summary>
-[Serializable]
 public class ImportException : Exception
 {
     /// <inheritdoc />
@@ -25,12 +23,6 @@ public class ImportException : Exception
     /// <inheritdoc />
     public ImportException(string message, Exception innerException)
         : base(message, innerException)
-    {
-    }
-
-    /// <inheritdoc />
-    protected ImportException(SerializationInfo info, StreamingContext context)
-        : base(info, context)
     {
     }
 }

@@ -1,4 +1,4 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 namespace Dnn.ExportImport.Components.Services
@@ -581,10 +581,7 @@ namespace Dnn.ExportImport.Components.Services
 
                 var currentOrder = moduleOrder + 2;
 
-                if (!moduleOrders.ContainsKey(module.ModuleID))
-                {
-                    moduleOrders.Add(module.ModuleID, currentOrder);
-                }
+                moduleOrders.TryAdd(module.ModuleID, currentOrder);
 
                 moduleOrder = currentOrder;
 
@@ -613,10 +610,7 @@ namespace Dnn.ExportImport.Components.Services
 
                 var currentOrder = moduleOrder + 2;
 
-                if (!moduleOrders.ContainsKey(module.ModuleID))
-                {
-                    moduleOrders.Add(module.ModuleID, currentOrder);
-                }
+                moduleOrders.TryAdd(module.ModuleID, currentOrder);
 
                 moduleOrder = currentOrder;
 
@@ -1587,7 +1581,7 @@ namespace Dnn.ExportImport.Components.Services
                                             LocalModuleId = localModule.ModuleID,
                                         });
                                     var content = moduleContent.XmlContent;
-                                    if (content.IndexOf('\x03') >= 0)
+                                    if (content.Contains('\x03'))
                                     {
                                         // exported data contains this character sometimes
                                         content = content.Replace('\x03', ' ');
@@ -2286,10 +2280,7 @@ namespace Dnn.ExportImport.Components.Services
 
         private void AddToParentSearched(int tabId, bool isParentId)
         {
-            if (!this.searchedParentTabs.ContainsKey(tabId))
-            {
-                this.searchedParentTabs.Add(tabId, isParentId);
-            }
+            this.searchedParentTabs.TryAdd(tabId, isParentId);
         }
 
         private void UpdateParentInPartialImportTabs(TabInfo localTab, ExportTab parentExportedTab, int portalId, IList<ExportTab> exportTabs, IList<TabInfo> localTabs)

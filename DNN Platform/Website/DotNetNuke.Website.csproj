@@ -3365,6 +3365,12 @@
       <Project>{a86ebc44-2bc8-4c4a-997b-2708e4aac345}</Project>
       <Name>DotNetNuke.Modules.DDRMenu</Name>
     </ProjectReference>
+    <!-- The CKEditor HTML editor provider is a Razor Class Library: the host must reference it
+         so that its routable components (Options.razor, Browser/Browser.razor) and its
+         MapCKEditorProviderEndpoints() aggregator, both named from Program.cs, are available. -->
+    <ProjectReference Include="..\Providers\HtmlEditorProviders\DNNConnect.CKE\DNNConnect.CKEditorProvider.csproj">
+      <Name>DNNConnect.CKEditorProvider</Name>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <Content Include="DesktopModules\Admin\EditExtension\App_LocalResources\AuthenticationEditor.ascx.resx" />

@@ -4,11 +4,10 @@
 
 namespace DNNConnect.CKEditorProvider.Services
 {
-    using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
-
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc;
 
     /// <summary>WebAPI controller to enable the CKE cloudservices plugin.</summary>
     public class CloudServicesController : DnnApiController
@@ -17,9 +16,9 @@ namespace DNNConnect.CKEditorProvider.Services
         /// <returns>A fake token.</returns>
         [AllowAnonymous]
         [HttpGet]
-        public HttpResponseMessage GetToken()
+        public IActionResult GetToken()
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, "faketoken");
+            return this.Ok("faketoken");
         }
     }
 }

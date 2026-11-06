@@ -1,0 +1,288 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@page "/Providers/HtmlEditorProviders/DNNConnect.CKE/Options.aspx"
+@namespace DNNConnect.CKEditorProvider
+@inherits DotNetNuke.UI.DnnComponentBase
+
+@using System.Globalization
+@using Microsoft.AspNetCore.WebUtilities
+@using Microsoft.JSInterop
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.ClientResources
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Abstractions.Portals
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using Globals = DotNetNuke.Common.Globals
+
+@*
+    This is Options.aspx. The route is the original URL, so every window.open("...Options.aspx?mid=
+    ...&tid=...") call site (EditorControl's "Options" link, the module action) keeps working.
+
+    The <html>/<head>/<body> document of the original page now belongs to the host (Components/
+    App.razor), so the <title> and the portal favicon link are contributed through <PageTitle> and
+    <HeadContent>, which render into the host's <HeadOutlet>. The <dnncrm:DnnResources> /
+    ClientDependency placeholders are the host's client resource seam as well: the scripts and
+    stylesheets OnPreRender registered are registered on IClientResourceController below.
+
+    The inline <script> block holding the six localized strings js/Options.js reads is emitted
+    through js/optionsInterop.js (a Blazor render cannot execute a <script> element it writes).
+
+    The page is a descendant of <Routes @rendermode="InteractiveServer"> in the host document, so it
+    is interactive without (and must not repeat) a per-page @rendermode directive.
+*@
+
+<PageTitle>CKEditor Options</PageTitle>
+
+<HeadContent>
+    @((MarkupString)this.faviconHeaderLink)
+    <style type="text/css">
+        .groupButtons li {margin-left: -36px;}
+    </style>
+</HeadContent>
+
+<div id="ckOptionsForm">
+    @if (this.moduleConfiguration != null || this.renderOptions)
+    {
+        @* Replaces Page.LoadControl("CKEditorOptions.ascx") + phControls.Controls.Add(...). *@
+        <CKEditorOptions ID="CKEditor_Options" ModuleConfiguration="this.moduleConfiguration" />
+    }
+</div>
+
+@code {
+    private string faviconHeaderLink = string.Empty;
+    private ModuleInfo moduleConfiguration;
+    private bool renderOptions;
+    private bool closeRequested;
+    private IPortalSettings curPortalSettings;
+
+    /// <summary>Gets the JavaScript runtime the page's client side seam is called through.</summary>
+    [Inject]
+    protected IJSRuntime JsRuntime { get; set; }
+
+    /// <summary>Gets the navigation manager the query string is read from.</summary>
+    [Inject]
+    protected NavigationManager Navigation { get; set; }
+
+    [Inject]
+    private IApplicationStatusInfo AppStatus { get; set; }
+
+    [Inject]
+    private IHostSettings HostSettings { get; set; }
+
+    [Inject]
+    private IEventLogger EventLogger { get; set; }
+
+    [Inject]
+    private IClientResourceController ClientResourceController { get; set; }
+
+    [Inject]
+    private IPortalAliasService PortalAliasService { get; set; }
+
+    [Inject]
+    private IModuleController ModuleControllerService { get; set; }
+
+    /// <summary>Gets Current Language from Url.</summary>
+    protected string LangCode => this.GetQueryValue("langCode");
+
+    /// <summary>Gets the Name for the Current Resource file name.</summary>
+    /// <remarks>
+    /// Replaces the <c>Request.ServerVariables["SCRIPT_NAME"]</c> derived path of the original
+    /// (there are no server variables on ASP.NET Core); the resource file of this component is
+    /// named after the page it replaces, which keeps every key and every portal level override.
+    /// </remarks>
+    protected string ResXFile =>
+        Globals.ResolveUrl($"~/Providers/HtmlEditorProviders/DNNConnect.CKE/{Localization.LocalResourceDirectory}/Options.resx");
+
+    /// <inheritdoc />
+    /// <remarks>Replaces <c>OnInit</c> (InitializeComponent + LoadFavIcon) and <c>Page_Load</c>.</remarks>
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        // InitializeComponent()
+        this.curPortalSettings = this.GetPortalSettings();
+
+        // LoadFavIcon()
+        this.faviconHeaderLink =
+            DotNetNuke.UI.Internals.FavIcon.GetHeaderLink(this.HostSettings, this.curPortalSettings?.PortalId ?? this.HostSettings.HostPortalId);
+
+        this.LoadModule();
+
+        // OnPreRender(): the jQuery libraries, the two scripts and the three stylesheets.
+        this.RegisterClientResources();
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Runs the client side pieces the WebForms page emitted inline: the six localized strings
+    /// js/Options.js reads and, when the page could not be opened for a module, the
+    /// <c>self.close()</c> start-up script of <c>ClosePage()</c>.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender)
+        {
+            return;
+        }
+
+        IJSObjectReference module;
+        try
+        {
+            module = await this.JsRuntime.InvokeAsync<IJSObjectReference>(
+                "import", "/Providers/HtmlEditorProviders/DNNConnect.CKE/js/optionsInterop.js");
+        }
+        catch (JSException)
+        {
+            // the extension's assets are not reachable; the page degrades to plain markup.
+            return;
+        }
+
+        await module.InvokeVoidAsync(
+            "setLocalizedStrings",
+            new
+            {
+                saveGroupName = Localization.GetString("SaveGroupName.Text", this.ResXFile, this.LangCode),
+                deleteGroup = Localization.GetString("DeleteGroup.Text", this.ResXFile, this.LangCode),
+                editGroupName = Localization.GetString("EditGroupName.Text", this.ResXFile, this.LangCode),
+                newGroupName = Localization.GetString("NewGroupName.Text", this.ResXFile, this.LangCode),
+                deleteToolbar = Localization.GetString("DeleteToolbarButton.Text", this.ResXFile, this.LangCode),
+                newRowName = Localization.GetString("RowBreak.Text", this.ResXFile, this.LangCode),
+            });
+
+        if (this.closeRequested)
+        {
+            await module.InvokeVoidAsync("closeWindow");
+        }
+    }
+
+    /// <summary>Reads the module the options are edited for off the query string.</summary>
+    /// <remarks>This is <c>Page_Load</c>: the <c>mid</c>/<c>tid</c> parse and the composition of the CKEditorOptions control.</remarks>
+    private void LoadModule()
+    {
+        try
+        {
+            // Get ModuleID from Url
+            int moduleId;
+            if (!int.TryParse(this.GetQueryValue("mid"), NumberStyles.Integer, CultureInfo.InvariantCulture, out moduleId))
+            {
+                moduleId = -1;
+            }
+
+            // Get TabId from Url
+            int tabId;
+            if (!int.TryParse(this.GetQueryValue("tid"), NumberStyles.Integer, CultureInfo.InvariantCulture, out tabId))
+            {
+                tabId = -1;
+            }
+
+            if (moduleId != -1 && tabId != -1)
+            {
+                this.moduleConfiguration = this.ModuleControllerService.GetModule(moduleId, tabId, false);
+            }
+            else
+            {
+                this.ClosePage();
+            }
+        }
+        catch (Exception exception)
+        {
+            Exceptions.LogException(exception);
+
+            this.ClosePage();
+        }
+
+        try
+        {
+            // the CKEditorOptions component is rendered by the markup above with the module
+            // configuration as its parameter, which replaces LoadControl("CKEditorOptions.ascx").
+            // The original composed the control even when the query string named no module (the
+            // page closes itself in that case), so the component renders unconditionally here too.
+            this.renderOptions = true;
+        }
+        catch (Exception exception)
+        {
+            Exceptions.LogException(exception);
+
+            this.ClosePage();
+        }
+    }
+
+    /// <summary>Closes the page.</summary>
+    /// <remarks>
+    /// Replaces <c>ClientScript.RegisterStartupScript(..., "javascript:self.close();")</c>; the
+    /// script runs from <see cref="OnAfterRenderAsync"/> through js/optionsInterop.js.
+    /// </remarks>
+    private void ClosePage()
+    {
+        this.closeRequested = true;
+        this.renderOptions = false;
+    }
+
+    /// <summary>Registers the JavaScripts and CSS.</summary>
+    /// <remarks>This is the <c>OnPreRender</c> override of the original, unchanged.</remarks>
+    private void RegisterClientResources()
+    {
+        JavaScript.RequestRegistration(this.AppStatus, this.EventLogger, this.curPortalSettings, CommonJs.jQuery);
+        JavaScript.RequestRegistration(this.AppStatus, this.EventLogger, this.curPortalSettings, CommonJs.jQueryUI);
+        this.ClientResourceController.CreateScript(Globals.ResolveUrl("~/Providers/HtmlEditorProviders/DNNConnect.CKE/js/jquery.notification.js")).Register();
+        this.ClientResourceController.CreateScript(Globals.ResolveUrl("~/Providers/HtmlEditorProviders/DNNConnect.CKE/js/Options.js")).Register();
+        this.ClientResourceController.CreateStylesheet("https://ajax.googleapis.com/ajax/libs/jqueryui/1/themes/blitzer/jquery-ui.css").Register();
+        this.ClientResourceController.CreateStylesheet(Globals.ResolveUrl("~/Providers/HtmlEditorProviders/DNNConnect.CKE/css/jquery.notification.css")).Register();
+        this.ClientResourceController.CreateStylesheet(Globals.ResolveUrl("~/Providers/HtmlEditorProviders/DNNConnect.CKE/css/Options.css")).Register();
+    }
+
+    /// <summary>Gets the portal settings.</summary>
+    /// <returns>The Portal Settings.</returns>
+    /// <remarks>The alias resolution of the original, with the query string read off the URL.</remarks>
+    private IPortalSettings GetPortalSettings()
+    {
+        int iTabId = 0, iPortalId = 0;
+
+        IPortalSettings portalSettings;
+
+        try
+        {
+            var tabIdValue = this.GetQueryValue("tabid");
+            if (!string.IsNullOrEmpty(tabIdValue))
+            {
+                iTabId = int.Parse(tabIdValue, CultureInfo.InvariantCulture);
+            }
+
+            var portalIdValue = this.GetQueryValue("PortalID");
+            if (!string.IsNullOrEmpty(portalIdValue))
+            {
+                iPortalId = int.Parse(portalIdValue, CultureInfo.InvariantCulture);
+            }
+
+            string sDomainName = Globals.GetDomainName(this.Request, true);
+
+            string sPortalAlias = this.PortalAliasService.GetPortalAliasByPortal(iPortalId, sDomainName);
+
+            var objPortalAliasInfo = this.PortalAliasService.GetPortalAlias(sPortalAlias);
+            portalSettings = PortalSettings.Create(iTabId, objPortalAliasInfo);
+        }
+        catch (Exception)
+        {
+            portalSettings = PortalSettings.Current;
+        }
+
+        return portalSettings;
+    }
+
+    /// <summary>Reads a value off the query string of the page's URL.</summary>
+    /// <param name="name">The name of the query string parameter.</param>
+    /// <returns>The value, or <see langword="null"/> when it was not supplied.</returns>
+    /// <remarks>Replaces <c>HttpContext.Current.Request.QueryString[...]</c>, which is not reachable over a Blazor circuit.</remarks>
+    private string GetQueryValue(string name)
+    {
+        var query = QueryHelpers.ParseQuery(new Uri(this.Navigation.Uri).Query);
+        return query.TryGetValue(name, out var values) ? values.ToString() : null;
+    }
+}

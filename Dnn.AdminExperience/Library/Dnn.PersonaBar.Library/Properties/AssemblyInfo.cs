@@ -19,7 +19,12 @@ using System.Runtime.InteropServices;
 // to COM components.  If you need to access a type in this assembly from
 // COM, set the ComVisible attribute to true on that type.
 [assembly: ComVisible(false)]
-[assembly: CLSCompliant(true)]
+
+// ASP.NET Core's public surface (HttpRequest, IActionResult, Blazor's ComponentBase via
+// DnnComponentBase, ...) is now part of this assembly's public API, and the DotNetNuke
+// assemblies it builds on (DotNetNuke.Library, DotNetNuke.Web) already declare
+// CLSCompliant(false) for the same reason, so this assembly can no longer claim CLS compliance.
+[assembly: CLSCompliant(false)]
 
 // The following GUID is for the ID of the typelib if this project is exposed to COM
 [assembly: Guid("8FF8E77F-CAF7-461A-8BC1-CB11E5C425E7")]

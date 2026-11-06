@@ -236,12 +236,12 @@ namespace Dnn.PersonaBar.Library.Controllers
                     .Cast<ModuleInfo>().Where(ModulePermissionController.CanViewModule);
             if (!string.IsNullOrEmpty(moduleName))
             {
-                modules = modules.Where(module => module.DesktopModule.ModuleName.IndexOf(moduleName, StringComparison.OrdinalIgnoreCase) >= 0);
+                modules = modules.Where(module => module.DesktopModule.ModuleName.Contains(moduleName, StringComparison.OrdinalIgnoreCase));
             }
 
             if (!string.IsNullOrEmpty(moduleTitle))
             {
-                modules = modules.Where(module => module.ModuleTitle.IndexOf(moduleTitle, StringComparison.OrdinalIgnoreCase) >= 0);
+                modules = modules.Where(module => module.ModuleTitle.Contains(moduleTitle, StringComparison.OrdinalIgnoreCase));
             }
 
             // Return only deleted modules with matching criteria.

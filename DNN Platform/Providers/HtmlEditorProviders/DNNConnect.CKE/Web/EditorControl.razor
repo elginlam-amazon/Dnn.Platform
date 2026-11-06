@@ -1,0 +1,41 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DNNConnect.CKEditorProvider.Web
+@inherits DotNetNuke.UI.DnnComponentBase
+
+@*
+    This is the markup Render(HtmlTextWriter) wrote in Web/EditorControl.cs, element for element:
+    the noscript notice, the (optionally width-constrained) wrapper around the hidden text area
+    CKEditor replaces, and the administrators-only "Options" link that opens the settings popup.
+
+    The CKEditor bootstrap itself is NOT a <script> block here (a script element added by a Blazor
+    render is never executed). It is registered on the page's client-script seam when the editor
+    renders inside a DNN page, and run through js/editorInterop.js otherwise - see
+    EditorControl.razor.cs.
+*@
+
+<div>
+    <noscript>
+        <p>@this.NoJavaText</p>
+    </noscript>
+</div>
+<div style="@this.WrapperStyle">
+    <textarea id="@this.EditorFixedId"
+              name="@this.UniqueId"
+              cols="80"
+              rows="10"
+              class="editor"
+              aria-label="editor"
+              style="visibility: hidden; display: none;"
+              @onchange="this.OnTextAreaChangedAsync">@this.TextAreaContent</textarea>
+</div>
+@if (this.ShowOptionsLink)
+{
+    <p style="text-align:center;">
+        <a href="javascript:void(0)"
+           onclick="@this.OptionsOnClick"
+           class="CommandButton"
+           id="@this.OptionsLinkId">@this.OptionsText</a>
+    </p>
+}
