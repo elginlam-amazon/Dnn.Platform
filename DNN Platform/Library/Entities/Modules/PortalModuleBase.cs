@@ -211,8 +211,22 @@ namespace DotNetNuke.Entities.Modules
             set => this.ModuleContext.HelpURL = value;
         }
 
+        /// <summary>Gets or sets the module configuration (<see cref="ModuleInfo"/>) of this control.</summary>
+        /// <remarks>
+        /// This is a Blazor <see cref="Microsoft.AspNetCore.Components.ParameterAttribute"/> because
+        /// a module control that is not part of the DNN component tree is rendered by its type
+        /// (see the holder in <c>DotNetNuke.UI.Modules.ModuleHost</c> and
+        /// <c>DotNetNuke.UI.DnnComponentBase.RenderControl</c>, which carries declared parameters
+        /// over with <c>DnnComponentParameters.Capture</c>). Without it, the configuration a module
+        /// loader assigns on the instance it created would not reach the instance the renderer
+        /// creates, and the control would initialize with a null <c>ModuleContext.Configuration</c>
+        /// — silently, with a green build. A parameter arrives before the component initializes,
+        /// which is the ordering the WebForms code had when it assigned this property before adding
+        /// the control to the page.
+        /// </remarks>
         [Browsable(false)]
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        [Microsoft.AspNetCore.Components.Parameter]
         public ModuleInfo ModuleConfiguration
         {
             get => this.ModuleContext.Configuration;
@@ -237,6 +251,14 @@ namespace DotNetNuke.Entities.Modules
 
         /// <summary>Gets or sets the local resource file for this control.</summary>
         /// <returns>A String.</returns>
+        /// <remarks>
+        /// A Blazor parameter for the same reason as <see cref="ModuleConfiguration"/>: a module
+        /// loader that assigns it on the control it created (the authentication, RazorHost and
+        /// HTML-editor-provider loaders all do, because the control's resources live next to the
+        /// loaded control rather than next to the hosting module) would otherwise lose the value
+        /// when the renderer instantiates the component by type.
+        /// </remarks>
+        [Microsoft.AspNetCore.Components.Parameter]
         public string LocalResourceFile
         {
             get

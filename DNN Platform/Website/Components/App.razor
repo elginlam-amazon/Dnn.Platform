@@ -1,15 +1,42 @@
 @* The DNN host document. The portal skin (a LayoutComponentBase, e.g. ApertureLayout) renders
    the page body; this component only owns the <html> document and the Blazor script. *@
+@using Microsoft.AspNetCore.Components.Endpoints
+@using Microsoft.AspNetCore.Http
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
-    <HeadOutlet @rendermode="InteractiveServer" />
+    <HeadOutlet @rendermode="RenderModeForPage" />
 </head>
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    <Routes @rendermode="RenderModeForPage" />
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    /// <summary>
+    /// Gets the render mode of the page being served: interactive server rendering for every DNN
+    /// page, and static server side rendering for the few components that opt out with
+    /// <c>[ExcludeFromInteractiveRouting]</c>.
+    /// </summary>
+    /// <remarks>
+    /// DNN is an interactive Blazor Server application, so this is <c>InteractiveServer</c> for
+    /// everything by default - no existing page changes behaviour. The opt-out exists because a
+    /// handful of migrated pages are NOT interactive UI at all but server side request handlers
+    /// that must read the live request and write a redirect or a start-up script to the response:
+    /// the Google Mail SMTP OAuth callback
+    /// (<c>Dnn.GoogleMailAuthProvider.Authorize</c>, the URL registered with Google) is one. In an
+    /// interactive circuit <c>HttpContext</c> is null and the response has already been sent, so
+    /// those pages have to render statically. Returning <see langword="null"/> here is what makes
+    /// <c>[ExcludeFromInteractiveRouting]</c> effective; without this seam the attribute is
+    /// silently ignored and the page is rendered interactively anyway.
+    /// </remarks>
+    private IComponentRenderMode? RenderModeForPage =>
+        this.HttpContext.AcceptsInteractiveRouting() ? InteractiveServer : null;
+}

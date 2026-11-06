@@ -23,15 +23,21 @@
                             <path>bin</path>
                             <name>Dnn.ExchangeOnlineAuthProvider.dll</name>
                         </assembly>
+                        <!-- The versions below are the ones the net10.0 restore actually resolves
+                             (obj/project.assets.json), not the net48 ones: Microsoft.Identity.Client
+                             is pinned to 4.89.0 by Directory.Packages.props, and it brings
+                             Microsoft.IdentityModel.Abstractions, which resolves to 8.22.0 (the
+                             package asks for 8.14.0, but the platform's pinned
+                             Microsoft.IdentityModel.JsonWebTokens 8.22.0 unifies it upward). -->
                         <assembly>
                             <path>bin</path>
                             <name>Microsoft.Identity.Client.dll</name>
-                            <version>4.49.1.0</version>
+                            <version>4.89.0</version>
                         </assembly>
                         <assembly>
                             <path>bin</path>
                             <name>Microsoft.IdentityModel.Abstractions.dll</name>
-                            <version>6.22.0.30727</version>
+                            <version>8.22.0</version>
                         </assembly>
                     </assemblies>
                 </component>

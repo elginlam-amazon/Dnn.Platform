@@ -12,6 +12,9 @@
 // -----------------------------------------------------------------------------------------
 using DNNConnect.CKEditorProvider;
 
+using Dnn.ExchangeOnlineAuthProvider;
+using Dnn.GoogleMailAuthProvider;
+
 using DotNetNuke.Common;
 using DotNetNuke.HttpModules;
 using DotNetNuke.Web;
@@ -73,6 +76,8 @@ app.MapRazorComponents<App>()
    .AddAdditionalAssemblies(
        DnnPlatformComponents.Assembly,
        DnnWebComponents.Assembly,
-       CKEditorProviderComponents.Assembly);
+       CKEditorProviderComponents.Assembly,
+       GoogleMailAuthProviderComponents.Assembly,
+       ExchangeOnlineAuthProviderComponents.Assembly);
 
 app.Run();

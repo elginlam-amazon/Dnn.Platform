@@ -1,0 +1,51 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.HtmlEditorManager.Views
+@inherits DotNetNuke.Web.Mvp.ModuleView<DotNetNuke.Modules.HtmlEditorManager.ViewModels.ProviderConfigurationViewModel>
+
+@using Microsoft.AspNetCore.Components
+
+@*
+    Replaces ProviderConfiguration.ascx. This is still a DotNetNuke.Web.Mvp.ModuleView bound to
+    ProviderConfigurationPresenter, so the MVP separation and the presenter are unchanged.
+
+    * The <%#this.Model.* %> expressions were *data binding* expressions evaluated on DataBind();
+      ModuleViewBase raises DataBind() after the presenter has populated the model, so reading the
+      model directly here is the faithful equivalent.
+    * <asp:DropDownList AutoPostBack="true" DataSource="Model.Editors"
+      SelectedValue="Model.SelectedEditor" OnSelectedIndexChanged="..."> is the <select> below: an
+      interactive component re-renders on change, which is what the auto post back did.
+    * <asp:Button ... Text="Change" Enabled="<%#this.Model.CanSave %>"> stays a *disabled* button
+      when CanSave is false, as Enabled="false" rendered it - it is not hidden.
+    * <asp:PlaceHolder ID="EditorPanel"> is the DnnPlaceHolder the presenter fills through
+      IProviderConfigurationView.Editor; its children are rendered by EditorPanelContent.
+    * "Current Provider:" and "Change" were hardcoded English in the .ascx even though unused
+      resource keys exist for them; they stay hardcoded, because localizing them now would be a
+      behaviour change.
+    * No @rendermode here: the module host owns the render mode, and declaring one on a child of an
+      interactive component fails at runtime.
+*@
+
+<div class="html-editor-manager">
+    <div class="dnnClear">
+        <div class="current-provider">
+            <h4>Current Provider:</h4>
+            <span>@this.Model.SelectedEditor</span>
+        </div>
+        <div class="change-provider">
+            <select id="ProvidersDropDownList" name="ProvidersDropDownList" value="@this.SelectedEditorValue"
+                    @onchange="this.ProvidersDropDownListSelectedIndexChanged">
+                @foreach (var editor in this.Editors)
+                {
+                    <option value="@editor" selected="@(editor == this.SelectedEditorValue)">@editor</option>
+                }
+            </select>
+            <button id="SaveButton" type="button" class="dnnPrimaryAction" disabled="@(!this.Model.CanSave)"
+                    @onclick="this.SaveButtonClick">Change</button>
+        </div>
+    </div>
+    <div>
+        @this.EditorPanelContent
+    </div>
+</div>

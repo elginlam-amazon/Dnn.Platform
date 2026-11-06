@@ -261,15 +261,22 @@ public class ExchangeOnlineOAuthProvider : ISmtpOAuthProvider
             throw new ArgumentException("Invalid portal Id.");
         }
 
-        var tenantId = portalSettings.GetValueOrDefault(Constants.TenantIdSettingName, string.Empty);
-        var clientId = portalSettings.GetValueOrDefault(Constants.ClientIdSettingName, string.Empty);
-        var clientSecret = portalSettings.GetValueOrDefault(Constants.ClientSecretSettingName, string.Empty);
+        // DNN's own DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault<T>(IDictionary,
+        // string, T) is called by its full name because net10.0 also offers
+        // System.Collections.Generic.CollectionExtensions.GetValueOrDefault, which made the
+        // extension method syntax ambiguous (CS0121) after the retarget. DNN's overload converts
+        // the stored string to T; the framework one does not, so binding to the wrong one would
+        // change how these settings are read. Same disambiguation as the already-migrated sibling
+        // Dnn.GoogleMailAuthProvider and DotNetNuke.Entities.Portals.PortalSettingsController.
+        var tenantId = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(portalSettings, Constants.TenantIdSettingName, string.Empty);
+        var clientId = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(portalSettings, Constants.ClientIdSettingName, string.Empty);
+        var clientSecret = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(portalSettings, Constants.ClientSecretSettingName, string.Empty);
         if (!string.IsNullOrWhiteSpace(clientSecret))
         {
-            var algorithmName = portalSettings.GetValueOrDefault(Constants.ClientSecretEncryptionAlgorithm, string.Empty);
+            var algorithmName = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(portalSettings, Constants.ClientSecretEncryptionAlgorithm, string.Empty);
             if (!string.IsNullOrWhiteSpace(algorithmName))
             {
-                var initializationVector = portalSettings.GetValueOrDefault(Constants.ClientSecretInitializationVector, string.Empty);
+                var initializationVector = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault(portalSettings, Constants.ClientSecretInitializationVector, string.Empty);
                 clientSecret = this.cryptographyProvider.DecryptString(clientSecret, Config.GetDecryptionkey(), algorithmName, initializationVector);
             }
             else

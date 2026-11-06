@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -16,7 +16,7 @@
 
 
   <ItemGroup>
-    <Reference Include="System.Web" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,7 +28,18 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="WindowsAzure.Storage" />
+    <!-- Cloud SDK Code Changes: Azure Blob Storage -> Amazon S3. Replaces WindowsAzure.Storage.
+         Version comes from Directory.Packages.props (central package management). -->
+    <PackageReference Include="AWSSDK.S3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SharedResources.resx stays in App_LocalResources: Build/BuildScripts/Module.build globs
+         App_LocalResources/*.resx and Package.targets zips it relative to the project directory, so it
+         installs to DesktopModules/Connectors/Azure/App_LocalResources where portal-level and
+         language-pack overrides live. DotNetNuke.Services.Localization.Localization.GetString resolves
+         Constants.LocalResourceFile as a DNN virtual path at runtime, so it must NOT become an embedded
+         resource or an IStringLocalizer. Same decision as the ported MemberDirectory/Groups modules. -->
   </ItemGroup>
 
   <ItemGroup>

@@ -6,7 +6,6 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Components
     using System;
     using System.IO;
     using System.Text;
-    using System.Web.Hosting;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Application;
@@ -96,7 +95,7 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Components
                     case "09.01.01":
                         if (this.RadEditorProviderInstalled())
                         {
-                            UpdateRadCfgFiles();
+                            this.UpdateRadCfgFiles();
                         }
 
                         if (this.TelerikAssemblyExists())
@@ -130,12 +129,6 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Components
             }
 
             return "Success";
-        }
-
-        private static void UpdateRadCfgFiles()
-        {
-            var folder = Path.Combine(HostingEnvironment.ApplicationPhysicalPath, @"DesktopModules\Admin\RadEditorProvider\ConfigFile");
-            UpdateRadCfgFiles(folder, "*ConfigFile*.xml");
         }
 
         private static void UpdateRadCfgFiles(string folder, string mask)
@@ -196,6 +189,22 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Components
         private string UpdateWebConfigFile()
         {
             return this.UpdateTelerikEncryptionKey("Telerik.AsyncUpload.ConfigurationEncryptionKey");
+        }
+
+        /// <summary>Rewrites the RadEditor provider's configuration files.</summary>
+        /// <remarks>
+        /// Was <c>static</c> and read
+        /// <c>System.Web.Hosting.HostingEnvironment.ApplicationPhysicalPath</c>, which does not
+        /// exist on net10.0; the platform's equivalent is
+        /// <see cref="IApplicationStatusInfo.ApplicationMapPath"/>, which this type is already
+        /// injected with, so the method is now an instance method. The relative segments are
+        /// combined with <see cref="Path.Combine(string[])"/> rather than a backslash literal so
+        /// they resolve on a case-sensitive file system too.
+        /// </remarks>
+        private void UpdateRadCfgFiles()
+        {
+            var folder = Path.Combine(this.applicationStatusInfo.ApplicationMapPath, "DesktopModules", "Admin", "RadEditorProvider", "ConfigFile");
+            UpdateRadCfgFiles(folder, "*ConfigFile*.xml");
         }
 
         private string UpdateTelerikEncryptionKey(string keyName)
@@ -267,7 +276,7 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Components
 
         private bool TelerikAssemblyExists()
         {
-            return File.Exists(Path.Combine(HostingEnvironment.ApplicationPhysicalPath, "bin\\Telerik.Web.UI.dll"));
+            return File.Exists(Path.Combine(this.applicationStatusInfo.ApplicationMapPath, "bin", "Telerik.Web.UI.dll"));
         }
     }
 }

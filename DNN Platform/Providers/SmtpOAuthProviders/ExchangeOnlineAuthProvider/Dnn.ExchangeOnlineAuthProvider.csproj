@@ -1,133 +1,141 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
   <PropertyGroup>
-    <Deterministic>true</Deterministic>
-  </PropertyGroup>
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>8.0.30703</ProductVersion>
-    <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{37C3B4D3-AFAD-490B-9541-068A098E846F}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <!-- The net48 project wrote straight to bin\ and Provider.build copies the assembly from
+         there, so the framework sub-folder is suppressed to keep that layout. -->
+    <OutputPath>bin</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Dnn.ExchangeOnlineAuthProvider</RootNamespace>
     <AssemblyName>Dnn.ExchangeOnlineAuthProvider</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
-    <TargetFrameworkProfile />
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Retargeting net48 -> net10.0 newly enables an analyzer wave that reports only code this
+         migration ports VERBATIM. Acting on any of these would change the OAuth credential
+         handling this migration is required to preserve exactly, so they are recorded here as
+         follow-up code-quality debt - the same convention, and the same diagnostic set, as the
+         already-migrated sibling Dnn.GoogleMailAuthProvider.
+
+         CA1305 / CA1863 (specify a culture / cache a CompositeFormat) —
+         Components/ExchangeOnlineOAuthProvider.cs 126:
+         string.Format(Constants.CallbackUrl, siteUrl, portalId). That formatted string IS the
+         redirect URI registered in customers' Microsoft Entra app registrations; adding a format
+         provider or a cached CompositeFormat there would change the URL sent to Microsoft.
+
+         CA1725 (parameter name should match the base declaration) —
+         Services/ServiceRouteMapper.cs 13: IServiceRouteMapper.RegisterRoutes names its parameter
+         mapRouteManager, this implementation names it routeManager. It is the original public
+         signature, shared verbatim with the GoogleMail sibling.
+
+         CA1854 / CA1859 / CA1861 (prefer TryGetValue, use a more derived return type, prefer a
+         static readonly array) — pure micro-optimization suggestions on the ported bodies of
+         ExchangeOnlineOAuthProvider.UpdateHostSettings / UpdatePortalSettings (379, 385, 419,
+         425 - the settings-change detection that drives token invalidation), the
+         IList<SmtpOAuthSetting> returns of GetSettings / GetSettingsFromPortal /
+         GetSettingsFromHost (320) and the route namespace array (ServiceRouteMapper 19), whose
+         values and signatures deliberately mirror the originals.
+
+         Compiler diagnostics (CS*) deliberately remain errors. -->
+    <WarningsNotAsErrors>CA1305,CA1725,CA1854,CA1859,CA1861,CA1863</WarningsNotAsErrors>
+    <!-- Replaces the four per-configuration <DocumentationFile>bin\Dnn.ExchangeOnlineAuthProvider.xml
+         </DocumentationFile> blocks; the generated file keeps the name Provider.build copies. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- SolutionInfo.cs (linked below) carries the shared assembly attributes, as it did on net48;
+         The two attributes the deleted Properties/AssemblyInfo.cs declared (AssemblyTitle and
+         CLSCompliant) are preserved in AssemblyInfo.cs in this folder. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- This is a Razor Class Library of Blazor components (Authorize.razor), not an MVC view
+         assembly. -->
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.ExchangeOnlineAuthProvider.xml</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.ExchangeOnlineAuthProvider.xml</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Cloud_Debug|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Cloud_Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>DEBUG;TRACE;CLOUD;CLOUD_DEBUG</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.ExchangeOnlineAuthProvider.xml</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Cloud_Release|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Cloud_Release' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>TRACE;CLOUD;CLOUD_RELEASE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.ExchangeOnlineAuthProvider.xml</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Drawing" />
-    <Reference Include="System.IdentityModel" />
-    <Reference Include="System.Net" />
-    <Reference Include="System.Net.Http" />
-    <Reference Include="System.Numerics" />
-    <Reference Include="System.Security" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Xml" />
+    <!-- Authorize.razor, the Blazor component that replaced Authorize.aspx, takes its
+         Microsoft.AspNetCore.Components.* types from the shared framework. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
   <ItemGroup>
-    <Compile Include="..\..\..\..\SolutionInfo.cs">
-      <Link>SolutionInfo.cs</Link>
-    </Compile>
-    <Compile Include="Authorize.aspx.cs">
-      <DependentUpon>Authorize.aspx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="Components\Constants.cs" />
-    <Compile Include="Components\ExchangeOnlineOAuthProvider.cs" />
-    <Compile Include="Components\TokenCacheHelper.cs" />
-    <Compile Include="Services\ServiceRouteMapper.cs" />
-    <Compile Include="Services\ServicesController.cs" />
-    <AdditionalFiles Include="..\..\..\..\stylecop.json">
-      <Link>stylecop.json</Link>
-    </AdditionalFiles>
-    <None Include="ExchangeOnlineAuthProvider.dnn" />
-    <Content Include="Authorize.aspx">
-      <SubType>ASPXCodeBehind</SubType>
-    </Content>
-    <Content Include="ILLink\ILLink.Descriptors.LibraryBuild.xml" />
-    <Content Include="license.txt" />
-    <Content Include="releaseNotes.txt" />
-    <None Include="Provider.build" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="App_LocalResources\SharedResources.resx">
-      <SubType>Designer</SubType>
-    </EmbeddedResource>
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj">
-      <Project>{6928a9b1-f88a-4581-a132-d3eb38669bb0}</Project>
-      <Name>DotNetNuke.Abstractions</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\..\DotNetNuke.Web\DotNetNuke.Web.csproj">
-      <Project>{ee1329fe-fd88-4e1a-968c-345e394ef080}</Project>
-      <Name>DotNetNuke.Web</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\..\Library\DotNetNuke.Library.csproj">
-      <Project>{6b29aded-7b56-4484-bea5-c0e09079535b}</Project>
-      <Name>DotNetNuke.Library</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
+    <!-- Version-less on purpose: central package management (Directory.Packages.props) pins
+         Microsoft.Identity.Client, so the whole platform moves in lock step. -->
     <PackageReference Include="Microsoft.Identity.Client" />
   </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
+  <ItemGroup>
+    <!-- Analyzer only (ReferenceOutputAssembly=false): the platform's internal source generators,
+         carried by the migrated sibling providers too. -->
+    <ProjectReference Include="..\..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    <ProjectReference Include="..\..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" Private="false" />
+    <ProjectReference Include="..\..\..\DotNetNuke.Web\DotNetNuke.Web.csproj" Private="false" />
+    <ProjectReference Include="..\..\..\Library\DotNetNuke.Library.csproj" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="..\..\..\..\stylecop.json" Link="stylecop.json" />
+    <Compile Include="..\..\..\..\SolutionInfo.cs" Link="SolutionInfo.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SharedResources.resx keeps its App_LocalResources path: Constants.LocalResourcesFile
+         resolves it at runtime as
+         ~/Providers/SmtpOAuthProviders/ExchangeOnline/App_LocalResources/SharedResources.resx,
+         which is where DNN's file-based Localization.GetString / GetSafeJSString looks and where
+         portal-level overrides and language packs land. It is left to the SDK's default
+         EmbeddedResource glob (listing it again would be a duplicate item); that glob yields the
+         same embedded manifest name the net48 project produced,
+         Dnn.ExchangeOnlineAuthProvider.App_LocalResources.SharedResources.resources. Provider.build
+         additionally packages the loose file into Resources.zip and, for the F5 layout, into the
+         website's extension folder. Culture-specific files must NOT be embedded: MSBuild would turn
+         them into satellite assemblies instead of the loose files DNN reads at runtime. -->
+    <EmbeddedResource Remove="App_LocalResources\*.??-??.resx" />
+    <Content Include="App_LocalResources\*.??-??.resx" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- DNN extension package content (see Provider.build's GetFiles target). The
+         Content Include="Authorize.aspx" item is gone: the page is now a Blazor component
+         compiled into this assembly, so no markup is packaged any more. -->
+    <!-- Packaged, but inert as a trimmer input - exactly as on net48. It is a <Content> item, so
+         it ships inside the extension package; it is NOT fed to ILLink as an
+         @(TrimmerRootDescriptor) because nothing in this repository is published trimmed
+         (no project sets PublishTrimmed, and no project wires descriptor XML). Wiring it would
+         claim a trimming story the platform does not have; see migration-summary.md. -->
+    <Content Include="ILLink\ILLink.Descriptors.LibraryBuild.xml" />
+    <Content Include="js\authorizeInterop.js" />
+    <Content Include="license.txt" />
+    <Content Include="releaseNotes.txt" />
+    <Content Include="Provider.build" />
+    <None Include="ExchangeOnlineAuthProvider.dnn" />
+  </ItemGroup>
+
   <Import Project="Provider.build" />
 </Project>

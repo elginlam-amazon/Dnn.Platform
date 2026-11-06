@@ -30,7 +30,7 @@
                 <moduleControls>
                   <moduleControl>
                     <controlKey/>
-                    <controlSrc>DesktopModules/Admin/HtmlEditorManager/Views/ProviderConfiguration.ascx</controlSrc>
+                    <controlSrc>DesktopModules/Admin/HtmlEditorManager/Views/ProviderConfiguration.razor</controlSrc>
                     <supportsPopUps>True</supportsPopUps>
                     <supportsPartialRendering>True</supportsPartialRendering>
                     <controlTitle>Html Editor Management</controlTitle>

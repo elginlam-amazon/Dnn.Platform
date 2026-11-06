@@ -54,7 +54,12 @@
          already-excluded SA1600.
 
          Compiler diagnostics (CS*) deliberately remain errors. -->
-    <WarningsNotAsErrors>SA1600,SA1201,SA1204,CA1305,CA1304,CA1307,CA1309,CA1310,CA1311,CA1862,CA1865,CA1866,CA1847,CA1707,CA1822,CA1859</WarningsNotAsErrors>
+    <!-- BL0005: CKEditorOptions.razor.cs assigns PortalModuleBase.ModuleConfiguration on
+         the control it loads. That property is now a Blazor parameter - which is what makes the
+         configuration survive the renderer instantiating the control by its type - so assigning
+         it from outside the component reports BL0005. The already migrated Groups, CoreMessaging
+         and RazorHost modules list the id for the same reason. -->
+    <WarningsNotAsErrors>BL0005,SA1600,SA1201,SA1204,CA1305,CA1304,CA1307,CA1309,CA1310,CA1311,CA1862,CA1865,CA1866,CA1847,CA1707,CA1822,CA1859</WarningsNotAsErrors>
     <!-- Replaces the per-configuration <DocumentationFile>bin\...xml</DocumentationFile>; the
          generated file is bin/DNNConnect.CKEditorProvider.xml, which is what Provider.build
          copies to the website. (The Release config used to emit the stale name

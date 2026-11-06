@@ -26,17 +26,26 @@
                         <assembly>
                             <path>bin</path>
                             <name>Google.Apis.Auth.dll</name>
-                            <version>1.69.0</version>
+                            <version>1.78.0</version>
                         </assembly>
                         <assembly>
                             <path>bin</path>
                             <name>Google.Apis.Core.dll</name>
-                            <version>1.69.0</version>
+                            <version>1.78.0</version>
                         </assembly>
                         <assembly>
                             <path>bin</path>
                             <name>Google.Apis.dll</name>
-                            <version>1.69.0</version>
+                            <version>1.78.0</version>
+                        </assembly>
+                        <!-- System.Management was a .NET Framework assembly on net48 (the project
+                             carried <Reference Include="System.Management" />). On modern .NET it
+                             is a NuGet package that Google.Apis.Auth depends on, so it now has to
+                             ship with the extension. -->
+                        <assembly>
+                            <path>bin</path>
+                            <name>System.Management.dll</name>
+                            <version>7.0.2</version>
                         </assembly>
                     </assemblies>
                 </component>
@@ -53,6 +62,13 @@
                         <file>
                             <path>bin</path>
                             <name>Google.Apis.Auth.PlatformServices.dll</name>
+                        </file>
+                        <!-- Authorize.aspx is now the compiled Blazor component Authorize.razor,
+                             which serves the same URL. The stale markup file must be removed on
+                             upgrade so it cannot shadow the component's route. -->
+                        <file>
+                            <path>Providers\SmtpOAuthProviders\GoogleMail</path>
+                            <name>Authorize.aspx</name>
                         </file>
                     </files>
                 </component>

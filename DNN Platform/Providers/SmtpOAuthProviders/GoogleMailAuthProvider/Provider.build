@@ -10,19 +10,29 @@
     <Providers></Providers>
     <InstallPath>$(WebsiteInstallPath)\Provider</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <!-- The file on disk is Package.targets; the lower-case "t" matters on case-sensitive
+       (Linux) file systems, where the old "Package.Targets" spelling fails with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="GetFiles;DebugProject;Package" />
     <Target Name="GetFiles">
     <ItemGroup>
       <TextFiles Include="*.txt" Exclude="license.txt;releasenotes.txt" />
-      <ResourceFiles Include="App_LocalResources\*.resx" />
-      <Controls Include="*.aspx" />
-      <Resources Include="@(ResourceFiles);@(Controls)" />
+      <ResourceFiles Include="App_LocalResources/*.resx" />
+      <!-- @(Controls) is gone: Authorize.aspx is now the Blazor component Authorize.razor,
+           compiled into the assembly, so there is no .aspx markup file to deploy. Its route is
+           still /Providers/SmtpOAuthProviders/GoogleMail/Authorize.aspx, so the callback URL
+           registered with Google is unchanged. The component renders statically, so its
+           window.close() script is plain markup and needs no deployed .js seam either. -->
+      <Resources Include="@(ResourceFiles)" />
     </ItemGroup>
   </Target>
   <Target Name="DebugProject" Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <Copy SourceFiles="$(MSBuildProjectDirectory)/bin$(Providers)/$(AssemblyName).dll" DestinationFolder="$(WebsitePath)/bin$(Providers)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)/bin$(Providers)/$(AssemblyName).pdb" DestinationFolder="$(WebsitePath)/bin$(Providers)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)/bin$(Providers)/$(AssemblyName).xml" DestinationFolder="$(WebsitePath)/bin$(Providers)" />
+    <!-- The localization file must be on disk under the extension's runtime folder:
+         Constants.LocalResourcesFile resolves
+         App_LocalResources/SharedResources.resx there. -->
+    <Copy SourceFiles="@(ResourceFiles)" DestinationFolder="$(WebsitePath)\Providers\SmtpOAuthProviders\GoogleMail\App_LocalResources" />
   </Target>
 </Project>

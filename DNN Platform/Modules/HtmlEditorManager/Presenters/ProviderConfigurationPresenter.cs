@@ -6,17 +6,19 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Presenters
 {
     using System;
     using System.Collections.Generic;
-    using System.IO;
     using System.Linq;
-    using System.Web.UI;
     using System.Xml;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Modules.HtmlEditorManager.ViewModels;
     using DotNetNuke.Modules.HtmlEditorManager.Views;
+    using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI;
+    using DotNetNuke.UI.Utilities;
     using DotNetNuke.Web.Client.ClientResourceManagement;
     using DotNetNuke.Web.Mvp;
     using DotNetNuke.Web.UI;
@@ -61,6 +63,33 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Presenters
             }
         }
 
+        /// <summary>
+        /// Builds the local resource file the loaded provider settings control reads, from the
+        /// virtual path it was loaded from.
+        /// </summary>
+        /// <param name="controlPath">The <c>settingsControlPath</c> the control was loaded from.</param>
+        /// <returns>The extension-less resource file root, e.g. <c>~/Providers/X/App_LocalResources/Y</c>.</returns>
+        /// <remarks>
+        /// Reproduces what <c>PortalModuleBase.LocalResourceFile</c> computed in WebForms from the
+        /// loaded control's own <c>TemplateSourceDirectory</c> and the <c>ID</c> the presenter
+        /// assigned: the directory of <paramref name="controlPath"/>, the
+        /// <c>App_LocalResources</c> folder and the control's file name without its extension.
+        /// </remarks>
+        private static string GetLocalResourceFile(string controlPath)
+        {
+            var normalized = controlPath.Replace('\\', '/');
+            var lastSlash = normalized.LastIndexOf('/');
+            var directory = lastSlash > 0 ? normalized.Substring(0, lastSlash) : string.Empty;
+            var name = normalized.Substring(lastSlash + 1);
+            var dot = name.LastIndexOf('.');
+            if (dot > 0)
+            {
+                name = name.Substring(0, dot);
+            }
+
+            return $"{directory}/{Localization.LocalResourceDirectory}/{name}";
+        }
+
         /// <summary>Handles the Initialize event of the View control.</summary>
         /// <param name="sender">The source of the event.</param>
         /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
@@ -72,13 +101,34 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Presenters
 
             // hack: force DNN to load the Telerik Combobox skin. Needed for the RadEditor provider
             // TODO: Remove as the included file path isn't distributed with installs
-            ClientResourceManager.RegisterStyleSheet(this.View.Editor.Page, "~/Portals/_default/Skins/_default/WebControlSkin/Default/ComboBox.Default.css");
+            // ClientResourceManager.RegisterStyleSheet no longer takes a Page (there are no
+            // WebForms pages on net10.0); HttpContextSource.Current is the DNN accessor for the
+            // request the view is rendered for. The null check matters: View_Initialize also runs
+            // when the component initializes on an interactive circuit, where there is no
+            // HttpContext, and the registration is only meaningful on the render that emits the
+            // page's stylesheets anyway.
+            var context = HttpContextSource.Current;
+            if (context != null)
+            {
+                ClientResourceManager.RegisterStyleSheet(context, "~/Portals/_default/Skins/_default/WebControlSkin/Default/ComboBox.Default.css");
+            }
         }
 
         /// <summary>Loads the current editor.</summary>
         /// <param name="editorName">Name of the editor.</param>
         /// <returns>The editor based on the current editor settings in the web configuration.</returns>
-        private Control LoadCurrentEditor(string editorName)
+        /// <remarks>
+        /// <c>((TemplateControl)this.View).LoadControl(path)</c> compiled the provider's
+        /// <c>.ascx</c> at runtime. ASP.NET Core has no runtime markup compiler, so
+        /// <see cref="ControlUtilities.LoadControl{T}"/> resolves the stored
+        /// <c>settingsControlPath</c> (still the legacy <c>~/...ascx</c> value in
+        /// <c>release.config</c>/<c>development.config</c>, which the resolver accepts by design)
+        /// to the Blazor component that replaced that file and activates it from the request's
+        /// service provider. The loaded control is wrapped in an <see cref="EditorControlHost"/>
+        /// because a <see cref="PortalModuleBase"/> is not part of the DNN component tree and so
+        /// cannot be added to the editor panel's child collection directly.
+        /// </remarks>
+        private IClientApiControl LoadCurrentEditor(string editorName)
         {
             XmlDocument dnnConfiguration = this.DNNConfiguration;
             XmlNode htmlProviderNode = this.GetHtmlEditorProviderNode(dnnConfiguration);
@@ -90,11 +140,22 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Presenters
                 try
                 {
                     var controlPath = settingsAttribute.Value;
-                    var control = (PortalModuleBase)((TemplateControl)this.View).LoadControl(controlPath);
+                    var control = ControlUtilities.LoadControl<PortalModuleBase>(this.View.Editor, controlPath);
                     control.ModuleConfiguration = this.ModuleContext.Configuration;
-                    control.ID = Path.GetFileNameWithoutExtension(controlPath);
+
+                    // control.ID = Path.GetFileNameWithoutExtension(controlPath) existed for one
+                    // reason: PortalModuleBase.LocalResourceFile was built from ControlPath (the
+                    // loaded .ascx's own directory) plus the ID, so the provider's settings control
+                    // read its OWN App_LocalResources file. On net10.0 PortalModuleBase has no ID
+                    // and derives ControlPath from this module's configuration instead of from the
+                    // loaded control's path, which would point a third party provider's
+                    // LocalizeString calls at HtmlEditorManager's resource folder. Assigning
+                    // LocalResourceFile explicitly from controlPath reproduces the original value
+                    // exactly ("<provider dir>/App_LocalResources/<control name>", extension-less,
+                    // as Localization expects).
+                    control.LocalResourceFile = GetLocalResourceFile(controlPath);
                     this.View.Model.CanSave = true;
-                    return control;
+                    return this.HostControl(control);
                 }
                 catch (Exception)
                 {
@@ -103,14 +164,24 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Presenters
             }
 
             // Display a nice message to the user that this provider is not supported.
-            return ((TemplateControl)this.View).LoadControl("~/DesktopModules/Admin/HtmlEditorManager/Controls/InvalidConfiguration.ascx");
+            return this.HostControl(ControlUtilities.LoadControl<PortalModuleBase>(
+                this.View.Editor,
+                "~/DesktopModules/Admin/HtmlEditorManager/Controls/InvalidConfiguration.razor"));
         }
 
         /// <summary>Loads the current editor.</summary>
         /// <returns>The editor based on the current editor settings in the web configuration.</returns>
-        private Control LoadCurrentEditor()
+        private IClientApiControl LoadCurrentEditor()
         {
             return this.LoadCurrentEditor(this.GetSelectedEditor());
+        }
+
+        /// <summary>Wraps a loaded provider settings control so the editor panel can carry it.</summary>
+        /// <param name="control">The loaded control.</param>
+        /// <returns>The holder rendering the control.</returns>
+        private IClientApiControl HostControl(PortalModuleBase control)
+        {
+            return new EditorControlHost { HostedComponent = control };
         }
 
         /// <summary>Handles the Editor was changed event of the View control.</summary>

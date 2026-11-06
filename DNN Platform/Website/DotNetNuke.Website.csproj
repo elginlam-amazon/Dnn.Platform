@@ -3371,6 +3371,20 @@
     <ProjectReference Include="..\Providers\HtmlEditorProviders\DNNConnect.CKE\DNNConnect.CKEditorProvider.csproj">
       <Name>DNNConnect.CKEditorProvider</Name>
     </ProjectReference>
+    <!-- The Google Mail SMTP OAuth provider is a Razor Class Library: the host must reference it
+         so that its routable component (Authorize.razor, the Google OAuth callback URL
+         /Providers/SmtpOAuthProviders/GoogleMail/Authorize.aspx) named from Program.cs is
+         available. -->
+    <ProjectReference Include="..\Providers\SmtpOAuthProviders\GoogleMailAuthProvider\Dnn.GoogleMailAuthProvider.csproj">
+      <Name>Dnn.GoogleMailAuthProvider</Name>
+    </ProjectReference>
+    <!-- The Exchange Online SMTP OAuth provider is a Razor Class Library: the host must reference
+         it so that its routable component (Authorize.razor, the Microsoft Entra OAuth callback
+         URL /Providers/SmtpOAuthProviders/ExchangeOnline/Authorize.aspx) named from Program.cs is
+         available. -->
+    <ProjectReference Include="..\Providers\SmtpOAuthProviders\ExchangeOnlineAuthProvider\Dnn.ExchangeOnlineAuthProvider.csproj">
+      <Name>Dnn.ExchangeOnlineAuthProvider</Name>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <Content Include="DesktopModules\Admin\EditExtension\App_LocalResources\AuthenticationEditor.ascx.resx" />

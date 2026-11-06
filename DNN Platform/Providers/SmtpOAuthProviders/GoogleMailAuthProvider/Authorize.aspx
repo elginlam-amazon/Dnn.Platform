@@ -1,1 +1,0 @@
-<%@ Page Language="C#" AutoEventWireup="false" Inherits="Dnn.GoogleMailAuthProvider.Authorize, Dnn.GoogleMailAuthProvider" CodeBehind="Authorize.aspx.cs" Async="true" %>
