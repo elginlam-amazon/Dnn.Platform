@@ -1,29 +1,37 @@
-﻿@using DotNetNuke.Collections
+@using DotNetNuke.Collections
 @using DotNetNuke.Web.Mvc.Helpers
 @inherits DotNetNuke.Web.Mvc.Framework.DnnWebViewPage<DotNetNuke.Collections.IPagedList<Dnn.ContactList.Api.Contact>>
 
+@{
+    // ASP.NET Core Razor injects `IHtmlHelper<dynamic> Html` and `IUrlHelper Url` into every
+    // generated view class; those hide the DNN helpers declared on DnnWebViewPage<TModel>
+    // (DnnHtmlHelper<TModel> / DnnUrlHelper). Alias the base members so this view keeps using the
+    // module-aware DNN helpers it used through WebViewPage on MVC 5.
+    var dnnHtml = base.Html;
+    var dnnUrl = base.Url;
+}
 <div class="contactList-container">
     <div class="contactList-grid">
     @foreach (var contact in Model)
     {
-        Html.RenderPartial("_ContactPartial", contact, null);
+        dnnHtml.RenderPartial("_ContactPartial", contact, null);
     }
     </div>
     <div class="contactList-pagination">
         @if (Model.HasPreviousPage)
         {
-            <a href="@Url.Action("Index", "Contact", new {pageIndex = Model.PageIndex - 1})" class="pagination-btn"><i class="fa fa-arrow-left"></i></a>
+            <a href="@dnnUrl.Action("Index", "Contact", new {pageIndex = Model.PageIndex - 1})" class="pagination-btn"><i class="fa fa-arrow-left"></i></a>
         }
-        <span class="pagination-text">@Dnn.LocalizeString("PageOf").Replace("[PageIndex]", (@Model.PageIndex + 1).ToString()).Replace("[PageCount]", @Model.PageCount.ToString())</span>
+        <span class="pagination-text">@Dnn.LocalizeString("PageOf").Replace("[PageIndex]", (Model.PageIndex + 1).ToString()).Replace("[PageCount]", Model.PageCount.ToString())</span>
         @if (Model.HasNextPage)
         {
-            <a href="@Url.Action("Index", "Contact", new {pageIndex = Model.PageIndex + 1})" class="pagination-btn"><i class="fa fa-arrow-right"></i></a>
+            <a href="@dnnUrl.Action("Index", "Contact", new {pageIndex = Model.PageIndex + 1})" class="pagination-btn"><i class="fa fa-arrow-right"></i></a>
         }
     </div>
-    @if (@Dnn.ModuleContext.IsEditable && Convert.ToBoolean(Dnn.ModuleContext.Configuration.ModuleSettings.GetValueOrDefault("AllowContactCreation", false)))
+    @if (Dnn.ModuleContext.IsEditable && Convert.ToBoolean(Dnn.ModuleContext.Configuration.ModuleSettings.GetValueOrDefault("AllowContactCreation", false)))
     {
         <div class="buttons">
-            <a class="dnnPrimaryAction" href="@Url.Action("Edit", new {ctl = "Edit"})">@Dnn.LocalizeString("AddContact")</a>
+            <a class="dnnPrimaryAction" href="@dnnUrl.Action("Edit", new {ctl = "Edit"})">@Dnn.LocalizeString("AddContact")</a>
         </div>
     }
 </div>
@@ -47,10 +55,10 @@
                     }
                 })
                     .done(function(data) {
-                        $('@Html.Raw("#jsonresult_userid_" + Dnn.ModuleContext.ModuleId)').html(data.UserID);
-                        $('@Html.Raw("#jsonresult_portalid_" + Dnn.ModuleContext.ModuleId)').html(data.PortalId);
-                        $('@Html.Raw("#jsonresult_alias_" + Dnn.ModuleContext.ModuleId)').html(data.Alias);
-                        $('@Html.Raw("#jsonresult_time_" + Dnn.ModuleContext.ModuleId)').html(data.Time);
+                        $('@dnnHtml.Raw("#jsonresult_userid_" + Dnn.ModuleContext.ModuleId)').html(data.UserID);
+                        $('@dnnHtml.Raw("#jsonresult_portalid_" + Dnn.ModuleContext.ModuleId)').html(data.PortalId);
+                        $('@dnnHtml.Raw("#jsonresult_alias_" + Dnn.ModuleContext.ModuleId)').html(data.Alias);
+                        $('@dnnHtml.Raw("#jsonresult_time_" + Dnn.ModuleContext.ModuleId)').html(data.Time);
                     });
             }
             var partialResult = function() {
@@ -65,7 +73,7 @@
                 })
                     .done(function(data) {
                         if (console && console.log) {
-                            $('@Html.Raw("#partialupdates" + Dnn.ModuleContext.ModuleId)').html(data);
+                            $('@dnnHtml.Raw("#partialupdates" + Dnn.ModuleContext.ModuleId)').html(data);
                         }
                     });
             }
@@ -84,13 +92,13 @@
 }
 <h2>Return Partial and Json Demo</h2>
 <h5>Partial View</h5>
-<div id='@Html.Raw("partialupdates" + Dnn.ModuleContext.ModuleId)'></div>
+<div id='@dnnHtml.Raw("partialupdates" + Dnn.ModuleContext.ModuleId)'></div>
 <h5>Json Result</h5>
-<div id='@Html.Raw("jsonupdates" + Dnn.ModuleContext.ModuleId)'>
-    <div>Current User Id: <span id='@Html.Raw("jsonresult_userid_" + Dnn.ModuleContext.ModuleId)'></span></div>
-    <div>Portal Id: <span id='@Html.Raw("jsonresult_portalid_" + Dnn.ModuleContext.ModuleId)'></span></div>
-    <div>Portal Alias: <span id='@Html.Raw("jsonresult_alias_" + Dnn.ModuleContext.ModuleId)'></span></div>
-    <div>Current Time: <span id='@Html.Raw("jsonresult_time_" + Dnn.ModuleContext.ModuleId)'></span></div>
+<div id='@dnnHtml.Raw("jsonupdates" + Dnn.ModuleContext.ModuleId)'>
+    <div>Current User Id: <span id='@dnnHtml.Raw("jsonresult_userid_" + Dnn.ModuleContext.ModuleId)'></span></div>
+    <div>Portal Id: <span id='@dnnHtml.Raw("jsonresult_portalid_" + Dnn.ModuleContext.ModuleId)'></span></div>
+    <div>Portal Alias: <span id='@dnnHtml.Raw("jsonresult_alias_" + Dnn.ModuleContext.ModuleId)'></span></div>
+    <div>Current Time: <span id='@dnnHtml.Raw("jsonresult_time_" + Dnn.ModuleContext.ModuleId)'></span></div>
 </div>
 <h6>Update happens every 10 secs.</h6>
 <div>(View calls in browser's network tab for more details)</div>

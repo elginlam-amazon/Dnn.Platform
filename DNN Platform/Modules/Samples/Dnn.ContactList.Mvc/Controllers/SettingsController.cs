@@ -2,7 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
-using System.Web.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Dnn.ContactList.Mvc.Models;
 using DotNetNuke.Collections;
 using DotNetNuke.Security;
@@ -37,7 +37,9 @@ namespace Dnn.ContactList.Mvc.Controllers
         /// <param name="settings"></param>
         /// <returns></returns>
         [HttpPost]
-        [ValidateInput(false)]
+
+        // MVC 5's [ValidateInput(false)] turned off ASP.NET request validation. ASP.NET Core has no
+        // request validation to switch off; DnnController.ValidateRequest carries the flag for module code.
         [DotNetNuke.Web.Mvc.Framework.ActionFilters.ValidateAntiForgeryToken]
         public ActionResult Index(Settings settings)
         {

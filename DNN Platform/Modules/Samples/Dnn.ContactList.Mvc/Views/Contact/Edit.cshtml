@@ -1,8 +1,16 @@
-﻿@inherits DotNetNuke.Web.Mvc.Framework.DnnWebViewPage<Dnn.ContactList.Api.Contact>
+@inherits DotNetNuke.Web.Mvc.Framework.DnnWebViewPage<Dnn.ContactList.Api.Contact>
 
 @using DotNetNuke.Services.Localization
 @using DotNetNuke.Web.Mvc.Helpers
 
+@{
+    // ASP.NET Core Razor injects `IHtmlHelper<dynamic> Html` and `IUrlHelper Url` into every
+    // generated view class; those hide the DNN helpers declared on DnnWebViewPage<TModel>
+    // (DnnHtmlHelper<TModel> / DnnUrlHelper). Alias the base members so this view keeps using the
+    // module-aware DNN helpers it used through WebViewPage on MVC 5.
+    var dnnHtml = base.Html;
+    var dnnUrl = base.Url;
+}
 <div class="contactEdit-container">
     <div class="contactEdit-header">
         <div class="contactEdit-logo">
@@ -25,8 +33,8 @@
                     <i class="fa fa-user"></i>
                     @Dnn.LocalizeString("FirstName") <span class="required">*</span>
                 </label>
-                @Html.TextBoxFor(m => m.FirstName, new { @class = "form-input", placeholder = "Enter first name" })
-                @Html.ValidationMessageFor(m => m.FirstName, @Dnn.LocalizeString("FirstNameRequired"))
+                @dnnHtml.TextBoxFor(m => m.FirstName, new { @class = "form-input", placeholder = "Enter first name" })
+                @dnnHtml.ValidationMessageFor(m => m.FirstName, Dnn.LocalizeString("FirstNameRequired"))
             </div>
 
             <div class="form-group">
@@ -34,8 +42,8 @@
                     <i class="fa fa-user"></i>
                     @Dnn.LocalizeString("LastName") <span class="required">*</span>
                 </label>
-                @Html.TextBoxFor(m => m.LastName, new { @class = "form-input", placeholder = "Enter last name" })
-                @Html.ValidationMessageFor(m => m.LastName, @Dnn.LocalizeString("LastNameRequired"))
+                @dnnHtml.TextBoxFor(m => m.LastName, new { @class = "form-input", placeholder = "Enter last name" })
+                @dnnHtml.ValidationMessageFor(m => m.LastName, Dnn.LocalizeString("LastNameRequired"))
             </div>
         </div>
 
@@ -44,8 +52,8 @@
                 <i class="fa fa-envelope"></i>
                 @Dnn.LocalizeString("Email") <span class="required">*</span>
             </label>
-            @Html.TextBoxFor(m => m.Email, new { @class = "form-input", placeholder = "email@example.com", type = "email" })
-            @Html.ValidationMessageFor(m => m.Email, @Dnn.LocalizeString("EmailRequired"))
+            @dnnHtml.TextBoxFor(m => m.Email, new { @class = "form-input", placeholder = "email@example.com", type = "email" })
+            @dnnHtml.ValidationMessageFor(m => m.Email, Dnn.LocalizeString("EmailRequired"))
         </div>
 
         <div class="form-group">
@@ -53,8 +61,8 @@
                 <i class="fa fa-phone"></i>
                 @Dnn.LocalizeString("Phone") <span class="required">*</span>
             </label>
-            @Html.TextBoxFor(m => m.Phone, new { @class = "form-input", placeholder = "+1 555-123-4567", type = "tel" })
-            @Html.ValidationMessageFor(m => m.Phone, @Dnn.LocalizeString("PhoneRequired"))
+            @dnnHtml.TextBoxFor(m => m.Phone, new { @class = "form-input", placeholder = "+1 555-123-4567", type = "tel" })
+            @dnnHtml.ValidationMessageFor(m => m.Phone, Dnn.LocalizeString("PhoneRequired"))
         </div>
 
         <div class="form-group">
@@ -62,8 +70,8 @@
                 <i class="fa fa-twitter"></i>
                 @Dnn.LocalizeString("Social")
             </label>
-            @Html.TextBoxFor(m => m.Social, new { @class = "form-input", placeholder = "@username or profile URL" })
-            @Html.ValidationMessageFor(m => m.Social, @Dnn.LocalizeString("SocialRequired"))
+            @dnnHtml.TextBoxFor(m => m.Social, new { @class = "form-input", placeholder = "@username or profile URL" })
+            @dnnHtml.ValidationMessageFor(m => m.Social, Dnn.LocalizeString("SocialRequired"))
         </div>
 
         <div class="form-actions">
@@ -71,7 +79,7 @@
                 <i class="fa fa-save"></i>
                 @Dnn.LocalizeString("Save")
             </button>
-            <a href="@Url.Action("Index", "Contact")" class="btn-secondary">
+            <a href="@dnnUrl.Action("Index", "Contact")" class="btn-secondary">
                 <i class="fa fa-times"></i>
                 Cancel
             </a>

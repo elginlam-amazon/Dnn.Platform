@@ -1,0 +1,11 @@
+@* ASP.NET Core Razor replacement for the net48 web.config <namespaces> section: module views are
+   compiled at runtime and inherit no implicit namespaces, so the ones the views rely on are
+   declared here. *@
+@using System
+@using System.Linq
+@using Dnn.ContactList.Api
+@using Dnn.ContactList.Mvc.Models
+@using DotNetNuke.Collections
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Web.Mvc.Helpers
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers

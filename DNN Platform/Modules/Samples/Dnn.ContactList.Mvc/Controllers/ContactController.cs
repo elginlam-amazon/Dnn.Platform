@@ -3,7 +3,8 @@
 // See the LICENSE file in the project root for more information
 
 using System;
-using System.Web.Mvc;
+using System.Text.Json;
+using Microsoft.AspNetCore.Mvc;
 using Dnn.ContactList.Api;
 using DotNetNuke.Collections;
 using DotNetNuke.Common;
@@ -118,17 +119,19 @@ namespace Dnn.ContactList.Mvc.Controllers
 
         public JsonResult GetJsonResult()
         {
-            return new JsonResult()
-            {
-                Data = new
+            // MVC 5 returned `new JsonResult { Data = ..., JsonRequestBehavior = AllowGet }`.
+            // ASP.NET Core allows JSON on GET by default, so JsonRequestBehavior is dropped.
+            // The serializer options keep the original PascalCase property names, because
+            // Views/Contact/Index.cshtml reads data.UserID, data.PortalId, data.Alias and data.Time.
+            return this.Json(
+                new
                 {
                     User.UserID,
                     PortalSettings.PortalId,
                     Alias = PortalSettings.PortalAlias.HTTPAlias,
                     Time = DateTime.Now.ToString("HH:mm:ss ttt")
                 },
-                JsonRequestBehavior = JsonRequestBehavior.AllowGet
-            };
+                new JsonSerializerOptions { PropertyNamingPolicy = null });
         }
 
         public ActionResult GetDemoPartial()

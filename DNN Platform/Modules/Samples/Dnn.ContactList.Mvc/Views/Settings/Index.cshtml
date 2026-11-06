@@ -1,20 +1,28 @@
-﻿@inherits DotNetNuke.Web.Mvc.Framework.DnnWebViewPage<Dnn.ContactList.Mvc.Models.Settings>
+@inherits DotNetNuke.Web.Mvc.Framework.DnnWebViewPage<Dnn.ContactList.Mvc.Models.Settings>
 
 @using DotNetNuke.Web.Mvc.Helpers
 
+@{
+    // ASP.NET Core Razor injects `IHtmlHelper<dynamic> Html` and `IUrlHelper Url` into every
+    // generated view class; those hide the DNN helpers declared on DnnWebViewPage<TModel>
+    // (DnnHtmlHelper<TModel> / DnnUrlHelper). Alias the base members so this view keeps using the
+    // module-aware DNN helpers it used through WebViewPage on MVC 5.
+    var dnnHtml = base.Html;
+    var dnnUrl = base.Url;
+}
 <h2>Contact List Settings</h2>
 
 <fieldset>
     <div class="dnnFormItem">
 
         <div class="dnnLabel" style="position: relative;">
-            @Html.LabelFor(m => Model.PageSize, new { @class = "col-md-2 control-label" })
+            @dnnHtml.LabelFor(m => m.PageSize, new { @class = "col-md-2 control-label" })
         </div>
-        @Html.TextBoxFor(m => Model.PageSize, new { id = "PageSize" })
+        @dnnHtml.TextBoxFor(m => m.PageSize, new { id = "PageSize" })
         <br/>
         <div class="dnnLabel" style="position: relative;">
-            @Html.LabelFor(m => Model.AllowContactCreation, new { @class = "col-md-2 control-label" })
+            @dnnHtml.LabelFor(m => m.AllowContactCreation, new { @class = "col-md-2 control-label" })
         </div>
-        @Html.CheckBoxFor(m => Model.AllowContactCreation, new { id = "AllowContactCreation" })
+        @dnnHtml.CheckBoxFor(m => m.AllowContactCreation, new { id = "AllowContactCreation" })
     </div>
 </fieldset>
