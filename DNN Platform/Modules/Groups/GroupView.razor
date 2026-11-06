@@ -1,0 +1,126 @@
+﻿@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Groups
+@inherits DotNetNuke.Modules.Groups.GroupsModuleBase
+
+@*
+    No per-page @rendermode is declared on purpose. This component is a descendant of
+    <Routes @rendermode="InteractiveServer"> in the host document (Website/Components/App.razor),
+    so its @onclick/@onchange handlers are interactive without — and must not repeat — a
+    per-page directive. This is the convention the already-migrated DNNConnect.CKE and DDRMenu
+    components follow.
+*@
+
+@using DotNetNuke.UI.Skins
+@using DotNetNuke.UI.Skins.Controls
+@using Microsoft.JSInterop
+
+@*
+    Replaces GroupView.ascx and GroupView.ascx.cs.
+
+    The <asp:Literal ID="litOutput" /> wrote the parsed group view template as raw HTML, so it
+    becomes a MarkupString here; the "dnnClear" divider after it is unchanged.
+
+    The inline <script> block the original emitted inside "<% if (Request.IsAuthenticated) { %>"
+    now lives in js/groupViewInterop.js: a Blazor render cannot execute a <script> element it
+    writes, so the module is imported and invoked through IJSRuntime after the first render. The
+    authenticated gate is preserved around that call (GroupsModuleBase.IsAuthenticated is the
+    migrated Request.IsAuthenticated).
+*@
+
+@((MarkupString)this.output)
+
+<div class="dnnClear"></div>
+
+@code {
+    private string output = string.Empty;
+
+    /// <summary>Gets or sets the JavaScript runtime the join/leave handlers are wired through.</summary>
+    [Inject]
+    protected IJSRuntime JsRuntime { get; set; }
+
+    /// <inheritdoc />
+    /// <remarks>This is Page_Load of GroupView.ascx.cs, unchanged.</remarks>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        RoleInfo role = RoleController.Instance.GetRole(this.PortalId, r => r.SecurityMode != SecurityMode.SecurityRole && r.RoleID == this.GroupId);
+        if (role == null && this.GroupId > 0)
+        {
+            Skin.AddModuleMessage(this, Localization.GetString("GroupIdNotFound", Constants.SharedResourcesPath), ModuleMessage.ModuleMessageType.YellowWarning);
+        }
+
+        if (role == null && (this.UserInfo.IsInRole(this.PortalSettings.AdministratorRoleName) || this.UserInfo.IsSuperUser))
+        {
+            role = new RoleInfo();
+            role.RoleID = -1;
+            role.RoleName = Localization.GetString("Sample_RoleName", this.LocalResourceFile);
+            role.Description = Localization.GetString("Sample_RoleDescription", this.LocalResourceFile);
+        }
+
+        if (role == null)
+        {
+            this.output = string.Empty;
+        }
+        else
+        {
+            var resxPath = Constants.SharedResourcesPath;
+
+            var template = this.GroupViewTemplate;
+            template = template.Replace("{resx:posts}", Localization.GetString("posts", resxPath));
+            template = template.Replace("{resx:members}", Localization.GetString("members", resxPath));
+            template = template.Replace("{resx:photos}", Localization.GetString("photos", resxPath));
+            template = template.Replace("{resx:documents}", Localization.GetString("documents", resxPath));
+
+            template = template.Replace("{resx:Join}", Localization.GetString("Join", resxPath));
+            template = template.Replace("{resx:JoinGroup}", Localization.GetString("JoinGroup", resxPath));
+            template = template.Replace("{resx:Pending}", Localization.GetString("Pending", resxPath));
+            template = template.Replace("{resx:LeaveGroup}", Localization.GetString("LeaveGroup", resxPath));
+            template = template.Replace("{resx:EditGroup}", Localization.GetString("EditGroup", resxPath));
+            template = template.Replace("[GroupViewTabId]", this.GroupViewTabId.ToString());
+
+            var groupParser = new GroupViewParser(this.PortalSettings, role, this.UserInfo, template, this.TabId);
+            groupParser.GroupEditUrl = this.GetEditUrl();
+
+            this.output = groupParser.ParseView();
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Runs the join/leave client script the original emitted inline, still only for an
+    /// authenticated user.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender || !this.IsAuthenticated)
+        {
+            return;
+        }
+
+        IJSObjectReference module;
+        try
+        {
+            module = await this.JsRuntime.InvokeAsync<IJSObjectReference>(
+                "import", Globals.ResolveUrl(Constants.ModulePath + "js/groupViewInterop.js"));
+        }
+        catch (JSException)
+        {
+            // the extension's assets are not reachable; the view degrades to plain markup.
+            return;
+        }
+
+        await module.InvokeVoidAsync(
+            "initGroupView",
+            new
+            {
+                groupId = this.GroupId,
+                moduleId = this.ModuleId,
+                pendingText = this.LocalizeText("Pending"),
+            });
+    }
+}

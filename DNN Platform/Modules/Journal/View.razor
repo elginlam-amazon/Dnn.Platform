@@ -1,0 +1,242 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Journal
+@using DotNetNuke.Modules.Journal.Controls
+@inherits DotNetNuke.Modules.Journal.JournalModuleBase
+
+@*
+    Replaces View.ascx, element for element.
+
+    - <%: LocalizeText("x") %>            -> @this.LocalizeText("x")      (both HTML-encode)
+    - <%: LocalizeJsString("x") %>        -> @this.JsString("x")          (emitted verbatim, as
+                                             <%: %> did for an IHtmlContent, so the JS escaping is
+                                             not HTML-encoded on top)
+    - <%: JavaScriptStringEncode(v) %>    -> @this.JsEncode(v)
+    - <% if (...) { %> … <% } %>          -> @if (…) { … }
+    - <%@ Import Namespace="System.Web.Configuration" %> is gone: the directive was unused, and
+      System.Web does not exist on modern .NET.
+    - The three <dnn:DnnJsInclude>/<dnn:DnnCssInclude> tags are IClientResourceController
+      registrations in View.razor.cs (same FilePath, same Priority 102/105); a Razor component
+      cannot host a tag helper.
+    - <dnnj:JournalListControl ID="ctlJournalList" runat="server"/> is rendered below as a real
+      child component. The ctlJournalList field View.razor.cs creates and configures carries the
+      values the .ascx.cs assigned; they are passed through as parameters, so the component is
+      attached to the renderer and DnnComponentBase's lifecycle (which captures the request)
+      actually runs for it. Rendering a detached instance would leave its captured request null
+      and force it to read ambient statics on every re-render.
+
+    The inline <script> block is kept inline, where the .ascx had it, so the module's HTML is
+    unchanged: it is emitted by the component's first (pre)render, which is part of the HTML
+    response the browser parses, so it runs exactly once at page load as it did before. It is not
+    re-emitted by later renders, so it cannot run twice.
+*@
+
+<div id="userFileManager"></div>
+
+@if (this.ShowEditor)
+{
+    <div class="journalTools">
+        <div id="journalEditor">
+            <div id="journalClose"></div>
+            <textarea id="journalContent" aria-label="Content"></textarea>
+            <div id="tbar">
+                <span id="tbar-perm"></span>
+                @if (this.AllowFiles)
+                {
+                    <span id="tbar-attach"></span>
+                }
+                @if (this.AllowPhotos)
+                {
+                    <span id="tbar-photo"></span>
+                }
+                <div class="securityMenu dnnClear">
+                    <div class="handle"></div>
+                    <ul>
+                        <li><b>@this.LocalizeText("WhoWillSee.Text")</b></li>
+                        @if (this.IsGroup && !this.IsPublicGroup)
+                        {
+                            <li><input type="radio" name="privacy" value="R" checked="checked" aria-label="Security" />@this.LocalizeText("GroupMembers.Text")</li>
+                        }
+                        else
+                        {
+                            <li><input type="radio" name="privacy" value="E" checked="checked" aria-label="Security" />@this.LocalizeText("Everyone.Text")</li>
+                            <li><input type="radio" name="privacy" value="C" aria-label="Security" />@this.LocalizeText("Community.Text")</li>
+                            <li><input type="radio" name="privacy" value="F" aria-label="Security" />@this.LocalizeText("Friends.Text")</li>
+                            @if (!this.IsGroup)
+                            {
+                                <li><input type="radio" name="privacy" value="U" aria-label="Security" />@this.LocalizeText("Private.Text")</li>
+                            }
+                        }
+                    </ul>
+                </div>
+            </div>
+            <a href="#" id="btnShare" aria-label="Share">@this.LocalizeText("Share.Text")</a>
+            <div id="journalPlaceholder">@this.LocalizeText("SharePlaceHolder.Text")</div>
+            <div class="dnnClear"></div>
+        </div>
+        <div id="journalOptionArea">
+            @if (this.AllowFiles || this.AllowPhotos)
+            {
+                <div class="fileUploadArea">
+                    <div class="jpa" id="tbar-attach-Area">
+                        <div class="journal_onlineFileShare">
+                            <span id="tbar-photoText">@this.LocalizeText("SelectPhoto.Text")</span>
+                            <span id="tbar-fileText">@this.LocalizeText("SelectFile.Text")</span>
+                            <div>
+                                <a href="javascript:void(0)" id="photoFromSite" class="dnnSecondaryAction">@this.LocalizeText("BrowseFromSite.Text")</a>
+                            </div>
+                        </div>
+                        <div class="journal_localFileShare">
+                            <span class="browser-upload-btn">@this.LocalizeText("UploadFromLocal.Text")</span>
+                            <input id="uploadFileId" type="file" name="files[]" aria-label="Upload" />
+                        </div>
+                        <div style="clear:both; padding: 0; margin: 0;"></div>
+                    </div>
+                    <div id="itemUpload">
+                        <div class="fileupload-error dnnFormMessage dnnFormValidationSummary" style="display:none;"></div>
+                        <div class="progress_bar_wrapper">
+                            <div class="progress_context" style="margin:10px 0px; display:none;">
+                                <div class="upload_file_name" style="margin-top:5px; margin-bottom:-5px;"></div>
+                                <div class="progress-bar green">
+                                    <div style="width:0px;">
+                                        <span></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="filePreviewArea"></div>
+                    </div>
+                </div>
+            }
+            <div class="jpa" id="linkArea">
+                <div id="linkClose"></div>
+                <div id="imagePreviewer">
+                    <div id="image">
+                        <img src='' alt="Preview" />
+                    </div>
+                    <span id="imgPrev">&lt;&lt;</span><span id="imgCount">1 @this.LocalizeText("Of.Text") 10</span><span id="imgNext">&gt;&gt;</span>
+                </div>
+                <div id="linkInfo">
+                    <b></b>
+                    <p></p>
+                </div>
+                <div class="dnnClear"></div>
+            </div>
+        </div>
+    </div>
+    <div class="dnnClear"></div>
+}
+
+<div id="journalItems">
+    <JournalListControl Enabled="this.ctlJournalList.Enabled"
+                        ModuleId="this.ctlJournalList.ModuleId"
+                        PageSize="this.ctlJournalList.PageSize"
+                        ProfileId="this.ctlJournalList.ProfileId"
+                        SocialGroupId="this.ctlJournalList.SocialGroupId"
+                        CurrentIndex="this.ctlJournalList.CurrentIndex" />
+</div>
+<a href="#" style="display:none;" id="getMore" class="dnnPrimaryAction">@this.LocalizeText("GetMore.Text")</a>
+
+<script type="text/javascript">
+    var InputFileNS = {};
+    InputFileNS.initilizeInput = function() {
+        var $fileUpload = $('.fileUploadArea :file');
+        $fileUpload.data("text", '@this.JsString("ChooseFile.Text")');
+        $fileUpload.dnnFileInput();
+    };
+    $(document).ready(function () {
+        InputFileNS.initilizeInput();
+    });
+
+    var pagesize = @this.PageSize;
+    var profilePage ='@this.ProfilePage';
+    var maxlength = @this.MaxMessageLength;
+
+    var baseUrl = '@this.BaseUrlJs';
+    var resxLike ='@this.JsString("{resx:like}")';
+    var resxUnLike ='@this.JsString("{resx:unlike}")';
+
+    var pid = @this.Pid;
+    var gid = @this.Gid;
+    var ispublicgroup = @(this.IsPublicGroup ? "true" : "false");
+
+    var journalOptions = {};
+    journalOptions.servicesFramework = $.ServicesFramework(@this.ModuleId);
+    journalOptions.confirmText = '@this.JsString("DeleteItem")';
+    journalOptions.yesText = '@this.JsString("Yes.Text")';
+    journalOptions.noText = '@this.JsString("No.Text")';
+    journalOptions.title = '@this.JsString("Confirm.Text")';
+    journalOptions.imageTypes = '@this.ImageFileTypesJs';
+
+    var commentOpts = {};
+    commentOpts.servicesFramework = $.ServicesFramework(@this.ModuleId);
+
+    pluginInit();
+
+    function setupJournal() {
+        var sf = journalOptions.servicesFramework;
+        var journalServiceBase = sf.getServiceRoot('Journal');
+
+        $('.juser').click(function() {
+            var uid =  $(this).attr('id').replace('user-', '');
+            window.location.href = profilePage.replace('xxx',uid);
+        });
+        var maxUploadSize = @this.MaxUploadSize;
+
+        $('.fileUploadArea').dnnUserFileUpload({
+            maxFileSize: maxUploadSize,
+            serverErrorMessage: '@this.JsString("ServerError.Text")',
+            addImageServiceUrl: journalServiceBase + 'FileUpload/UploadFile',
+            beforeSend: sf.setModuleHeaders,
+            callback: function (result) {
+                if (IsImage(result.extension)) {
+                    attachPhoto(result.file_id, result.url, true);
+                }else{
+                    attachPhoto(result.file_id, result.thumbnail_url, false);
+                }
+            },
+            complete: function () {
+                InputFileNS.initilizeInput();
+            }
+        });
+        var jopts = {};
+        jopts.maxLength = maxlength;
+        jopts.servicesFramework = sf;
+        $('body').journalTools(jopts);
+
+        $('#userFileManager').userFileManager({
+            title: '@this.JsString("Title.Text")',
+            cancelText: '@this.JsString("Cancel.Text")',
+            attachText: '@this.JsString("Attach.Text")',
+            getItemsServiceUrl: sf.getServiceRoot('InternalServices') + 'UserFile/GetItems',
+            nameHeaderText: '@this.JsString("Name.Header")',
+            typeHeaderText: '@this.JsString("Type.Header")',
+            lastModifiedHeaderText: '@this.JsString("LastModified.Header")',
+            fileSizeText: '@this.JsString("FileSize.Header")',
+            templatePath: '@this.UserFileManagerTemplatePathJs',
+            templateName: 'Default',
+            templateExtension: '.html',
+            attachCallback: function(file) {
+                if (IsImage(file.type)) {
+                    attachPhoto(file.id, file.thumb_url, true);
+                } else {
+                    attachPhoto(file.id, file.thumb_url, false);
+                }
+            }
+        });
+
+        var opts = {};
+        opts.textareaSelector = '#journalContent';
+        opts.clearPreviewSelector = '#linkClose';
+        opts.previewSelector = '#linkArea';
+        opts.servicesFramework = sf;
+
+        $('body').previewify(opts);
+    }
+
+    $(document).ready(function () {
+        setupJournal();
+    });
+</script>

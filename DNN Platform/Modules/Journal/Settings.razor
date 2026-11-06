@@ -1,0 +1,90 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Journal
+@inherits DotNetNuke.Modules.Journal.JournalSettingsBase
+@using System
+@using DotNetNuke.UI.UserControls
+@using Microsoft.AspNetCore.Components
+
+@*
+    Replaces Settings.ascx.
+
+    - <%@ Register TagPrefix="dnn" TagName="Label" Src="~/controls/LabelControl.ascx" %> becomes
+      the migrated <LabelControl> component (DotNetNuke.UI.UserControls), with the same
+      ControlName/ResourceKey/Suffix values, so every label resolves the same resource keys
+      (EnableEditor, AllowFiles, AllowPhotos, AllowResize, DefaultPageSize, MaxMessageLength,
+      JournalFilters) out of Resources/Settings.resx.
+    - each <asp:CheckBox> is a checkbox input keeping the server control's ID as its element id
+      (which is what the inline script addressed through ClientID) bound to the matching
+      *Checked/*Enabled state in Settings.razor.cs.
+    - the two <asp:DropDownList>s keep their declared item values; the selected index is the
+      SelectedIndex the code behind sets.
+    - the <asp:CheckBoxList ID="chkJournalFilters"> renders one checkbox per journal type, bound to
+      the Selected flag of the same item list LoadSettings/UpdateSettings walk.
+    - the inline <script> that enabled/disabled the file, photo and resize check boxes is gone: it
+      only mirrored server state in the browser, and the component does it directly through
+      OnEnableEditorChanged/OnAllowPhotosChanged, which run on the same two change events.
+*@
+
+<style>
+    .dnnFormItem td label{white-space:nowrap;text-align:left;}
+</style>
+<div class="dnnFormItem">
+    <LabelControl ControlName="chkEnableEditor" ResourceKey="EnableEditor" Text="Enable Editor" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <input type="checkbox" id="chkEnableEditor" checked="@this.EnableEditorChecked"
+           @onchange="(ChangeEventArgs args) => { this.EnableEditorChecked = Convert.ToBoolean(args.Value); this.OnEnableEditorChanged(); }" />
+</div>
+<div class="dnnFormItem">
+    <LabelControl ControlName="chkAllowFiles" ResourceKey="AllowFiles" Text="Allow Files" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <input type="checkbox" id="chkAllowFiles" checked="@this.AllowFilesChecked" disabled="@(!this.AllowFilesEnabled)"
+           @onchange="(ChangeEventArgs args) => { this.AllowFilesChecked = Convert.ToBoolean(args.Value); }" />
+</div>
+
+<div class="dnnFormItem">
+    <LabelControl ControlName="chkAllowPhotos" ResourceKey="AllowPhotos" Text="Allow Photos" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <input type="checkbox" id="chkAllowPhotos" checked="@this.AllowPhotosChecked" disabled="@(!this.AllowPhotosEnabled)"
+           @onchange="(ChangeEventArgs args) => { this.AllowPhotosChecked = Convert.ToBoolean(args.Value); this.OnAllowPhotosChanged(); }" />
+</div>
+
+<div class="dnnFormItem">
+    <LabelControl ControlName="chkAllowResize" ResourceKey="AllowResize" Text="Allow Resize Photos" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <input type="checkbox" id="chkAllowResize" checked="@this.AllowResizeChecked" disabled="@(!this.AllowResizeEnabled)"
+           @onchange="(ChangeEventArgs args) => { this.AllowResizeChecked = Convert.ToBoolean(args.Value); }" />
+</div>
+
+<div class="dnnFormItem">
+    <LabelControl ControlName="drpDefaultPageSize" ResourceKey="DefaultPageSize" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <select id="drpDefaultPageSize" @onchange="(ChangeEventArgs args) => { this.PageSizeSelectedIndex = this.IndexOfPageSizeValue(args.Value); }">
+        @for (var i = 0; i < this.PageSizeItems.Count; i++)
+        {
+            var item = this.PageSizeItems[i];
+            <option value="@item.Value" selected="@(i == this.PageSizeSelectedIndex)">@item.Text</option>
+        }
+    </select>
+</div>
+<div class="dnnFormItem">
+    <LabelControl ControlName="drpMaxMessageLength" ResourceKey="MaxMessageLength" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <select id="drpMaxMessageLength" @onchange="(ChangeEventArgs args) => { this.MessageLengthSelectedIndex = this.IndexOfMessageLengthValue(args.Value); }">
+        @for (var i = 0; i < this.MessageLengthItems.Count; i++)
+        {
+            var item = this.MessageLengthItems[i];
+            <option value="@item.Value" selected="@(i == this.MessageLengthSelectedIndex)">@item.Text</option>
+        }
+    </select>
+
+</div>
+<div class="dnnFormItem">
+    <LabelControl ResourceKey="JournalFilters" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <span id="chkJournalFilters">
+        @foreach (var item in this.JournalFilterItems)
+        {
+            var filter = item;
+            <span>
+                <input type="checkbox" id="@("chkJournalFilters_" + filter.Value)" checked="@filter.Selected"
+                       @onchange="(ChangeEventArgs args) => { filter.Selected = Convert.ToBoolean(args.Value); }" />
+                <label for="@("chkJournalFilters_" + filter.Value)">@filter.Text</label>
+            </span>
+        }
+    </span>
+</div>

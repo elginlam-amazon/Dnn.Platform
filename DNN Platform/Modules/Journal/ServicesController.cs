@@ -9,9 +9,6 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Common;
@@ -27,8 +24,13 @@ using DotNetNuke.Services.Journal;
 using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+// DNN's own anti-forgery attribute (the one the services framework validates) is kept, aliased
+// because the Microsoft.AspNetCore.Mvc namespace also defines ValidateAntiForgeryTokenAttribute.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for the Journal module.</summary>
 /// <param name="hostSettings">The host settings.</param>
@@ -56,7 +58,7 @@ public class ServicesController(IHostSettings hostSettings)
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnAuthorize(DenyRoles = "Unverified Users")]
-    public HttpResponseMessage Create(CreateDTO postData)
+    public IActionResult Create(CreateDTO postData)
     {
         try
         {
@@ -79,19 +81,19 @@ public class ServicesController(IHostSettings hostSettings)
             var originalSummary = journalItem.Summary;
             this.SendMentionNotifications(mentionedUsers, journalItem, originalSummary);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, journalItem);
+            return this.Ok(journalItem);
         }
         catch (Exception exc)
         {
             Logger.ServicesControllerCreateException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnAuthorize(DenyRoles = "Unverified Users")]
-    public HttpResponseMessage Delete(JournalIdDTO postData)
+    public IActionResult Delete(JournalIdDTO postData)
     {
         try
         {
@@ -100,30 +102,30 @@ public class ServicesController(IHostSettings hostSettings)
 
             if (journalItem == null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "invalid request");
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, "invalid request");
             }
 
             if (journalItem.UserId != this.UserInfo.UserID &&
                 journalItem.ProfileId != this.UserInfo.UserID &&
                 !this.UserInfo.IsInRole(this.PortalSettings.AdministratorRoleName))
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, "access denied");
+                return DnnApiResults.Error(HttpStatusCode.Unauthorized, "access denied");
             }
 
             journalController.DeleteJournalItem(this.PortalSettings.PortalId, this.UserInfo.UserID, postData.JournalId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+            return this.Ok(new { Result = "success", });
         }
         catch (Exception exc)
         {
             Logger.ServicesControllerDeleteException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnAuthorize(DenyRoles = "Unverified Users")]
-    public HttpResponseMessage SoftDelete(JournalIdDTO postData)
+    public IActionResult SoftDelete(JournalIdDTO postData)
     {
         try
         {
@@ -131,69 +133,71 @@ public class ServicesController(IHostSettings hostSettings)
             var journalItem = journalController.GetJournalItem(this.ActiveModule.OwnerPortalID, this.UserInfo.UserID, postData.JournalId);
             if (journalItem is null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "invalid request");
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, "invalid request");
             }
 
             if (journalItem.UserId != this.UserInfo.UserID &&
                 journalItem.ProfileId != this.UserInfo.UserID &&
                 !this.UserInfo.IsInRole(this.PortalSettings.AdministratorRoleName))
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, "access denied");
+                return DnnApiResults.Error(HttpStatusCode.Unauthorized, "access denied");
             }
 
             journalController.SoftDeleteJournalItem(this.PortalSettings.PortalId, this.UserInfo.UserID, postData.JournalId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+            return this.Ok(new { Result = "success", });
         }
         catch (Exception exc)
         {
             Logger.ServicesControllerSoftDeleteException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnAuthorize]
-    public HttpResponseMessage PreviewUrl(PreviewDTO postData)
+    public IActionResult PreviewUrl(PreviewDTO postData)
     {
         try
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, Utilities.GetLinkData(postData.Url));
+            return this.Ok(Utilities.GetLinkData(postData.Url));
         }
         catch (Exception exc)
         {
             Logger.ServicesControllerPreviewUrlException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage GetListForProfile(GetListForProfileDTO postData)
+    public IActionResult GetListForProfile(GetListForProfileDTO postData)
     {
         try
         {
             var journalParser = new JournalParser(this.PortalSettings, this.ActiveModule.ModuleID, postData.ProfileId, postData.GroupId, this.UserInfo);
-            return this.Request.CreateResponse(HttpStatusCode.OK, journalParser.GetList(postData.RowIndex, postData.MaxRows), "text/html");
+            return HtmlContent(journalParser.GetList(postData.RowIndex, postData.MaxRows));
         }
         catch (Exception exc)
         {
             Logger.ServicesControllerGetListForProfileException(exc);
-            throw new HttpException(500, exc.Message);
+            // The legacy code threw HttpException(500, …), which the Web API pipeline turned into a
+            // 500 response carrying the exception message. Keep the same status code and message.
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc.Message);
         }
     }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnAuthorize(DenyRoles = "Unverified Users")]
-    public HttpResponseMessage Like(JournalIdDTO postData)
+    public IActionResult Like(JournalIdDTO postData)
     {
         try
         {
             var journalItem = JournalController.Instance.GetJournalItem(this.ActiveModule.OwnerPortalID, this.UserInfo.UserID, postData.JournalId);
             if (journalItem is null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, "access denied");
+                return DnnApiResults.Error(HttpStatusCode.Unauthorized, "access denied");
             }
 
             JournalController.Instance.LikeJournalItem(postData.JournalId, this.UserInfo.UserID, this.UserInfo.DisplayName);
@@ -203,32 +207,32 @@ public class ServicesController(IHostSettings hostSettings)
             var isLiked = false;
             var likeList = journalParser.GetLikeListHTML(journalItem, ref isLiked);
             likeList = Utilities.LocalizeControl(likeList);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { LikeList = likeList, Liked = isLiked, });
+            return this.Ok(new { LikeList = likeList, Liked = isLiked, });
         }
         catch (Exception exc)
         {
             Logger.ServicesControllerLikeException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
     /// <summary>Posts a comment to a journal item.</summary>
     /// <param name="postData">The information about the comment to post.</param>
-    /// <returns>A <see cref="HttpResponseMessage"/> indicating the result of the operation.</returns>
+    /// <returns>An <see cref="IActionResult"/> indicating the result of the operation.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnAuthorize(DenyRoles = "Unverified Users")]
-    public HttpResponseMessage CommentSave(CommentSaveDTO postData)
+    public IActionResult CommentSave(CommentSaveDTO postData)
     {
         try
         {
             var journalItem = JournalController.Instance.GetJournalItem(this.ActiveModule.OwnerPortalID, this.UserInfo.UserID, postData.JournalId, false, false, true);
             if (journalItem == null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, "access denied");
+                return DnnApiResults.Error(HttpStatusCode.Unauthorized, "access denied");
             }
 
-            var comment = Utilities.RemoveHTML(HttpUtility.UrlDecode(postData.Comment));
+            var comment = Utilities.RemoveHTML(WebUtility.UrlDecode(postData.Comment));
 
             IDictionary<string, UserInfo> mentionedUsers = new Dictionary<string, UserInfo>();
             var originalComment = comment;
@@ -246,54 +250,54 @@ public class ServicesController(IHostSettings hostSettings)
 
             this.SendMentionNotifications(mentionedUsers, journalItem, originalComment, "Comment");
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, jp.GetCommentRow(journalItem, commentInfo), "text/html");
+            return HtmlContent(jp.GetCommentRow(journalItem, commentInfo));
         }
         catch (Exception exc)
         {
             Logger.ServicesControllerCommentSaveException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnAuthorize(DenyRoles = "Unverified Users")]
-    public HttpResponseMessage CommentDelete(CommentDeleteDTO postData)
+    public IActionResult CommentDelete(CommentDeleteDTO postData)
     {
         try
         {
             var commentInfo = JournalController.Instance.GetComment(postData.CommentId);
             if (commentInfo is null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "delete failed");
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, "delete failed");
             }
 
             var journalItem = JournalController.Instance.GetJournalItem(this.ActiveModule.OwnerPortalID, this.UserInfo.UserID, postData.JournalId);
             if (journalItem is null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "invalid request");
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, "invalid request");
             }
 
             if (commentInfo.UserId != this.UserInfo.UserID &&
                 journalItem.UserId != this.UserInfo.UserID &&
                 !this.UserInfo.IsInRole(this.PortalSettings.AdministratorRoleName))
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, "access denied");
+                return DnnApiResults.Error(HttpStatusCode.Unauthorized, "access denied");
             }
 
             JournalController.Instance.DeleteComment(postData.JournalId, postData.CommentId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+            return this.Ok(new { Result = "success", });
         }
         catch (Exception exc)
         {
             Logger.ServicesControllerCommentDeleteException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
     [HttpGet]
     [DnnAuthorize(DenyRoles = "Unverified Users")]
-    public HttpResponseMessage GetSuggestions(string keyword)
+    public IActionResult GetSuggestions(string keyword)
     {
         try
         {
@@ -321,13 +325,31 @@ public class ServicesController(IHostSettings hostSettings)
                 }
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, foundUsers.Cast<object>().Take(5));
+            return this.Ok(foundUsers.Cast<object>().Take(5));
         }
         catch (Exception exc)
         {
             Logger.ServicesControllerGetSuggestionsException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
+    }
+
+    /// <summary>
+    /// Returns the HTML as a <c>text/html</c> response, which is what the legacy
+    /// <c>Request.CreateResponse(HttpStatusCode.OK, html, "text/html")</c> produced (the string was
+    /// passed straight through by the text/html media type formatter). The journal.js /
+    /// journalcomments.js clients inject the result into the DOM and depend on that content type.
+    /// </summary>
+    /// <param name="html">The HTML to return.</param>
+    /// <returns>A <see cref="ContentResult"/>.</returns>
+    private static ContentResult HtmlContent(string html)
+    {
+        return new ContentResult
+        {
+            Content = html,
+            ContentType = "text/html",
+            StatusCode = (int)HttpStatusCode.OK,
+        };
     }
 
     private static bool IsImageFile(string relativePath)
@@ -414,8 +436,8 @@ public class ServicesController(IHostSettings hostSettings)
             Summary = postData.Text ?? string.Empty,
             SecuritySet = postData.SecuritySet,
         };
-        journalItem.Title = HttpUtility.HtmlDecode(HttpUtility.UrlDecode(journalItem.Title));
-        journalItem.Summary = HttpUtility.HtmlDecode(HttpUtility.UrlDecode(journalItem.Summary));
+        journalItem.Title = WebUtility.HtmlDecode(WebUtility.UrlDecode(journalItem.Title));
+        journalItem.Summary = WebUtility.HtmlDecode(WebUtility.UrlDecode(journalItem.Summary));
 
         var ps = PortalSecurity.Instance;
 
@@ -450,7 +472,7 @@ public class ServicesController(IHostSettings hostSettings)
             journalItem.ItemData.ImageUrl = string.Empty;
         }
 
-        journalItem.ItemData.Description = HttpUtility.UrlDecode(journalItem.ItemData.Description);
+        journalItem.ItemData.Description = WebUtility.UrlDecode(journalItem.ItemData.Description);
 
         if (!IsAllowedLink(journalItem.ItemData.Url))
         {
@@ -530,7 +552,7 @@ public class ServicesController(IHostSettings hostSettings)
             var mentionText = originalSummary.Substring(originalSummary.IndexOf(MentionIdentityChar + key, StringComparison.InvariantCultureIgnoreCase));
             if (mentionText.Length > MentionNotificationLength)
             {
-                mentionText = mentionText.Substring(0, MentionNotificationLength) + MentionNotificationSuffix;
+                mentionText = string.Concat(mentionText.AsSpan(0, MentionNotificationLength), MentionNotificationSuffix);
             }
 
             var notification = new Notification

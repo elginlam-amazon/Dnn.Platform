@@ -1,0 +1,65 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.Modules.Html.Components.HtmlModuleBase
+@implements DotNetNuke.Entities.Modules.IActionable
+@using DotNetNuke.UI.WebControls
+@using DotNetNuke.UI.WebControls.Components
+
+@*
+    Replaces HtmlModule.ascx. The <%@ Register TagPrefix="dnn"
+    Namespace="DotNetNuke.UI.WebControls" Assembly="DotNetNuke.WebControls" %> directive has no
+    Blazor equivalent: the dnn:DNNLabelEdit / DNN:DNNToolBar pair is rendered by the migrated
+    DnnLabelEdit / DnnToolBar components of DotNetNuke.WebControls, which carry the very same
+    parameters the .ascx attributes set (MouseOverCssClass, LabelEditCssClass, MultiLine,
+    RenderAsDiv, EventName="none", LostFocusSave="False", CssClass="eipbackimg", ReuseToolbar,
+    DefaultButtonCssClass, DefaultButtonHoverCssClass). The 14 DNNToolBarButtons keep their IDs,
+    control actions, tooltips and CSS classes; they are built in the code behind (see
+    BuildToolBarButtons) because they are also the objects whose ToolTip the localization loop of
+    OnLoad rewrites, exactly as the WebForms control's Buttons collection was.
+
+    The label itself: DNNLabelEdit rendered its child controls (the module's formatted HTML) inside
+    the span/div it emitted, and handed that markup to dnn.controls.dnnlabeledit.js for in-place
+    editing. The migrated DnnLabelEdit renders its Value as text and swaps in a textarea while
+    editing, so the HTML of the module is rendered here as markup (the div DNNLabelEdit emitted for
+    RenderAsDiv="True", with the same id and CSS class) and the editor component is rendered in its
+    place while an inline edit is in progress - which keeps the content displayed as HTML and keeps
+    the full edit/save/cancel round trip of the tool bar.
+
+    ClientAPIScriptPath / LabelEditScriptPath / WorkCssClass were set to "" in the markup, which is
+    the default of both the control and the component, so they are not repeated here.
+    EnableViewState="False" / ViewStateMode="Disabled" have no equivalent: there is no view state.
+*@
+
+@if (this.inlineEditing)
+{
+    <DnnLabelEdit @ref="this.LabelEditor"
+                  Id="lblContent"
+                  CssClass="@this.LabelCssClass"
+                  MouseOverCssClass="LabelEditOverClassML"
+                  LabelEditCssClass="LabelEditTextClass"
+                  EditEnabled="@this.editorEnabled"
+                  MultiLine="true"
+                  RenderAsDiv="true"
+                  EventName="none"
+                  LostFocusSave="false"
+                  Value="@this.formattedContent"
+                  OnUpdateLabel="this.LblContentUpdateLabelAsync" />
+}
+else
+{
+    <div id="lblContent" class="@this.LabelCssClass">@((MarkupString)(this.formattedContent ?? string.Empty))</div>
+}
+
+@if (this.editorEnabled)
+{
+    <DnnToolBar @ref="this.editorDnnToobar"
+                Id="editorDnnToobar"
+                CssClass="eipbackimg"
+                ReuseToolBar="true"
+                DefaultButtonCssClass="eipbuttonbackimg"
+                DefaultButtonHoverCssClass="eipborderhover"
+                Buttons="this.ToolBarButtons"
+                SupportedActions="this.SupportedToolBarActions"
+                OnButtonClick="this.ToolBarButtonClickAsync" />
+}

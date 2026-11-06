@@ -19,9 +19,9 @@ namespace DotNetNuke.Modules.Groups.Components
 
             string url = string.Empty;
 
-            if (roleInfo.Settings.ContainsKey("URL"))
+            if (roleInfo.Settings.TryGetValue("URL", out var roleUrl))
             {
-                url = roleInfo.Settings["URL"];
+                url = roleUrl;
             }
 
             journalItem.PortalId = roleInfo.PortalID;

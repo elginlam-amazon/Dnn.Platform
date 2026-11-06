@@ -8,6 +8,7 @@ namespace DotNetNuke.Web.Api
     using System.Collections.Generic;
     using System.Net;
 
+    using DotNetNuke.Common;
     using Microsoft.AspNetCore.Mvc;
 
     /// <summary>
@@ -65,18 +66,44 @@ namespace DotNetNuke.Web.Api
         /// <param name="statusCode">The status code.</param>
         /// <param name="exception">The exception.</param>
         /// <returns>An <see cref="IActionResult"/> whose body is <c>{"Message":"…","ExceptionType":"…"}</c>.</returns>
+        /// <remarks>
+        /// Web API 2's default <c>IncludeErrorDetailPolicy.LocalOnly</c> is preserved: the exception message and
+        /// type are only disclosed to requests originating from the server itself. Remote callers get the same
+        /// generic text Web API 2 produced, so exception detail is not leaked to clients in production.
+        /// </remarks>
         public static IActionResult Error(HttpStatusCode statusCode, Exception exception)
         {
             ArgumentNullException.ThrowIfNull(exception);
 
-            return new ObjectResult(new Dictionary<string, string>
-            {
-                ["Message"] = exception.Message,
-                ["ExceptionType"] = exception.GetType().FullName,
-            })
+            var body = IncludeErrorDetail()
+                ? new Dictionary<string, string>
+                {
+                    ["Message"] = exception.Message,
+                    ["ExceptionType"] = exception.GetType().FullName,
+                }
+                : new Dictionary<string, string> { ["Message"] = "An error has occurred.", };
+
+            return new ObjectResult(body)
             {
                 StatusCode = (int)statusCode,
             };
+        }
+
+        /// <summary>
+        /// Reproduces Web API 2's default <c>IncludeErrorDetailPolicy.LocalOnly</c>: error detail is included
+        /// only when the request comes from the local machine.
+        /// </summary>
+        /// <returns><see langword="true"/> when exception detail may be disclosed.</returns>
+        private static bool IncludeErrorDetail()
+        {
+            var connection = HttpContextSource.Current?.Connection;
+            if (connection?.RemoteIpAddress is null)
+            {
+                return false;
+            }
+
+            return IPAddress.IsLoopback(connection.RemoteIpAddress)
+                || connection.RemoteIpAddress.Equals(connection.LocalIpAddress);
         }
     }
 }

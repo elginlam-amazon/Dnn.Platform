@@ -10,8 +10,6 @@ namespace DotNetNuke.Modules.Html
     using System.Linq;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.UI;
     using System.Xml;
 
     using DotNetNuke.Abstractions;
@@ -96,17 +94,17 @@ namespace DotNetNuke.Modules.Html
         /// <param name="content">The HtmlText Content.</param>
         /// <param name="settings">Module Settings.</param>
         /// <param name="portalSettings">The Portal Settings.</param>
-        /// <param name="page">The Page Instance.</param>
+        /// <param name="httpContext">The current HTTP request context (replaces the WebForms <c>Page</c> instance; the token sources register client resources per request).</param>
         /// <returns>The formatted HTML content.</returns>
-        public static string FormatHtmlText(int moduleId, string content, HtmlModuleSettings settings, PortalSettings portalSettings, Page page)
+        public static string FormatHtmlText(int moduleId, string content, HtmlModuleSettings settings, PortalSettings portalSettings, Microsoft.AspNetCore.Http.HttpContext httpContext)
         {
             // Html decode content
-            content = HttpUtility.HtmlDecode(content);
+            content = System.Net.WebUtility.HtmlDecode(content);
 
             // token replace
             if (settings.ReplaceTokens)
             {
-                var tr = new HtmlTokenReplace(page)
+                var tr = new HtmlTokenReplace(httpContext)
                 {
                     AccessingUser = UserController.Instance.GetCurrentUserInfo(),
                     DebugMessages = Personalization.GetUserMode() != PortalSettings.Mode.View,
@@ -150,7 +148,7 @@ namespace DotNetNuke.Modules.Html
             var tokenIndex = htmlContent.IndexOf(token, StringComparison.InvariantCultureIgnoreCase);
             while (tokenIndex != -1)
             {
-                sbBuff.Append(htmlContent.Substring(htmlContentIndex, tokenIndex - htmlContentIndex + tokenLength));
+                sbBuff.Append(htmlContent.AsSpan(htmlContentIndex, tokenIndex - htmlContentIndex + tokenLength));
 
                 // keep characters left of URL
                 htmlContentIndex = tokenIndex + tokenLength;
@@ -207,7 +205,7 @@ namespace DotNetNuke.Modules.Html
             // append characters of last URL and behind
             if (htmlContentIndex > -1)
             {
-                sbBuff.Append(htmlContent.Substring(htmlContentIndex));
+                sbBuff.Append(htmlContent.AsSpan(htmlContentIndex));
             }
 
             return sbBuff.ToString();
@@ -451,9 +449,31 @@ namespace DotNetNuke.Modules.Html
             this.DeleteHtmlText(moduleId, htmlContent.ItemID);
         }
 
+        /// <inheritdoc />
+        /// <remarks>
+        /// A rollback does not mutate or remove the historical version: it republishes the
+        /// content of <paramref name="version"/> as a NEW draft version, which is the same
+        /// behaviour the module's own edit screen performs for its "rollback" grid command
+        /// (ItemID -1 to force an insert, the module's current workflow, and that workflow's
+        /// first/draft state). The new version number is returned, as the interface requires.
+        /// </remarks>
         public int RollBackVersion(int moduleId, int version)
         {
-            throw new NotImplementedException();
+            var htmlContent = this.GetAllHtmlText(moduleId).First(h => h.Version == version);
+
+            // ItemID -1 makes UpdateHtmlText insert a new version instead of updating this one,
+            // so the version being rolled back to is preserved in the history.
+            htmlContent.ItemID = -1;
+            htmlContent.ModuleID = moduleId;
+
+            var module = ModuleController.Instance.GetModule(moduleId, Null.NullInteger, true);
+            var workflowId = this.GetWorkflow(moduleId, module.TabID, module.PortalID).Value;
+            htmlContent.WorkflowID = workflowId;
+            htmlContent.StateID = this.workflowManager.GetWorkflow(workflowId).FirstState.StateID;
+
+            this.UpdateHtmlText(htmlContent, this.GetMaximumVersionHistory(module.PortalID));
+
+            return this.GetLatestVersion(moduleId);
         }
 
         public void PublishVersion(int moduleId, int version)

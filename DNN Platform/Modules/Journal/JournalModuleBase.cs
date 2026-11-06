@@ -61,9 +61,10 @@ namespace DotNetNuke.Modules.Journal
             get
             {
                 int groupId = -1;
-                if (!string.IsNullOrEmpty(this.Request.QueryString["groupid"]))
+                var groupIdValue = this.Request?.Query["groupid"].ToString();
+                if (!string.IsNullOrEmpty(groupIdValue))
                 {
-                    if (int.TryParse(this.Request.QueryString["groupid"], out groupId))
+                    if (int.TryParse(groupIdValue, out groupId))
                     {
                         return groupId;
                     }

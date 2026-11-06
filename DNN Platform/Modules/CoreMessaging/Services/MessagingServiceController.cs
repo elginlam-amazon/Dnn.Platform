@@ -8,9 +8,6 @@ using System;
 using System.Collections.Generic;
 using System.Dynamic;
 using System.Net;
-using System.Net.Http;
-using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Common;
@@ -29,8 +26,15 @@ using DotNetNuke.Services.Social.Messaging.Internal;
 using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+// Disambiguates the DNN services framework anti-forgery filter from the same-named
+// Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+// bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+// bypass list fed by the authentication handlers.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>Provides messaging web services.</summary>
 /// <param name="portalController">The portal controller.</param>
@@ -71,7 +75,7 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <param name="numberOfRecords">How many messages to get.</param>
     /// <returns>A <see cref="DotNetNuke.Services.Social.Messaging.Internal.Views.MessageBoxView"/>.</returns>
     [HttpGet]
-    public HttpResponseMessage Inbox(int afterMessageId, int numberOfRecords)
+    public IActionResult Inbox(int afterMessageId, int numberOfRecords)
     {
         try
         {
@@ -81,12 +85,12 @@ public class MessagingServiceController(IPortalController portalController, IApp
             messageBoxView.TotalNewThreads = InternalMessagingController.Instance.CountUnreadMessages(this.UserInfo.UserID, portalId);
             messageBoxView.TotalConversations = InternalMessagingController.Instance.CountConversations(this.UserInfo.UserID, portalId);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, messageBoxView);
+            return this.Ok(messageBoxView);
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorFetchingInbox(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to fetch the inbox, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to fetch the inbox, consult the server logs for more information.");
         }
     }
 
@@ -95,7 +99,7 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <param name="numberOfRecords">How many messages to get.</param>
     /// <returns>A <see cref="DotNetNuke.Services.Social.Messaging.Internal.Views.MessageBoxView"/>.</returns>
     [HttpGet]
-    public HttpResponseMessage Sentbox(int afterMessageId, int numberOfRecords)
+    public IActionResult Sentbox(int afterMessageId, int numberOfRecords)
     {
         try
         {
@@ -104,12 +108,12 @@ public class MessagingServiceController(IPortalController portalController, IApp
             messageBoxView.TotalNewThreads = InternalMessagingController.Instance.CountUnreadMessages(this.UserInfo.UserID, portalId);
             messageBoxView.TotalConversations = InternalMessagingController.Instance.CountSentConversations(this.UserInfo.UserID, portalId);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, messageBoxView);
+            return this.Ok(messageBoxView);
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorFetchingSentBox(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to fetch the Sent box, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to fetch the Sent box, consult the server logs for more information.");
         }
     }
 
@@ -118,7 +122,7 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <param name="numberOfRecords">How many messages to get.</param>
     /// <returns>A <see cref="DotNetNuke.Services.Social.Messaging.Internal.Views.MessageBoxView"/>.</returns>
     [HttpGet]
-    public HttpResponseMessage Archived(int afterMessageId, int numberOfRecords)
+    public IActionResult Archived(int afterMessageId, int numberOfRecords)
     {
         try
         {
@@ -127,12 +131,12 @@ public class MessagingServiceController(IPortalController portalController, IApp
             messageBoxView.TotalNewThreads = InternalMessagingController.Instance.CountUnreadMessages(this.UserInfo.UserID, portalId);
             messageBoxView.TotalConversations = InternalMessagingController.Instance.CountArchivedConversations(this.UserInfo.UserID, portalId);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, messageBoxView);
+            return this.Ok(messageBoxView);
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorFetchingArchivedBox(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to fetch the archived box.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to fetch the archived box.");
         }
     }
 
@@ -142,7 +146,7 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <param name="numberOfRecords">How many messages to get.</param>
     /// <returns>A <see cref="DotNetNuke.Services.Social.Messaging.Internal.Views.MessageThreadsView"/>.</returns>
     [HttpGet]
-    public HttpResponseMessage Thread(int conversationId, int afterMessageId, int numberOfRecords)
+    public IActionResult Thread(int conversationId, int afterMessageId, int numberOfRecords)
     {
         try
         {
@@ -153,12 +157,12 @@ public class MessagingServiceController(IPortalController portalController, IApp
             messageThreadsView.TotalThreads = InternalMessagingController.Instance.CountMessagesByConversation(conversationId);
             messageThreadsView.TotalArchivedThreads = InternalMessagingController.Instance.CountArchivedMessagesByConversation(conversationId);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, messageThreadsView);
+            return this.Ok(messageThreadsView);
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorFetchingThread(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to fetch the thread, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to fetch the thread, consult the server logs for more information.");
         }
     }
 
@@ -167,7 +171,7 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <returns>Information about the conversation and message thread.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage Reply(ReplyDTO postData)
+    public IActionResult Reply(ReplyDTO postData)
     {
         try
         {
@@ -179,12 +183,12 @@ public class MessagingServiceController(IPortalController portalController, IApp
                     var folder = file != null ? FolderManager.Instance.GetFolder(file.FolderId) : null;
                     if (folder == null || !FolderPermissionController.CanViewFolder((FolderInfo)folder))
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.Forbidden, "Access to the specified file is not permitted.");
+                        return DnnApiResults.Response(HttpStatusCode.Forbidden, "Access to the specified file is not permitted.");
                     }
                 }
             }
 
-            var body = HttpUtility.UrlDecode(postData.Body);
+            var body = WebUtility.UrlDecode(postData.Body);
             body = WebUtility.HtmlEncode(body);
             var messageId = InternalMessagingController.Instance.ReplyMessage(postData.ConversationId, body, postData.FileIds);
             var message = ToExpandoObject(InternalMessagingController.Instance.GetMessage(messageId));
@@ -194,12 +198,12 @@ public class MessagingServiceController(IPortalController portalController, IApp
             var totalThreads = InternalMessagingController.Instance.CountMessagesByConversation(postData.ConversationId);
             var totalArchivedThreads = InternalMessagingController.Instance.CountArchivedMessagesByConversation(postData.ConversationId);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Conversation = message, TotalNewThreads = totalNewThreads, TotalThreads = totalThreads, TotalArchivedThreads = totalArchivedThreads });
+            return this.Ok(new { Conversation = message, TotalNewThreads = totalNewThreads, TotalThreads = totalThreads, TotalArchivedThreads = totalArchivedThreads });
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorReplying(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to reply to a conversation, see the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to reply to a conversation, see the server logs for more information.");
         }
     }
 
@@ -208,17 +212,17 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <returns>A "success" result or an InternalServerError.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage MarkArchived(ConversationDTO postData)
+    public IActionResult MarkArchived(ConversationDTO postData)
     {
         try
         {
             InternalMessagingController.Instance.MarkArchived(postData.ConversationId, this.UserInfo.UserID);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+            return this.Ok(new { Result = "success", });
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorMarkingArchived(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to fetch the archived box, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to fetch the archived box, consult the server logs for more information.");
         }
     }
 
@@ -227,17 +231,17 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <returns>A "success" result or an InternalServerError.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage MarkUnArchived(ConversationDTO postData)
+    public IActionResult MarkUnArchived(ConversationDTO postData)
     {
         try
         {
             InternalMessagingController.Instance.MarkUnArchived(postData.ConversationId, this.UserInfo.UserID);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+            return this.Ok(new { Result = "success", });
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorRestoringArchivedConversation(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to restore an archived conversation, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to restore an archived conversation, consult the server logs for more information.");
         }
     }
 
@@ -246,17 +250,17 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <returns>A "success" Result or an InternalServerError.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage MarkRead(ConversationDTO postData)
+    public IActionResult MarkRead(ConversationDTO postData)
     {
         try
         {
             InternalMessagingController.Instance.MarkRead(postData.ConversationId, this.UserInfo.UserID);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+            return this.Ok(new { Result = "success", });
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorMarkingConversationAsRead(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting mark a conversation as read, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting mark a conversation as read, consult the server logs for more information.");
         }
     }
 
@@ -265,17 +269,17 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <returns>A "success" Result or an InternalServerError.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage MarkUnRead(ConversationDTO postData)
+    public IActionResult MarkUnRead(ConversationDTO postData)
     {
         try
         {
             InternalMessagingController.Instance.MarkUnRead(postData.ConversationId, this.UserInfo.UserID);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+            return this.Ok(new { Result = "success", });
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorMarkingConversationAsUnread(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to restore an archived conversation, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to restore an archived conversation, consult the server logs for more information.");
         }
     }
 
@@ -284,17 +288,17 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <returns>A "success" Result or an InternalServerError.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage DeleteUserFromConversation(ConversationDTO postData)
+    public IActionResult DeleteUserFromConversation(ConversationDTO postData)
     {
         try
         {
             InternalMessagingController.Instance.DeleteUserFromConversation(postData.ConversationId, this.UserInfo.UserID);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+            return this.Ok(new { Result = "success", });
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorDeleteUserFromConversation(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to delete a user from a conversation, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to delete a user from a conversation, consult the server logs for more information.");
         }
     }
 
@@ -303,7 +307,7 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <param name="numberOfRecords">How many notifications to get.</param>
     /// <returns>A see <see cref="NotificationViewModel"/> object.</returns>
     [HttpGet]
-    public HttpResponseMessage Notifications(int afterNotificationId, int numberOfRecords)
+    public IActionResult Notifications(int afterNotificationId, int numberOfRecords)
     {
         try
         {
@@ -364,12 +368,12 @@ public class MessagingServiceController(IPortalController portalController, IApp
                 notificationsViewModel.Notifications.Add(notificationViewModel);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, notificationsViewModel);
+            return this.Ok(notificationsViewModel);
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorFetchingNotifications(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to fetch messaging notifications, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to fetch messaging notifications, consult the server logs for more information.");
         }
     }
 
@@ -377,60 +381,60 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <param name="conversationId">The ID of conversation to check./>.</param>
     /// <returns>The recipient count or an InternalServerError.</returns>
     [HttpGet]
-    public HttpResponseMessage CheckReplyHasRecipients(int conversationId)
+    public IActionResult CheckReplyHasRecipients(int conversationId)
     {
         try
         {
             var recipientCount = InternalMessagingController.Instance.CheckReplyHasRecipients(conversationId, UserController.Instance.GetCurrentUserInfo().UserID);
-            return this.Request.CreateResponse(HttpStatusCode.OK, recipientCount);
+            return this.Ok(recipientCount);
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorCheckRecipientCount(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to check the recipient count on a reply, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to check the recipient count on a reply, consult the server logs for more information.");
         }
     }
 
     /// <summary>Gets the notifications count.</summary>
     /// <returns>A number representing the notification count.</returns>
     [HttpGet]
-    public HttpResponseMessage CountNotifications()
+    public IActionResult CountNotifications()
     {
         try
         {
             var portalId = PortalController.GetEffectivePortalId(this.portalController, this.appStatus, this.portalGroupController, UserController.Instance.GetCurrentUserInfo().PortalID);
             var notificationCount = NotificationsController.Instance.CountNotifications(this.UserInfo.UserID, portalId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, notificationCount);
+            return this.Ok(notificationCount);
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorGettingNotificationCount(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to get the notification count, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to get the notification count, consult the server logs for more information.");
         }
     }
 
     /// <summary>Gets the number of unread messages.</summary>
     /// <returns>The number of unread messages.</returns>
     [HttpGet]
-    public HttpResponseMessage CountUnreadMessages()
+    public IActionResult CountUnreadMessages()
     {
         try
         {
             var portalId = PortalController.GetEffectivePortalId(this.portalController, this.appStatus, this.portalGroupController, UserController.Instance.GetCurrentUserInfo().PortalID);
             var unreadMessages = InternalMessagingController.Instance.CountUnreadMessages(this.UserInfo.UserID, portalId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, unreadMessages);
+            return this.Ok(unreadMessages);
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorGettingUnreadCount(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to , consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to , consult the server logs for more information.");
         }
     }
 
     /// <summary>Gets both the total number of unread messages and new notifications.</summary>
     /// <returns><see cref="TotalsViewModel"/>.</returns>
     [HttpGet]
-    public HttpResponseMessage GetTotals()
+    public IActionResult GetTotals()
     {
         try
         {
@@ -441,12 +445,12 @@ public class MessagingServiceController(IPortalController portalController, IApp
                 TotalNotifications = NotificationsController.Instance.CountNotifications(this.UserInfo.UserID, portalId),
             };
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, totalsViewModel);
+            return this.Ok(totalsViewModel);
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorGettingUnreadAndNotificationCounts(ex);
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to get the unread messages and new notifications count, consult the server logs for more information.");
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to get the unread messages and new notifications count, consult the server logs for more information.");
         }
     }
 
@@ -454,17 +458,17 @@ public class MessagingServiceController(IPortalController portalController, IApp
     /// <returns>A "success" Result and a deleteCount representing how many notifications where deleted.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage DismissAllNotifications()
+    public IActionResult DismissAllNotifications()
     {
         try
         {
             var deletedCount = NotificationsController.Instance.DeleteUserNotifications(this.UserInfo);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", count = deletedCount, });
+            return this.Ok(new { Result = "success", count = deletedCount, });
         }
         catch (Exception ex)
         {
             Logger.MessagingServiceControllerUnexpectedErrorDismissingNotifications(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to dismiss notifications, consult the server logs for more information.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred while attempting to dismiss notifications, consult the server logs for more information.");
         }
     }
 

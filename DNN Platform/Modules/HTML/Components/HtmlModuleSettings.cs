@@ -5,7 +5,6 @@
 namespace DotNetNuke.Modules.Html.Components
 {
     using System;
-    using System.Web.Caching;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules.Settings;

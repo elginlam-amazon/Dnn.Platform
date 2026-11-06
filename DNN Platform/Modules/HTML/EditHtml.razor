@@ -1,0 +1,282 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.Modules.Html.Components.HtmlModuleBase
+@using DotNetNuke.Common
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.Web.UI.WebControls
+@using DotNetNuke.Web.UI.WebControls.Internal
+
+@*
+    Replaces EditHtml.ascx. Mapping of the directives and tags that have no Blazor equivalent:
+      * dnncl:DnnCssInclude FilePath="DesktopModules/HTML/edit.css" AddTag="false"
+        -> registered on IClientResourceController in OnPreRender of the code behind, which is the
+           phase the tag helper ran in and the root-relative resolution it performed (same as
+           MyWork.razor / Settings.razor).
+      * dnn:label -> the migrated LabelControl component, keeping the ID (which is the resource key),
+        the ControlName and the Suffix of every original tag.
+      * dnn:textEditor txtContent -> the migrated TextEditor component, bound two way to the
+        content; height 400 and width 100% are CSS lengths now, ChooseMode stays false.
+      * dnnweb:DnnGrid -> the migrated DnnGrid component; its columns, templates and event handlers
+        are declared in ConfigureGrids() of the code behind because the component only exists after
+        the first render (see EditHtml.razor.cs).
+      * asp:Literal -> MarkupString (a Literal rendered its Text as markup).
+      * asp:LinkButton -> an <a> raising the same handler; Enabled="false" renders the disabled
+        <span> Web Forms rendered for a disabled LinkButton.
+      * asp:DropDownList ddlRender AutoPostBack="true" -> a <select> whose @onchange raises
+        OnRenderSelectedIndexChanged, which is what the post back did.
+      * asp:HiddenField hfEditor -> the editorStash field of the code behind.
+      * every PlaceHolder / runat="server" div Visible assignment -> an @if on the same condition.
+      * the trailing <script> block: the parts that depended on the Web Forms page lifecycle
+        (Sys.WebForms.PageRequestManager end-request re-run) are gone, the panel setup and the
+        iframe resize logic are kept and are re-run after every render through
+        DnnEditHtml.setup (see the module's edit script hook below).
+*@
+
+@* The stylesheet is registered on IClientResourceController in OnPreRender (the phase the
+   dnncl:DnnCssInclude tag helper ran in), exactly as MyWork.razor and Settings.razor do. The
+   script path must be resolved against the application root as well: a document relative
+   "DesktopModules/..." href resolves against the CURRENT page url, so on any page whose url has
+   a path segment the browser would request "/<page>/DesktopModules/HTML/edit.js" and 404. *@
+<HeadContent>
+    <script src="@Globals.ResolveUrl("~/DesktopModules/HTML/edit.js")"></script>
+</HeadContent>
+
+<div class="dnnForm dnnEditHtml dnnClear" id="dnnEditHtml">
+    <div class="ehCurrentContent dnnClear" id="ehCurrentContent">
+        <div class="ehccContent dnnClear @this.CurrentView">
+            @if (this.PhEditVisible)
+            {
+                <fieldset>
+                    <div class="dnnFormItem">
+                        @if (this.PhMasterContentVisible)
+                        {
+                            <div class="ehmContent dnnClear" id="ehmContent">
+                                <div class="html_preview">
+                                    @((MarkupString)(this.MasterContentHtml ?? string.Empty))
+                                </div>
+                            </div>
+                        }
+                        @if (this.TxtContentVisible)
+                        {
+                            <TextEditor @ref="this.txtContent"
+                                        Text="@this.contentText"
+                                        TextChanged="@this.OnContentChanged"
+                                        Height="400px"
+                                        Width="100%"
+                                        ChooseMode="false" />
+                        }
+                    </div>
+                    @if (this.DivSubmittedContentVisible)
+                    {
+                        <div class="dnnFormItem" id="divSubmittedContent">
+                            <div id="Div3" class="html_preview">
+                                @((MarkupString)(this.LitCurrentContentPreviewText ?? string.Empty))
+                            </div>
+                        </div>
+                    }
+                    @if (this.PhCurrentVersionVisible)
+                    {
+                        <div class="divCurrentVersion">
+                            @if (this.DivCurrentWorkflowStateVisible)
+                            {
+                                <div class="dnnFormItem" id="divCurrentWorkflowState">
+                                    <LabelControl ID="plCurrentWorkflowState" ControlName="lblCurrentWorkflowState" Text="Workflow State" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+                                    <span id="lblCurrentWorkflowState">@this.LblCurrentWorkflowStateText</span>
+                                    ( <span id="plCurrentWorkVersion">@this.LocalizeText("plCurrentWorkVersion")</span>
+                                    <span id="lblCurrentVersion">@this.LblCurrentVersionText</span> )
+                                    ( <span id="lblCurrentWorkflowInUse">@this.LblCurrentWorkflowInUseText</span> )
+                                </div>
+                            }
+                        </div>
+                    }
+                </fieldset>
+            }
+            @if (this.PhPreviewVisible)
+            {
+                <fieldset>
+                    @if (this.PhPreviewVersionVisible)
+                    {
+                        @if (this.DivPreviewVersionVisible)
+                        {
+                            <div class="dnnFormItem" id="divPreviewVersion">
+                                <LabelControl ID="plPreviewVersion" ControlName="lblPreviewVersion" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+                                <span id="lblPreviewVersion">@this.LblPreviewVersionText</span>
+                            </div>
+                        }
+                        @if (this.DivPreviewWorlflowVisible)
+                        {
+                            <div class="dnnFormItem" id="divPreviewWorlflow">
+                                <LabelControl ID="plPreviewWorkflowInUse" ControlName="lblPreviewWorkflowInUse" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+                                <span id="lblPreviewWorkflowInUse">@this.LblPreviewWorkflowInUseText</span>
+                            </div>
+                        }
+                        @if (this.DivPreviewWorkflowStateVisible)
+                        {
+                            <div class="dnnFormItem" id="divPreviewWorkflowState">
+                                <LabelControl ID="plPreviewWorkflowState" ControlName="lblPreviewWorkflowState" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+                                <span id="lblPreviewWorkflowState">@this.LblPreviewWorkflowStateText</span>
+                            </div>
+                        }
+                    }
+                    <div id="Div1" class="html_preview">
+                        @((MarkupString)(this.LitPreviewText ?? string.Empty))
+                    </div>
+                </fieldset>
+                @if (this.DnnSitePanelEditHtmlHistoryVisible)
+                {
+                    <h2 id="dnnSitePanelEditHTMLHistory" class="dnnFormSectionHead"><a href="">@this.LocalizeText("dshHistory")</a></h2>
+                }
+                @if (this.FsEditHtmlHistoryVisible)
+                {
+                    <fieldset id="fsEditHtmlHistory">
+                        <DnnGrid @ref="this.dgHistory"
+                                 ID="dgHistory"
+                                 AutoGenerateColumns="false"
+                                 EmptyDataText="@(this.LocalizeText("NoHistory"))" />
+                    </fieldset>
+                }
+            }
+            @if (this.PhHistoryVisible)
+            {
+                <fieldset>
+                    <div class="ehvContent">
+                        <div class="dnnFormItem">
+                            <LabelControl ID="plMaxVersions" ControlName="lblMaxVersions" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+                            <span id="lblMaxVersions">@this.LblMaxVersionsText</span>
+                        </div>
+                        <DnnGrid @ref="this.dgVersions"
+                                 ID="dgVersions"
+                                 AutoGenerateColumns="false"
+                                 AllowPaging="true"
+                                 PageSize="@this.versionsPageSize"
+                                 EmptyDataText="@(this.LocalizeText("NoVersions"))" />
+                    </div>
+                </fieldset>
+            }
+        </div>
+    </div>
+    <div class="ehActions">
+        <ul class="dnnActions dnnClear">
+            <li>
+                @if (this.CmdSaveVisible)
+                {
+                    <a id="cmdSave" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.OnSaveClick">@this.LocalizeText("cmdSave")</a>
+                }
+            </li>
+            <li>
+                <a id="hlCancel" class="dnnSecondaryAction" href="@this.hlCancelUrl">@this.LocalizeText("cmdCancel")</a>
+            </li>
+            <li>
+                <span class="separator"></span>
+            </li>
+            <li>
+                @if (this.CmdEditEnabled)
+                {
+                    <a id="cmdEdit" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.OnEditClick">@this.LocalizeText("cmdEdit")</a>
+                }
+                else
+                {
+                    <span id="cmdEdit" class="dnnSecondaryAction" disabled="disabled">@this.LocalizeText("cmdEdit")</span>
+                }
+            </li>
+            <li>
+                @if (this.CmdPreviewEnabled)
+                {
+                    <a id="cmdPreview" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.OnPreviewClick">@this.LocalizeText("cmdPreview")</a>
+                }
+                else
+                {
+                    <span id="cmdPreview" class="dnnSecondaryAction" disabled="disabled">@this.LocalizeText("cmdPreview")</span>
+                }
+            </li>
+            <li>
+                @if (this.CmdHistoryEnabled)
+                {
+                    <a id="cmdHistory" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.OnHistoryClick">@this.LocalizeText("cmdHistory")</a>
+                }
+                else
+                {
+                    <span id="cmdHistory" class="dnnSecondaryAction" disabled="disabled">@this.LocalizeText("cmdHistory")</span>
+                }
+            </li>
+            <li>
+                <span class="separator"></span>
+            </li>
+            <li>
+                @if (this.DdlRenderVisible)
+                {
+                    <div class="dnnFormItem">
+                        <select id="ddlRender" @onchange="@(args => this.OnRenderSelectedIndexChanged(args.Value?.ToString()))">
+                            @foreach (var item in this.renderItems)
+                            {
+                                <option value="@item.Value" selected="@(item.Value == this.selectedRenderValue)">@item.Text</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </li>
+            <li>
+                <span class="separator"></span>
+            </li>
+            <li>
+                @if (this.CmdMasterContentVisible)
+                {
+                    <a id="cmdMasterContent" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.OnMasterContentClick">@this.CmdMasterContentText</a>
+                }
+            </li>
+        </ul>
+    </div>
+</div>
+
+@code {
+    /// <summary>The header template of the command column of the versions grid.</summary>
+    /// <remarks>Replaces the <c>HeaderTemplate</c> of the <c>dnnweb:DnnGridTemplateColumn</c>, whose
+    /// three <c>dnnweb:DnnImage</c> icons carried the localized <c>resourcekey</c> tooltips.</remarks>
+    protected RenderFragment VersionsCommandHeaderTemplate => @<table cellpadding="0" cellspacing="0" class="DnnGridNestedTable">
+        <tr>
+            <td><img id="imgDelete" src="@(DotNetNuke.Entities.Icons.IconController.IconURL("ActionDelete"))" alt="@(this.LocalizeText("VersionsRemove"))" title="@(this.LocalizeText("VersionsRemove"))" /></td>
+            <td><img id="imgPreview" src="@(DotNetNuke.Entities.Icons.IconController.IconURL("View"))" alt="@(this.LocalizeText("VersionsPreview"))" title="@(this.LocalizeText("VersionsPreview"))" /></td>
+            <td><img id="imgRollback" src="@(DotNetNuke.Entities.Icons.IconController.IconURL("Restore"))" alt="@(this.LocalizeText("VersionsRollback"))" title="@(this.LocalizeText("VersionsRollback"))" /></td>
+        </tr>
+    </table>;
+
+    /// <summary>The item template of the command column of the versions grid.</summary>
+    /// <remarks>Replaces the <c>ItemTemplate</c> with the three <c>dnnweb:DnnImageButton</c>s; their
+    /// per row <c>CommandArgument</c>, <c>Visible</c> and delete confirmation come from the state
+    /// <c>OnVersionsGridItemDataBound</c> computed for the row.</remarks>
+    protected RenderFragment<DnnGridRow> VersionsCommandItemTemplate => row => @<table cellpadding="0" cellspacing="0" class="DnnGridNestedTable">
+        <tr style="vertical-align: top;">
+            <td>
+                @if (this.GetVersionRowState(row)?.RemoveVisible == true)
+                {
+                    <DnnImageButton ID="btnRemove"
+                                    IconKey="ActionDelete"
+                                    AlternateText="Delete"
+                                    ToolTip="@(this.LocalizeText("VersionsRemove"))"
+                                    CommandArgument="@(this.GetVersionRowState(row)?.CommandArgument)"
+                                    ClickCallback="@(EventCallback.Factory.Create<EventArgs>(this, (EventArgs _) => this.OnVersionCommandAsync("Remove", row)))" />
+                }
+            </td>
+            <td>
+                <DnnImageButton ID="btnPreview"
+                                IconKey="View"
+                                AlternateText="Preview"
+                                ToolTip="@(this.LocalizeText("VersionsPreview"))"
+                                CommandArgument="@(this.GetVersionRowState(row)?.CommandArgument)"
+                                ClickCallback="@(EventCallback.Factory.Create<EventArgs>(this, (EventArgs _) => this.OnVersionCommandAsync("Preview", row)))" />
+            </td>
+            <td>
+                @if (this.GetVersionRowState(row)?.RollbackVisible == true)
+                {
+                    <DnnImageButton ID="btnRollback"
+                                    IconKey="Restore"
+                                    AlternateText="Rollback"
+                                    ToolTip="@(this.LocalizeText("VersionsRollback"))"
+                                    CommandArgument="@(this.GetVersionRowState(row)?.CommandArgument)"
+                                    ClickCallback="@(EventCallback.Factory.Create<EventArgs>(this, (EventArgs _) => this.OnVersionCommandAsync("RollBack", row)))" />
+                }
+            </td>
+        </tr>
+    </table>;
+}

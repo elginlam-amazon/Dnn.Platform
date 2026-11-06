@@ -1,0 +1,17 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Journal.Controls
+@inherits DotNetNuke.UI.DnnComponentBase
+
+@*
+    Replaces the Render(HtmlTextWriter) override of JournalListControl.cs (a
+    System.Web.UI.WebControls.WebControl). The original wrote nothing at all when Enabled was
+    false, and otherwise wrote exactly the HTML returned by JournalParser.GetList - it never called
+    base.Render, so there was no surrounding <span>. This markup emits the same thing: the parser
+    HTML verbatim (MarkupString) and nothing else.
+*@
+@if (this.Enabled)
+{
+    @this.ListMarkup
+}

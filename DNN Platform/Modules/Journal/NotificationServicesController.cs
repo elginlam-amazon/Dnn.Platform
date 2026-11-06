@@ -6,8 +6,6 @@ namespace DotNetNuke.Modules.Journal
 {
     using System;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -17,7 +15,12 @@ namespace DotNetNuke.Modules.Journal
     using DotNetNuke.Services.Social.Notifications;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    // DNN's own anti-forgery attribute (the one the services framework validates) is kept, aliased
+    // because the Microsoft.AspNetCore.Mvc namespace also defines ValidateAntiForgeryTokenAttribute.
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.View)]
     [ValidateAntiForgeryToken]
@@ -27,7 +30,7 @@ namespace DotNetNuke.Modules.Journal
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage ViewJournal(NotificationDTO postData)
+        public IActionResult ViewJournal(NotificationDTO postData)
         {
             try
             {
@@ -45,9 +48,7 @@ namespace DotNetNuke.Modules.Journal
                     var profileLink = ji.ProfileId != Null.NullInteger
                         ? Globals.UserProfileURL(ji.ProfileId)
                         : Globals.UserProfileURL(userId);
-                    return this.Request.CreateResponse(
-                        HttpStatusCode.OK,
-                        new { Result = "success", Link = profileLink, });
+                    return this.Ok(new { Result = "success", Link = profileLink, });
                 }
             }
             catch (Exception exc)
@@ -55,7 +56,7 @@ namespace DotNetNuke.Modules.Journal
                 Logger.NotificationServicesControllerViewJournalException(exc);
             }
 
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "unable to process notification");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "unable to process notification");
         }
 
         public class NotificationDTO

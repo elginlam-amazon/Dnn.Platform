@@ -12,8 +12,11 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\CoreMessaging</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
-  <Import Project="$(BuildScriptsPath)\Module.Build"/>
+  <!-- The files on disk are Package.targets and Module.build; the lower-case spelling matters
+       on case-sensitive (Linux) file systems, where the old "Package.Targets" / "Module.Build"
+       spellings fail with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
+  <Import Project="$(BuildScriptsPath)\Module.build"/>
   <Target Name="UpdateFiles">
     <ItemGroup>
       <Resources Remove="web.config" />

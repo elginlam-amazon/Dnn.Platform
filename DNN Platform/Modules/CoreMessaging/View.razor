@@ -1,0 +1,280 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+@using Microsoft.AspNetCore.Components.Web
+
+@*
+    Replaces View.ascx. Every data-bind attribute is a contract with Scripts/CoreMessaging.js and is
+    copied verbatim. The <asp:Panel ID="CoreMessagingContainer"> (whose only use was Visible = false)
+    became the @if (this.ShowContainer) wrapper; <div id="coreMessaging" runat="server"> became the
+    div whose id is this.ClientId, which is what sm.init / ko.contextFor / parentsUntil target. The
+    six DnnJsInclude and three DnnCssInclude controls became IClientResourceController registrations
+    in View.razor.cs (same file paths, same priorities). The <%@ Register src="Subscriptions.ascx" %>
+    child control was registered but never instantiated by the original markup, so it is not
+    rendered here either (see the note at the end of this file).
+*@
+
+@if (this.RenderIe7StyleSheet)
+{
+    @* Replaces Page.Header.Controls.Add(new LiteralControl(cssLink)) in AddIe7StyleSheet(). *@
+    <HeadContent>
+        <link href="/ie-messages.css" rel="stylesheet" type="text/css" />
+    </HeadContent>
+}
+
+@if (this.ShowContainer)
+{
+<div id="@this.ClientId">
+    <div id="smMainContent" class="dnnForm DnnModule-Messaging-Notifications">
+        <ul class="dnnAdminTabNav">
+            <li><a href="#dnnCoreMessaging" data-bind="@this.MessagesTabBinding"><span data-bind="    text: TotalNewThreads, visible: TotalNewThreads() > 0"></span>@this.LocalizeText("Messages")</a></li>
+            <li><a href="#dnnCoreNotification" data-bind="@this.NotificationsTabBinding"><span data-bind="    text: TotalNotifications, visible: TotalNotifications() > 0"></span>@this.LocalizeText("Notifications")</a></li>
+        </ul>
+        <!-- start core messaging -->
+        <div class="coreMessaging" id="dnnCoreMessaging">
+            <!-- ko ifnot: showReplies -->
+            <div class="dnnCoreMessagingContent dnnClear">
+                <div class="messageControls dnnClear">
+                    <!-- GROUP ACTIONS: ARRANGE | ORDER | FILTER -->
+                    <div class="messageFolders">
+                        <p><strong data-bind="text: getPageNumbers()"></strong>@this.LocalizeText("Of")<strong data-bind="    text: TotalConversations"></strong></p>
+                        <ul class="dnnButtonGroup">
+							<li class="dnnButtonGroup-first"></li>
+                            <li class="alpha">
+                                <a href="#" title='@this.LocalizeText("Conversations")' data-bind="click: $root.myinbox, css: {'active': showInbox}"><span>@this.LocalizeText("Conversations")</span></a>
+                            </li>
+                            <li>
+                                <a href="#" title='@this.LocalizeText("SentMessages")' data-bind="click: $root.mysentbox, css: {'active': showSentbox}"><span>@this.LocalizeText("Sent")</span></a>
+                            </li>
+                            <li class="omega">
+                                <a href="#" title='@this.LocalizeText("ArchivedMessages")' data-bind="click: $root.myarchivebox, css: {'active': showArchivebox}"><span>@this.LocalizeText("Archived")</span></a>
+                            </li>
+                        </ul>
+                    </div>
+                    <!-- MESSAGE SELECT: SELECT | ACTIONS | ARCHIVE -->
+                    <div class="messageSelect">
+                        <ul class="dnnButtonGroup">
+							<li class="dnnButtonGroup-first"></li>
+                            <li id="SelectMenu" class="alpha selectDrop" data-bind="css: { 'active': selectMenuOn }, click: toogleSelectMenu, event: { blur: toogleSelectMenu }, visible: showInbox()">
+                                <a href="#" title='@this.LocalizeText("SelectMessages")'><span>@this.LocalizeText("Select")</span></a>
+                                <ul>
+                                    <li><a href="#" data-bind="click: $root.selectAll">@this.LocalizeText("All")</a></li>
+                                    <li><a href="#" data-bind="click: $root.selectNone">@this.LocalizeText("None")</a></li>
+                                    <li><a href="#" data-bind="click: $root.selectRead">@this.LocalizeText("Read")</a></li>
+                                    <li><a href="#" data-bind="click: $root.selectUnread">@this.LocalizeText("Unread")</a></li>
+                                </ul>
+                            </li>
+                            <li id="ActionsMenu" class="selectDrop" data-bind="css: { 'active': actionsMenuOn }, click: toogleActionsMenu, event: { blur: toogleActionsMenu }, visible: showInbox()">
+                                <a href="#" title='@this.LocalizeText("ApplyActionToMessages")' data-bind="css: { 'disabled': !hasElementsSelected() }"><span>@this.LocalizeText("Actions")</span></a>
+                                <ul>
+                                    <li><a href="#" data-bind="click: moveSelectedToRead">@this.LocalizeText("MarkRead")</a></li>
+                                    <li><a href="#" data-bind="click: moveSelectedToUnread">@this.LocalizeText("MarkUnread")</a></li>
+                                    <li><a href="#" data-bind="click: moveSelectedToArchive">@this.LocalizeText("MarkArchive")</a></li>
+                                </ul>
+                            </li>
+							<li id="ArchiveButton" class="omega" data-bind="visible: showInbox()">
+								<a href="#" title='@this.LocalizeText("ArchiveMessages")' class="ArchiveItems" data-bind="click: moveSelectedToArchive"><span>@this.LocalizeText("MarkArchive")</span></a>
+							</li>
+                        </ul>
+
+                    </div>
+                    <!-- MESSAGE ACTIONS: ARRANGE | ORDER | FILTER -->
+                    <div class="messageActions" style="display:none">
+                        <ul>
+                            <li class="selectDrop">
+                                <a href="#" title="Arrange Messages" class="dnnTertiaryAction"><span>@this.LocalizeText("ArrangeMessages")</span></a>
+                                <ul>
+                                    <li><a href="#">@this.LocalizeText("ArrangeDate")</a></li>
+                                    <li><a href="#">@this.LocalizeText("ArrangeFrom")</a></li>
+                                    <li><a href="#">@this.LocalizeText("ArrangeConversation")</a></li>
+                                </ul>
+                            </li>
+                        </ul>
+                        <a href="#" title="Change Order By Ascending Or Descending" class="dnnTertiaryAction ToggleOrder ascend"><span>Acending</span></a>
+                        <ul>
+                            <li class="selectDrop">
+                                <a href="#" title="Select A Filter Property" class="dnnTertiaryAction"><span>@this.LocalizeText("Filter")</span></a>
+                                <ul>
+                                    <li><a href="#">@this.LocalizeText("FilterUnread")</a></li>
+                                    <li><a href="#">@this.LocalizeText("FilterFriends")</a></li>
+                                    <li><a href="#">@this.LocalizeText("FilterGroups")</a></li>
+                                    <li><a href="#">@this.LocalizeText("FilterCategory")</a></li>
+                                    <li><a href="#">@this.LocalizeText("FilterFrom")</a></li>
+                                    <li><a href="#"><strong>@this.LocalizeText("FilterViewAll")</strong></a></li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="dnnClear"></div>
+                </div>
+                <div id="loadingMessages" data-bind="visible: loadingData"><img src='@this.AjaxLoaderUrl' alt="" /> @this.LocalizeText("LoadingContent")</div>
+                <div class="smListings" data-bind="visible: !loadingData()">
+                    <ul id="inbox" class="messages" data-bind="foreach: messages">
+                        <li data-bind="css: {'active': !Read() && $root.showInbox()}">
+                            <ul>
+                                <li class="ListCol-1">
+                                    <input type="checkbox" data-bind="checked: messageSelected, visible: $root.showInbox()" class="normalCheckBox" aria-label="Select" />
+                                </li>
+                                <li class="ListCol-2"><a class="profileImg" data-bind="attr: { href: SenderProfileUrl }"><span><em>
+                                    <img alt="" data-bind="attr: { src: SenderAvatar, alt: From, title: From }" /></em></span></a>
+                                </li>
+                                <li class="ListCol-3">
+                                    <dl>
+                                        <dt class="subject"><a href="#" data-bind="text: Subject, click: $root.getReplies"></a></dt>
+                                        <dd class="meta"><em>@this.LocalizeText("From"): <a data-bind="text: From, attr: { href: SenderProfileUrl }"></a></em><br/><em>@this.LocalizeText("SentTo"): <span data-bind="    text: To"></span></em></dd>
+                                        <dd class="message" data-bind="html: MessageAbstract"></dd>
+                                    </dl>
+                                </li>
+                                <li class="ListCol-4">
+                                    <ul class="msgActionItems">
+                                        <li><span data-bind="text: CreatedOnDate" class="smTimeStamped"></span><a href="#" class="ActiveToggle" data-bind="@this.ReadStatusToggleBinding"><span>@this.LocalizeText("ReadStatusToggle")</span></a></li>
+                                        <li class="hoverControls">
+                                            <div>
+                                                <!-- ko if: $root.showInbox -->
+                                                <a href="#" data-bind="click: $root.moveToArchive">@this.LocalizeText("MarkArchive")</a>
+                                                <!-- /ko -->
+                                                <!-- ko if: $root.showArchivebox -->
+                                                <a href="#" data-bind="click: $root.unarchive">@this.LocalizeText("MarkUnarchive")</a>
+                                                <!-- /ko -->
+                                                <!-- ko if: $root.showArchivebox -->
+                                                 | <a href="#" data-bind="click: $root.delete">@this.LocalizeText("Delete")</a>
+                                                <!-- /ko -->
+                                                <!-- ko if: ($root.showInbox() || $root.showArchivebox()) --> | <!-- /ko -->
+                                                <a href="#" data-bind="click: $root.getRepliesAndReply">@this.LocalizeText("Reply")</a>
+                                            </div>
+                                        </li>
+                                        <li><span class="attachmentsIcon" data-bind="if: AttachmentCount"><img src='@this.PaperClipUrl' alt="" /></span></li>
+                                    </ul>
+                                </li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="dnnCoreMessagingFooter"><a href="#" class="dnnPrimaryAction ComposeMessage dnnRight" data-bind="visible: !disablePrivateMessage()">@this.LocalizeText("ComposeNewMessage")</a> <a href="#" class="dnnTertiaryAction" data-bind="click: loadMore, visible: loadMoreVisible">@this.LocalizeText("LoadMore")</a><div class="dnnClear"></div></div>
+            <!-- /ko -->
+            <!-- ko if: showReplies -->
+            <div class="dnnForm DnnModule-Messaging-Details dnnClear">
+                <div class="dnnCoreMessagingContent dnnClear">
+                    <div class="previousMessages">
+                        <div class="dnnFormMessage dnnFormSuccess successMsg" style="display: none"></div>
+                        <div class="messageHeader">
+                            <p><strong>@this.LocalizeText("Subject"):</strong> <span data-bind="text: threadSubject"></span><br/><strong>@this.LocalizeText("SentTo"):</strong> <span data-bind="    text: threadTo"></span></p>
+                            <div class="returnLink">
+                                <a href="#" data-bind="@this.ToggleArchiveConversationBinding"></a> |
+                                <a href="#" data-bind="@this.ToggleConversationStateBinding"></a> |
+                                <a href="#" data-bind="click: backToMessages">@this.LocalizeText("BackToMessages")</a>
+                            </div>
+                            <div class="dnnClear"></div>
+                        </div>
+                        <div class="morePrevMsgButton" data-bind="visible: showPreviousRepliesVisible">
+                            <a href="#" class="replyView" data-bind="click: showPreviousReplies"><strong>@this.LocalizeText("ShowPreviousReplies")</strong></a>
+                        </div>
+                        <div class="smListings">
+                            <ul class="messages" data-bind="foreach: { data: messagethreads, afterAdd: threadViewAfterAdd }">
+                                <li>
+                                    <ul>
+                                        <li class="ListCol-1">
+										    <a class="profileImg" data-bind="attr: { href: SenderProfileUrl }">
+											    <span><em><img alt="Display Name" data-bind="attr: { src: SenderAvatar, alt: SenderDisplayName, title: SenderDisplayName }" /></em></span>
+										    </a>
+                                        </li>
+                                        <li class="ListCol-2">
+                                            <dl>
+                                                <dd class="meta">
+                                                    <em><a data-bind="text: SenderDisplayName, attr: { href: SenderProfileUrl }" aria-label="Display Name"></a></em>
+                                                </dd>
+                                                <dd class="message" data-bind="html: Body"></dd>
+                                                <dd class="attachements" data-bind="if: AttachmentCount > 0">
+                                                    <strong>@this.LocalizeText("Attachments"):</strong>
+                                                    <ul data-bind="foreach: Attachments">
+                                                        <li><a href="#" target="_blank" data-bind="attr: { href: Url }"><span data-bind="text: Name"></span> (<span data-bind="    text: Size"></span>)</a></li>
+                                                    </ul>
+                                                </dd>
+                                            </dl>
+                                        </li>
+                                        <li class="ListCol-3">
+                                            <ul>
+                                                <li data-bind="text: CreatedOnDate"></li>
+                                                <li class="hoverControls"><a href="#" data-bind="click: $root.setReplySelected">@this.LocalizeText("Reply")</a></li>
+                                            </ul>
+                                        </li>
+                                    </ul>
+                                </li>
+                            </ul>
+                            <div class="dnnClear"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="dnnCoreMessagingFooter" data-bind="visible:replyHasRecipients() && !disablePrivateMessage()">
+                    <textarea name="replyMessage" id="replyMessage" data-bind="hasfocus: isReplySelected" aria-label="Message"></textarea>
+                    <a href="#" class="dnnPrimaryAction" data-bind="click: $root.reply">@this.LocalizeText("Reply")</a>
+                    <div class="dnnClear"></div>
+                </div>
+            </div>
+            <!-- /ko -->
+        </div>
+        <!-- end core messaging -->
+
+        <!-- start core notification -->
+        <div class="coreNotifications" id="dnnCoreNotification">
+            <div class="dnnCoreMessagingContent dnnClear">
+                <div class="messageControls dnnClear">
+                    <div class="dnnFormExpandContent dnnClear">
+                        <a href="#" data-bind="visible: TotalNotifications() > 0, click: $root.dismissAllNotifications">@this.LocalizeText("DismissAllNotifications")</a>
+                    </div>
+                    <div class="messageFolders">
+                        <p><strong data-bind="text: getNotificationPageNumbers()"></strong>@this.LocalizeText("Of")<strong data-bind="text: TotalNotifications"></strong></p>
+                    </div>
+                </div>
+                <div id="loadingNotifications" data-bind="visible: loadingData"><img src='@this.AjaxLoaderUrl' alt="" /> @this.LocalizeText("LoadingContent")</div>
+                <div class="smListings" data-bind="visible: !loadingData()">
+                    <ul class="messages" data-bind="foreach: { data: notifications, beforeRemove: hideNotification }">
+                        <li class="active">
+                            <ul>
+                                <li class="ListCol-1"></li>
+                                <li class="ListCol-2">
+                                    <a class="profileImg" data-bind="attr: { href: SenderProfileUrl }"><span><em><img alt="" data-bind="    attr: { src: SenderAvatar, alt: SenderDisplayName, title: SenderDisplayName }" /></em></span></a>
+                                </li>
+                                <li class="ListCol-3">
+                                    <dl>
+                                        <dt class="subject"><span data-bind="text: Subject"></span></dt>
+                                        <dd class="meta"><em><a data-bind="text: SenderDisplayName, attr: { href: SenderProfileUrl }"></a></em></dd>
+                                        <dd class="message" data-bind="html: Body"></dd>
+                                        <dd class="notificationControls" data-bind="foreach: Actions">
+                                            <a href="#" data-bind="text: Name, click: $root.performNotificationAction, attr: { title: Description }"></a><span data-bind="    visible: !$root.isLastNotificationAction($parent, $data)"> | </span>
+                                        </dd>
+                                    </dl>
+                                </li>
+                                <li class="ListCol-4">
+                                    <ul>
+                                        <li><span data-bind="text: DisplayDate" class="smTimeStamped"></span></li>
+                                    </ul>
+                                </li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="dnnCoreMessagingFooter"><a href="#" class="dnnTertiaryAction" data-bind="click: loadMoreNotifications, visible: loadMoreNotificationsVisible">@this.LocalizeText("LoadMore")</a></div>
+        </div>
+        <!-- end core notification -->
+
+    </div>
+    @* The original View.ascx carried <%@ Register src="Subscriptions.ascx" tagPrefix="dnn"
+       tagName="Subscriptions" %> but NEVER instantiated the control, so the subscriptions
+       panel was never rendered by this view. That behavior is preserved deliberately: the
+       Subscriptions component is still compiled (Subscriptions.razor/.razor.cs, no logic
+       dropped) but is not rendered here. Rendering it inside this element would break the
+       messaging UI, because CoreMessaging.js calls ko.applyBindings over the whole
+       #dnn_ctr{ModuleId}_View subtree and the Subscriptions markup binds $root members
+       (subscriptionsViewModel, frequencyOptions, notifyFrequency, msgFrequency) that exist
+       only on Subscription.js's separate view model - an undefined `options:` array throws
+       inside applyBindings and aborts sm.init. Its ~14 resource keys are also absent from
+       every .resx in the repo. Wiring this panel up is a feature change, not a migration. *@
+</div>
+<script type="text/javascript">
+@this.BootstrapScript
+</script>
+}

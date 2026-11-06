@@ -4,7 +4,7 @@
 
 namespace DotNetNuke.Modules.Groups.Components
 {
-    internal class GroupMemberType
+    internal sealed class GroupMemberType
     {
         public int GroupMemberTypeId { get; set; }
 

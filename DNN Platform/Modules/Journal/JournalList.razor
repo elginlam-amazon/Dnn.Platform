@@ -1,0 +1,17 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Journal
+@inherits DotNetNuke.UI.DnnComponentBase
+
+@*
+    Replaces JournalList.cs (a System.Web.UI.WebControls.WebControl whose
+    Render(HtmlTextWriter) override wrote the literal text "Hello World" and nothing else -
+    no surrounding <span>, because the override did not call base.Render).
+
+    The output below is byte-identical to that. The designer-only [DefaultProperty("Text")] and
+    [ToolboxData(...)] attributes were dropped: they only fed the Visual Studio WebForms designer,
+    which has no Blazor equivalent. The four public properties are preserved in
+    JournalList.razor.cs.
+*@
+Hello World

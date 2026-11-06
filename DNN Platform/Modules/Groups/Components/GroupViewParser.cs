@@ -4,10 +4,11 @@
 namespace DotNetNuke.Modules.Groups.Components
 {
     using System.Linq;
-    using System.Web;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
+    using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Security.Roles;
@@ -46,12 +47,23 @@ namespace DotNetNuke.Modules.Groups.Components
 
         private UserInfo CurrentUser { get; set; }
 
+        /// <summary>Gets a value indicating whether the current user is authenticated.</summary>
+        /// <remarks>
+        /// Replaces <c>HttpContext.Current.Request.IsAuthenticated</c>. In a request context the answer
+        /// comes from the ASP.NET Core request (through <see cref="HttpContextSource"/>), exactly as the
+        /// migrated library does; the template can also be parsed outside a request (over a Blazor
+        /// circuit), where the request-independent portal user lookup gives the same answer.
+        /// </remarks>
+        private bool IsAuthenticated =>
+            HttpContextSource.Current?.Request.IsAuthenticated()
+            ?? (this.CurrentUser != null && this.CurrentUser.UserID > Null.NullInteger);
+
         public string ParseView()
         {
             var membershipPending = false;
             var isOwner = false;
 
-            if (HttpContext.Current.Request.IsAuthenticated)
+            if (this.IsAuthenticated)
             {
                 var userRoleInfo = this.CurrentUser.Social.Roles.FirstOrDefault(r => r.RoleID == this.RoleInfo.RoleID);
 
@@ -87,7 +99,7 @@ namespace DotNetNuke.Modules.Groups.Components
             this.Template = Utilities.ParseTokenWrapper(this.Template, "IsNotOwner", false);
             this.Template = Utilities.ParseTokenWrapper(this.Template, "IsOwner", false);
 
-            if (this.CurrentUser.IsInRole(this.RoleInfo.RoleName) || !HttpContext.Current.Request.IsAuthenticated || membershipPending)
+            if (this.CurrentUser.IsInRole(this.RoleInfo.RoleName) || !this.IsAuthenticated || membershipPending)
             {
                 this.Template = Utilities.ParseTokenWrapper(this.Template, "IsNotMember", false);
             }

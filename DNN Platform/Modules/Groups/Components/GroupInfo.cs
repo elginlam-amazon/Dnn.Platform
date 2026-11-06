@@ -146,14 +146,7 @@ namespace DotNetNuke.Entities.Groups
                 return defaultValue;
             }
 
-            if (this.Settings.ContainsKey(keyName))
-            {
-                return this.Settings[keyName];
-            }
-            else
-            {
-                return defaultValue;
-            }
+            return this.Settings.TryGetValue(keyName, out var value) ? value : defaultValue;
         }
 
         private void SetString(string keyName, string value)

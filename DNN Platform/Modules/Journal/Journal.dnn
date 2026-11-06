@@ -31,7 +31,7 @@
                                 <moduleControls>
                                     <moduleControl>
                                         <controlKey/>
-                                        <controlSrc>DesktopModules/Journal/View.ascx</controlSrc>
+                                        <controlSrc>DesktopModules/Journal/View.razor</controlSrc>
                                         <supportsPartialRendering>False</supportsPartialRendering>
                                         <controlTitle/>
                                         <controlType>View</controlType>
@@ -41,7 +41,7 @@
                                     </moduleControl>
                                     <moduleControl>
                                         <controlKey>Settings</controlKey>
-                                        <controlSrc>DesktopModules/Journal/Settings.ascx</controlSrc>
+                                        <controlSrc>DesktopModules/Journal/Settings.razor</controlSrc>
                                         <supportsPartialRendering>False</supportsPartialRendering>
                                         <controlTitle>Journal Settings</controlTitle>
                                         <controlType>Edit</controlType>

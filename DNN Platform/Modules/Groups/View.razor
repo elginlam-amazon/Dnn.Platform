@@ -1,0 +1,94 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Groups
+@inherits DotNetNuke.Modules.Groups.GroupsModuleBase
+
+@using DotNetNuke.Framework.JavaScriptLibraries
+
+@*
+    Replaces View.ascx (a single <asp:PlaceHolder ID="plhContent" />) and the
+    OnInit -> InitializeComponent -> Page_Load chain of View.ascx.cs.
+
+    InitializeComponent() did nothing but wire this.Load += Page_Load, so the whole chain
+    collapses onto the component load phase (OnParametersSet, which PortalModuleBase documents as
+    the replacement of the WebForms Load phase). plhContent disappears: a Blazor component renders
+    its child directly.
+
+    The original composed its child with (GroupsModuleBase)this.LoadControl(this.ControlPath).
+    ControlPath is the virtual DIRECTORY the .ascx files lived in, so the three controls that
+    could be loaded from it are exactly the three Loader dispatched to, and they are now
+    components compiled into this assembly. The composition is therefore the same static
+    three-way switch Loader performs — no reflection and no path resolution, which also keeps
+    this component free of the control-name ambiguity a dynamic lookup would introduce.
+    ModuleConfiguration keeps being handed down through the ParentModuleConfiguration parameter
+    of GroupsModuleBase, which assigns it to the child's module context before the child's load
+    phase runs; re-rendering rebuilds the child, as plhContent.Controls.Clear() did.
+
+    The three services the original took through its constructor are injected as properties:
+    Blazor activates components through a parameterless constructor, so [Inject] is the
+    constructor injection equivalent (the precedent set by the migrated Options.razor). They
+    resolve from the same container DependencyProvider used.
+*@
+
+@if (!this.redirecting)
+{
+    switch (this.LoadView)
+    {
+        case GroupMode.Setup:
+            <Setup ParentModuleConfiguration="this.ModuleConfiguration" />
+            break;
+
+        case GroupMode.List:
+            <List ParentModuleConfiguration="this.ModuleConfiguration" />
+            break;
+
+        case GroupMode.View:
+            <GroupView ParentModuleConfiguration="this.ModuleConfiguration" />
+            break;
+    }
+}
+
+@code {
+    private bool redirecting;
+
+    /// <summary>Gets or sets the application status the client resource registration is performed against.</summary>
+    [Inject]
+    protected IApplicationStatusInfo AppStatus { get; set; }
+
+    /// <summary>Gets or sets the event logger the client resource registration logs through.</summary>
+    [Inject]
+    protected IEventLogger EventLogger { get; set; }
+
+    /// <inheritdoc />
+    /// <remarks>This is Page_Load, wired by InitializeComponent from OnInit.</remarks>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        try
+        {
+            JavaScript.RequestRegistration(this.AppStatus, this.EventLogger, this.PortalSettings, CommonJs.DnnPlugins);
+
+            if (this.GroupId < 0)
+            {
+                if (this.TabId != this.GroupListTabId && !this.UserInfo.IsInRole(this.PortalSettings.AdministratorRoleName))
+                {
+                    // Replaces Response.Redirect(...): a full navigation, which is what a 302 was.
+                    // The administrator bypass is unchanged - an administrator stays on this page.
+                    // The child is suppressed so nothing renders behind the navigation, which is
+                    // what returning from Page_Load before populating plhContent achieved.
+                    this.redirecting = true;
+                    this.Navigation.NavigateTo(this.NavigationManager.NavigateURL(this.GroupListTabId), forceLoad: true);
+                    return;
+                }
+            }
+
+            this.redirecting = false;
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+}

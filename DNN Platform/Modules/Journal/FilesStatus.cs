@@ -35,12 +35,14 @@ namespace DotNetNuke.Modules.Journal
         public string url { get; set; }
 
         [SuppressMessage("StyleCop.CSharp.NamingRules", "SA1300:ElementMustBeginWithUpperCaseLetter", Justification = "Breaking Change")]
+        [SuppressMessage("Microsoft.Naming", "CA1707:IdentifiersShouldNotContainUnderscores", Justification = "This is the serialized upload-response contract journal.js binds to; renaming it would break the client.")]
         public string thumbnail_url { get; set; }
 
         [SuppressMessage("StyleCop.CSharp.NamingRules", "SA1300:ElementMustBeginWithUpperCaseLetter", Justification = "Breaking Change")]
         public string message { get; set; }
 
         [SuppressMessage("StyleCop.CSharp.NamingRules", "SA1300:ElementMustBeginWithUpperCaseLetter", Justification = "Breaking Change")]
+        [SuppressMessage("Microsoft.Naming", "CA1707:IdentifiersShouldNotContainUnderscores", Justification = "This is the serialized upload-response contract journal.js binds to; renaming it would break the client.")]
         public int file_id { get; set; }
 
         // ReSharper restore InconsistentNaming

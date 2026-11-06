@@ -30,7 +30,7 @@
                 <moduleControls>
                   <moduleControl>
                     <controlKey/>
-                    <controlSrc>DesktopModules/CoreMessaging/View.ascx</controlSrc>
+                    <controlSrc>DesktopModules/CoreMessaging/View.razor</controlSrc>
                     <supportsPopUps>True</supportsPopUps>
                     <supportsPartialRendering>True</supportsPartialRendering>
                     <controlTitle>Core Messaging View</controlTitle>
@@ -60,15 +60,6 @@
               <name>DotNetNuke.Modules.CoreMessaging.dll</name>
             </assembly>
           </assemblies>
-        </component>
-        <component type="File">
-          <files>
-            <basePath>DesktopModules/CoreMessaging</basePath>
-            <file>
-              <name>View.ascx</name>
-              <sourceFileName>View.ascx</sourceFileName>
-            </file>
-          </files>
         </component>
         <component type="ResourceFile">
           <resourceFiles>

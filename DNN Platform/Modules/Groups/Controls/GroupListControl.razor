@@ -1,0 +1,42 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Groups.Controls
+
+@*
+    Replaces the GroupListControl WebControl (GroupListControl.cs) and its
+    Render(HtmlTextWriter) override. The writer wrote, in order: the header template, the
+    "no groups found" message, one row header / n parsed items / one row footer per row, the
+    footer template and the pager div. This markup emits exactly that sequence from the values
+    GroupListControl.razor.cs computes.
+
+    The five template properties stay *strings* rather than becoming RenderFragments, because
+    they are data, not markup: the item template is handed to GroupViewParser, which performs
+    {resx:...}/[groupitem:...] token substitution on it, and the row header/footer are
+    deliberately unbalanced HTML fragments (the header opens the element the footer closes),
+    which a RenderFragment cannot express. They are rendered as MarkupString, which is what the
+    HtmlTextWriter.Write(string) calls they replace did.
+*@
+
+@((MarkupString)this.headerMarkup)
+
+@if (this.showNoGroupsFound)
+{
+    <div class="dnnFormMessage dnnFormInfo"><span>@this.noGroupsFoundText</span></div>
+}
+
+@foreach (var row in this.rows)
+{
+    @((MarkupString)this.rowHeaderMarkup)
+
+    @foreach (var item in row)
+    {
+        @((MarkupString)item)
+    }
+
+    @((MarkupString)this.rowFooterMarkup)
+}
+
+@((MarkupString)this.footerMarkup)
+
+<div class="dnnClear groupPager">@((MarkupString)this.pagerMarkup)</div>

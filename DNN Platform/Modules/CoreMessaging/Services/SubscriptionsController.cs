@@ -9,8 +9,6 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Application;
@@ -25,7 +23,14 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
     using DotNetNuke.Services.Social.Subscriptions.Entities;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
+
+    // Disambiguates the DNN services framework anti-forgery filter from the same-named
+    // Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces
+    // now bring into scope. DNN's attribute is the one that must apply here.
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>Provides a web service to manage subscriptions.</summary>
     /// <param name="hostSettings">The host settings.</param>
@@ -34,7 +39,7 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
         : DnnApiController
     {
         private const string SharedResources = "~/DesktopModules/CoreMessaging/App_LocalResources/SharedResources.resx";
-        private const string ViewControlResources = "~/DesktopModules/CoreMessaging/App_LocalResources/View.ascx.resx";
+        private const string ViewControlResources = "~/DesktopModules/CoreMessaging/App_LocalResources/View.resx";
         private readonly IHostSettings hostSettings = hostSettings ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
 
         /// <summary>Initializes a new instance of the <see cref="SubscriptionsController"/> class.</summary>
@@ -59,7 +64,7 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
         /// <param name="sortExpression">The sort expression in the form [Description|SubscriptionType] [Asc|Desc].</param>
         /// <returns>The sorted and paged list of subscriptions.</returns>
         [HttpGet]
-        public HttpResponseMessage GetSubscriptions(int pageIndex, int pageSize, string sortExpression)
+        public IActionResult GetSubscriptions(int pageIndex, int pageSize, string sortExpression)
         {
             try
             {
@@ -102,13 +107,13 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
                     TotalResults = sortedList.Count(),
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception ex)
             {
                 var message = "An unexpected error occurred while attempting to get the subscriptions, consult the server logs for more information.";
                 Exceptions.LogException(ex);
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError, message);
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError, message);
             }
         }
 
@@ -117,7 +122,7 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
         /// <returns><see cref="UserPreference"/>.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateSystemSubscription(InboxSubscriptionViewModel post)
+        public IActionResult UpdateSystemSubscription(InboxSubscriptionViewModel post)
         {
             try
             {
@@ -131,13 +136,13 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
                 };
                 userPreferencesController.SetUserPreference(userPreference);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, userPreferencesController.GetUserPreference(this.UserInfo));
+                return this.Ok(userPreferencesController.GetUserPreference(this.UserInfo));
             }
             catch (Exception ex)
             {
                 var message = "An unexpected error occurred while attempting to update the system subscriptions, consult the server logs for more information.";
                 Exceptions.LogException(ex);
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError, message);
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError, message);
             }
         }
 
@@ -146,7 +151,7 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
         /// <returns>"unsubscribed" or an InternalServerError.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage DeleteContentSubscription(Subscription subscription)
+        public IActionResult DeleteContentSubscription(Subscription subscription)
         {
             try
             {
@@ -157,13 +162,13 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
                     SubscriptionController.Instance.DeleteSubscription(sub);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, "unsubscribed");
+                return this.Ok("unsubscribed");
             }
             catch (Exception ex)
             {
                 var message = "An unexpected error occurred while attempting to delete a content subscription, consult the server logs for more information.";
                 Exceptions.LogException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, message);
             }
         }
 
@@ -172,7 +177,7 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
         /// <returns>A dictionnary of localization keys and their localized values.</returns>
         [HttpGet]
         [AllowAnonymous]
-        public HttpResponseMessage GetLocalizationTable(string culture)
+        public IActionResult GetLocalizationTable(string culture)
         {
             try
             {
@@ -185,7 +190,7 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
 
                 var resourcesPath = this.LocalizationFolder;
                 var files =
-                    Directory.GetFiles(System.Web.HttpContext.Current.Server.MapPath(resourcesPath)).Select(x => new FileInfo(x).Name).Where(f => !IsLanguageSpecific(f)).ToList();
+                    Directory.GetFiles(HttpContextSource.MapPath(resourcesPath)).Select(x => new FileInfo(x).Name).Where(f => !IsLanguageSpecific(f)).ToList();
 
                 foreach (var kvp in files.SelectMany(f => GetLocalizationValues(resourcesPath, f, culture)).Where(kvp => !dictionary.ContainsKey(kvp.Key)))
                 {
@@ -197,13 +202,13 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
                     dictionary.Add(kvp.Key, kvp.Value);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Table = dictionary });
+                return this.Ok(new { Table = dictionary });
             }
             catch (Exception ex)
             {
                 var message = "An unexpected error occurred while attempting to get the localization table, consult the server logs for more information.";
                 Exceptions.LogException(ex);
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError, message);
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError, message);
             }
         }
 
@@ -260,7 +265,7 @@ namespace DotNetNuke.Modules.CoreMessaging.Services
 
         private static IEnumerable<KeyValuePair<string, string>> GetLocalizationValues(string fullPath, string culture)
         {
-            using var stream = new FileStream(System.Web.HttpContext.Current.Server.MapPath(fullPath), FileMode.Open, FileAccess.Read);
+            using var stream = new FileStream(HttpContextSource.MapPath(fullPath), FileMode.Open, FileAccess.Read);
             var document = new XmlDocument { XmlResolver = null };
             using (var xmlReader = XmlReader.Create(stream, new XmlReaderSettings { XmlResolver = null, }))
             {

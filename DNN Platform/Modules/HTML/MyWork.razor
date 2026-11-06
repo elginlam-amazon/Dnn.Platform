@@ -1,0 +1,32 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+@using DotNetNuke.Web.UI.WebControls.Internal
+
+@*
+    Replaces MyWork.ascx. The three <%@ Register %> directives have no Blazor equivalent:
+      * dnnweb:DnnGrid / dnnweb:DnnGridTemplateColumn is the migrated DnnGrid component; its single
+        template column (HeaderText "Page", ItemTemplate <%#FormatURL(Container.DataItem)%>) is
+        built in the code behind, where the RenderFragment<DnnGridRow> replaces the ITemplate,
+      * dnncl:DnnCssInclude FilePath="DesktopModules/HTML/edit.css" AddTag="false" is a tag helper
+        that cannot be used in a component, so the stylesheet is registered through
+        IClientResourceController (see the code behind), which is what the tag helper does,
+      * the asp:Label of the EmptyDataTemplate and the asp:HyperLink of the actions list are plain
+        markup localized through the same resource keys (lblNoRecords, cmdCancel).
+    EnableViewState="true" has no equivalent: the bound data lives in a field of this component.
+*@
+
+<div class="dnnForm dnnMyWork dnnClear">
+    <DnnGrid @ref="this.Grid" ID="dgTabs" AutoGenerateColumns="false" AllowPaging="false" CssClass="dnnGrid" />
+    @if (this.HasNoRecords)
+    {
+        @* Was the DnnGrid's EmptyDataTemplate. *@
+        <div class="dnnFormMessage dnnFormWarning">
+            <span id="lblNoRecords">@this.LocalizeText("lblNoRecords")</span>
+        </div>
+    }
+    <ul class="dnnActions dnnClear">
+        <li><a id="hlCancel" class="dnnPrimaryAction" href="@this.CancelUrl">@this.LocalizeText("cmdCancel")</a></li>
+    </ul>
+</div>
