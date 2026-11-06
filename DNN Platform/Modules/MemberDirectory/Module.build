@@ -2,9 +2,9 @@
 <Project ToolsVersion="4.0" DefaultTargets="Build" 
   xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
-    <RootDirectory>$(MSBuildProjectDirectory)\..\..\..</RootDirectory>
+    <RootDirectory>$(MSBuildProjectDirectory)/../../..</RootDirectory>
   </PropertyGroup>
-  <Import Project="..\..\..\DNN_Platform.build" />
+  <Import Project="../../../DNN_Platform.build" />
   <PropertyGroup>
     <Extension>zip</Extension>
     <DNNFileName>MemberDirectory</DNNFileName>
@@ -12,8 +12,14 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\MemberDirectory</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
-  <Import Project="$(BuildScriptsPath)\Module.Build"/>
+  <!-- The files on disk are Package.targets and Module.build; the lower-case "t"/"b" matters on
+       case-sensitive (Linux) file systems, where the old "Package.Targets" / "Module.Build"
+       spellings fail with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)/Package.targets" />
+  <Import Project="$(BuildScriptsPath)/Module.build" />
+  <!-- The two .resx files keep living in App_LocalResources/ (renamed only, to View.resx and
+       Settings.resx), so the shared BuildScripts\Module.build GetFiles glob already picks them
+       up into @(Resources); nothing has to be staged here. -->
   <Target Name="UpdateFiles">
     <ItemGroup>
       <Resources Remove="web.config" />

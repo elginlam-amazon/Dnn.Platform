@@ -1,9 +1,11 @@
+@inherits DotNetNuke.Web.Razor.DotNetNukeWebPage
+@using System.Data
+@using Microsoft.Data.SqlClient
 @{ 
-    var db = Database.Open("SiteSqlServer");
     var usersTableName = String.Format("{0}Users", DotNetNuke.Data.DataProvider.Instance().ObjectQualifier);
     var portalTableName = String.Format("{0}UserPortals", DotNetNuke.Data.DataProvider.Instance().ObjectQualifier);
 
- var selectQueryString = "select * from " + usersTableName  + " as ut  inner join " + portalTableName + " as up on ut.userid = up.userid where portalid = " + Dnn.Portal.PortalId + " and ut.IsSuperUser = 0 order by username";
+ var selectQueryString = "select * from " + usersTableName  + " as ut  inner join " + portalTableName + " as up on ut.userid = up.userid where portalid = @PortalId and ut.IsSuperUser = 0 order by username";
  }
 
 <h2>Razor User List Module Example</h2>
@@ -17,16 +19,24 @@
         </tr>
     </thead>
     <tbody>
-        @foreach (var row in db.Query(selectQueryString))
+        @*
+            Was WebMatrix.Data: Database.Open("SiteSqlServer") + db.Query(sql). That package has no
+            successor on modern .NET, so the same query runs through DNN data access instead; the
+            portal id is passed as a parameter rather than concatenated into the SQL.
+        *@
+        @using (IDataReader reader = DotNetNuke.Data.DataProvider.Instance().ExecuteSQL(selectQueryString, new SqlParameter("@PortalId", Dnn.Portal.PortalId)))
         {
+            while (reader != null && reader.Read())
+            {
 
             <tr>
-                <td>@row.Username</td>
-                <td>@row.FirstName</td>
-                <td>@row.LastName</td>
-	        <td>@row.Email</td>
+                <td>@reader["Username"]</td>
+                <td>@reader["FirstName"]</td>
+                <td>@reader["LastName"]</td>
+	        <td>@reader["Email"]</td>
 
             </tr>
+            }
         }
     </tbody>
 </table>

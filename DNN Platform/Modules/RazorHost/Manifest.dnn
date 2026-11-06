@@ -1,4 +1,12 @@
-﻿<dotnetnuke type="Package" version="5.0">
+﻿<!--
+  On-disk twin of the ManifestText.Text template in Resources/CreateModule.resx; the two must not
+  drift. {0}=module name, {1}=description, {2}=target folder, {3}=the copied razor script file name
+  (which is also the module control, see CreateModule.ModuleControl), {4}=the selected script.
+  Since the net10 migration {3} is the razor script itself: RazorModuleControlFactory.SupportsControl
+  accepts a .cshtml/.vbhtml controlSrc directly, so the generated .ascx stub - which ASP.NET Core
+  cannot parse - is gone and the one shipped file is the script.
+-->
+<dotnetnuke type="Package" version="5.0">
   <packages>
     <package name="{0}" type="Module"  isSystem="true" version="10.04.00">
       <friendlyName>{0}</friendlyName>
@@ -48,9 +56,6 @@
             <basePath>DesktopModules\RazorModules\{2}</basePath>
             <file>
               <name>{3}</name>
-            </file>
-            <file>
-              <name>{4}</name>
             </file>
           </files>
         </component>

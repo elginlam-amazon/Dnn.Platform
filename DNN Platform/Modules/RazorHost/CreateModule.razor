@@ -1,0 +1,82 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.UI.Modules.ModuleUserControlBase
+
+@*
+    Replaces CreateModule.ascx. Every ID is preserved because the IDs are the resource keys:
+
+      dnn:Label scriptsLabel / plFolder / plName / plDescription / plAddPage
+                                        -> the migrated <LabelControl /> component with the same
+                                           controlname (scriptsLabel.Text/.Help, plFolder.*, plName.*,
+                                           plDescription.*, plAddPage.*).
+      asp:DropDownList scriptList AutoPostBack="true"
+                                        -> <select id="scriptList" @onchange=...> running the old
+                                           ScriptList_SelectedIndexChanged -> DisplayFile().
+      asp:Label lblSourceFile / lblModuleControl
+                                        -> <span> with the same IDs in the razorHostModSource rows.
+      asp:TextBox txtFolder / txtName   -> text inputs; their asp:RequiredFieldValidator
+                                           (CssClass="dnnFormError" Display="Dynamic") becomes a
+                                           <span id="valFolder"/"valName" class="dnnFormError">
+                                           rendered only while the field is empty, plus the guard in
+                                           CmdCreate_Click that replaces Page.IsValid.
+      asp:TextBox txtDescription Rows="5" -> <textarea id="txtDescription" rows="5">.
+      asp:CheckBox chkAddPage           -> <input type="checkbox" id="chkAddPage">.
+      asp:LinkButton cmdCreate / cmdCancel
+                                        -> anchors with the same IDs, CSS classes and resource keys;
+                                           cmdCancel had CausesValidation="false", which is why it
+                                           does not run the validity guard.
+      asp:PlaceHolder phInstallLogs     -> the install log markup produced by
+                                           installer.InstallerInfo.Log.GetLogsTable(), which already
+                                           returns a MarkupString.
+*@
+
+<div class="dnnForm dnnRazorHostCreateModule dnnClear" id="dnnRazorHost">
+    <fieldset>
+        <div class="dnnFormItem">
+            <LabelControl ID="scriptsLabel" ControlName="scriptList" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="scriptList" value="@this.SelectedScript" @onchange="this.ScriptList_SelectedIndexChanged">
+                @foreach (var script in this.Scripts)
+                {
+                    <option value="@script" selected="@(script == this.SelectedScript)">@script</option>
+                }
+            </select>
+        </div>
+        <div class="dnnFormItem razorHostModSource"><span id="lblSourceFile">@this.SourceFileText</span></div>
+        <div class="dnnFormItem razorHostModSource"><span id="lblModuleControl">@this.ModuleControlText</span></div>
+        <div class="dnnFormItem">
+            <LabelControl ID="plFolder" ControlName="txtFolder" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="text" id="txtFolder" value="@this.Folder" @onchange="this.OnFolderChanged" />
+            @if (!this.FolderValid)
+            {
+                <span id="valFolder" class="dnnFormError">@this.LocalizeString("valFolder.Text")</span>
+            }
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="plName" ControlName="txtName" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="text" id="txtName" value="@this.Name" @onchange="this.OnNameChanged" />
+            @if (!this.NameValid)
+            {
+                <span id="valName" class="dnnFormError">@this.LocalizeString("valName.Text")</span>
+            }
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="plDescription" ControlName="txtDescription" LocalResourceFile="@this.LocalResourceFile" />
+            <textarea id="txtDescription" rows="5" value="@this.Description" @onchange="this.OnDescriptionChanged"></textarea>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="plAddPage" ControlName="chkAddPage" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="checkbox" id="chkAddPage" checked="@this.AddPage" @onchange="this.OnAddPageChanged" />
+        </div>
+    </fieldset>
+    <ul class="dnnActions dnnClear">
+        <li><a id="cmdCreate" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.CmdCreate_Click">@this.LocalizeString("cmdCreate")</a></li>
+        <li><a id="cmdCancel" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CmdCancel_Click">@this.LocalizeString("cmdCancel")</a></li>
+    </ul>
+    <div class="dnnClear">
+        @if (!string.IsNullOrEmpty(this.InstallLogs.Value))
+        {
+            @this.InstallLogs
+        }
+    </div>
+</div>

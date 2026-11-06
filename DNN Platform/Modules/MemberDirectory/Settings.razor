@@ -1,0 +1,182 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.MemberDirectory
+@inherits DotNetNuke.Web.Mvp.SettingsView<DotNetNuke.Modules.MemberDirectory.ViewModels.MemberDirectorySettingsModel>
+@using System
+@using DotNetNuke.UI.UserControls
+@using Microsoft.AspNetCore.Components
+
+@*
+    Replaces Settings.ascx.
+
+    - <%@ Register TagPrefix="dnn" TagName="label" Src="~/controls/LabelControl.ascx" %> becomes the
+      migrated <LabelControl> component (DotNetNuke.UI.UserControls). Each label keeps the ID the
+      .ascx gave it, because that ID is the resource key the control falls back to
+      (itemTemplateLabel.Text, filterBySelectorLabel.Help, ...) in App_LocalResources/Settings.resx,
+      and keeps its ControlName so the rendered <label for> still points at the input.
+    - every server control keeps its ID as the rendered element id: module.css and
+      Scripts/memberDirectorySettingsInterop.js address groupList / relationShipList / propertyList /
+      propertyValue / filterBySelector by name, and the wrapper classes/ids
+      (dnnMemberDirectorySettings, dnnPanel-Templates, dnnPanel-Filter, H1, H2, mdFilterBy,
+      mdFilterLists, mdFilters) are unchanged.
+    - the asp:RangeValidator on pageSize is the PageSizeErrorMessage block below, rendered with the
+      same "dnnFormMessage dnnFormError" css and the same pageSize.Error text; OnSavingSettings
+      refuses to save while it is set.
+    - the inline <script> moved to Scripts/memberDirectorySettingsInterop.js (a Blazor render cannot
+      execute a <script> it emits); Settings.razor.cs imports and invokes it after rendering.
+*@
+
+<div class="dnnForm dnnMemberDirectorySettings dnnClear" id="dnnMemberDirectorySettings">
+    <h2 id="dnnPanel-Templates" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeString("Templates")</a></h2>
+    <fieldset>
+        <div class="dnnFormItem">
+            <LabelControl ID="itemTemplateLabel" ControlName="itemTemplate" LocalResourceFile="@this.LocalResourceFile" />
+            <textarea id="itemTemplate" name="itemTemplate" rows="3" @bind="this.ItemTemplateText"></textarea>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="alternateItemTemplateLabel" ControlName="alternateItemTemplate" LocalResourceFile="@this.LocalResourceFile" />
+            <textarea id="alternateItemTemplate" name="alternateItemTemplate" rows="3" @bind="this.AlternateItemTemplateText"></textarea>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="enablePopUpLabel" ControlName="enablePopUp" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="checkbox" id="enablePopUp" name="enablePopUp" @bind="this.EnablePopUpChecked" />
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="popUpTemplateLabel" ControlName="popUpTemplate" LocalResourceFile="@this.LocalResourceFile" />
+            <textarea id="popUpTemplate" name="popUpTemplate" rows="3" @bind="this.PopUpTemplateText"></textarea>
+        </div>
+    </fieldset>
+    <h2 id="dnnPanel-Filter" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeString("Filters")</a></h2>
+    <fieldset>
+        <div class="dnnFormItem">
+            <LabelControl ID="filterBySelectorLabel" ControlName="filterBySelector" LocalResourceFile="@this.LocalResourceFile" />
+            <div class="mdFilterBy">
+                @* RepeatDirection="Horizontal" RepeatColumns="5" rendered the five radios in one row. *@
+                <div class="mdFilters" id="filterBySelector">
+                    @foreach (var item in this.FilterByItems)
+                    {
+                        var filterItem = item;
+                        <span>
+                            <input type="radio" name="filterBySelector" id="@("filterBySelector_" + filterItem.Value)"
+                                   value="@filterItem.Value" checked="@(this.FilterBySelectedValue == filterItem.Value)"
+                                   disabled="@(!filterItem.Enabled)"
+                                   @onchange="() => this.OnFilterByChanged(filterItem.Value)" />
+                            <label for="@("filterBySelector_" + filterItem.Value)">@filterItem.Text</label>
+                        </span>
+                    }
+                </div>
+                <div class="mdFilterLists">
+                    <select id="groupList" name="groupList" value="@this.GroupSelectedValue" @onchange="(ChangeEventArgs args) => { this.GroupSelectedValue = args.Value?.ToString(); }">
+                        @foreach (var item in this.GroupItems)
+                        {
+                            <option value="@item.Value" selected="@(this.GroupSelectedValue == item.Value)">@item.Text</option>
+                        }
+                    </select>
+                    <select id="relationShipList" name="relationShipList" value="@this.RelationShipSelectedValue" @onchange="(ChangeEventArgs args) => { this.RelationShipSelectedValue = args.Value?.ToString(); }">
+                        @foreach (var item in this.RelationShipItems)
+                        {
+                            <option value="@item.Value" selected="@(this.RelationShipSelectedValue == item.Value)">@item.Text</option>
+                        }
+                    </select>
+                    <select id="propertyList" name="propertyList" value="@this.PropertySelectedValue" @onchange="(ChangeEventArgs args) => { this.PropertySelectedValue = args.Value?.ToString(); }">
+                        @foreach (var item in this.PropertyItems)
+                        {
+                            <option value="@item.Value" selected="@(this.PropertySelectedValue == item.Value)">@item.Text</option>
+                        }
+                    </select>
+                    <input type="text" id="propertyValue" name="propertyValue" @bind="this.PropertyValueText" />
+                </div>
+            </div>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="sortFieldListLabel" ControlName="sortFieldList" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="sortFieldList" name="sortFieldList" value="@this.SortFieldSelectedValue" @onchange="(ChangeEventArgs args) => { this.SortFieldSelectedValue = args.Value?.ToString(); }">
+                @foreach (var item in this.SortFieldItems)
+                {
+                    <option value="@item.Value" selected="@(this.SortFieldSelectedValue == item.Value)">@item.Text</option>
+                }
+            </select>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="sortOrderListLabel" ControlName="sortOrderList" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="sortOrderList" name="sortOrderList" value="@this.SortOrderSelectedValue" @onchange="(ChangeEventArgs args) => { this.SortOrderSelectedValue = args.Value?.ToString(); }">
+                @foreach (var item in this.SortOrderItems)
+                {
+                    <option value="@item.Value" selected="@(this.SortOrderSelectedValue == item.Value)">@item.Text</option>
+                }
+            </select>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="ExcludeHostUsersLabel" ControlName="ExcludeHostUsersCheckBox" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="checkbox" id="ExcludeHostUsersCheckBox" name="ExcludeHostUsersCheckBox" @bind="this.ExcludeHostUsersChecked" />
+        </div>
+    </fieldset>
+    <h2 id="H1" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeString("Search")</a></h2>
+    <fieldset>
+        <div class="dnnFormItem">
+            <LabelControl ID="displaySearchLabel" ControlName="displaySearch" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="displaySearchList" name="displaySearchList" value="@this.DisplaySearchSelectedValue" @onchange="(ChangeEventArgs args) => { this.DisplaySearchSelectedValue = args.Value?.ToString(); }">
+                @foreach (var item in this.DisplaySearchItems)
+                {
+                    <option value="@item.Value" selected="@(this.DisplaySearchSelectedValue == item.Value)">@item.Text</option>
+                }
+            </select>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="searchField1Label" ControlName="searchField1List" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="searchField1List" name="searchField1List" value="@this.SearchField1SelectedValue" @onchange="(ChangeEventArgs args) => { this.SearchField1SelectedValue = args.Value?.ToString(); }">
+                @foreach (var item in this.SearchFieldItems)
+                {
+                    <option value="@item.Value" selected="@(this.SearchField1SelectedValue == item.Value)">@item.Text</option>
+                }
+            </select>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="searchField2Label" ControlName="searchField2List" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="searchField2List" name="searchField2List" value="@this.SearchField2SelectedValue" @onchange="(ChangeEventArgs args) => { this.SearchField2SelectedValue = args.Value?.ToString(); }">
+                @foreach (var item in this.SearchFieldItems)
+                {
+                    <option value="@item.Value" selected="@(this.SearchField2SelectedValue == item.Value)">@item.Text</option>
+                }
+            </select>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="searchField3Label" ControlName="searchField3List" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="searchField3List" name="searchField3List" value="@this.SearchField3SelectedValue" @onchange="(ChangeEventArgs args) => { this.SearchField3SelectedValue = args.Value?.ToString(); }">
+                @foreach (var item in this.SearchFieldItems)
+                {
+                    <option value="@item.Value" selected="@(this.SearchField3SelectedValue == item.Value)">@item.Text</option>
+                }
+            </select>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="searchField4Label" ControlName="searchField4List" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="searchField4List" name="searchField4List" value="@this.SearchField4SelectedValue" @onchange="(ChangeEventArgs args) => { this.SearchField4SelectedValue = args.Value?.ToString(); }">
+                @foreach (var item in this.SearchFieldItems)
+                {
+                    <option value="@item.Value" selected="@(this.SearchField4SelectedValue == item.Value)">@item.Text</option>
+                }
+            </select>
+        </div>
+    </fieldset>
+    <h2 id="H2" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeString("Paging")</a></h2>
+    <fieldset>
+        <div class="dnnFormItem">
+            <LabelControl ID="disablePagerLabel" ControlName="disablePager" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="checkbox" id="disablePager" name="disablePager" @bind="this.DisablePagerChecked" />
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="pageSizeLabel" ControlName="pageSize" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="text" id="pageSize" name="pageSize" @bind="this.PageSizeText"
+                   aria-invalid="@(!string.IsNullOrEmpty(this.PageSizeErrorMessage))" />
+            @if (!string.IsNullOrEmpty(this.PageSizeErrorMessage))
+            {
+                @* Replaces <asp:RangeValidator ControlToValidate="pageSize" Type="Integer"
+                   MinimumValue="1" MaximumValue="100" resourcekey="pageSize.Error"
+                   CssClass="dnnFormMessage dnnFormError" />. *@
+                <span class="dnnFormMessage dnnFormError">@this.PageSizeErrorMessage</span>
+            }
+        </div>
+    </fieldset>
+</div>

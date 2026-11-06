@@ -1,0 +1,61 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace Dnn.Modules.Console
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@*
+    Replaces ViewConsole.ascx, element for element.
+
+    - <div id="Console" runat="server" class="console" ViewStateMode="Disabled"> is the div below.
+      Its runat="server" existed so the code behind could append the mode css class and the
+      ConsoleWidth style; those are now the ConsoleCssClass / ConsoleStyle properties of the code
+      behind, and its rendered id is ConsoleElementId (the component equivalent of the unique
+      ClientID WebForms generated, which is what the inline script addressed). ViewStateMode had
+      no purpose once there is no view state.
+    - the two <asp:DropDownList>s (IconSize, View) are plain <select> elements. They had no
+      server side SelectedIndexChanged handler and no AutoPostBack: jquery.console.js binds their
+      change event ($(this).find("select")) and performs the CS=/CV= request itself, so a plain
+      <select> with the same options and the same preselected value is behaviorally identical.
+      Their Visible = AllowSizeChange / AllowViewChange assignments became the @if guards (an
+      invisible server control rendered nothing).
+    - <br id="SettingsBreak" runat="server"> had Visible = AllowSizeChange && AllowViewChange.
+    - <asp:Repeater ID="DetailView"> with its recursive ItemDataBound handler produced one
+      GetHtml(tab) literal per tab in depth-first order, with no wrapper element of its own
+      (a RepeaterItem renders nothing around its controls). DetailViewHtml is that same
+      depth-first concatenation, so the DOM nesting jquery.console.js relies on
+      (#Console > div > div per tab) is unchanged.
+    - the inline <script> that called $("#...").dnnConsole(GetClientSideSettingsObject()) is gone
+      from the markup: a <script> element produced by a Blazor render tree is never executed by
+      the browser. It moved to Scripts/consoleInterop.js, which the code behind imports and calls
+      from OnAfterRenderAsync with the same settings object.
+*@
+
+<div id="@this.ConsoleElementId" class="@this.ConsoleCssClass" style="@this.ConsoleStyle">
+    @if (this.AllowSizeChange)
+    {
+        <select id="IconSize">
+            @foreach (var item in this.IconSizeItems)
+            {
+                <option value="@item.Value" selected="@(item.Value == this.DefaultSize)">@item.Text</option>
+            }
+        </select>
+    }
+    @if (this.AllowViewChange)
+    {
+        <select id="View">
+            @foreach (var item in this.ViewItems)
+            {
+                <option value="@item.Value" selected="@(item.Value == this.DefaultView)">@item.Text</option>
+            }
+        </select>
+    }
+    @if (this.SettingsBreakVisible)
+    {
+        <br id="SettingsBreak" style="clear:both" />
+    }
+    <div>
+        @this.DetailViewHtml
+    </div>
+    <br style="clear:both" />
+</div>

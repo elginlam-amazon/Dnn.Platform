@@ -1,0 +1,25 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.Entities.Modules.ModuleSettingsBase
+
+@*
+    Replaces Settings.ascx. The <%@ Register %> directive has no Blazor equivalent:
+      * dnn:label (~/controls/LabelControl.ascx) is the migrated LabelControl component. It keeps
+        the ID the .ascx gave it (scriptListLabel), which is the resource key it localizes through
+        (scriptListLabel.Text / scriptListLabel.Help), and it keeps pointing at the same control
+        through ControlName,
+      * asp:DropDownList scriptList is a <select> keeping its ID. The original had no AutoPostBack,
+        so the selection is only read back by UpdateSettings - hence <select value=... @onchange=...>
+        rather than a round trip on every change.
+*@
+
+<div class="dnnFormItem">
+    <LabelControl ID="scriptListLabel" ControlName="scriptList" LocalResourceFile="@this.LocalResourceFile" />
+    <select id="scriptList" value="@this.SelectedScript" @onchange="this.OnScriptListChanged">
+        @foreach (var script in this.Scripts)
+        {
+            <option value="@script" selected="@(script == this.SelectedScript)">@script</option>
+        }
+    </select>
+</div>

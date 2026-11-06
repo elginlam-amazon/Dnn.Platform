@@ -1,174 +1,128 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
   <PropertyGroup>
-    <Deterministic>true</Deterministic>
-    <TargetFrameworkProfile />
-  </PropertyGroup>
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>
-    </ProductVersion>
-    <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{946F0EA1-6187-4878-A32F-B7BF70E13CE5}</ProjectGuid>
-    <ProjectTypeGuids>{349c5851-65df-11da-9384-00065b846f21};{fae04ec0-301f-11d3-bf4b-00c04f79efbc}</ProjectTypeGuids>
+    <!-- Module.build's CopyBin copies from bin\ directly, so no TFM subfolder. -->
+    <OutputPath>bin</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TargetFramework>net10.0</TargetFramework>
     <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Dnn.Modules.Console</RootNamespace>
     <AssemblyName>Dnn.Modules.Console</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <UseIISExpress>true</UseIISExpress>
-    <IISExpressSSLPort />
-    <IISExpressAnonymousAuthentication />
-    <IISExpressWindowsAuthentication />
-    <IISExpressUseClassicPipelineMode />
-    <UseGlobalApplicationHostFile />
-    <Use64BitIISExpress />
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Retargeting net48 -> net10.0 newly enables net10-era analyzer diagnostics that the net48
+         build never saw. Each id below is one this project's build actually reports, in logic this
+         migration carried over verbatim rather than authored, and keeping it an error would mean
+         rewriting that logic - which is exactly what must not change. This follows the convention
+         set by the already migrated DotNetNuke.Modules.Journal, .Groups, .HTML and .CoreMessaging.
+         Compiler diagnostics (CS*) deliberately remain errors.
+           CA1305 - the ported GetHtml / settings logic formats and converts without an explicit
+                    IFormatProvider (string.Format, Convert.To*), as the WebForms code did;
+                    changing the provider would change the rendered and stored values.
+           CA1859 - the tab walks keep the original IList<TabInfo> / IList<string> locals and
+                    fields rather than concrete types.
+           CA1307 - tab.TabPath.Replace("//", "-") and the icon path Replace, carried over as-is;
+                    the TabVisibility setting keys must stay byte-identical to the stored ones.
+           CA1847 - iconURL.Contains("~", StringComparison.Ordinal), carried over as-is.
+           CA2201 - UpdateSettings throws the base Exception with the original
+                    "ConsoleWidth value is invalid" message, which the settings host surfaces.
+           SA1201 - the member order of the two ported controls is kept as the code behind had it.
+    -->
+    <WarningsNotAsErrors>CA1305,CA1307,CA1847,CA1859,CA2201,SA1201</WarningsNotAsErrors>
+    <!-- Replaces the two per-configuration <DocumentationFile>bin\Dnn.Modules.Console.XML</DocumentationFile>
+         entries; emits bin/Dnn.Modules.Console.xml, which Module.build's CopyBin copies. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- SolutionInfo.cs (linked below) carries the assembly attributes, as it did on net48
+         (Properties/AssemblyInfo.cs is deleted). -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- This is a Blazor component library, not an MVC view assembly. -->
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+
+  <!-- The two original configurations are preserved. -->
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.Modules.Console.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.Modules.Console.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+
+  <!-- DNN packaging properties consumed by Module.build / Package.targets. -->
+  <PropertyGroup>
+    <Extension>zip</Extension>
+    <DNNFileName>dnn_Console</DNNFileName>
+    <PackageName>DNNCE_Console</PackageName>
+    <BuildScriptsPath>$(MSBuildProjectDirectory)\..\..\..\Build\BuildScripts</BuildScriptsPath>
+  </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Web.DynamicData" />
-    <Reference Include="System.Web.Entity" />
-    <Reference Include="System.Web.ApplicationServices" />
-    <Reference Include="System.ComponentModel.DataAnnotations" />
-    <Reference Include="System" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Web.Extensions" />
-    <Reference Include="System.Drawing" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Xml" />
-    <Reference Include="System.Configuration" />
-    <Reference Include="System.Web.Services" />
-    <Reference Include="System.EnterpriseServices" />
-    <Reference Include="System.Xml.Linq" />
+    <!-- The converted Blazor components need Microsoft.AspNetCore.Components and
+         Microsoft.AspNetCore.Http types; this replaces the 16 GAC System.* references
+         (System.Web, System.Web.Services, System.Web.Extensions, System.Drawing,
+         System.Configuration, System.EnterpriseServices, ...). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
   <ItemGroup>
-    <Compile Include="..\..\..\SolutionInfo.cs">
-      <Link>SolutionInfo.cs</Link>
-    </Compile>
-    <Compile Include="Components\BusinessController.cs" />
-    <Compile Include="Components\ConsoleController.cs" />
-    <Compile Include="LoggerMessages.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Settings.ascx.cs">
-      <DependentUpon>Settings.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="Settings.ascx.designer.cs">
-      <DependentUpon>Settings.ascx</DependentUpon>
-    </Compile>
-    <Compile Include="ViewConsole.ascx.cs">
-      <DependentUpon>ViewConsole.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="ViewConsole.ascx.designer.cs">
-      <DependentUpon>ViewConsole.ascx</DependentUpon>
-    </Compile>
+    <ProjectReference Include="..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Web\DotNetNuke.Web.csproj" />
+    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj" />
   </ItemGroup>
+
   <ItemGroup>
+    <AdditionalFiles Include="..\..\..\stylecop.json" Link="stylecop.json" />
+    <Compile Include="..\..\..\SolutionInfo.cs" Link="SolutionInfo.cs" />
+  </ItemGroup>
+
+  <!-- Resources/ViewConsole.resx and Resources/Settings.resx are the migrated
+       App_LocalResources files (moved with `git mv`, bytes unchanged). Module.build still
+       packages them into the extension's App_LocalResources folder as ViewConsole.resx /
+       Settings.resx, which is the name PortalModuleBase.LocalResourceFile now derives from the
+       component type name at the runtime path
+       ~/DesktopModules/Admin/Console/App_LocalResources/<name>.resx - so the components'
+       LocalizeText / Localization.GetString calls resolve the same keys the WebForms controls
+       did, including portal-level and language-pack overrides, which only the deployed files
+       provide. The SDK's default EmbeddedResource glob also compiles them into the assembly,
+       which makes the shipped English text self-contained. -->
+
+  <ItemGroup>
+    <!-- App_LocalResources\ is a build-time staging folder generated by Module.build's
+         UpdateFiles target from Resources\*.resx (see the comment above); the real,
+         source-controlled files live in Resources\ and are embedded from there. -->
+    <EmbeddedResource Remove="App_LocalResources\**" />
+    <None Remove="App_LocalResources\**" />
+    <Content Remove="App_LocalResources\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- DNN extension package content (see BuildScripts\Module.build's GetFiles). -->
+    <None Include="dnn_Console.dnn" />
+    <None Include="license.txt" />
+    <None Include="releaseNotes.txt" />
+    <None Include="module.css" />
+    <Content Include="Module.build" />
     <Content Include="08.00.00.txt" />
-    <Content Include="App_LocalResources\ViewConsole.ascx.resx" />
     <Content Include="console.png" />
     <Content Include="Scripts\jquery.console.js" />
-    <Content Include="releaseNotes.txt" />
+    <!-- The JS interop module that replaces ViewConsole.ascx's inline <script> block; it must
+         ship next to jquery.console.js so the component's module import URL resolves in the
+         installed module folder. -->
+    <Content Include="Scripts\consoleInterop.js" />
   </ItemGroup>
-  <ItemGroup>
-    <Content Include="license.txt" />
-    <Content Include="module.css" />
-    <Content Include="Settings.ascx" />
-    <Content Include="ViewConsole.ascx" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer">
-      <Project>{5FE5D021-9C8D-47A6-BD34-F328BA3E709C}</Project>
-      <Name>DotNetNuke.Internal.SourceGenerators</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj">
-      <Project>{6928A9B1-F88A-4581-A132-D3EB38669BB0}</Project>
-      <Name>DotNetNuke.Abstractions</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj">
-      <Project>{3cd5f6b8-8360-4862-80b6-f402892db7dd}</Project>
-      <Name>DotNetNuke.Instrumentation</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj">
-      <Project>{03e3afa5-ddc9-48fb-a839-ad4282ce237e}</Project>
-      <Name>DotNetNuke.Web.Client</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Web\DotNetNuke.Web.csproj">
-      <Project>{ee1329fe-fd88-4e1a-968c-345e394ef080}</Project>
-      <Name>DotNetNuke.Web</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj">
-      <Project>{6b29aded-7b56-4484-bea5-c0e09079535b}</Project>
-      <Name>DotNetNuke.Library</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="Module.build" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="dnn_Console.dnn">
-      <SubType>Designer</SubType>
-    </Content>
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="App_LocalResources\Settings.ascx.resx" />
-  </ItemGroup>
-  <ItemGroup>
-    <AdditionalFiles Include="..\..\..\stylecop.json">
-      <Link>stylecop.json</Link>
-    </AdditionalFiles>
-  </ItemGroup>
-  <PropertyGroup>
-    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
-    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
-  </PropertyGroup>
-  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
-  <Import Project="$(VSToolsPath)\WebApplications\Microsoft.WebApplication.targets" Condition="'$(VSToolsPath)' != ''" />
-  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v10.0\WebApplications\Microsoft.WebApplication.targets" Condition="false" />
-  <ProjectExtensions>
-    <VisualStudio>
-      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
-        <WebProjectProperties>
-          <UseIIS>True</UseIIS>
-          <AutoAssignPort>True</AutoAssignPort>
-          <DevelopmentServerPort>56695</DevelopmentServerPort>
-          <DevelopmentServerVPath>/</DevelopmentServerVPath>
-          <IISUrl>http://localhost:56695/</IISUrl>
-          <NTLMAuthentication>False</NTLMAuthentication>
-          <UseCustomServer>False</UseCustomServer>
-          <CustomServerUrl>
-          </CustomServerUrl>
-          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
-        </WebProjectProperties>
-      </FlavorProperties>
-    </VisualStudio>
-  </ProjectExtensions>
+
   <Import Project="Module.build" />
 </Project>

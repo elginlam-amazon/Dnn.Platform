@@ -8,8 +8,6 @@ namespace DotNetNuke.Tests.Web.Api
     using System.Collections.Generic;
     using System.Data;
     using System.Net;
-    using System.Net.Http;
-    using System.Net.Http.Headers;
     using System.Security.Cryptography;
     using System.Text;
     using System.Threading;
@@ -26,7 +24,9 @@ namespace DotNetNuke.Tests.Web.Api
     using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Tests.Utilities.Mocks;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Net.Http.Headers;
 
     using Moq;
     using NUnit.Framework;
@@ -95,105 +95,150 @@ namespace DotNetNuke.Tests.Web.Api
         public void ReturnsResponseAsReceived()
         {
             // Arrange
-            var response = new HttpResponseMessage(HttpStatusCode.OK) { RequestMessage = new HttpRequestMessage() };
+            var context = new DefaultHttpContext();
+            context.Response.StatusCode = (int)HttpStatusCode.OK;
 
             // Act
             var handler = new JwtAuthMessageHandler(true, false);
-            var response2 = handler.OnOutboundResponse(response, CancellationToken.None);
+            handler.OnSendResponse(context);
 
             // Assert
-            Assert.That(response2, Is.EqualTo(response));
+            // The JWT handler adds no challenge, so the response must come back untouched —
+            // the same guarantee the legacy OnOutboundResponse pass-through gave.
+            Assert.Multiple(() =>
+            {
+                Assert.That(context.Response.StatusCode, Is.EqualTo((int)HttpStatusCode.OK));
+                Assert.That(context.Response.Headers, Is.Empty);
+            });
         }
 
         [Test]
         public void MissingAuthorizationHeaderReturnsNullResponse()
         {
             // Arrange
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/anyuri");
+            var context = CreateContext(null);
 
             // Act
             var handler = new JwtAuthMessageHandler(true, false);
-            var response = handler.OnInboundRequest(request, CancellationToken.None);
+            var shortCircuited = handler.OnAuthenticateRequest(context);
 
             // Assert
-            Assert.That(response, Is.Null);
+            AssertNotAuthenticated(shortCircuited, context);
         }
 
         [Test]
         public void WrongAuthorizationSchemeReturnsNullResponse()
         {
             // Arrange
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/anyuri");
-            request.Headers.Authorization = AuthenticationHeaderValue.Parse("Basic ");
+            var context = CreateContext("Basic ");
 
             // Act
             var handler = new JwtAuthMessageHandler(true, false);
-            var response = handler.OnInboundRequest(request, CancellationToken.None);
+            var shortCircuited = handler.OnAuthenticateRequest(context);
 
             // Assert
-            Assert.That(response, Is.Null);
+            AssertNotAuthenticated(shortCircuited, context);
         }
 
         [Test]
         public void MissingAuthorizationTokenReturnsNullResponse()
         {
             // Arrange
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/anyuri");
-            request.Headers.Authorization = AuthenticationHeaderValue.Parse("Bearer ");
+            var context = CreateContext("Bearer ");
 
             // Act
             var handler = new JwtAuthMessageHandler(true, false);
-            var response = handler.OnInboundRequest(request, CancellationToken.None);
+            var shortCircuited = handler.OnAuthenticateRequest(context);
 
             // Assert
-            Assert.That(response, Is.Null);
+            AssertNotAuthenticated(shortCircuited, context);
         }
 
         [Test]
         public void AuthorizationTokenWithMissingComponentsReturnsNullResponse()
         {
             // Arrange
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/anyuri");
-            request.Headers.Authorization = AuthenticationHeaderValue.Parse(
+            var context = CreateContext(
                 "Bearer eyJ0eXBlIjoiSldUIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiJ1c2VybmFtZSIsIm5iZiI6MSwiZXhwIjo0MTAyNDQ0Nzk5LCJzaWQiOiIwMTIzNDU2Nzg5QUJDREVGIn0");
 
             // Act
             var handler = new JwtAuthMessageHandler(true, false);
-            var response = handler.OnInboundRequest(request, CancellationToken.None);
+            var shortCircuited = handler.OnAuthenticateRequest(context);
 
             // Assert
-            Assert.That(response, Is.Null);
+            AssertNotAuthenticated(shortCircuited, context);
         }
 
         [Test]
         public void AuthorizationTokenWithWrongSchemeTypeReturnsNullResponse()
         {
             // Arrange
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/anyuri");
-            request.Headers.Authorization = AuthenticationHeaderValue.Parse(
+            var context = CreateContext(
                 "Bearer eyJ0eXBlIjoieHh4IiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiJ1c2VybmFtZSIsIm5iZiI6MSwiZXhwIjo0MTAyNDQ0Nzk5LCJzaWQiOiIwMTIzNDU2Nzg5QUJDREVGIn0.nfWCOVNk5M7L7EPDe3i3j4aAPRerbxgmcjOxaC-LWUQ");
 
             // Act
             var handler = new JwtAuthMessageHandler(true, false);
-            var response = handler.OnInboundRequest(request, CancellationToken.None);
+            var shortCircuited = handler.OnAuthenticateRequest(context);
 
             // Assert
-            Assert.That(response, Is.Null);
+            AssertNotAuthenticated(shortCircuited, context);
         }
 
         [Test]
         public void AuthorizationTokenWithoutResponse()
         {
             // Arrange
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/anyuri");
-            request.Headers.Authorization = AuthenticationHeaderValue.Parse("Bearer " + ValidToken);
+            var context = CreateContext("Bearer " + ValidToken);
 
             // Act
             var handler = new JwtAuthMessageHandler(true, false);
-            var response = handler.OnInboundRequest(request, CancellationToken.None);
+            var shortCircuited = handler.OnAuthenticateRequest(context);
 
             // Assert
-            Assert.That(response, Is.Null);
+            // Faithful port of the legacy assertion, which checked ONLY that the handler did not
+            // short-circuit. Unlike the six negative tests above, this fixture primes a matching
+            // PersistedToken and user, so the token is genuinely authenticatable — asserting that no
+            // principal was set would be asserting something the original test never claimed.
+            Assert.That(shortCircuited, Is.False);
+        }
+
+        /// <summary>
+        /// Builds the request the test exercises. Replaces the <c>HttpRequestMessage</c> the legacy
+        /// handler took: the URI is irrelevant to the handler, only the Authorization header is read.
+        /// </summary>
+        /// <param name="authorizationHeader">The raw Authorization header, or <see langword="null"/> to omit it.</param>
+        /// <returns>The HTTP context to pass to the handler.</returns>
+        private static DefaultHttpContext CreateContext(string authorizationHeader)
+        {
+            var context = new DefaultHttpContext();
+            context.Request.Method = HttpMethods.Get;
+            context.Request.Scheme = "http";
+            context.Request.Host = new HostString("localhost");
+            context.Request.Path = "/anyuri";
+            if (authorizationHeader != null)
+            {
+                context.Request.Headers[HeaderNames.Authorization] = authorizationHeader;
+            }
+
+            return context;
+        }
+
+        /// <summary>
+        /// Asserts the handler neither short-circuited the pipeline nor authenticated anyone. This is
+        /// the replacement for the legacy <c>Assert.That(response, Is.Null)</c>: returning a null
+        /// <c>HttpResponseMessage</c> meant "inbound processing continues", which is now
+        /// <see langword="false"/>.
+        /// </summary>
+        /// <param name="shortCircuited">The handler's return value.</param>
+        /// <param name="context">The HTTP context the handler was given.</param>
+        private static void AssertNotAuthenticated(bool shortCircuited, HttpContext context)
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(shortCircuited, Is.False);
+                Assert.That(context.User?.Identity?.IsAuthenticated ?? false, Is.False);
+                Assert.That(Thread.CurrentPrincipal?.Identity?.IsAuthenticated ?? false, Is.False);
+            });
         }
 
         private static IDataReader GetUser()

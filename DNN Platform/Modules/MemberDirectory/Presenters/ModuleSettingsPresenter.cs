@@ -35,7 +35,7 @@ namespace DotNetNuke.Modules.MemberDirectory.Presenters
             this.View.Model.ProfileProperties = new List<ProfilePropertyDefinition>();
             foreach (ProfilePropertyDefinition definition in ProfileController.GetPropertyDefinitionsByPortal(this.PortalId))
             {
-                var controller = new ListController();
+                var controller = new ListController(null, null);
                 ListEntryInfo textType = controller.GetListEntryInfo("DataType", "Text");
                 ListEntryInfo regionType = controller.GetListEntryInfo("DataType", "Region");
                 ListEntryInfo countryType = controller.GetListEntryInfo("DataType", "Country");

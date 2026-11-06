@@ -1,4 +1,6 @@
-﻿@{
+﻿@inherits DotNetNuke.Web.Razor.DotNetNukeWebPage
+@using DotNetNuke.Web.Razor.Helpers
+@{
     if (IsPost)  {
         var errors = false;
         var companyname = Request["companyname"];

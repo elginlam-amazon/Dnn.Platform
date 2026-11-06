@@ -8,7 +8,6 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
     using System.Collections.Generic;
     using System.Net;
     using System.Threading;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Portals;
@@ -39,12 +38,12 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
 
         public string City
         {
-            get { return this.GetProfileProperty("City"); }
+            get { return this.GetProfileProperty(nameof(this.City)); }
         }
 
         public string Country
         {
-            get { return this.GetProfileProperty("Country"); }
+            get { return this.GetProfileProperty(nameof(this.Country)); }
         }
 
         public string DisplayName
@@ -59,7 +58,7 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
 
         public string FirstName
         {
-            get { return this.GetProfileProperty("FirstName"); }
+            get { return this.GetProfileProperty(nameof(this.FirstName)); }
         }
 
         public int FollowerStatus
@@ -84,7 +83,7 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
 
         public string LastName
         {
-            get { return this.GetProfileProperty("LastName"); }
+            get { return this.GetProfileProperty(nameof(this.LastName)); }
         }
 
         public string Phone
@@ -114,7 +113,7 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
                         Scope.DefaultSettings,
                         ref propertyNotFound);
 
-                    properties[property.PropertyName] = string.IsNullOrEmpty(value) ? string.Empty : Common.Utilities.HtmlUtils.Clean(HttpUtility.HtmlDecode(value), false);
+                    properties[property.PropertyName] = string.IsNullOrEmpty(value) ? string.Empty : Common.Utilities.HtmlUtils.Clean(WebUtility.HtmlDecode(value), false);
                 }
 
                 return properties;
@@ -133,7 +132,7 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
 
         public string Website
         {
-            get { return this.GetProfileProperty("Website"); }
+            get { return this.GetProfileProperty(nameof(this.Website)); }
         }
 
         public string ProfileUrl

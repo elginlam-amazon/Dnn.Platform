@@ -16,6 +16,9 @@ namespace DotNetNuke.Web.Razor
     [DnnDeprecated(9, 3, 2, "Use Razor Pages instead")]
     public partial class RazorModuleBase : ModuleUserControlBase
     {
+        /// <summary>Whether the razor script has already been rendered into the control tree.</summary>
+        private bool razorScriptRendered;
+
         /// <summary>Gets the virtual path of the razor script backing this module, or an empty string when there is none.</summary>
         /// <remarks>
         /// The net48 implementation combined <c>Control.AppRelativeTemplateSourceDirectory</c> with
@@ -55,9 +58,38 @@ namespace DotNetNuke.Web.Razor
         }
 
         /// <inheritdoc />
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+
+            // The razor script is rendered here, during the load phase, and NOT from OnPreRender as
+            // the net48 control did. DnnComponentBase raises OnPreRender from OnAfterRender, i.e.
+            // *after* the render tree has been built: under static server-side rendering
+            // OnAfterRender never runs at all, so a module whose entire output comes from the script
+            // would render blank. OnLoad runs from OnParametersSet, before the render pass, so the
+            // DnnLiteralControl is already in Controls by the time RenderContents emits them.
+            this.EnsureRazorScriptRendered();
+        }
+
+        /// <inheritdoc />
         protected override void OnPreRender(EventArgs e)
         {
             base.OnPreRender(e);
+
+            // Kept for contract parity with the net48 lifecycle: if a derived module suppressed the
+            // load phase, the script still renders here. EnsureRazorScriptRendered is idempotent.
+            this.EnsureRazorScriptRendered();
+        }
+
+        /// <summary>Renders the razor script into this control's tree, at most once.</summary>
+        private void EnsureRazorScriptRendered()
+        {
+            if (this.razorScriptRendered)
+            {
+                return;
+            }
+
+            this.razorScriptRendered = true;
             try
             {
                 if (!string.IsNullOrEmpty(this.RazorScriptFile))

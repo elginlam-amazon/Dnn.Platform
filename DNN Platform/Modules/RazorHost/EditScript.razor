@@ -1,0 +1,58 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.UI.Modules.ModuleUserControlBase
+
+@*
+    Replaces EditScript.ascx. The <%@ Register %> directives have no Blazor equivalent; the control
+    mapping is one for one, and every ID is preserved because the IDs are the resource keys:
+
+      dnn:Label scriptsLabel / plSource / currentScriptLabel
+                                        -> the migrated <LabelControl /> component with the same
+                                           controlname, localized from this control's resource file
+                                           (scriptsLabel.Text/.Help, plSource.*, currentScriptLabel.*).
+      asp:DropDownList scriptList AutoPostBack="true"
+                                        -> <select id="scriptList" @onchange=...>; the handler is the
+                                           old ScriptList_SelectedIndexChanged, which is what the
+                                           AutoPostBack round trip invoked.
+      asp:LinkButton cmdAdd ResourceKey="AddNew"
+                                        -> <a id="cmdAdd" class="dnnSecondaryAction"> raising
+                                           CmdAdd_Click.
+      asp:Label lblSourceFile           -> <span id="lblSourceFile">.
+      asp:TextBox txtSource TextMode="MultiLine" Rows="16"
+                                        -> <textarea id="txtSource" rows="16">.
+      asp:CheckBox isCurrentScript      -> <input type="checkbox" id="isCurrentScript">.
+      asp:LinkButton cmdSave / cmdSaveClose / cmdCancel
+                                        -> anchors with the same IDs, CSS classes and resource keys.
+                                           cmdCancel had CausesValidation="False"; this control
+                                           declares no validator, so there is nothing to bypass.
+*@
+
+<div class="dnnForm dnnRazorHostEditScript dnnClear" id="dnnEditScript">
+    <fieldset>
+        <div class="dnnFormItem">
+            <LabelControl ID="scriptsLabel" ControlName="scriptList" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="scriptList" value="@this.SelectedScript" @onchange="this.ScriptList_SelectedIndexChanged">
+                @foreach (var script in this.Scripts)
+                {
+                    <option value="@script" selected="@(script == this.SelectedScript)">@script</option>
+                }
+            </select>
+            <a id="cmdAdd" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CmdAdd_Click">@this.LocalizeString("AddNew")</a>
+        </div>
+        <div class="dnnFormItem razorHostModSource"><span id="lblSourceFile">@this.SourceFileText</span></div>
+        <div class="dnnFormItem">
+            <LabelControl ID="plSource" ControlName="txtSource" LocalResourceFile="@this.LocalResourceFile" />
+            <textarea id="txtSource" rows="16" value="@this.Source" @onchange="this.OnSourceChanged"></textarea>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="currentScriptLabel" ControlName="isCurrentScript" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="checkbox" id="isCurrentScript" checked="@this.IsCurrentScript" @onchange="this.OnIsCurrentScriptChanged" />
+        </div>
+    </fieldset>
+    <ul class="dnnActions dnnClear">
+        <li><a id="cmdSave" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.CmdSave_Click">@this.LocalizeString("cmdSave")</a></li>
+        <li><a id="cmdSaveClose" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CmdSaveClose_Click">@this.LocalizeString("cmdSaveClose")</a></li>
+        <li><a id="cmdCancel" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CmdCancel_Click">@this.LocalizeString("cmdCancel")</a></li>
+    </ul>
+</div>
