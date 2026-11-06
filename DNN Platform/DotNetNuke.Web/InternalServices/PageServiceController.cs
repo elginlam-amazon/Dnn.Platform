@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -8,8 +8,6 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Common;
@@ -21,8 +19,14 @@ using DotNetNuke.Internal.SourceGenerators;
 using DotNetNuke.Services.Localization;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.Api.Internal;
-
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+
+// Disambiguates the DNN services framework anti-forgery filter from the same-named
+// Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+// bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+// bypass list fed by the authentication handlers and the iframe relaxation the upload flow needs.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for pages.</summary>
 [DnnAuthorize]
@@ -73,7 +77,7 @@ public partial class PageServiceController : DnnApiController
     [ValidateAntiForgeryToken]
     [DnnPagePermission]
     [DnnDeprecated(10, 3, 3, "Use overload taking PublishPageRequest")]
-    public partial HttpResponseMessage PublishPage(PublishPageDto dto)
+    public partial IActionResult PublishPage(PublishPageDto dto)
         => this.PublishPage(dto?.ToPublishPageRequest());
 
     /// <summary>Publishes a page.</summary>
@@ -82,13 +86,13 @@ public partial class PageServiceController : DnnApiController
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnPagePermission]
-    public HttpResponseMessage PublishPage(PublishPageRequest requestBody)
+    public IActionResult PublishPage(PublishPageRequest requestBody)
     {
         var tabId = this.Request.FindTabId();
 
         TabPublishingController.Instance.SetTabPublishing(tabId, this.PortalId, requestBody.Publish);
 
-        return this.Request.CreateResponse(HttpStatusCode.OK);
+        return DnnApiResults.Response(HttpStatusCode.OK);
     }
 
     /// <summary>Updates a custom URL for a page.</summary>
@@ -96,7 +100,7 @@ public partial class PageServiceController : DnnApiController
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage UpdateCustomUrl(SaveUrlDto dto)
+    public IActionResult UpdateCustomUrl(SaveUrlDto dto)
     {
         var urlPath = dto.Path.ValueOrEmpty().TrimStart('/');
 
@@ -107,7 +111,7 @@ public partial class PageServiceController : DnnApiController
         urlPath = FriendlyUrlController.CleanNameForUrl(urlPath, options, out var modified);
         if (modified)
         {
-            return this.Request.CreateResponse(
+            return DnnApiResults.Response(
                 HttpStatusCode.OK,
                 new
                 {
@@ -121,7 +125,7 @@ public partial class PageServiceController : DnnApiController
         urlPath = FriendlyUrlController.ValidateUrl(urlPath, -1, this.PortalSettings, out modified);
         if (modified)
         {
-            return this.Request.CreateResponse(
+            return DnnApiResults.Response(
                 HttpStatusCode.OK,
                 new
                 {
@@ -196,6 +200,6 @@ public partial class PageServiceController : DnnApiController
             Success = true,
         };
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 }

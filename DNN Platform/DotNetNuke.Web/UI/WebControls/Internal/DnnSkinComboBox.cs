@@ -6,8 +6,8 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
 {
     using System;
     using System.Collections;
+    using System.Collections.Generic;
     using System.Linq;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
@@ -18,10 +18,18 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
     using DotNetNuke.Entities.Users;
     using DotNetNuke.UI.Skins;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>This control is only for internal use, please don't reference it in any other place as it may be removed in the future.</summary>
-    [ToolboxData("<{0}:DnnSkinComboBox runat='server'></{0}:DnnSkinComboBox>")]
+    /// <remarks>
+    /// The skins are still enumerated by <see cref="SkinController.GetSkins"/>, which is now backed
+    /// by the hosting environment's file provider rather than by <c>Server.MapPath</c>. The
+    /// <c>[L]</c>/<c>[G]</c> placeholders of a skin path are resolved to the portal home directory
+    /// and to the host path respectively — this used to be done by an inline client script reading
+    /// the <c>PortalPath</c>/<c>HostPath</c> attributes, and is now done server side when the item
+    /// tooltips are built, so no script registration is needed.
+    /// </remarks>
     public class DnnSkinComboBox : DnnComboBox
     {
         /// <summary>Initializes a new instance of the <see cref="DnnSkinComboBox"/> class.</summary>
@@ -45,18 +53,23 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         }
 
         /// <summary>Gets or sets the portal ID.</summary>
+        [Parameter]
         public int PortalId { get; set; }
 
         /// <summary>Gets or sets the root path.</summary>
+        [Parameter]
         public string RootPath { get; set; }
 
         /// <summary>Gets or sets the skin scope.</summary>
+        [Parameter]
         public SkinScope Scope { get; set; }
 
         /// <summary>Gets or sets a value indicating whether to include a "None Specified" item.</summary>
+        [Parameter]
         public bool IncludeNoneSpecificItem { get; set; }
 
         /// <summary>Gets or sets the text of the "None Specified" item.</summary>
+        [Parameter]
         public string NoneSpecificText { get; set; }
 
         private PortalInfo Portal => this.PortalId == Null.NullInteger ? null : PortalController.Instance.GetPortal(this.PortalId);
@@ -69,7 +82,10 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
             this.DataTextField = "Key";
             this.DataValueField = "Value";
 
-            if (!this.Page.IsPostBack && !string.IsNullOrEmpty(this.RootPath))
+            // Under Web Forms the list was only populated on a GET (`!Page.IsPostBack`) so that the
+            // posted selection survived. A Blazor component keeps its items for the life of the
+            // circuit, so the equivalent guard is "populate once".
+            if (this.Items.Count == 0 && !string.IsNullOrEmpty(this.RootPath))
             {
                 this.DataSource = SkinController.GetSkins(this.Portal, this.RootPath, this.Scope)
                                            .ToDictionary(skin => skin.Key, skin => skin.Value);
@@ -89,59 +105,53 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
                 }
             }
 
-            this.AttachEvents();
+            this.ResolveSkinPaths();
         }
 
         /// <inheritdoc />
-        protected override void PerformDataBinding(IEnumerable dataSource)
+        protected override void PerformDataBinding(IEnumerable dataSource, IList<string> previouslySelectedValues)
         {
             // do not select item during data binding, item will select later
             var selectedValue = this.SelectedValue;
             this.SelectedValue = null;
 
-            base.PerformDataBinding(dataSource);
+            base.PerformDataBinding(dataSource, previouslySelectedValues);
 
             this.SelectedValue = selectedValue;
         }
 
-        private void AttachEvents()
+        /// <summary>
+        /// Resolves the <c>[L]</c>/<c>[G]</c> placeholders of the skin paths into the item tooltips.
+        /// </summary>
+        /// <remarks>
+        /// Replaces <c>AttachEvents</c>, which registered a client script doing the same string
+        /// replacement over the <c>PortalPath</c>/<c>HostPath</c> attributes. Those attributes are
+        /// still rendered because third party skins read them.
+        /// </remarks>
+        private void ResolveSkinPaths()
         {
             if (!UserController.Instance.GetCurrentUserInfo().IsSuperUser)
             {
                 return;
             }
 
-            this.Attributes.Add("PortalPath", this.Portal != null ? this.Portal.HomeDirectory : string.Empty);
-            this.Attributes.Add("HostPath", Globals.HostPath);
+            var portalPath = this.Portal != null ? this.Portal.HomeDirectory : string.Empty;
+            this.Attributes["PortalPath"] = portalPath;
+            this.Attributes["HostPath"] = Globals.HostPath;
 
-            // OnClientSelectedIndexChanged = "selectedIndexChangedMethod";
-            var indexChangedMethod = @"function selectedIndexChangedMethod(sender, eventArgs){
-    var value = eventArgs.get_item().get_value();
-    value = value.replace('[L]', sender.get_attributes().getAttribute('PortalPath'));
-    value = value.replace('[G]', sender.get_attributes().getAttribute('HostPath'));
-    sender.get_inputDomElement().title = value;
-}";
-            this.Page.ClientScript.RegisterClientScriptBlock(this.GetType(), "OnClientSelectedIndexChanged", indexChangedMethod, true);
+            foreach (var item in this.Items)
+            {
+                if (string.IsNullOrEmpty(item.Value))
+                {
+                    continue;
+                }
 
-            // foreach (var item in Items)
-            // {
-            //    if (string.IsNullOrEmpty(item.Value))
-            //    {
-            //        continue;
-            //    }
-
-            // var tooltip = item.Value.Replace("[G]", Globals.HostPath);
-            //    if (Portal != null)
-            //    {
-            //        tooltip = tooltip.Replace("[L]", Portal.HomeDirectory);
-            //    }
-
-            // item.ToolTip = tooltip;
-            //    if (item.Value.Equals(SelectedValue))
-            //    {
-            //        ToolTip = tooltip;
-            //    }
-            // }
+                var tooltip = item.Value.Replace("[G]", Globals.HostPath).Replace("[L]", portalPath);
+                if (string.Equals(item.Value, this.SelectedValue, StringComparison.Ordinal))
+                {
+                    this.Attributes["title"] = tooltip;
+                }
+            }
         }
     }
 }

@@ -3,61 +3,56 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Web.UI.WebControls
 {
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System;
+
+    using DotNetNuke.UI;
+    using DotNetNuke.UI.Utilities;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
 
     /// <summary>A tab control.</summary>
-    [ParseChildren(true)]
-    public class DnnTab : WebControl
+    /// <remarks>
+    /// This was a <c>WebControl</c> rendering a <c>div</c> around the content of its
+    /// <c>ITemplate Content</c>, with a separate <c>ITemplate Header</c> rendered by the hosting
+    /// tab strip. Both templates are <see cref="RenderFragment"/> now, which is the ASP.NET Core
+    /// equivalent of an <c>ITemplate</c>; the imperative <see cref="DnnComponentBase.Controls"/>
+    /// tree is still honoured so that code that added children directly keeps working.
+    /// </remarks>
+    public class DnnTab : DnnComponentBase
     {
-        /// <summary>Initializes a new instance of the <see cref="DnnTab"/> class.</summary>
-        public DnnTab()
-            : base("div")
-        {
-        }
-
-        /// <inheritdoc />
-        public override ControlCollection Controls
-        {
-            get
-            {
-                this.EnsureChildControls();
-                return base.Controls;
-            }
-        }
-
         /// <summary>Gets or sets the header template.</summary>
-        [TemplateInstance(TemplateInstance.Single)]
-        public virtual ITemplate Header { get; set; }
+        [Parameter]
+        public virtual RenderFragment Header { get; set; }
 
         /// <summary>Gets or sets the content template.</summary>
-        [TemplateInstance(TemplateInstance.Single)]
-        public virtual ITemplate Content { get; set; }
+        [Parameter]
+        public virtual RenderFragment Content { get; set; }
 
         /// <inheritdoc />
-        public override Control FindControl(string id)
+        protected override string TagName => "div";
+
+        /// <inheritdoc />
+        public override IClientApiControl FindControl(string id)
         {
             this.EnsureChildControls();
             return base.FindControl(id);
         }
 
+        // ASP0006: the render tree of this ported Web Forms control is built imperatively through helper methods that share a running sequence number, so literal sequence numbers cannot express its structure.
+        #pragma warning disable ASP0006
         /// <inheritdoc />
-        protected override void CreateChildControls()
+        protected override void RenderContents(RenderTreeBuilder builder, ref int sequence)
         {
-            this.Controls.Clear();
+            ArgumentNullException.ThrowIfNull(builder);
 
             if (this.Content != null)
             {
-                this.Content.InstantiateIn(this);
+                builder.AddContent(sequence++, this.Content);
             }
-        }
 
-        /// <inheritdoc />
-        protected override void Render(HtmlTextWriter writer)
-        {
-            this.RenderBeginTag(writer);
-            this.RenderChildren(writer);
-            this.RenderEndTag(writer);
+            base.RenderContents(builder, ref sequence);
         }
+        #pragma warning restore ASP0006
     }
 }

@@ -4,13 +4,17 @@
 namespace DotNetNuke.Web.UI.WebControls
 {
     using System.Collections.Generic;
-    using System.ComponentModel;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+
+    using DotNetNuke.UI;
+
+    using Microsoft.AspNetCore.Components;
 
     /// <summary>A form section control.</summary>
-    [ParseChildren(true)]
-    public class DnnFormSection : WebControl, INamingContainer
+    /// <remarks>
+    /// This is a declarative configuration container — <see cref="DnnFormEditor"/> reads its
+    /// <see cref="Items"/> and builds the markup. It was a <c>WebControl, INamingContainer</c>.
+    /// </remarks>
+    public class DnnFormSection : DnnComponentBase
     {
         /// <summary>Initializes a new instance of the <see cref="DnnFormSection"/> class.</summary>
         public DnnFormSection()
@@ -19,15 +23,14 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets a value indicating whether the section is expanded.</summary>
+        [Parameter]
         public bool Expanded { get; set; }
 
         /// <summary>Gets the items.</summary>
-        [Category("Behavior")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
         public List<DnnFormItemBase> Items { get; private set; }
 
         /// <summary>Gets or sets the resource key.</summary>
+        [Parameter]
         public string ResourceKey { get; set; }
     }
 }

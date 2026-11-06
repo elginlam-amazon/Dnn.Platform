@@ -7,18 +7,25 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
     using System.Collections;
     using System.Collections.Generic;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
+    using DotNetNuke.UI;
     using DotNetNuke.Web.UI.WebControls;
 
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>This control is only for internal use, please don't reference it in any other place as it may be removed in the future.</summary>
+    /// <remarks>
+    /// The Web Forms version read the posted selection on a postback
+    /// (<c>comboBox.Page.IsPostBack ? comboBox.SelectedValue : value</c>). A Blazor component is
+    /// built once and then updated in place, so the list is populated from the item's value the
+    /// first time and from the combo box's live selection afterwards — the same two cases, decided
+    /// by whether the list has already been populated instead of by the postback flag that
+    /// <c>IClientApiPage</c> deliberately does not expose.
+    /// </remarks>
     public class DnnFormComboBoxItem : DnnFormListItemBase
     {
         private readonly IClientResourceController clientResourceController;
@@ -40,13 +47,11 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
             this.clientResourceController = clientResourceController;
         }
 
-        ////public DropDownList ComboBox { get; set; }
-
         /// <summary>Gets or sets the combobox.</summary>
         public DnnComboBox ComboBox { get; set; }
 
-        ////internal static void BindListInternal(DropDownList comboBox, object value, IEnumerable listSource, string textField, string valueField)
-
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <summary>Binds the list.</summary>
         /// <param name="comboBox">The combobox.</param>
         /// <param name="value">The selected value.</param>
@@ -57,13 +62,16 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         {
             if (comboBox != null)
             {
-                string selectedValue = !comboBox.Page.IsPostBack ? Convert.ToString(value, CultureInfo.InvariantCulture) : comboBox.SelectedValue;
+                // on the first population there is nothing selected client side yet, so the item's
+                // own value decides the selection; afterwards the live selection wins.
+                var selectedValue = comboBox.Items.Count == 0
+                    ? Convert.ToString(value, CultureInfo.InvariantCulture)
+                    : comboBox.SelectedValue;
 
                 if (listSource is Dictionary<string, string> items)
                 {
                     foreach (var item in items)
                     {
-                        ////comboBox.Items.Add(new ListItem(item.Key, item.Value));
                         comboBox.AddItem(item.Key, item.Value);
                     }
                 }
@@ -77,11 +85,15 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
                 }
 
                 // Reset SelectedValue
-                // comboBox.Select(selectedValue);
                 var selectedItem = comboBox.FindItemByValue(selectedValue);
-                selectedItem?.Selected = true;
+                if (selectedItem != null)
+                {
+                    comboBox.ClearSelection();
+                    selectedItem.Selected = true;
+                }
             }
         }
+        #pragma warning restore BL0005
 
         /// <inheritdoc />
         protected override void BindList()
@@ -90,12 +102,11 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         }
 
         /// <inheritdoc />
-        protected override WebControl CreateControlInternal(Control container)
+        protected override IDnnControl CreateControlInternal(IDnnControl container)
         {
-            ////ComboBox = new DropDownList { ID = ID + "_ComboBox" };
             this.ComboBox = new DnnComboBox(this.AppStatus, this.EventLogger, this.clientResourceController) { ID = this.ID + "_ComboBox", };
             this.ComboBox.SelectedIndexChanged += this.IndexChanged;
-            container.Controls.Add(this.ComboBox);
+            container?.Controls.Add(this.ComboBox);
 
             if (this.ListSource != null)
             {

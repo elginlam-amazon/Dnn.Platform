@@ -3,41 +3,47 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Web.UI.WebControls
 {
-    using System.Web.UI;
-    using System.Web.UI.HtmlControls;
-    using System.Web.UI.WebControls;
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+
+    using DotNetNuke.UI;
+    using DotNetNuke.UI.Utilities;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
 
     /// <summary>A group in the <see cref="DnnRibbonBar"/>.</summary>
-    [ParseChildren(true)]
-    public class DnnRibbonBarGroup : WebControl
+    /// <remarks>
+    /// This was a <c>WebControl</c> with <c>[ParseChildren]</c> and two <c>ITemplate</c> properties.
+    /// On ASP.NET Core the templates are <see cref="RenderFragment"/>s and the surrounding
+    /// decoration divs (<c>topLeft</c>, <c>topRight</c>, <c>content</c>, <c>footer</c>,
+    /// <c>bottomLeft</c>, <c>bottomRight</c>) are still built into
+    /// <see cref="DnnComponentBase.Controls"/>, so the markup is unchanged. The
+    /// "hide the group when all of its tools are hidden" rule is preserved by
+    /// <see cref="CheckVisibility"/>.
+    /// </remarks>
+    public class DnnRibbonBarGroup : DnnComponentBase
     {
         private bool checkToolVisibility = true;
-        private HtmlGenericControl contentContainer;
+        private DnnGenericControl contentContainer;
+        private DnnGenericControl footerContainer;
 
         /// <summary>Initializes a new instance of the <see cref="DnnRibbonBarGroup"/> class.</summary>
         public DnnRibbonBarGroup()
-            : base("div")
         {
             this.CssClass = "dnnRibbonGroup";
         }
 
-        /// <inheritdoc />
-        public override ControlCollection Controls
-        {
-            get
-            {
-                this.EnsureChildControls();
-                return base.Controls;
-            }
-        }
-
         /// <summary>Gets or sets the footer template.</summary>
-        [TemplateInstance(TemplateInstance.Single)]
-        public virtual ITemplate Footer { get; set; }
+        /// <remarks>Replaces the <c>ITemplate Footer</c> property.</remarks>
+        [Parameter]
+        public virtual RenderFragment Footer { get; set; }
 
         /// <summary>Gets or sets the content template.</summary>
-        [TemplateInstance(TemplateInstance.Single)]
-        public virtual ITemplate Content { get; set; }
+        /// <remarks>Replaces the <c>ITemplate Content</c> property.</remarks>
+        [Parameter]
+        public virtual RenderFragment Content { get; set; }
 
         /// <summary>Gets or sets a value indicating whether the check tool is visible.</summary>
         public virtual bool CheckToolVisibility
@@ -53,22 +59,50 @@ namespace DotNetNuke.Web.UI.WebControls
             }
         }
 
+        /// <summary>Gets the container the tools of this group are added to.</summary>
+        /// <remarks>Replaces the container that <c>Content.InstantiateIn</c> was given.</remarks>
+        public DnnGenericControl ContentContainer
+        {
+            get
+            {
+                this.EnsureChildControls();
+                return this.contentContainer;
+            }
+        }
+
+        /// <summary>Gets the container the footer of this group is added to.</summary>
+        public DnnGenericControl FooterContainer
+        {
+            get
+            {
+                this.EnsureChildControls();
+                return this.footerContainer;
+            }
+        }
+
         /// <inheritdoc />
-        public override Control FindControl(string id)
+        protected override string TagName => "div";
+
+        /// <inheritdoc />
+        public override IClientApiControl FindControl(string id)
         {
             this.EnsureChildControls();
             return base.FindControl(id);
         }
 
         /// <inheritdoc />
-        public override void RenderControl(HtmlTextWriter writer)
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
-            if (this.CheckVisibility())
+            ArgumentNullException.ThrowIfNull(builder);
+
+            this.EnsureChildControls();
+
+            if (!this.CheckVisibility())
             {
-                this.RenderBeginTag(writer);
-                this.RenderChildren(writer);
-                this.RenderEndTag(writer);
+                return;
             }
+
+            base.BuildRenderTree(builder);
         }
 
         /// <inheritdoc />
@@ -76,50 +110,50 @@ namespace DotNetNuke.Web.UI.WebControls
         {
             this.Controls.Clear();
 
-            HtmlGenericControl topLeft = new HtmlGenericControl("div");
-            topLeft.Attributes.Add("class", "topLeft");
-            HtmlGenericControl topRight = new HtmlGenericControl("div");
-            topRight.Attributes.Add("class", "topRight");
+            var topLeft = new DnnGenericControl("div");
+            topLeft.Attributes["class"] = "topLeft";
+            var topRight = new DnnGenericControl("div");
+            topRight.Attributes["class"] = "topRight";
 
-            HtmlGenericControl bottomLeft = new HtmlGenericControl("div");
-            bottomLeft.Attributes.Add("class", "bottomLeft");
-            HtmlGenericControl bottomRight = new HtmlGenericControl("div");
-            bottomRight.Attributes.Add("class", "bottomRight");
+            var bottomLeft = new DnnGenericControl("div");
+            bottomLeft.Attributes["class"] = "bottomLeft";
+            var bottomRight = new DnnGenericControl("div");
+            bottomRight.Attributes["class"] = "bottomRight";
 
-            this.contentContainer = new HtmlGenericControl("div");
-            this.contentContainer.Attributes.Add("class", "content");
+            this.contentContainer = new DnnGenericControl("div");
+            this.contentContainer.Attributes["class"] = "content";
 
-            HtmlGenericControl footerContainer = new HtmlGenericControl("div");
-            footerContainer.Attributes.Add("class", "footer");
+            this.footerContainer = new DnnGenericControl("div");
+            this.footerContainer.Attributes["class"] = "footer";
 
             this.Controls.Add(topLeft);
             this.Controls.Add(topRight);
             this.Controls.Add(this.contentContainer);
-            this.Controls.Add(footerContainer);
+            this.Controls.Add(this.footerContainer);
             this.Controls.Add(bottomLeft);
             this.Controls.Add(bottomRight);
 
             if (this.Content != null)
             {
-                this.Content.InstantiateIn(this.contentContainer);
+                this.contentContainer.ChildContent = this.Content;
             }
 
             if (this.Footer != null)
             {
-                this.Footer.InstantiateIn(footerContainer);
+                this.footerContainer.ChildContent = this.Footer;
             }
         }
 
-        private static bool AreChildToolsVisible(ref ControlCollection children, ref bool foundTool)
+        private static bool AreChildToolsVisible(IEnumerable<IClientApiControl> children, ref bool foundTool)
         {
             bool returnValue = false;
 
-            foreach (Control ctrl in children)
+            foreach (var ctrl in children)
             {
                 if (ctrl is IDnnRibbonBarTool)
                 {
                     foundTool = true;
-                    if (ctrl.Visible)
+                    if (ctrl is not IDnnControl dnnControl || dnnControl.Visible)
                     {
                         returnValue = true;
                         break;
@@ -127,8 +161,7 @@ namespace DotNetNuke.Web.UI.WebControls
                 }
                 else
                 {
-                    ControlCollection controls = ctrl.Controls;
-                    if (AreChildToolsVisible(ref controls, ref foundTool))
+                    if (AreChildToolsVisible(ctrl.Children, ref foundTool))
                     {
                         if (foundTool)
                         {
@@ -154,8 +187,11 @@ namespace DotNetNuke.Web.UI.WebControls
             {
                 // Hide group if all tools are invisible
                 bool foundTool = false;
-                ControlCollection controls = this.contentContainer.Controls;
-                returnValue = AreChildToolsVisible(ref controls, ref foundTool);
+                returnValue = AreChildToolsVisible(this.contentContainer.Controls.ToList(), ref foundTool);
+            }
+            else if (!this.Visible)
+            {
+                returnValue = false;
             }
 
             return returnValue;

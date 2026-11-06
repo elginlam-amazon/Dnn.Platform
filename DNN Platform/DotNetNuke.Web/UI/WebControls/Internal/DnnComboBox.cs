@@ -4,10 +4,8 @@
 namespace DotNetNuke.Web.UI.WebControls.Internal
 {
     using System;
-    using System.Collections.Specialized;
     using System.Linq;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
@@ -16,17 +14,31 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Framework.JavaScriptLibraries;
     using DotNetNuke.Services.ClientDependency;
+    using DotNetNuke.UI;
     using DotNetNuke.Web.UI.WebControls.Extensions;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.JSInterop;
 
     using Newtonsoft.Json;
 
     /// <summary>This control is only for internal use, please don't reference it in any other place as it may be removed in the future.</summary>
-    public class DnnComboBox : DropDownList
+    /// <remarks>
+    /// This was a <c>DropDownList</c> whose markup the <c>Selectize</c> based <c>dnn.combobox.js</c>
+    /// enhanced. On ASP.NET Core it derives from <see cref="DnnListControl"/> and keeps the same
+    /// two rendering shapes: a <c>select</c> carrying the options, or — when
+    /// <see cref="CheckBoxes"/>/<see cref="DnnListControl.MultipleSelect"/> is set — a hidden-style <c>input</c>
+    /// whose <c>value</c> is the comma separated list of selected values, which is what the client
+    /// component reads. The init call moved from <c>ScriptManager.RegisterStartupScript</c> to
+    /// <c>dnn.createComboBox</c> over JS interop.
+    /// </remarks>
+    public class DnnComboBox : DnnListControl
     {
         private string initValue;
         private string multipleValue;
+        private bool clientInitialized;
 
         /// <summary>Initializes a new instance of the <see cref="DnnComboBox"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IApplicationStatusInfo. Scheduled removal in v12.0.0.")]
@@ -61,7 +73,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
                     this.initValue = value;
                 }
 
-                if (this.Items.Cast<ListItem>().Any(i => i.Value == value))
+                if (this.Items.Any(i => i.Value == value))
                 {
                     base.SelectedValue = value;
                 }
@@ -69,12 +81,11 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         }
 
         /// <summary>Gets or sets a value indicating whether to show checkboxes.</summary>
+        [Parameter]
         public virtual bool CheckBoxes { get; set; }
 
-        /// <summary>Gets or sets a value indicating whether to allow multiple selections.</summary>
-        public virtual bool MultipleSelect { get; set; }
-
         /// <summary>Gets or sets the client code to run when the selected index changes.</summary>
+        [Parameter]
         public virtual string OnClientSelectedIndexChanged { get; set; }
 
         /// <summary>Gets or sets the value.</summary>
@@ -82,7 +93,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         {
             get
             {
-                if (this.TagKey == HtmlTextWriterTag.Input)
+                if (this.RendersAsInput)
                 {
                     return this.multipleValue ?? string.Empty;
                 }
@@ -92,10 +103,10 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
 
             set
             {
-                if (this.TagKey == HtmlTextWriterTag.Input)
+                if (this.RendersAsInput)
                 {
-                    this.Attributes.Remove("value");
-                    this.Attributes.Add("value", value);
+                    this.multipleValue = value;
+                    this.Attributes["value"] = value;
                 }
 
                 this.SelectedValue = value;
@@ -114,8 +125,13 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         /// <summary>Gets the client resource controller.</summary>
         protected IClientResourceController ClientResourceController { get; }
 
-        /// <inheritdoc />
-        protected override HtmlTextWriterTag TagKey => this.MultipleSelect || this.CheckBoxes ? HtmlTextWriterTag.Input : HtmlTextWriterTag.Select;
+        /// <summary>Gets or sets the JavaScript runtime used to create the client component.</summary>
+        [Inject]
+        protected IJSRuntime JsRuntime { get; set; }
+
+        /// <summary>Gets a value indicating whether this control renders an <c>input</c> rather than a <c>select</c>.</summary>
+        /// <remarks>Replaces the <c>TagKey</c> switch of the Web Forms control.</remarks>
+        protected bool RendersAsInput => this.MultipleSelect || this.CheckBoxes;
 
         /// <inheritdoc />
         public override void DataBind()
@@ -135,7 +151,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         /// <param name="value">The item value.</param>
         public void AddItem(string text, string value)
         {
-            this.Items.Add(new ListItem(text, value));
+            this.Items.Add(new DnnListItem(text, value));
         }
 
         /// <summary>Inserts an item into the list.</summary>
@@ -144,7 +160,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         /// <param name="value">The item value.</param>
         public void InsertItem(int index, string text, string value)
         {
-            this.Items.Insert(index, new ListItem(text, value));
+            this.Items.Insert(index, new DnnListItem(text, value));
         }
 
         /// <summary>Binds a data source to the invoked server control and all its child controls.</summary>
@@ -171,16 +187,18 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         {
             if (findByText)
             {
-                if (this.FindItemByText(initial, true) != null)
+                var byText = this.FindItemByText(initial, true);
+                if (byText != null)
                 {
-                    this.FindItemByText(initial, true).Selected = true;
+                    byText.Selected = true;
                 }
             }
             else
             {
-                if (this.FindItemByValue(initial, true) != null)
+                var byValue = this.FindItemByValue(initial, true);
+                if (byValue != null)
                 {
-                    this.FindItemByValue(initial, true).Selected = true;
+                    byValue.Selected = true;
                 }
             }
         }
@@ -189,7 +207,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         /// <param name="text">The item's text.</param>
         /// <param name="ignoreCase">Whether to do a case-insensitive search.</param>
         /// <returns>The list item or <see langword="null"/>.</returns>
-        public ListItem FindItemByText(string text, bool ignoreCase = false)
+        public DnnListItem FindItemByText(string text, bool ignoreCase = false)
         {
             return ignoreCase ? this.Items.FindByText(text) : this.Items.FindByTextWithIgnoreCase(text);
         }
@@ -198,7 +216,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         /// <param name="value">The item's value.</param>
         /// <param name="ignoreCase">Whether to do a case-insensitive search.</param>
         /// <returns>The list item or <see langword="null"/>.</returns>
-        public ListItem FindItemByValue(string value, bool ignoreCase = false)
+        public DnnListItem FindItemByValue(string value, bool ignoreCase = false)
         {
             return ignoreCase ? this.Items.FindByValue(value) : this.Items.FindByValueWithIgnoreCase(value);
         }
@@ -208,43 +226,76 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         /// <returns>The index or <c>-1</c>.</returns>
         public int FindItemIndexByValue(string value)
         {
-            return this.Items.IndexOf(this.FindItemByValue(value));
+            var item = this.FindItemByValue(value);
+            return item == null ? -1 : this.Items.IndexOf(item);
         }
 
+        // ASP0006: the render tree of this ported Web Forms control is built imperatively through helper methods that share a running sequence number, so literal sequence numbers cannot express its structure.
+        #pragma warning disable ASP0006
         /// <inheritdoc />
-        protected override bool LoadPostData(string postDataKey, NameValueCollection postCollection)
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
-            var postData = postCollection[postDataKey];
-            if (!string.IsNullOrEmpty(postData))
+            ArgumentNullException.ThrowIfNull(builder);
+
+            if (!this.RendersAsInput)
             {
-                this.multipleValue = postData;
+                base.BuildRenderTree(builder);
+                return;
             }
 
-            return base.LoadPostData(postDataKey, postCollection);
-        }
+            // The multiple-select / checkbox flavour renders a single input whose value carries the
+            // selection; the client component builds the visible list from the options it is given.
+            this.EnsureDataBound();
 
-        /// <inheritdoc />
-        protected override void RenderContents(HtmlTextWriter writer)
-        {
-            if (this.TagKey == HtmlTextWriterTag.Select)
+            if (!this.Visible)
             {
-                base.RenderContents(writer);
+                return;
             }
+
+            var sequence = 0;
+            builder.OpenElement(sequence++, "input");
+            builder.AddAttribute(sequence++, "type", "text");
+            if (!string.IsNullOrEmpty(this.ID))
+            {
+                builder.AddAttribute(sequence++, "id", this.ClientId);
+                builder.AddAttribute(sequence++, "name", this.UniqueId);
+            }
+
+            foreach (var attribute in this.Attributes)
+            {
+                builder.AddAttribute(sequence++, attribute.Key, attribute.Value);
+            }
+
+            var inlineStyle = this.BuildStyleAttribute();
+            if (!string.IsNullOrEmpty(inlineStyle))
+            {
+                builder.AddAttribute(sequence++, "style", inlineStyle);
+            }
+
+            if (!this.Enabled)
+            {
+                builder.AddAttribute(sequence++, "disabled", true);
+            }
+
+            builder.AddAttribute(sequence++, "value", this.Value);
+            builder.AddAttribute(sequence++, "onchange", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.ChangeEventArgs>(this, this.OnSelectionChanged));
+            builder.CloseElement();
         }
+        #pragma warning restore ASP0006
 
         /// <inheritdoc />
         protected override void OnPreRender(EventArgs e)
         {
             Utilities.ApplyControlSkin(this.ClientResourceController, this, string.Empty, string.Empty);
 
-            if (this.TagKey == HtmlTextWriterTag.Input)
+            if (this.RendersAsInput)
             {
-                this.Options.Items = this.Items.Cast<ListItem>();
+                this.Options.Items = this.Items;
                 this.Value = string.Join(",", this.Options.Items.Where(i => i.Selected).Select(i => i.Value));
             }
             else
             {
-                if (this.Items.Cast<ListItem>().Any(i => string.IsNullOrEmpty(i.Value)))
+                if (this.Items.Any(i => string.IsNullOrEmpty(i.Value)))
                 {
                     this.Options.AllowEmptyOption = true;
                 }
@@ -268,6 +319,30 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
             base.OnPreRender(e);
         }
 
+        /// <inheritdoc />
+        protected override async Task OnAfterRenderAsync(bool firstRender)
+        {
+            await base.OnAfterRenderAsync(firstRender);
+
+            if (this.clientInitialized || this.JsRuntime == null || this.AppStatus.Status != UpgradeStatus.None)
+            {
+                return;
+            }
+
+            var package = JavaScriptLibraryController.Instance.GetLibrary(l => l.LibraryName == "Selectize");
+            if (package == null)
+            {
+                return;
+            }
+
+            this.clientInitialized = true;
+
+            var options = JsonConvert.SerializeObject(this.Options, Formatting.None, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore, });
+            using var optionsDocument = System.Text.Json.JsonDocument.Parse(options);
+
+            await this.JsRuntime.InvokeVoidAsync("dnn.createComboBox", "#" + this.ClientId, optionsDocument.RootElement);
+        }
+
         private void RegisterRequestResources()
         {
             JavaScript.RequestRegistration(this.AppStatus, this.EventLogger, PortalSettings.Current, CommonJs.DnnPlugins);
@@ -285,12 +360,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
                     this.ClientResourceController.RegisterScript($"{libraryPath}dnn.combobox.js");
                     this.ClientResourceController.RegisterStylesheet($"{libraryPath}selectize.css");
                     this.ClientResourceController.RegisterStylesheet($"{libraryPath}selectize.default.css");
-
-                    var options = JsonConvert.SerializeObject(this.Options, Formatting.None, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore, });
-
-                    var initScripts = $"$('#{this.ClientID}').dnnComboBox({options});";
-
-                    ScriptManager.RegisterStartupScript(this.Page, this.Page.GetType(), $"{this.ClientID}Sctipts", initScripts, true);
+                    this.ClientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.ControlsInterop.js");
                 }
             }
         }

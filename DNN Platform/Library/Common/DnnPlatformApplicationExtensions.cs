@@ -137,7 +137,23 @@ namespace DotNetNuke.Common
         /// </remarks>
         public static WebApplication UseDnnPlatform(this WebApplication app)
         {
-            return app.UseDnnPlatform(configureEarly: null, configureAfterAuthentication: null);
+            return app.UseDnnPlatform(configureEarly: null, configureAfterRouting: null, configureAfterAuthentication: null);
+        }
+
+        /// <summary>
+        /// Builds the DNN request pipeline and maps the legacy handler URLs, letting the host insert
+        /// middleware at the <c>BeginRequest</c> and <c>AuthenticateRequest</c> positions.
+        /// </summary>
+        /// <param name="app">The host's application builder.</param>
+        /// <param name="configureEarly">Invoked BEFORE <c>UseRouting</c>. May be <see langword="null"/>.</param>
+        /// <param name="configureAfterAuthentication">Invoked after the URL rewriter. May be <see langword="null"/>.</param>
+        /// <returns>The same <paramref name="app"/>, for chaining.</returns>
+        public static WebApplication UseDnnPlatform(
+            this WebApplication app,
+            Action<IApplicationBuilder> configureEarly,
+            Action<IApplicationBuilder> configureAfterAuthentication)
+        {
+            return app.UseDnnPlatform(configureEarly, configureAfterRouting: null, configureAfterAuthentication);
         }
 
         /// <summary>
@@ -151,6 +167,14 @@ namespace DotNetNuke.Common
         /// <c>IHttpModule</c> stage. <c>DotNetNuke.HttpModules</c> fills this with
         /// <c>UseDnnEarlyRequestMiddleware()</c> (request DI scope, request filter, services
         /// framework, mobile redirect). May be <see langword="null"/>.
+        /// </param>
+        /// <param name="configureAfterRouting">
+        /// Invoked immediately AFTER <c>UseRouting</c> and BEFORE
+        /// <c>UseAuthentication</c>/<c>UseAuthorization</c>. <c>DotNetNuke.Web</c> fills this with
+        /// <c>UseDnnWebApi()</c> (the services-framework BeginRequest work, the DNN request
+        /// context, namespace-scoped controller selection and the ordered DNN authentication
+        /// handler chain), all of which need the matched endpoint and must establish the principal
+        /// the authorization filters then decide on. May be <see langword="null"/>.
         /// </param>
         /// <param name="configureAfterAuthentication">
         /// Invoked immediately AFTER the URL rewriter (which itself runs after
@@ -173,6 +197,7 @@ namespace DotNetNuke.Common
         public static WebApplication UseDnnPlatform(
             this WebApplication app,
             Action<IApplicationBuilder> configureEarly,
+            Action<IApplicationBuilder> configureAfterRouting,
             Action<IApplicationBuilder> configureAfterAuthentication)
         {
             Requires.NotNull(nameof(app), app);
@@ -199,6 +224,12 @@ namespace DotNetNuke.Common
             configureEarly?.Invoke(app);
 
             app.UseRouting();
+
+            // Post-routing, pre-authentication stage: the DNN services framework
+            // (DotNetNuke.Web's UseDnnWebApi). It needs the matched endpoint, and the principal
+            // its authentication-handler chain establishes is the one UseAuthorization decides on.
+            configureAfterRouting?.Invoke(app);
+
             app.UseAuthentication();
             app.UseAuthorization();
 

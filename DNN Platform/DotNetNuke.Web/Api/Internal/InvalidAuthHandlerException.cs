@@ -5,10 +5,8 @@
 namespace DotNetNuke.Web.Api.Internal;
 
 using System;
-using System.Runtime.Serialization;
 
 /// <summary>An exception thrown when an auth handler is invalid.</summary>
-[Serializable]
 public class InvalidAuthHandlerException : Exception
 {
     /// <inheritdoc />
@@ -25,12 +23,6 @@ public class InvalidAuthHandlerException : Exception
     /// <inheritdoc />
     public InvalidAuthHandlerException(string message, Exception innerException)
         : base(message, innerException)
-    {
-    }
-
-    /// <inheritdoc />
-    protected InvalidAuthHandlerException(SerializationInfo info, StreamingContext context)
-        : base(info, context)
     {
     }
 }

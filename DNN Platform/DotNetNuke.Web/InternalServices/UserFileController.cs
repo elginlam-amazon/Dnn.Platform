@@ -8,15 +8,13 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
-using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Entities.Icons;
 using DotNetNuke.Instrumentation;
 using DotNetNuke.Services.FileSystem;
 using DotNetNuke.Services.Localization;
 using DotNetNuke.Web.Api;
-
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
 /// <summary>A web API controller for user files.</summary>
@@ -31,7 +29,7 @@ public class UserFileController : DnnApiController
     /// <returns>A response with a list of objects (containing the following fields: <c>id</c>, <c>name</c>, <c>folder</c>, <c>parentId</c>, <c>thumb_url</c>, <c>type</c>, <c>size</c>, <c>modified</c>, and <c>children</c>).</returns>
     [DnnAuthorize]
     [HttpGet]
-    public HttpResponseMessage GetItems()
+    public IActionResult GetItems()
     {
         return this.GetItems(null);
     }
@@ -41,7 +39,7 @@ public class UserFileController : DnnApiController
     /// <returns>A response with a list of objects (containing the following fields: <c>id</c>, <c>name</c>, <c>folder</c>, <c>parentId</c>, <c>thumb_url</c>, <c>type</c>, <c>size</c>, <c>modified</c>, and <c>children</c>).</returns>
     [DnnAuthorize]
     [HttpGet]
-    public HttpResponseMessage GetItems(string fileExtensions)
+    public IActionResult GetItems(string fileExtensions)
     {
         try
         {
@@ -67,12 +65,12 @@ public class UserFileController : DnnApiController
                 children = this.GetChildren(userFolder, extensions),
             };
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new List<object> { folderStructure });
+            return DnnApiResults.Response(HttpStatusCode.OK, new List<object> { folderStructure });
         }
         catch (Exception exc)
         {
             Logger.UserFileControllerGetItemsException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
@@ -92,7 +90,7 @@ public class UserFileController : DnnApiController
 
     private static bool IsImageFile(string relativePath)
     {
-        var extension = relativePath.Substring(relativePath.LastIndexOf(".", StringComparison.Ordinal) + 1);
+        var extension = relativePath.Substring(relativePath.LastIndexOf('.') + 1);
         return ImageExtensions.Contains(extension);
     }
 
@@ -108,7 +106,7 @@ public class UserFileController : DnnApiController
         return size.ToString(CultureInfo.InvariantCulture) + (biggerThanAMegabyte ? "Mb" : "k");
     }
 
-    private string GetThumbUrl(IFileInfo file)
+    private static string GetThumbUrl(IFileInfo file)
     {
         if (IsImageFile(file.RelativePath))
         {
@@ -116,7 +114,7 @@ public class UserFileController : DnnApiController
         }
 
         var fileIcon = IconController.IconURL("Ext" + file.Extension, "32x32");
-        if (!System.IO.File.Exists(this.Request.GetHttpContext().Server.MapPath(fileIcon)))
+        if (!System.IO.File.Exists(DotNetNuke.Web.UI.Utilities.MapVirtualPath(fileIcon)))
         {
             fileIcon = IconController.IconURL("File", "32x32");
         }
@@ -159,7 +157,7 @@ public class UserFileController : DnnApiController
                     name = file.FileName,
                     folder = false,
                     parentId = file.FolderId,
-                    thumb_url = this.GetThumbUrl(file),
+                    thumb_url = GetThumbUrl(file),
                     type = GetTypeName(file),
                     size = GetFileSize(file.Size),
                     modified = GetModifiedTime(file.LastModificationTime),

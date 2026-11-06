@@ -6,14 +6,10 @@ namespace DotNetNuke.Web.UI.WebControls
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.ComponentModel;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
     using System.Reflection;
-    using System.Text.RegularExpressions;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -21,11 +17,22 @@ namespace DotNetNuke.Web.UI.WebControls
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI;
+    using DotNetNuke.UI.WebControls;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A base class for a control that is an item in a form.</summary>
-    public abstract class DnnFormItemBase : WebControl, INamingContainer
+    /// <remarks>
+    /// This was an <c>abstract WebControl, INamingContainer</c>. On ASP.NET Core it is a
+    /// <see cref="DnnComponentBase"/>: the child hierarchy (label + input control + validators) is
+    /// still built imperatively into <see cref="DnnComponentBase.Controls"/> by
+    /// <see cref="CreateControlHierarchy"/>, and the item's value — which Web Forms persisted via
+    /// <c>SaveControlState</c>/<c>LoadControlState</c> — is now simply a field of the component,
+    /// which lives for the duration of the Blazor circuit.
+    /// </remarks>
+    public abstract class DnnFormItemBase : DnnComponentBase
     {
         private object value;
 
@@ -47,7 +54,7 @@ namespace DotNetNuke.Web.UI.WebControls
             this.FormMode = DnnFormMode.Inherit;
             this.IsValid = true;
 
-            this.Validators = [];
+            this.Validators = new List<IValidator>();
         }
 
         /// <summary>Gets or sets the value.</summary>
@@ -58,42 +65,49 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets the data field.</summary>
+        [Parameter]
         public string DataField { get; set; }
 
         /// <summary>Gets or sets the data member.</summary>
+        [Parameter]
         public string DataMember { get; set; }
 
         /// <summary>Gets or sets the form mode.</summary>
+        [Parameter]
         public DnnFormMode FormMode { get; set; }
 
         /// <summary>Gets a value indicating whether the item is valid.</summary>
         public bool IsValid { get; private set; }
 
         /// <summary>Gets or sets the client click event handler.</summary>
+        [Parameter]
         public string OnClientClicked { get; set; }
 
         /// <summary>Gets or sets the path to the local resource file.</summary>
+        [Parameter]
         public string LocalResourceFile { get; set; }
 
         /// <summary>Gets or sets a value indicating whether the item is required.</summary>
+        [Parameter]
         public bool Required { get; set; }
 
         /// <summary>Gets or sets the resource key for the label.</summary>
+        [Parameter]
         public string ResourceKey { get; set; }
 
         /// <summary>Gets or sets the suffix to the message indicating the field is required.</summary>
+        [Parameter]
         public string RequiredMessageSuffix { get; set; } = ".Required";
 
         /// <summary>Gets or sets the suffix to the validation message.</summary>
+        [Parameter]
         public string ValidationMessageSuffix { get; set; } = ".RegExError";
 
         /// <summary>Gets the validators.</summary>
-        [Category("Behavior")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
         public List<IValidator> Validators { get; private set; }
 
         /// <summary>Gets or sets the validation expression.</summary>
+        [Parameter]
         public string ValidationExpression { get; set; }
 
         /// <summary>Gets or sets the data source.</summary>
@@ -134,13 +148,13 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override HtmlTextWriterTag TagKey => HtmlTextWriterTag.Div;
+        protected override string TagName => "div";
 
         /// <summary>Checks whether this item is valid, setting <see cref="IsValid"/>.</summary>
         public void CheckIsValid()
         {
             this.IsValid = true;
-            foreach (BaseValidator validator in this.Validators)
+            foreach (var validator in this.Validators)
             {
                 validator.Validate();
                 if (!validator.IsValid)
@@ -157,15 +171,12 @@ namespace DotNetNuke.Web.UI.WebControls
         {
             if (useDataSource)
             {
-                this.OnDataBinding(EventArgs.Empty);
                 this.Controls.Clear();
-                this.ClearChildViewState();
-                this.TrackViewState();
 
                 this.DataBindInternal();
 
                 this.CreateControlHierarchy();
-                this.ChildControlsCreated = true;
+                this.NotifyTreeChanged();
             }
             else
             {
@@ -176,6 +187,8 @@ namespace DotNetNuke.Web.UI.WebControls
             }
         }
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <summary>Creates the control hierarchy.</summary>
         protected virtual void CreateControlHierarchy()
         {
@@ -194,7 +207,6 @@ namespace DotNetNuke.Web.UI.WebControls
                 LocalResourceFile = this.LocalResourceFile,
                 ResourceKey = this.ResourceKey + ".Text",
                 ToolTipKey = this.ResourceKey + ".Help",
-                ViewStateMode = ViewStateMode.Disabled,
             };
 
             if (this.Required)
@@ -204,15 +216,17 @@ namespace DotNetNuke.Web.UI.WebControls
 
             this.Controls.Add(label);
 
-            WebControl inputControl = this.CreateControlInternal(this);
-            label.AssociatedControlID = inputControl.ID;
-            this.AddValidators(inputControl.ID);
+            var inputControl = this.CreateControlInternal(this);
+            label.AssociatedControlID = inputControl?.Id;
+            this.AddValidators(inputControl?.Id);
         }
+        #pragma warning restore BL0005
 
         /// <summary>Use container to add custom control hierarchy to.</summary>
         /// <param name="container">The container in which to render this control.</param>
         /// <returns>An "input" control that can be used for attaching validators.</returns>
-        protected virtual WebControl CreateControlInternal(Control container)
+        /// <remarks>Replaces the <c>WebControl CreateControlInternal(Control)</c> overload.</remarks>
+        protected virtual IDnnControl CreateControlInternal(IDnnControl container)
         {
             return null;
         }
@@ -220,8 +234,7 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <inheritdoc />
         protected override void CreateChildControls()
         {
-            // CreateChildControls re-creates the children (the items)
-            // using the saved view state.
+            // CreateChildControls re-creates the children (the items).
             // First clear any existing child controls.
             this.Controls.Clear();
 
@@ -249,24 +262,18 @@ namespace DotNetNuke.Web.UI.WebControls
                     {
                         if (this.Property != null && this.Property.GetValue(this.DataSource, null) != null)
                         {
-                            // ReSharper disable PossibleNullReferenceException
                             value = this.Property.GetValue(this.DataSource, null);
-
-                            // ReSharper restore PossibleNullReferenceException
                         }
                     }
                     else
                     {
                         if (this.Property != null && this.Property.GetValue(this.DataSource, null) != null)
                         {
-                            // ReSharper disable PossibleNullReferenceException
                             object parentValue = this.Property.GetValue(this.DataSource, null);
                             if (this.ChildProperty != null && this.ChildProperty.GetValue(parentValue, null) != null)
                             {
                                 value = this.ChildProperty.GetValue(parentValue, null);
                             }
-
-                            // ReSharper restore PossibleNullReferenceException
                         }
                     }
                 }
@@ -292,13 +299,6 @@ namespace DotNetNuke.Web.UI.WebControls
             this.UpdateDataSourceInternal(oldValue, newValue, dataField);
         }
 
-        /// <inheritdoc />
-        [SuppressMessage("Microsoft.Naming", "CA1725:ParameterNamesShouldMatchBaseDeclaration", Justification = "Breaking change")]
-        protected override void LoadControlState(object state)
-        {
-            this.value = state;
-        }
-
         /// <summary>Gets the localized string corresponding to the <paramref name="key"/>.</summary>
         /// <param name="key">The resource key to find.</param>
         /// <returns>The localized text.</returns>
@@ -307,28 +307,16 @@ namespace DotNetNuke.Web.UI.WebControls
             return Localization.GetString(key, this.LocalResourceFile);
         }
 
-        /// <inheritdoc />
-        protected override void OnInit(EventArgs e)
-        {
-            this.Page.RegisterRequiresControlState(this);
-            base.OnInit(e);
-        }
-
-        /// <inheritdoc />
-        protected override object SaveControlState()
-        {
-            return this.value;
-        }
-
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         private void AddValidators(string controlId)
         {
-            var value = this.Value as string;
             this.Validators.Clear();
 
             // Add Validators
             if (this.Required)
             {
-                var requiredValidator = new RequiredFieldValidator
+                var requiredValidator = new DnnFormValidator(DnnFormValidatorType.Required, () => this.Value as string)
                 {
                     ID = this.ID + "_Required",
                     ErrorMessage = this.ResourceKey + this.RequiredMessageSuffix,
@@ -338,15 +326,16 @@ namespace DotNetNuke.Web.UI.WebControls
 
             if (!string.IsNullOrEmpty(this.ValidationExpression))
             {
-                var regexValidator = new RegularExpressionValidator
+                var regexValidator = new DnnFormValidator(DnnFormValidatorType.RegularExpression, () => this.Value as string)
                 {
                     ID = this.ID + "_RegEx",
                     ErrorMessage = this.ResourceKey + this.ValidationMessageSuffix,
                     ValidationExpression = this.ValidationExpression,
                 };
-                if (!string.IsNullOrEmpty(value))
+
+                if (!string.IsNullOrEmpty(this.Value as string))
                 {
-                    regexValidator.IsValid = Regex.IsMatch(value, this.ValidationExpression);
+                    regexValidator.Validate();
                     this.IsValid = regexValidator.IsValid;
                 }
 
@@ -355,16 +344,17 @@ namespace DotNetNuke.Web.UI.WebControls
 
             if (this.Validators.Count > 0)
             {
-                foreach (BaseValidator validator in this.Validators)
+                foreach (var validator in this.Validators.OfType<DnnFormValidator>())
                 {
                     validator.ControlToValidate = controlId;
-                    validator.Display = ValidatorDisplay.Dynamic;
+                    validator.Display = DnnValidatorDisplay.Dynamic;
                     validator.ErrorMessage = this.LocalizeString(validator.ErrorMessage);
                     validator.CssClass = "dnnFormMessage dnnFormError";
                     this.Controls.Add(validator);
                 }
             }
         }
+        #pragma warning restore BL0005
 
         private void UpdateDataSourceInternal(object oldValue, object newValue, string dataField)
         {

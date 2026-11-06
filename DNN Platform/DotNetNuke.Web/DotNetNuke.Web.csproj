@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -16,18 +16,19 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNet.WebApi.WebHost" />
-    <PackageReference Include="Microsoft.Web.Infrastructure" />
-    <PackageReference Include="Newtonsoft.Json" />
-    <PackageReference Include="WebFormsMvp" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.ComponentModel.DataAnnotations" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Web.Abstractions" />
-    <Reference Include="System.Web.Extensions" />
-    <Reference Include="System.Web.Services" />
+    <!-- Microsoft.AspNet.WebApi.WebHost, Microsoft.Web.Infrastructure and WebFormsMvp have
+         no net10.0 build: Web API hosting is replaced by the shared framework's MVC and
+         endpoint routing, and the MVP surface is re-expressed as components/controllers.
+         System.ComponentModel.DataAnnotations and the System.Web* facades likewise come
+         from (or are absent in) the shared framework. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- Replaces System.Drawing (not supported cross-platform on net10.0) in InternalServices/ImageHeader.cs. -->
+    <PackageReference Include="SixLabors.ImageSharp" />
   </ItemGroup>
 
   <ItemGroup>

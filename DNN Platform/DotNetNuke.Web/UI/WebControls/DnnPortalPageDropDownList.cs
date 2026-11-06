@@ -7,8 +7,6 @@ namespace DotNetNuke.Web.UI.WebControls
     using System;
     using System.ComponentModel;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Common;
@@ -17,12 +15,11 @@ namespace DotNetNuke.Web.UI.WebControls
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Framework;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI;
     using DotNetNuke.Web.UI.WebControls.Extensions;
-
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A portal page dropdown control.</summary>
-    [ToolboxData("<{0}:DnnPortalPageDropDownList runat='server'></{0}:DnnPortalPageDropDownList>")]
     public class DnnPortalPageDropDownList : DnnDropDownList
     {
         private readonly Lazy<int> portalId = new Lazy<int>(() => PortalSettings.Current.ActiveTab.IsSuperTab ? -1 : PortalSettings.Current.PortalId);
@@ -55,7 +52,7 @@ namespace DotNetNuke.Web.UI.WebControls
 
             set
             {
-                this.SelectedItem = (value != null) ? new ListItem() { Text = value.IndentedTabName, Value = value.TabID.ToString(CultureInfo.InvariantCulture) } : null;
+                this.SelectedItem = (value != null) ? new DnnListItem(value.IndentedTabName, value.TabID.ToString(CultureInfo.InvariantCulture)) : null;
             }
         }
 

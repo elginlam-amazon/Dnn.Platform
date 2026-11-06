@@ -5,12 +5,19 @@
 namespace DotNetNuke.Web.Api
 {
     using System.Linq;
-    using System.Net.Http;
-    using System.Web.Http.Controllers;
 
     using DotNetNuke.Entities.Modules;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc.Filters;
+
     /// <summary>A web API authorization filter which requires the current module to be from particular desktop module.</summary>
+    /// <remarks>
+    /// Stays an authorization filter (through <see cref="AuthorizeAttributeBase"/>): it is an allow-list
+    /// on the resolved module of the request, and <see cref="DnnAuthorizeBaseAttribute.IsAnonymousAttributePresent"/>
+    /// treats it specially. The comma-separated module list parsing and the rejection status code (401
+    /// through <see cref="AuthFilterContext.HandleUnauthorizedRequest"/>) are unchanged.
+    /// </remarks>
     public class SupportedModulesAttribute(params string[] supportedModules) : AuthorizeAttributeBase
     {
         /// <summary>Initializes a new instance of the <see cref="SupportedModulesAttribute"/> class.</summary>
@@ -23,7 +30,7 @@ namespace DotNetNuke.Web.Api
         /// <inheritdoc />
         public override bool IsAuthorized(AuthFilterContext context)
         {
-            var module = this.FindModuleInfo(context.ActionContext.Request);
+            var module = this.FindModuleInfo(context.ActionContext.HttpContext.Request);
             if (module != null)
             {
                 return this.ModuleIsSupported(module);
@@ -35,13 +42,13 @@ namespace DotNetNuke.Web.Api
         /// <summary>Gets the module associated with the <paramref name="request"/>.</summary>
         /// <param name="request">The web API request.</param>
         /// <returns>The <see cref="ModuleInfo"/> instance or <see langword="null"/>.</returns>
-        protected virtual ModuleInfo FindModuleInfo(HttpRequestMessage request)
+        protected virtual ModuleInfo FindModuleInfo(HttpRequest request)
         {
             return request.FindModuleInfo();
         }
 
         /// <inheritdoc />
-        protected override bool SkipAuthorization(HttpActionContext actionContext)
+        protected override bool SkipAuthorization(AuthorizationFilterContext actionContext)
         {
             return false;
         }

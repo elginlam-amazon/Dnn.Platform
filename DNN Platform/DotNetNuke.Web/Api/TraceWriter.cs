@@ -5,16 +5,21 @@
 namespace DotNetNuke.Web.Api
 {
     using System;
-    using System.Net.Http;
     using System.Text;
-    using System.Web.Http.Tracing;
 
     using DotNetNuke.Instrumentation;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Http.Extensions;
     using Microsoft.Extensions.Logging;
 
-    /// <summary>A <see cref="ITraceWriter"/> implementation.</summary>
-    internal sealed partial class TraceWriter : ITraceWriter
+    /// <summary>An <see cref="IDnnTraceWriter"/> implementation writing to the DNN <see cref="ILogger"/>.</summary>
+    /// <remarks>
+    /// Replaces the Web API 2 <c>System.Web.Http.Tracing.ITraceWriter</c> implementation which was installed
+    /// into <c>GlobalConfiguration.Configuration.Services</c>; the trace levels map one-for-one onto
+    /// <see cref="LogLevel"/> as they did before.
+    /// </remarks>
+    internal sealed partial class TraceWriter : IDnnTraceWriter
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<TraceWriter>();
         private readonly bool enabled;
@@ -27,32 +32,29 @@ namespace DotNetNuke.Web.Api
         }
 
         /// <inheritdoc />
-        public void Trace(HttpRequestMessage request, string category, TraceLevel level, Action<TraceRecord> traceAction)
+        public void Trace(HttpRequest request, string category, DnnTraceLevel level, Action<DnnTraceRecord> traceAction)
         {
-            if (!this.enabled || level == TraceLevel.Off)
+            if (!this.enabled || level == DnnTraceLevel.Off)
             {
                 return;
             }
 
-            var rec = new TraceRecord(request, category, level);
+            var rec = new DnnTraceRecord(request, category, level);
             traceAction(rec);
             Log(rec);
         }
 
-        private static void Log(TraceRecord rec)
+        private static void Log(DnnTraceRecord rec)
         {
             var message = new StringBuilder();
             if (rec.Request != null)
             {
-                if (rec.Request.Method != null)
+                if (!string.IsNullOrEmpty(rec.Request.Method))
                 {
-                    message.Append(' ').Append(rec.Request.Method.Method);
+                    message.Append(' ').Append(rec.Request.Method);
                 }
 
-                if (rec.Request.RequestUri != null)
-                {
-                    message.Append(' ').Append(rec.Request.RequestUri.AbsoluteUri);
-                }
+                message.Append(' ').Append(rec.Request.GetDisplayUrl());
             }
 
             if (!string.IsNullOrEmpty(rec.Category))
@@ -73,11 +75,11 @@ namespace DotNetNuke.Web.Api
 
             var logLevel = rec.Level switch
             {
-                TraceLevel.Debug => LogLevel.Debug,
-                TraceLevel.Info => LogLevel.Information,
-                TraceLevel.Warn => LogLevel.Warning,
-                TraceLevel.Error => LogLevel.Error,
-                TraceLevel.Fatal => LogLevel.Critical,
+                DnnTraceLevel.Debug => LogLevel.Debug,
+                DnnTraceLevel.Info => LogLevel.Information,
+                DnnTraceLevel.Warn => LogLevel.Warning,
+                DnnTraceLevel.Error => LogLevel.Error,
+                DnnTraceLevel.Fatal => LogLevel.Critical,
                 _ => LogLevel.None,
             };
 

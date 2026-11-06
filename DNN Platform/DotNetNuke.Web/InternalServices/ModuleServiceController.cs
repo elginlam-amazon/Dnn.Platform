@@ -7,8 +7,6 @@ namespace DotNetNuke.Web.InternalServices;
 using System;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Portals;
@@ -19,9 +17,15 @@ using DotNetNuke.Entities.Portals;
 using DotNetNuke.Instrumentation;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.Api.Internal;
-
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+// Disambiguates the DNN services framework anti-forgery filter from the same-named
+// Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+// bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+// bypass list fed by the authentication handlers and the iframe relaxation the upload flow needs.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for module information.</summary>
 [DnnAuthorize]
@@ -54,7 +58,7 @@ public class ModuleServiceController : DnnApiController
     /// <returns>A response with an object containing <c>Shareable</c> and <c>RequiredWarning</c> fields.</returns>
     [HttpGet]
     [DnnAuthorize(StaticRoles = "Registered Users")]
-    public HttpResponseMessage GetModuleShareable(int moduleId, int tabId, int portalId = -1)
+    public IActionResult GetModuleShareable(int moduleId, int tabId, int portalId = -1)
     {
         var requiresWarning = false;
         if (portalId <= -1)
@@ -85,19 +89,21 @@ public class ModuleServiceController : DnnApiController
         {
             var message = $"Cannot find module ID {moduleId} (tab ID {tabId}, portal ID {portalId})";
             Logger.ModuleServiceControllerCannotFindModule(moduleId, tabId, portalId);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, message);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, message);
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Shareable = desktopModule.Shareable.ToString(), RequiresWarning = requiresWarning, });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { Shareable = desktopModule.Shareable.ToString(), RequiresWarning = requiresWarning, });
     }
 
+    // A routable MVC action must stay a public instance method; a static method is not discovered as an action.
+    #pragma warning disable CA1822 // Mark members as static
     /// <summary>Moves a module.</summary>
     /// <param name="postData">Information about the move request.</param>
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnPageEditor]
-    public HttpResponseMessage MoveModule(MoveModuleDTO postData)
+    public IActionResult MoveModule(MoveModuleDTO postData)
     {
         var moduleOrder = postData.ModuleOrder;
         if (moduleOrder > 0)
@@ -117,9 +123,12 @@ public class ModuleServiceController : DnnApiController
         ModuleController.Instance.UpdateModuleOrder(postData.TabId, postData.ModuleId, moduleOrder, postData.Pane);
         ModuleController.Instance.UpdateTabModuleOrder(postData.TabId);
 
-        return this.Request.CreateResponse(HttpStatusCode.OK);
+        return DnnApiResults.Response(HttpStatusCode.OK);
     }
+    #pragma warning restore CA1822 // Mark members as static
 
+    // A routable MVC action must stay a public instance method; a static method is not discovered as an action.
+    #pragma warning disable CA1822 // Mark members as static
     /// <summary>Web method that deletes a tab module.</summary>
     /// <remarks>This has been introduced for integration testing purposes.</remarks>
     /// <param name="deleteModuleDto">delete module dto.</param>
@@ -127,12 +136,13 @@ public class ModuleServiceController : DnnApiController
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnAuthorize(StaticRoles = "Administrators")]
-    public HttpResponseMessage DeleteModule(DeleteModuleDto deleteModuleDto)
+    public IActionResult DeleteModule(DeleteModuleDto deleteModuleDto)
     {
         ModuleController.Instance.DeleteTabModule(deleteModuleDto.TabId, deleteModuleDto.ModuleId, deleteModuleDto.SoftDelete);
 
-        return this.Request.CreateResponse(HttpStatusCode.OK);
+        return DnnApiResults.Response(HttpStatusCode.OK);
     }
+    #pragma warning restore CA1822 // Mark members as static
 
     private int FixPortalId(int portalId)
     {

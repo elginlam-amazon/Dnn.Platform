@@ -2,39 +2,53 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
-#if false
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using DotNetNuke.Application;
-using DotNetNuke.Common;
-using DotNetNuke.Entities.Controllers;
-using DotNetNuke.Entities.Host;
-using DotNetNuke.Instrumentation;
-using DotNetNuke.Services.Localization;
-using DotNetNuke.Services.Log.EventLog;
-using DotNetNuke.Services.Mail;
-
-// ReSharper disable once CheckNamespace
 namespace DotNetNuke.Web.Common.Internal
 {
-    internal static class DotNetNukeSecurity
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Linq;
+    using System.Threading;
+
+    using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Abstractions.Logging;
+    using DotNetNuke.Abstractions.Portals;
+    using DotNetNuke.Application;
+    using DotNetNuke.Instrumentation;
+    using DotNetNuke.Services.Localization;
+    using DotNetNuke.Services.Log.EventLog;
+    using DotNetNuke.Services.Mail;
+
+    using Microsoft.Extensions.Logging;
+
+    /// <summary>
+    /// Watches the application folder for files with a dangerous extension and alerts the host when
+    /// one appears.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The <c>System.Web.Security</c>/<c>System.Web</c> surface this type used is gone: the
+    /// application path now comes from <see cref="IApplicationStatusInfo"/> (formerly
+    /// <c>Globals.ApplicationMapPath</c>), the upgrade status from the same service (formerly
+    /// <c>Globals.Status</c>), the host setting from <see cref="IHostSettingsService"/> (formerly
+    /// <c>HostController.Instance</c>), the event log from <see cref="IEventLogger"/> and the
+    /// shutdown hook from the caller instead of <c>AppDomain.DomainUnload</c>.
+    /// </para>
+    /// <para>
+    /// Behaviour is otherwise preserved exactly, including the fact that it is NOT started: on
+    /// .NET Framework the only call site was the commented-out
+    /// <c>////DotNetNukeSecurity.Initialize();</c> line of <c>Application_Start</c>, so the watcher
+    /// never ran. It is kept as a service (rather than deleted) because the host alert it
+    /// implements, its resource keys and its blocked-extension list are the feature; a host that
+    /// wants it only has to resolve this service and call <see cref="Initialize"/>.
+    /// </para>
+    /// </remarks>
+    internal sealed class DotNetNukeSecurity : IDisposable
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger<DotNetNukeSecurity>();
-        private static FileSystemWatcher _fileWatcher;
-        private static DateTime _lastRead;
-        private static Globals.UpgradeStatus _appStatus = Globals.UpgradeStatus.None;
-        private static IEnumerable<string> _settingsRestrictExtensions = new string[] { };
-        private static Queue<string> _filesQ;
-        private static Timer _qTimer;
-
-        // used to indicate already send first real-time email within last SlidingDelay period
-        private static int _notificationSent;
-
-        private const int CacheTimeOut = 5; //obtain the setting and do calculations once every 5 minutes at most, plus no need for locking
+        private const int CacheTimeOut = 5; // obtain the setting and do calculations once every 5 minutes at most, plus no need for locking
         private const int SlidingDelay = 30 * 1000; // milliseconds
+
+        private static readonly ILogger Logger = DnnLoggingController.GetLogger<DotNetNukeSecurity>();
 
         // Source: Configuring Blocked File Extensions
         // https://msdn.microsoft.com/en-us/library/cc767397.aspx
@@ -42,77 +56,133 @@ namespace DotNetNuke.Web.Common.Internal
             (
                 ".ade,.adp,.app,.ashx,.asmx,.asp,.aspx,.bas,.bat,.chm,.class,.cmd,.com,.cpl,.crt,.dll,.exe," +
                 ".fxp,.hlp,.hta,.ins,.isp,.jse,.lnk,.mda,.mdb,.mde,.mdt,.mdw,.mdz,.msc,.msi,.msp,.mst,.ops,.pcd,.php," +
-                ".pif,.prf,.prg,.py,.reg,.scf,.scr,.sct,.shb,.shs,.url,.vb,.vbe,.vbs,.wsc,.wsf,.wsh"
-            )
+                ".pif,.prf,.prg,.py,.reg,.scf,.scr,.sct,.shb,.shs,.url,.vb,.vbe,.vbs,.wsc,.wsf,.wsh")
             .ToLowerInvariant()
             .Split(',')
             .Where(e => !string.IsNullOrEmpty(e))
             .Select(e => e.Trim())
             .ToList();
 
-        internal static void Initialize()
+        private readonly object initializeLock = new object();
+        private readonly IApplicationStatusInfo applicationStatusInfo;
+        private readonly IHostSettingsService hostSettingsService;
+        private readonly IHostSettings hostSettings;
+        private readonly IEventLogger eventLogger;
+
+        private FileSystemWatcher fileWatcher;
+        private DateTime lastRead;
+        private UpgradeStatus appStatus = UpgradeStatus.None;
+        private IEnumerable<string> settingsRestrictExtensions = [];
+        private Queue<string> filesQueue;
+        private Timer queueTimer;
+
+        // used to indicate already send first real-time email within last SlidingDelay period
+        private int notificationSent;
+
+        /// <summary>Initializes a new instance of the <see cref="DotNetNukeSecurity"/> class.</summary>
+        /// <param name="applicationStatusInfo">The application status.</param>
+        /// <param name="hostSettingsService">The host settings service.</param>
+        /// <param name="hostSettings">The host settings, replacing the obsolete static <c>Host</c> facade.</param>
+        /// <param name="eventLogger">The event logger.</param>
+        public DotNetNukeSecurity(
+            IApplicationStatusInfo applicationStatusInfo,
+            IHostSettingsService hostSettingsService,
+            IHostSettings hostSettings,
+            IEventLogger eventLogger)
         {
-            if (_fileWatcher == null)
+            this.applicationStatusInfo = applicationStatusInfo ?? throw new ArgumentNullException(nameof(applicationStatusInfo));
+            this.hostSettingsService = hostSettingsService ?? throw new ArgumentNullException(nameof(hostSettingsService));
+            this.hostSettings = hostSettings ?? throw new ArgumentNullException(nameof(hostSettings));
+            this.eventLogger = eventLogger ?? throw new ArgumentNullException(nameof(eventLogger));
+        }
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            // The replacement for AppDomain.CurrentDomain.DomainUnload: the owner disposes this
+            // service when the host shuts down, which flushes the pending notifications.
+            this.fileWatcher?.Dispose();
+            this.fileWatcher = null;
+            this.QueueTimerCallBack(null);
+            this.queueTimer?.Dispose();
+            this.queueTimer = null;
+        }
+
+        /// <summary>Starts watching the application folder.</summary>
+        internal void Initialize()
+        {
+            if (this.fileWatcher == null)
             {
-                lock (typeof(DotNetNukeSecurity))
+                lock (this.initializeLock)
                 {
-                    if (_fileWatcher == null)
+                    if (this.fileWatcher == null)
                     {
                         try
                         {
-                            InitializeFileWatcher();
+                            this.InitializeFileWatcher();
                         }
                         catch (Exception e)
                         {
-                            Logger.Error(e);
+                            Logger.DotNetNukeSecurityInitializeFailed(e);
                         }
                     }
                 }
             }
         }
 
-
-        private static void InitializeFileWatcher()
+        private static void LogException(Exception ex)
         {
-            _fileWatcher = new FileSystemWatcher
+            Logger.DotNetNukeSecurityWatcherActivityError(ex, ex?.Message);
+        }
+
+        private void InitializeFileWatcher()
+        {
+            this.fileWatcher = new FileSystemWatcher
             {
                 Filter = "*.*",
-                Path = Globals.ApplicationMapPath,
+                Path = this.applicationStatusInfo.ApplicationMapPath,
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName,
                 IncludeSubdirectories = true,
             };
 
-            _fileWatcher.Created += WatcherOnCreated;
-            _fileWatcher.Renamed += WatcherOnRenamed;
-            _fileWatcher.Error += WatcherOnError;
+            this.fileWatcher.Created += this.WatcherOnCreated;
+            this.fileWatcher.Renamed += this.WatcherOnRenamed;
+            this.fileWatcher.Error += this.WatcherOnError;
 
-            _filesQ = new Queue<string>();
-            _qTimer = new Timer(QTimerCallBack);
+            this.filesQueue = new Queue<string>();
+            this.queueTimer = new Timer(this.QueueTimerCallBack);
 
-            AppDomain.CurrentDomain.DomainUnload += (sender, args) =>
-            {
-                _fileWatcher.Dispose();
-                QTimerCallBack(null);
-            };
-
-            _fileWatcher.EnableRaisingEvents = true;
+            this.fileWatcher.EnableRaisingEvents = true;
         }
 
-        private static void QTimerCallBack(object obj)
+        private void QueueTimerCallBack(object obj)
         {
             try
             {
-                string[] items;
-                lock (_filesQ)
+                if (this.filesQueue == null)
                 {
-                    while (!_qTimer.Change(Timeout.Infinite, Timeout.Infinite)) { }
-                    Interlocked.Exchange(ref _notificationSent, 0);
-                    items = _filesQ.ToArray();
-                    while (_filesQ.Count > 0) _filesQ.Dequeue();
+                    return;
+                }
+
+                string[] items;
+                lock (this.filesQueue)
+                {
+                    while (!this.queueTimer.Change(Timeout.Infinite, Timeout.Infinite))
+                    {
+                    }
+
+                    Interlocked.Exchange(ref this.notificationSent, 0);
+                    items = this.filesQueue.ToArray();
+                    while (this.filesQueue.Count > 0)
+                    {
+                        this.filesQueue.Dequeue();
+                    }
                 }
 
                 if (items.Length > 0)
-                    NotifyManager(items);
+                {
+                    this.NotifyManager(items);
+                }
             }
             catch (Exception ex)
             {
@@ -120,65 +190,63 @@ namespace DotNetNuke.Web.Common.Internal
             }
         }
 
-        private static void WatcherOnRenamed(object sender, RenamedEventArgs e)
+        private void WatcherOnRenamed(object sender, RenamedEventArgs e)
         {
-            CheckFile(e.FullPath);
+            this.CheckFile(e.FullPath);
         }
 
-        private static void WatcherOnCreated(object sender, FileSystemEventArgs e)
+        private void WatcherOnCreated(object sender, FileSystemEventArgs e)
         {
-            CheckFile(e.FullPath);
+            this.CheckFile(e.FullPath);
         }
 
-        private static void WatcherOnError(object sender, ErrorEventArgs e)
+        private void WatcherOnError(object sender, ErrorEventArgs e)
         {
             LogException(e.GetException());
         }
 
-        private static void LogException(Exception ex)
-        {
-            Logger.Error("Watcher Activity Error: " + ex?.Message);
-        }
-
-        private static void CheckFile(string path)
+        private void CheckFile(string path)
         {
             try
             {
-                if (IsRestrictdExtension(path))
+                if (this.IsRestrictedExtension(path))
                 {
-                    if (_appStatus != Globals.UpgradeStatus.Install && _appStatus != Globals.UpgradeStatus.Upgrade)
+                    if (this.appStatus != UpgradeStatus.Install && this.appStatus != UpgradeStatus.Upgrade)
                     {
-                        Globals.UpgradeStatus appStatus;
+                        UpgradeStatus status;
 
                         try
                         {
-                            appStatus = Globals.Status;
+                            status = this.applicationStatusInfo.Status;
                         }
                         catch (NullReferenceException)
                         {
-                            appStatus = Globals.UpgradeStatus.None;
+                            status = UpgradeStatus.None;
                         }
 
                         // make status sticky; once set to install/upgrade, it stays so until finishing & appl restarts
-                        if (appStatus == Globals.UpgradeStatus.Install || appStatus == Globals.UpgradeStatus.Upgrade)
+                        if (status == UpgradeStatus.Install || status == UpgradeStatus.Upgrade)
                         {
-                            _appStatus = appStatus;
+                            this.appStatus = status;
                         }
                         else
                         {
-                            ThreadPool.QueueUserWorkItem(_ => AddEventLog(path));
-                            var val = Interlocked.Increment(ref _notificationSent);
+                            ThreadPool.QueueUserWorkItem(_ => this.AddEventLog(path));
+                            var val = Interlocked.Increment(ref this.notificationSent);
                             if (val <= 1)
                             {
                                 // first notification goes immediately
-                                ThreadPool.QueueUserWorkItem(_ => NotifyManager(new[] { path }));
+                                ThreadPool.QueueUserWorkItem(_ => this.NotifyManager([path]));
                             }
                             else
                             {
-                                lock (_filesQ)
+                                lock (this.filesQueue)
                                 {
-                                    while (!_qTimer.Change(val >= 100 ? 1 : SlidingDelay, Timeout.Infinite)) { }
-                                    _filesQ.Enqueue(path);
+                                    while (!this.queueTimer.Change(val >= 100 ? 1 : SlidingDelay, Timeout.Infinite))
+                                    {
+                                    }
+
+                                    this.filesQueue.Enqueue(path);
                                 }
                             }
                         }
@@ -191,21 +259,21 @@ namespace DotNetNuke.Web.Common.Internal
             }
         }
 
-        private static bool IsRestrictdExtension(string path)
+        private bool IsRestrictedExtension(string path)
         {
             var extension = Path.GetExtension(path)?.ToLowerInvariant();
             return !string.IsNullOrEmpty(extension) &&
-                GetRestrictExtensions().Contains(extension);
+                this.GetRestrictExtensions().Contains(extension);
         }
 
-        private static IEnumerable<string> GetRestrictExtensions()
+        private IEnumerable<string> GetRestrictExtensions()
         {
             // obtain the setting and do calculations once every 5 minutes at most, plus no need for locking
-            if ((DateTime.Now - _lastRead).TotalMinutes > CacheTimeOut)
+            if ((DateTime.Now - this.lastRead).TotalMinutes > CacheTimeOut)
             {
-                _lastRead = DateTime.Now;
-                var settings = HostController.Instance.GetString("SA_RestrictExtensions", string.Empty);
-                _settingsRestrictExtensions = string.IsNullOrEmpty(settings)
+                this.lastRead = DateTime.Now;
+                var settings = this.hostSettingsService.GetString("SA_RestrictExtensions", string.Empty);
+                this.settingsRestrictExtensions = string.IsNullOrEmpty(settings)
                     ? DefaultRestrictExtensions
                     : settings.ToLowerInvariant()
                         .Split(',')
@@ -215,10 +283,10 @@ namespace DotNetNuke.Web.Common.Internal
                         .ToList();
             }
 
-            return _settingsRestrictExtensions ?? DefaultRestrictExtensions;
+            return this.settingsRestrictExtensions ?? DefaultRestrictExtensions;
         }
 
-        private static void AddEventLog(string path)
+        private void AddEventLog(string path)
         {
             try
             {
@@ -229,7 +297,7 @@ namespace DotNetNuke.Web.Common.Internal
                 log.AddProperty("Summary", Localization.GetString("PotentialDangerousFile.Text"));
                 log.AddProperty("File Name", path);
 
-                new LogController().AddLog(log);
+                this.eventLogger.AddLog(log);
             }
             catch (Exception ex)
             {
@@ -237,7 +305,7 @@ namespace DotNetNuke.Web.Common.Internal
             }
         }
 
-        private static void NotifyManager(string[] paths)
+        private void NotifyManager(string[] paths)
         {
             try
             {
@@ -245,17 +313,15 @@ namespace DotNetNuke.Web.Common.Internal
                 var subject = Localization.GetString("RestrictFileMail_Subject.Text");
                 var body = Localization.GetString("RestrictFileMail_Body.Text")
                     .Replace("[Path]", pathNames)
-                    .Replace("[AppName]", Host.HostTitle)
+                    .Replace("[AppName]", this.hostSettings.HostTitle)
                     .Replace("[AppVersion]", DotNetNukeContext.Current.Application.CurrentVersion.ToString());
 
-                Mail.SendEmail(Host.HostEmail, Host.HostEmail, subject, body);
+                Mail.SendEmail(this.hostSettings.HostEmail, this.hostSettings.HostEmail, subject, body);
             }
             catch (Exception ex)
             {
                 LogException(ex);
             }
         }
-
     }
 }
-#endif

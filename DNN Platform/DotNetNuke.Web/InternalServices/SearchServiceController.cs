@@ -10,11 +10,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
+using System.Text;
 using System.Text.RegularExpressions;
-using System.Web;
-using System.Web.Caching;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Common;
@@ -29,19 +26,29 @@ using DotNetNuke.Services.Search.Entities;
 using DotNetNuke.Services.Search.Internals;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.InternalServices.Views.Search;
-
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+
+// Disambiguates the DNN services framework anti-forgery filter from the same-named
+// Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+// bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+// bypass list fed by the authentication handlers and the iframe relaxation the upload flow needs.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for searching.</summary>
 [DnnAuthorize(StaticRoles = "Administrators")]
 public class SearchServiceController : DnnApiController
 {
     private const string ModuleInfosCacheKey = "ModuleInfos{0}";
-    private const CacheItemPriority ModuleInfosCachePriority = CacheItemPriority.AboveNormal;
+    private const DotNetNuke.Services.Cache.CacheItemPriority ModuleInfosCachePriority = DotNetNuke.Services.Cache.CacheItemPriority.AboveNormal;
     private const int ModuleInfosCacheTimeOut = 20;
     private const string ModuleTitleCacheKey = "SearchModuleTabTitle_{0}";
-    private const CacheItemPriority ModuleTitleCachePriority = CacheItemPriority.Normal;
+    private const DotNetNuke.Services.Cache.CacheItemPriority ModuleTitleCachePriority = DotNetNuke.Services.Cache.CacheItemPriority.Normal;
     private const int ModuleTitleCacheTimeOut = 20;
+    private static readonly CompositeFormat ModuleInfosCacheKeyFormat = CompositeFormat.Parse(ModuleInfosCacheKey);
+    private static readonly CompositeFormat ModuleTitleCacheKeyFormat = CompositeFormat.Parse(ModuleTitleCacheKey);
     private static readonly Regex GroupedBasicViewRegex = new Regex(@"userid(/|\|=)(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly ISearchController searchController;
@@ -88,7 +95,7 @@ public class SearchServiceController : DnnApiController
     /// <returns>A response with a list of <see cref="GroupedBasicView"/> objects.</returns>
     [HttpGet]
     [AllowAnonymous]
-    public HttpResponseMessage Preview(string keywords, string culture, int forceWild = 1, int portal = -1)
+    public IActionResult Preview(string keywords, string culture, int forceWild = 1, int portal = -1)
     {
         keywords = (keywords ?? string.Empty).Trim();
         var tags = SearchQueryStringParser.Instance.GetTags(keywords, out var cleanedKeywords);
@@ -134,7 +141,7 @@ public class SearchServiceController : DnnApiController
             }
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, results);
+        return DnnApiResults.Response(HttpStatusCode.OK, results);
     }
 
     /// <summary>Performs a search.</summary>
@@ -146,7 +153,7 @@ public class SearchServiceController : DnnApiController
     /// <returns>A response with an object that has <c>results</c>, <c>totalHits</c>, and <c>more</c> fields.</returns>
     [HttpGet]
     [AllowAnonymous]
-    public HttpResponseMessage Search(string search, string culture, int pageIndex, int pageSize, int sortOption)
+    public IActionResult Search(string search, string culture, int pageIndex, int pageSize, int sortOption)
     {
         search = (search ?? string.Empty).Trim();
         var tags = SearchQueryStringParser.Instance.GetTags(search, out var cleanedKeywords);
@@ -200,80 +207,98 @@ public class SearchServiceController : DnnApiController
             }
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { results, totalHits, more });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { results, totalHits, more });
     }
 
+    // A routable MVC action must stay a public instance method; a static method is not discovered as an action.
+    #pragma warning disable CA1822 // Mark members as static
     /// <summary>Add a synonyms group.</summary>
     /// <param name="synonymsGroup">The synonyms group to add.</param>
     /// <returns>A response with an object that has <c>Id</c> and <c>DuplicateWord</c> fields.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [SupportedModules("SearchAdmin")]
-    public HttpResponseMessage AddSynonymsGroup(SynonymsGroupDto synonymsGroup)
+    public IActionResult AddSynonymsGroup(SynonymsGroupDto synonymsGroup)
     {
         var synonymsGroupId = SearchHelper.Instance.AddSynonymsGroup(synonymsGroup.Tags, synonymsGroup.PortalId, synonymsGroup.Culture, out var duplicateWord);
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Id = synonymsGroupId, DuplicateWord = duplicateWord, });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { Id = synonymsGroupId, DuplicateWord = duplicateWord, });
     }
+    #pragma warning restore CA1822 // Mark members as static
 
+    // A routable MVC action must stay a public instance method; a static method is not discovered as an action.
+    #pragma warning disable CA1822 // Mark members as static
     /// <summary>Update a synonyms group.</summary>
     /// <param name="synonymsGroup">The synonyms group to update.</param>
     /// <returns>A response with an object that has <c>Id</c> and <c>DuplicateWord</c> fields.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [SupportedModules("SearchAdmin")]
-    public HttpResponseMessage UpdateSynonymsGroup(SynonymsGroupDto synonymsGroup)
+    public IActionResult UpdateSynonymsGroup(SynonymsGroupDto synonymsGroup)
     {
         var synonymsGroupId = SearchHelper.Instance.UpdateSynonymsGroup(synonymsGroup.Id, synonymsGroup.Tags, synonymsGroup.PortalId, synonymsGroup.Culture, out var duplicateWord);
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Id = synonymsGroupId, DuplicateWord = duplicateWord, });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { Id = synonymsGroupId, DuplicateWord = duplicateWord, });
     }
+    #pragma warning restore CA1822 // Mark members as static
 
+    // A routable MVC action must stay a public instance method; a static method is not discovered as an action.
+    #pragma warning disable CA1822 // Mark members as static
     /// <summary>Deletes a synonyms group.</summary>
     /// <param name="synonymsGroup">The synonyms group to delete.</param>
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [SupportedModules("SearchAdmin")]
-    public HttpResponseMessage DeleteSynonymsGroup(SynonymsGroupDto synonymsGroup)
+    public IActionResult DeleteSynonymsGroup(SynonymsGroupDto synonymsGroup)
     {
         SearchHelper.Instance.DeleteSynonymsGroup(synonymsGroup.Id, synonymsGroup.PortalId, synonymsGroup.Culture);
-        return this.Request.CreateResponse(HttpStatusCode.OK);
+        return DnnApiResults.Response(HttpStatusCode.OK);
     }
+    #pragma warning restore CA1822 // Mark members as static
 
+    // A routable MVC action must stay a public instance method; a static method is not discovered as an action.
+    #pragma warning disable CA1822 // Mark members as static
     /// <summary>Add search stop words.</summary>
     /// <param name="stopWords">The stop words to add.</param>
     /// <returns>A response with an object that has an <c>Id</c> field.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [SupportedModules("SearchAdmin")]
-    public HttpResponseMessage AddStopWords(StopWordsDto stopWords)
+    public IActionResult AddStopWords(StopWordsDto stopWords)
     {
         var stopWordsId = SearchHelper.Instance.AddSearchStopWords(stopWords.Words, stopWords.PortalId, stopWords.Culture);
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Id = stopWordsId, });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { Id = stopWordsId, });
     }
+    #pragma warning restore CA1822 // Mark members as static
 
+    // A routable MVC action must stay a public instance method; a static method is not discovered as an action.
+    #pragma warning disable CA1822 // Mark members as static
     /// <summary>Update search stop words.</summary>
     /// <param name="stopWords">The stop words to update.</param>
     /// <returns>A response with an object that has an <c>Id</c> field.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [SupportedModules("SearchAdmin")]
-    public HttpResponseMessage UpdateStopWords(StopWordsDto stopWords)
+    public IActionResult UpdateStopWords(StopWordsDto stopWords)
     {
         var stopWordsId = SearchHelper.Instance.UpdateSearchStopWords(stopWords.Id, stopWords.Words, stopWords.PortalId, stopWords.Culture);
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Id = stopWordsId, });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { Id = stopWordsId, });
     }
+    #pragma warning restore CA1822 // Mark members as static
 
+    // A routable MVC action must stay a public instance method; a static method is not discovered as an action.
+    #pragma warning disable CA1822 // Mark members as static
     /// <summary>Delete search stop words.</summary>
     /// <param name="stopWords">The stop words to delete.</param>
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [SupportedModules("SearchAdmin")]
-    public HttpResponseMessage DeleteStopWords(StopWordsDto stopWords)
+    public IActionResult DeleteStopWords(StopWordsDto stopWords)
     {
         SearchHelper.Instance.DeleteSearchStopWords(stopWords.Id, stopWords.PortalId, stopWords.Culture);
-        return this.Request.CreateResponse(HttpStatusCode.OK);
+        return DnnApiResults.Response(HttpStatusCode.OK);
     }
+    #pragma warning restore CA1822 // Mark members as static
 
     /// <summary>Gets grouped detail views.</summary>
     /// <param name="searchQuery">The search query.</param>
@@ -368,7 +393,7 @@ public class SearchServiceController : DnnApiController
                 var title = showFriendlyTitle ? GetFriendlyTitle(result) : result.Title;
                 var detail = new DetailedView
                 {
-                    Title = title != null && title.Contains("<") ? HttpUtility.HtmlEncode(title) : title,
+                    Title = title != null && title.Contains('<') ? WebUtility.HtmlEncode(title) : title,
                     DocumentTypeName = InternalSearchController.Instance.GetSearchDocumentTypeDisplayName(result),
                     DocumentUrl = result.Url,
                     Snippet = result.Snippet,
@@ -421,7 +446,7 @@ public class SearchServiceController : DnnApiController
                 {
                     groupedResult.Results.Add(new BasicView
                     {
-                        Title = preview.Title.Contains("<") ? HttpUtility.HtmlEncode(preview.Title) : preview.Title,
+                        Title = preview.Title.Contains('<') ? WebUtility.HtmlEncode(preview.Title) : preview.Title,
                         Snippet = preview.Snippet,
                         Description = preview.Description,
                         DocumentUrl = preview.DocumentUrl,
@@ -456,7 +481,7 @@ public class SearchServiceController : DnnApiController
             var description = result.Description;
             if (!string.IsNullOrEmpty(description) && description.Length > maxDescriptionLength)
             {
-                description = description.Substring(0, maxDescriptionLength) + "...";
+                description = string.Concat(description.AsSpan(0, maxDescriptionLength), "...");
             }
 
             return new BasicView
@@ -472,7 +497,7 @@ public class SearchServiceController : DnnApiController
 
     private static ArrayList GetModulesByDefinition(IHostSettings hostSettings, int portalId, string friendlyName)
     {
-        var cacheKey = string.Format(CultureInfo.InvariantCulture, ModuleInfosCacheKey, portalId);
+        var cacheKey = string.Format(CultureInfo.InvariantCulture, ModuleInfosCacheKeyFormat, portalId);
         return CBO.GetCachedObject<ArrayList>(
             hostSettings,
             new CacheItemArgs(cacheKey, ModuleInfosCacheTimeOut, ModuleInfosCachePriority),
@@ -565,7 +590,7 @@ public class SearchServiceController : DnnApiController
     private static string GetTabTitleFromModuleId(IHostSettings hostSettings, int moduleId)
     {
         // no manual clearing of the cache exists; let it just expire
-        var cacheKey = string.Format(CultureInfo.InvariantCulture, ModuleTitleCacheKey, moduleId);
+        var cacheKey = string.Format(CultureInfo.InvariantCulture, ModuleTitleCacheKeyFormat, moduleId);
 
         return CBO.GetCachedObject<string>(
             hostSettings,

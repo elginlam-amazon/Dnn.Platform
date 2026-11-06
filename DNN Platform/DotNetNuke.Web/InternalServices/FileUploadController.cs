@@ -6,21 +6,13 @@ namespace DotNetNuke.Web.InternalServices;
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Net.Http.Formatting;
-using System.Net.Http.Headers;
 using System.Runtime.Serialization;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
-using System.Web;
-using System.Web.Http;
-using System.Web.UI.WebControls;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Portals;
@@ -37,9 +29,14 @@ using DotNetNuke.Services.FileSystem;
 using DotNetNuke.Services.Localization;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.Api.Internal;
-
+using DotNetNuke.Web.Common.Internal;
+using DotNetNuke.Web.UI.WebControls.Extensions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 
 using FileInfo = DotNetNuke.Services.FileSystem.FileInfo;
 
@@ -100,19 +97,19 @@ public class FileUploadController : DnnApiController
     /// <param name="folderItem">Information about the folder.</param>
     /// <returns>A response with a list of <see cref="FileItem"/> objects.</returns>
     [HttpPost]
-    public HttpResponseMessage LoadFiles(FolderItemDTO folderItem)
+    public IActionResult LoadFiles(FolderItemDTO folderItem)
     {
         var effectivePortalId = this.PortalSettings.PortalId;
 
         if (folderItem.FolderId <= 0)
         {
-            return this.Request.CreateResponse(HttpStatusCode.BadRequest);
+            return DnnApiResults.Response(HttpStatusCode.BadRequest);
         }
 
         var folder = FolderManager.Instance.GetFolder(folderItem.FolderId);
         if (folder == null)
         {
-            return this.Request.CreateResponse(HttpStatusCode.BadRequest);
+            return DnnApiResults.Response(HttpStatusCode.BadRequest);
         }
 
         if (IsUserFolder(folder.FolderPath, out var userId))
@@ -131,149 +128,98 @@ public class FileUploadController : DnnApiController
         var list = Globals.GetFileList(effectivePortalId, folderItem.FileFilter, !folderItem.Required, folder.FolderPath);
         var fileItems = list.OfType<FileItem>().ToList();
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, fileItems);
+        return DnnApiResults.Response(HttpStatusCode.OK, fileItems);
     }
 
+    // A routable MVC action must stay a public instance method; a static method is not discovered as an action.
+    #pragma warning disable CA1822 // Mark members as static
     /// <summary>Gets the URL of an image file.</summary>
     /// <param name="fileId">The file ID.</param>
     /// <returns>A response with either <c>null</c> or the image URL.</returns>
     [HttpGet]
-    public HttpResponseMessage LoadImage(string fileId)
+    public IActionResult LoadImage(string fileId)
     {
         if (string.IsNullOrEmpty(fileId) || !int.TryParse(fileId, out var file))
         {
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError);
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError);
         }
 
         var imageUrl = ShowImage(file);
         return imageUrl == null
-            ? this.Request.CreateResponse(HttpStatusCode.NotFound)
-            : this.Request.CreateResponse(HttpStatusCode.OK, imageUrl);
+            ? DnnApiResults.Response(HttpStatusCode.NotFound)
+            : DnnApiResults.Response(HttpStatusCode.OK, imageUrl);
     }
+    #pragma warning restore CA1822 // Mark members as static
 
     /// <summary>Uploads an image.</summary>
     /// <returns>A response with an <see cref="SavedFileDTO"/> object.</returns>
-    /// <exception cref="HttpResponseException">If the request is not using a multipart MIME content type.</exception>
+    /// <remarks>
+    /// Was a <c>MultipartMemoryStreamProvider</c>-based Web API 2 action. On ASP.NET Core the multipart
+    /// body is read through <see cref="IFormCollection"/>/<see cref="IFormFile"/>, but every form field
+    /// name, status code and response body (including the <c>text/plain</c> content type the
+    /// <c>DnnFileUpload</c> iframe transport requires) is unchanged.
+    /// </remarks>
     [HttpPost]
     [IFrameSupportedValidateAntiForgeryToken]
-    public Task<HttpResponseMessage> PostFile()
+    public async Task<IActionResult> PostFile()
     {
-        var request = this.Request;
-        if (!request.Content.IsMimeMultipartContent())
+        if (!IsMultipartRequest(this.Request))
         {
-            throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
+            return DnnApiResults.Response(HttpStatusCode.UnsupportedMediaType);
         }
 
-        var provider = new MultipartMemoryStreamProvider();
+        var form = await this.Request.ReadFormAsync();
 
-        // local references for use in closure
-        IPortalSettings portalSettings = this.PortalSettings;
-        var currentSynchronizationContext = SynchronizationContext.Current;
-        var userInfo = this.UserInfo;
-        var task = request.Content.ReadAsMultipartAsync(provider)
-            .ContinueWith(_ =>
-            {
-                var folder = string.Empty;
-                var filter = string.Empty;
-                var fileName = string.Empty;
-                var overwrite = false;
-                var isHostMenu = false;
-                var extract = false;
-                Stream stream = null;
-                var returnFileDto = new SavedFileDTO();
+        var folder = GetFormValue(form, "folder");
+        var filter = GetFormValue(form, "filter");
+        if (!bool.TryParse(GetFormValue(form, "overwrite"), out var overwrite))
+        {
+            overwrite = false;
+        }
 
-                foreach (var item in provider.Contents)
+        if (!bool.TryParse(GetFormValue(form, "ishostmenu"), out var isHostMenu))
+        {
+            isHostMenu = false;
+        }
+
+        if (!bool.TryParse(GetFormValue(form, "extract"), out var extract))
+        {
+            extract = false;
+        }
+
+        var fileName = string.Empty;
+        var postedFile = GetPostedFile(form);
+        if (postedFile != null)
+        {
+            fileName = GetPostedFileName(postedFile);
+        }
+
+        var errorMessage = string.Empty;
+        var alreadyExists = false;
+        var returnFileDto = new SavedFileDTO();
+        if (!string.IsNullOrEmpty(fileName) && postedFile != null)
+        {
+            // Everything ready
+            using var stream = postedFile.OpenReadStream();
+            returnFileDto = SaveFile(stream, this.portalController, this.appStatus, this.portalGroupController, this.hostSettings, this.PortalSettings, this.UserInfo, folder, filter, fileName, overwrite, isHostMenu, extract, out alreadyExists, out errorMessage);
+        }
+
+        if (!string.IsNullOrEmpty(errorMessage))
+        {
+            return PlainTextJson(
+                HttpStatusCode.BadRequest,
+                new
                 {
-                    var name = item.Headers.ContentDisposition.Name;
-                    switch (name.ToUpperInvariant())
-                    {
-                        case "\"FOLDER\"":
-                            folder = item.ReadAsStringAsync().Result ?? string.Empty;
-                            break;
+                    AlreadyExists = alreadyExists,
+                    Message = string.Format(
+                        CultureInfo.CurrentCulture,
+                        CompositeFormatCache.Get(GetLocalizedString("ErrorMessage")),
+                        fileName,
+                        errorMessage),
+                });
+        }
 
-                        case "\"FILTER\"":
-                            filter = item.ReadAsStringAsync().Result ?? string.Empty;
-                            break;
-
-                        case "\"OVERWRITE\"":
-                            if (!bool.TryParse(item.ReadAsStringAsync().Result, out overwrite))
-                            {
-                                overwrite = false;
-                            }
-
-                            break;
-
-                        case "\"ISHOSTMENU\"":
-                            if (!bool.TryParse(item.ReadAsStringAsync().Result, out isHostMenu))
-                            {
-                                isHostMenu = false;
-                            }
-
-                            break;
-
-                        case "\"EXTRACT\"":
-                            if (!bool.TryParse(item.ReadAsStringAsync().Result, out extract))
-                            {
-                                extract = false;
-                            }
-
-                            break;
-
-                        case "\"POSTFILE\"":
-                            fileName = item.Headers.ContentDisposition.FileName.Replace("\"", string.Empty);
-                            if (fileName.IndexOf(@"\", StringComparison.Ordinal) != -1)
-                            {
-                                fileName = Path.GetFileName(fileName);
-                            }
-
-                            stream = item.ReadAsStreamAsync().Result;
-                            break;
-                    }
-                }
-
-                var errorMessage = string.Empty;
-                var alreadyExists = false;
-                if (!string.IsNullOrEmpty(fileName) && stream != null)
-                {
-                    // Everything ready
-
-                    // The SynchronizationContext keeps the main thread context. Send method is synchronous
-                    currentSynchronizationContext.Send(
-                        _ =>
-                        {
-                            returnFileDto = SaveFile(stream, this.portalController, this.appStatus, this.portalGroupController, this.hostSettings, portalSettings, userInfo, folder, filter, fileName, overwrite, isHostMenu, extract, out alreadyExists, out errorMessage);
-                        },
-                        null);
-                }
-
-                /* Response Content Type cannot be application/json
-                 * because IE9 with iframe-transport manages the response
-                 * as a file download
-                 */
-                var mediaTypeFormatter = new JsonMediaTypeFormatter();
-                mediaTypeFormatter.SupportedMediaTypes.Add(new MediaTypeHeaderValue("text/plain"));
-
-                if (!string.IsNullOrEmpty(errorMessage))
-                {
-                    return this.Request.CreateResponse(
-                        HttpStatusCode.BadRequest,
-                        new
-                        {
-                            AlreadyExists = alreadyExists,
-                            Message = string.Format(
-                                CultureInfo.CurrentCulture,
-                                GetLocalizedString("ErrorMessage"),
-                                fileName,
-                                errorMessage),
-                        },
-                        mediaTypeFormatter,
-                        "text/plain");
-                }
-
-                return this.Request.CreateResponse(HttpStatusCode.OK, returnFileDto, mediaTypeFormatter, "text/plain");
-            });
-
-        return task;
+        return PlainTextJson(HttpStatusCode.OK, returnFileDto);
     }
 
     /// <summary>Uploads a file to the current portal.</summary>
@@ -281,7 +227,7 @@ public class FileUploadController : DnnApiController
     [HttpPost]
     [IFrameSupportedValidateAntiForgeryToken]
     [AllowAnonymous]
-    public Task<HttpResponseMessage> UploadFromLocal()
+    public Task<IActionResult> UploadFromLocal()
     {
         return this.UploadFromLocal(this.PortalSettings.PortalId);
     }
@@ -289,24 +235,21 @@ public class FileUploadController : DnnApiController
     /// <summary>Uploads a file.</summary>
     /// <param name="portalId">The ID of the portal to which to upload it.</param>
     /// <returns>A response with a <see cref="FileUploadDto"/> object.</returns>
-    /// <exception cref="HttpResponseException">If the request is not using a multipart MIME content type.</exception>
     [HttpPost]
     [IFrameSupportedValidateAntiForgeryToken]
     [AllowAnonymous]
-    public Task<HttpResponseMessage> UploadFromLocal(int portalId)
+    public async Task<IActionResult> UploadFromLocal(int portalId)
     {
-        var request = this.Request;
-        FileUploadDto result = null;
-        if (!request.Content.IsMimeMultipartContent())
+        if (!IsMultipartRequest(this.Request))
         {
-            throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
+            return DnnApiResults.Response(HttpStatusCode.UnsupportedMediaType);
         }
 
         if (portalId > -1)
         {
             if (!this.IsPortalIdValid(portalId))
             {
-                throw new HttpResponseException(HttpStatusCode.Unauthorized);
+                return DnnApiResults.Response(HttpStatusCode.Unauthorized);
             }
         }
         else
@@ -314,118 +257,134 @@ public class FileUploadController : DnnApiController
             portalId = this.PortalSettings.PortalId;
         }
 
-        var provider = new MultipartMemoryStreamProvider();
-
-        // local references for use in closure
-        var currentSynchronizationContext = SynchronizationContext.Current;
+        var form = await this.Request.ReadFormAsync();
         var userInfo = this.UserInfo;
-        var task = request.Content.ReadAsMultipartAsync(provider)
-            .ContinueWith(_ =>
+
+        var folder = GetFormValue(form, "folder");
+        var filter = GetFormValue(form, "filter");
+        var validationCode = GetFormValue(form, "validationcode");
+        if (!bool.TryParse(GetFormValue(form, "overwrite"), out var overwrite))
+        {
+            overwrite = false;
+        }
+
+        if (!bool.TryParse(GetFormValue(form, "ishostportal"), out var isHostPortal))
+        {
+            isHostPortal = false;
+        }
+
+        if (!bool.TryParse(GetFormValue(form, "extract"), out var extract))
+        {
+            extract = false;
+        }
+
+        if (userInfo.IsSuperUser && form.ContainsKey("portalid"))
+        {
+            if (int.TryParse(GetFormValue(form, "portalid"), out var requestedPortalId))
             {
-                var folder = string.Empty;
-                var filter = string.Empty;
-                var fileName = string.Empty;
-                var validationCode = string.Empty;
-                var overwrite = false;
-                var isHostPortal = false;
-                var extract = false;
-                Stream stream = null;
+                portalId = requestedPortalId;
+            }
+        }
 
-                foreach (var item in provider.Contents)
-                {
-                    var name = item.Headers.ContentDisposition.Name;
-                    switch (name.ToUpperInvariant())
-                    {
-                        case "\"FOLDER\"":
-                            folder = item.ReadAsStringAsync().Result ?? string.Empty;
-                            break;
+        FileUploadDto result = null;
+        var postedFile = GetPostedFile(form);
+        if (postedFile != null)
+        {
+            var fileName = GetPostedFileName(postedFile);
+            if (!string.IsNullOrEmpty(fileName) && !Globals.FileEscapingRegex.IsMatch(fileName))
+            {
+                using var stream = postedFile.OpenReadStream();
+                result = UploadFile(this.cryptographyProvider, this.hostSettings, stream, portalId, userInfo, folder, filter, fileName, overwrite, isHostPortal, extract, validationCode);
+            }
+        }
 
-                        case "\"FILTER\"":
-                            filter = item.ReadAsStringAsync().Result ?? string.Empty;
-                            break;
-
-                        case "\"OVERWRITE\"":
-                            if (!bool.TryParse(item.ReadAsStringAsync().Result, out overwrite))
-                            {
-                                overwrite = false;
-                            }
-
-                            break;
-
-                        case "\"ISHOSTPORTAL\"":
-                            if (!bool.TryParse(item.ReadAsStringAsync().Result, out isHostPortal))
-                            {
-                                isHostPortal = false;
-                            }
-
-                            break;
-
-                        case "\"EXTRACT\"":
-                            if (!bool.TryParse(item.ReadAsStringAsync().Result, out extract))
-                            {
-                                extract = false;
-                            }
-
-                            break;
-
-                        case "\"PORTALID\"":
-                            if (userInfo.IsSuperUser)
-                            {
-                                var originalPortalId = portalId;
-                                if (!int.TryParse(item.ReadAsStringAsync().Result, out portalId))
-                                {
-                                    portalId = originalPortalId;
-                                }
-                            }
-
-                            break;
-                        case "\"VALIDATIONCODE\"":
-                            validationCode = item.ReadAsStringAsync().Result ?? string.Empty;
-                            break;
-                        case "\"POSTFILE\"":
-                            fileName = item.Headers.ContentDisposition.FileName.Replace("\"", string.Empty);
-                            if (fileName.IndexOf(@"\", StringComparison.Ordinal) != -1)
-                            {
-                                fileName = Path.GetFileName(fileName);
-                            }
-
-                            if (!Globals.FileEscapingRegex.IsMatch(fileName))
-                            {
-                                stream = item.ReadAsStreamAsync().Result;
-                            }
-
-                            break;
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(fileName) && stream != null)
-                {
-                    // The SynchronizationContext keeps the main thread context. Send method is synchronous
-                    currentSynchronizationContext.Send(
-                        _ =>
-                        {
-                            result = UploadFile(this.cryptographyProvider, this.hostSettings, stream, portalId, userInfo, folder, filter, fileName, overwrite, isHostPortal, extract, validationCode);
-                        },
-                        null);
-                }
-
-                var mediaTypeFormatter = new JsonMediaTypeFormatter();
-                mediaTypeFormatter.SupportedMediaTypes.Add(new MediaTypeHeaderValue("text/plain"));
-
-                /* Response Content Type cannot be application/json
-                 * because IE9 with iframe-transport manages the response
-                 * as a file download
-                 */
-                return this.Request.CreateResponse(
-                    HttpStatusCode.OK,
-                    result,
-                    mediaTypeFormatter,
-                    "text/plain");
-            });
-
-        return task;
+        /* Response Content Type cannot be application/json
+         * because IE9 with iframe-transport manages the response
+         * as a file download
+         */
+        return PlainTextJson(HttpStatusCode.OK, result);
     }
 
+    /// <summary>Determines whether the request body is a multipart MIME payload.</summary>
+    /// <param name="request">The request.</param>
+    /// <returns><see langword="true"/> if the request is multipart, otherwise <see langword="false"/>.</returns>
+    private static bool IsMultipartRequest(HttpRequest request)
+    {
+        return request.HasFormContentType
+            && request.ContentType?.Contains("multipart/", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    /// <summary>Reads a form field by name, matching case-insensitively as the legacy code did.</summary>
+    /// <param name="form">The posted form.</param>
+    /// <param name="name">The field name.</param>
+    /// <returns>The value, or <see cref="string.Empty"/>.</returns>
+    private static string GetFormValue(IFormCollection form, string name)
+    {
+        foreach (var key in form.Keys)
+        {
+            if (string.Equals(key, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return form[key].ToString() ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>Gets the posted file, which the clients send in the <c>postfile</c> field.</summary>
+    /// <param name="form">The posted form.</param>
+    /// <returns>The file, or <see langword="null"/>.</returns>
+    private static IFormFile GetPostedFile(IFormCollection form)
+    {
+        if (form.Files is null || form.Files.Count == 0)
+        {
+            return null;
+        }
+
+        return form.Files.FirstOrDefault(f => string.Equals(f.Name, "postfile", StringComparison.OrdinalIgnoreCase))
+            ?? form.Files[0];
+    }
+
+    /// <summary>Gets the file name of the posted file, applying the legacy quote/path stripping.</summary>
+    /// <param name="postedFile">The posted file.</param>
+    /// <returns>The file name.</returns>
+    private static string GetPostedFileName(IFormFile postedFile)
+    {
+        var fileName = (postedFile.FileName ?? string.Empty).Replace("\"", string.Empty);
+        if (fileName.Contains('\\'))
+        {
+            fileName = Path.GetFileName(fileName);
+        }
+
+        return fileName;
+    }
+
+    /// <summary>
+    /// Writes <paramref name="value"/> as JSON with a <c>text/plain</c> content type, which is what the
+    /// legacy <c>JsonMediaTypeFormatter</c> + <c>text/plain</c> media type did.
+    /// </summary>
+    /// <remarks>
+    /// The response content type cannot be <c>application/json</c>, because IE9 with the iframe transport
+    /// manages such a response as a file download. Newtonsoft is used (rather than
+    /// <c>System.Text.Json</c>) so that the <see cref="DataMemberAttribute"/> names on
+    /// <see cref="FileUploadDto"/> keep producing exactly the same JSON keys as on .NET Framework.
+    /// </remarks>
+    /// <param name="statusCode">The status code.</param>
+    /// <param name="value">The value to serialize.</param>
+    /// <returns>A <see cref="ContentResult"/>.</returns>
+    private static ContentResult PlainTextJson(HttpStatusCode statusCode, object value)
+    {
+        return new ContentResult
+        {
+            Content = JsonConvert.SerializeObject(value),
+            ContentType = "text/plain",
+            StatusCode = (int)statusCode,
+        };
+    }
+
+    // CA1859 suggests the concrete PortalSettings type here, but the only PortalSecurity.IsInRoles
+    // overload taking it is obsolete; the interface keeps this helper on the supported API.
+#pragma warning disable CA1859 // Use concrete types when possible for improved performance
     private static SavedFileDTO SaveFile(
         Stream stream,
         IPortalController portalController,
@@ -448,7 +407,7 @@ public class FileUploadController : DnnApiController
         try
         {
             var extension = Path.GetExtension(fileName).ValueOrEmpty().Replace(".", string.Empty);
-            if (!string.IsNullOrEmpty(filter) && !filter.ToLowerInvariant().Contains(extension.ToLowerInvariant()))
+            if (!string.IsNullOrEmpty(filter) && !filter.Contains(extension, StringComparison.InvariantCultureIgnoreCase))
             {
                 errorMessage = GetLocalizedString("ExtensionNotAllowed");
                 return savedFileDto;
@@ -510,6 +469,7 @@ public class FileUploadController : DnnApiController
             return savedFileDto;
         }
     }
+#pragma warning restore CA1859 // Use concrete types when possible for improved performance
 
     private static string GetLocalizedString(string key)
     {
@@ -592,7 +552,7 @@ public class FileUploadController : DnnApiController
             var extension = Path.GetExtension(fileName).ValueOrEmpty().Replace(".", string.Empty);
             result.FileIconUrl = IconController.GetFileIconUrl(extension);
 
-            if (!string.IsNullOrEmpty(filter) && !filter.ToLowerInvariant().Contains(extension.ToLowerInvariant()))
+            if (!string.IsNullOrEmpty(filter) && !filter.Contains(extension, StringComparison.InvariantCultureIgnoreCase))
             {
                 result.Message = GetLocalizedString("ExtensionNotAllowed");
                 return result;
@@ -637,7 +597,7 @@ public class FileUploadController : DnnApiController
                     var filesCount = FileManager.Instance.UnzipFile(file, destinationFolder, invalidFiles);
 
                     var invalidFilesJson = invalidFiles.Count > 0
-                        ? string.Join(",", invalidFiles.Select(invalidFile => HttpUtility.JavaScriptStringEncode(invalidFile, addDoubleQuotes: true)))
+                        ? string.Join(",", invalidFiles.Select(invalidFile => JsonConvert.ToString(invalidFile)))
                         : string.Empty;
                     result.Prompt = $"{{\"invalidFiles\":[{invalidFilesJson}], \"totalCount\": {filesCount}}}";
                 }
@@ -650,25 +610,33 @@ public class FileUploadController : DnnApiController
             var path = GetUrl(result.FileId);
             using (reader = new BinaryReader(fileContent))
             {
-                Size size;
+                // Read the dimensions without binding to a specific Size type: ImageHeader is being ported
+                // from System.Drawing to ImageSharp, and the orientation rule (wider than tall is
+                // horizontal, otherwise vertical) is identical either way.
+                int width;
+                int height;
                 if (IsImage(fileName))
                 {
                     try
                     {
-                        size = ImageHeader.GetDimensions(reader);
+                        var dimensions = ImageHeader.GetDimensions(reader);
+                        width = dimensions.Width;
+                        height = dimensions.Height;
                     }
                     catch (ArgumentException exc)
                     {
                         Logger.FileUploadControllerUnableToGetImageDimensions(exc);
-                        size = new Size(32, 32);
+                        width = 32;
+                        height = 32;
                     }
                 }
                 else
                 {
-                    size = new Size(32, 32);
+                    width = 32;
+                    height = 32;
                 }
 
-                result.Orientation = size.Orientation();
+                result.Orientation = width > height ? DnnOrientation.Horizontal : DnnOrientation.Vertical;
             }
 
             result.Path = result.FileId > 0 ? path : string.Empty;
@@ -801,7 +769,7 @@ public class FileUploadController : DnnApiController
 
         /// <summary>Gets or sets the image orientation.</summary>
         [DataMember(Name = "orientation")]
-        public Orientation Orientation { get; set; }
+        public DnnOrientation Orientation { get; set; }
 
         /// <summary>Gets or sets a value indicating whether the file already exists.</summary>
         [DataMember(Name = "alreadyExists")]

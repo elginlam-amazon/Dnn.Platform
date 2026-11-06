@@ -4,20 +4,27 @@
 namespace DotNetNuke.Web.UI.WebControls
 {
     using System;
-    using System.ComponentModel;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Linq;
 
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Common;
+    using DotNetNuke.UI;
 
+    using Microsoft.AspNetCore.Components.Rendering;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A ribbon bar control.</summary>
-    [ParseChildren(true)]
-    public class DnnRibbonBar : WebControl
+    /// <remarks>
+    /// This was a <c>WebControl</c> with <c>[ParseChildren]</c> rendering through
+    /// <c>HtmlTextWriter</c>. The markup it emits — the outer <c>div.dnnRibbon</c>, the
+    /// <c>div.barContent</c>, the single-row table with one cell per visible group and the two
+    /// <c>barBottom*</c> divs — is unchanged, and the group collection still rejects anything that
+    /// is not a <see cref="DnnRibbonBarGroup"/>.
+    /// </remarks>
+    public class DnnRibbonBar : DnnComponentBase
     {
         private readonly IClientResourceController clientResourceController;
+        private DnnRibbonBarGroupCollection groups;
 
         /// <summary>Initializes a new instance of the <see cref="DnnRibbonBar"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IClientResourceController. Scheduled removal in v12.0.0.")]
@@ -29,39 +36,19 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <summary>Initializes a new instance of the <see cref="DnnRibbonBar"/> class.</summary>
         /// <param name="clientResourceController">The client resource controller.</param>
         public DnnRibbonBar(IClientResourceController clientResourceController)
-            : base("div")
         {
             this.clientResourceController = clientResourceController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IClientResourceController>();
 
             this.CssClass = "dnnRibbon";
-            Control control = this;
-            Utilities.ApplyControlSkin(this.clientResourceController, control, "RibbonBar", "RibbonBar");
+            Utilities.ApplyControlSkin(this.clientResourceController, this, "RibbonBar", "RibbonBar");
         }
 
         /// <summary>Gets the groups.</summary>
-        [Category("Behavior")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        public DnnRibbonBarGroupCollection Groups => (DnnRibbonBarGroupCollection)this.Controls;
+        public DnnRibbonBarGroupCollection Groups =>
+            this.groups ??= new DnnRibbonBarGroupCollection(this);
 
         /// <inheritdoc />
-        protected override void AddParsedSubObject(object obj)
-        {
-            if (obj is DnnRibbonBarGroup)
-            {
-                base.AddParsedSubObject(obj);
-            }
-            else
-            {
-                throw new NotSupportedException("DnnRibbonBarGroupCollection must contain controls of type DnnRibbonBarGroup");
-            }
-        }
-
-        /// <inheritdoc />
-        protected override ControlCollection CreateControlCollection()
-        {
-            return new DnnRibbonBarGroupCollection(this);
-        }
+        protected override string TagName => "div";
 
         /// <inheritdoc />
         protected override void OnPreRender(EventArgs e)
@@ -73,57 +60,82 @@ namespace DotNetNuke.Web.UI.WebControls
             }
         }
 
+        // ASP0006: the render tree of this ported Web Forms control is built imperatively through helper methods that share a running sequence number, so literal sequence numbers cannot express its structure.
+        #pragma warning disable ASP0006
         /// <inheritdoc />
-        protected override void Render(HtmlTextWriter writer)
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
-            if (this.Groups.Count > 0)
+            ArgumentNullException.ThrowIfNull(builder);
+
+            this.EnsureChildControls();
+
+            if (!this.Visible)
             {
-                var firstGroup = this.Groups[0];
+                return;
+            }
+
+            var groupList = this.Groups.ToList();
+            if (groupList.Count > 0)
+            {
+                var firstGroup = groupList[0];
                 firstGroup.CssClass = $"{firstGroup.CssClass} {firstGroup.CssClass.Trim()}First";
-                var lastGroup = this.Groups[this.Groups.Count - 1];
+                var lastGroup = groupList[groupList.Count - 1];
                 lastGroup.CssClass = $"{lastGroup.CssClass} {lastGroup.CssClass.Trim()}Last";
             }
 
-            this.RenderBeginTag(writer);
+            var sequence = 0;
 
-            writer.AddAttribute("class", "barContent");
-            writer.RenderBeginTag("div");
-
-            writer.AddAttribute("cellpadding", "0");
-            writer.AddAttribute("cellspacing", "0");
-            writer.AddAttribute("border", "0");
-            writer.RenderBeginTag("table");
-            writer.RenderBeginTag("tr");
-
-            foreach (DnnRibbonBarGroup grp in this.Groups)
+            builder.OpenElement(sequence++, "div");
+            if (!string.IsNullOrEmpty(this.ID))
             {
-                if (grp.Visible)
+                builder.AddAttribute(sequence++, "id", this.ClientId);
+            }
+
+            foreach (var attribute in this.Attributes)
+            {
+                builder.AddAttribute(sequence++, attribute.Key, attribute.Value);
+            }
+
+            var inlineStyle = this.BuildStyleAttribute();
+            if (!string.IsNullOrEmpty(inlineStyle))
+            {
+                builder.AddAttribute(sequence++, "style", inlineStyle);
+            }
+
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "barContent");
+
+            builder.OpenElement(sequence++, "table");
+            builder.AddAttribute(sequence++, "cellpadding", "0");
+            builder.AddAttribute(sequence++, "cellspacing", "0");
+            builder.AddAttribute(sequence++, "border", "0");
+            builder.OpenElement(sequence++, "tr");
+
+            foreach (var group in groupList)
+            {
+                if (group.Visible)
                 {
-                    writer.RenderBeginTag("td");
-                    grp.RenderControl(writer);
-                    writer.RenderEndTag();
+                    builder.OpenElement(sequence, "td");
+                    RenderControl(builder, sequence + 1, group);
+                    builder.CloseElement();
+                    sequence += 2;
                 }
             }
 
-            // MyBase.RenderChildren(writer)
-            writer.RenderEndTag();
+            builder.CloseElement(); // tr
+            builder.CloseElement(); // table
+            builder.CloseElement(); // div.barContent
 
-            // tr
-            writer.RenderEndTag();
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "barBottomLeft");
+            builder.CloseElement();
 
-            // table
-            writer.RenderEndTag();
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "barBottomRight");
+            builder.CloseElement();
 
-            // div
-            writer.AddAttribute("class", "barBottomLeft");
-            writer.RenderBeginTag("div");
-            writer.RenderEndTag();
-
-            writer.AddAttribute("class", "barBottomRight");
-            writer.RenderBeginTag("div");
-            writer.RenderEndTag();
-
-            this.RenderEndTag(writer);
+            builder.CloseElement(); // outer div
         }
+        #pragma warning restore ASP0006
     }
 }

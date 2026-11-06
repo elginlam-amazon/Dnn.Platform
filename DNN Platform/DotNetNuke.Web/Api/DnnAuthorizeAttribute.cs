@@ -7,13 +7,12 @@ namespace DotNetNuke.Web.Api
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Threading;
 
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Users;
 
     /// <summary>Provides Dnn specific details authorization filter.</summary>
-    public sealed class DnnAuthorizeAttribute : AuthorizeAttributeBase, IOverrideDefaultAuthLevel
+    public sealed class DnnAuthorizeAttribute : DnnAuthorizeBaseAttribute, IOverrideDefaultAuthLevel
     {
         private static readonly List<string> DefaultAuthTypes = [];
 
@@ -79,8 +78,8 @@ namespace DotNetNuke.Web.Api
         {
             Requires.NotNull("context", context);
 
-            var identity = Thread.CurrentPrincipal.Identity;
-            if (!identity.IsAuthenticated)
+            var identity = context.Principal?.Identity;
+            if (identity?.IsAuthenticated != true)
             {
                 return false;
             }

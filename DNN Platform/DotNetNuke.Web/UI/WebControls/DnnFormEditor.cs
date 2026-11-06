@@ -5,32 +5,42 @@ namespace DotNetNuke.Web.UI.WebControls
 {
     using System;
     using System.Collections.Generic;
-    using System.ComponentModel;
-    using System.Diagnostics.CodeAnalysis;
-    using System.Text;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Framework.JavaScriptLibraries;
+    using DotNetNuke.Services.ClientDependency;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.JSInterop;
 
     /// <summary>A web control for editing a form.</summary>
-    [ParseChildren(true)]
-    public partial class DnnFormEditor : WebControl, INamingContainer
+    /// <remarks>
+    /// This was a <c>WebControl, INamingContainer</c> with <c>[ParseChildren]</c>. On ASP.NET Core
+    /// it is a <see cref="DnnComponentBase"/>: the tab/section/item hierarchy is still built
+    /// imperatively into <see cref="DnnComponentBase.Controls"/> by
+    /// <see cref="CreateControlHierarchy"/>, the item count that used to live in control state is
+    /// now a field of the component, and the inline jQuery bootstrap became a registered resource
+    /// (<c>dnn.FormEditor.js</c>) invoked through <see cref="IJSRuntime"/>.
+    /// </remarks>
+    public partial class DnnFormEditor : DnnComponentBase
     {
         private readonly IHostSettings hostSettings;
         private readonly IApplicationStatusInfo appStatus;
         private readonly IEventLogger eventLogger;
+        private readonly IClientResourceController clientResourceController;
         private object dataSource;
         private int itemCount;
+        private bool clientInitialized;
 
         /// <summary>Initializes a new instance of the <see cref="DnnFormEditor"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IHostSettings. Scheduled removal in v12.0.0.")]
@@ -45,16 +55,17 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <param name="eventLogger">The event logger.</param>
         public DnnFormEditor(IHostSettings hostSettings, IApplicationStatusInfo appStatus, IEventLogger eventLogger)
         {
-            this.hostSettings = hostSettings ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
-            this.appStatus = appStatus ?? Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
-            this.eventLogger = eventLogger ?? Globals.GetCurrentServiceProvider().GetRequiredService<IEventLogger>();
+            var services = Globals.GetCurrentServiceProvider();
+            this.hostSettings = hostSettings ?? services.GetRequiredService<IHostSettings>();
+            this.appStatus = appStatus ?? services.GetRequiredService<IApplicationStatusInfo>();
+            this.eventLogger = eventLogger ?? services.GetRequiredService<IEventLogger>();
+            this.clientResourceController = services.GetRequiredService<IClientResourceController>();
 
-            this.Items = [];
-            this.Sections = [];
-            this.Tabs = [];
+            this.Items = new List<DnnFormItemBase>();
+            this.Sections = new List<DnnFormSection>();
+            this.Tabs = new List<DnnFormTab>();
 
             this.FormMode = DnnFormMode.Long;
-            this.ViewStateMode = ViewStateMode.Disabled;
         }
 
         /// <summary>Gets a value indicating whether the editor is valid.</summary>
@@ -90,7 +101,11 @@ namespace DotNetNuke.Web.UI.WebControls
                 if (this.dataSource != value)
                 {
                     this.dataSource = value;
-                    if (this.Page.IsPostBack)
+
+                    // Under Web Forms the items were re-bound from the (already created) control
+                    // tree on a postback. The Blazor equivalent is: whenever the tree already
+                    // exists, push the new data source into the items without rebuilding them.
+                    if (this.itemCount > 0)
                     {
                         this.DataBindItems(false);
                     }
@@ -99,28 +114,25 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets the form mode.</summary>
+        [Parameter]
         public DnnFormMode FormMode { get; set; }
 
         /// <summary>Gets or sets a value indicating whether to encrypt IDs.</summary>
+        [Parameter]
         public bool EncryptIds { get; set; }
 
         /// <summary>Gets the items.</summary>
-        [Category("Behavior")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
         public List<DnnFormItemBase> Items { get; private set; }
 
         /// <summary>Gets the sections.</summary>
-        [Category("Behavior")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
         public List<DnnFormSection> Sections { get; private set; }
 
         /// <summary>Gets the tabs.</summary>
-        [Category("Behavior")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
         public List<DnnFormTab> Tabs { get; private set; }
+
+        /// <summary>Gets or sets the JavaScript runtime used to initialize the client behaviour.</summary>
+        [Inject]
+        protected IJSRuntime JsRuntime { get; set; }
 
         /// <summary>Gets the local resource file path.</summary>
         protected string LocalResourceFile
@@ -132,23 +144,15 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override HtmlTextWriterTag TagKey
-        {
-            get
-            {
-                return HtmlTextWriterTag.Div;
-            }
-        }
+        protected override string TagName => "div";
 
-        /// <inheritdoc />
-        public override void DataBind()
+        /// <summary>Binds this editor to its <see cref="DataSource"/>, rebuilding its content.</summary>
+        /// <remarks>Replaces <c>Control.DataBind()</c>.</remarks>
+        public virtual void DataBind()
         {
-            this.OnDataBinding(EventArgs.Empty);
             this.Controls.Clear();
-            this.ClearChildViewState();
-            this.TrackViewState();
             this.CreateControlHierarchy(true);
-            this.ChildControlsCreated = true;
+            this.NotifyTreeChanged();
         }
 
         /// <summary>Sets the items up.</summary>
@@ -156,7 +160,7 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <param name="items">The items.</param>
         /// <param name="parentControl">The parent control.</param>
         /// <param name="encryptIds">Whether to encrypt the IDs.</param>
-        internal static void SetUpItems(IHostSettings hostSettings, IEnumerable<DnnFormItemBase> items, WebControl parentControl, bool encryptIds)
+        internal static void SetUpItems(IHostSettings hostSettings, IEnumerable<DnnFormItemBase> items, DnnComponentBase parentControl, bool encryptIds)
         {
             foreach (DnnFormItemBase item in items)
             {
@@ -172,17 +176,11 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <inheritdoc />
         protected override void CreateChildControls()
         {
-            // CreateChildControls re-creates the children (the items)
-            // using the saved view state.
+            // CreateChildControls re-creates the children (the items).
             // First clear any existing child controls.
             this.Controls.Clear();
 
-            // Create the items only if there is view state
-            // corresponding to the children.
-            if (this.itemCount > 0)
-            {
-                this.CreateControlHierarchy(false);
-            }
+            this.CreateControlHierarchy(false);
         }
 
         /// <summary>Creates the control hierarchy.</summary>
@@ -205,19 +203,8 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <inheritdoc />
-        [SuppressMessage("Microsoft.Naming", "CA1725:ParameterNamesShouldMatchBaseDeclaration", Justification = "Breaking change")]
-        protected override void LoadControlState(object state)
-        {
-            if (state != null)
-            {
-                this.itemCount = (int)state;
-            }
-        }
-
-        /// <inheritdoc />
         protected override void OnInit(EventArgs e)
         {
-            this.Page.RegisterRequiresControlState(this);
             JavaScript.RequestRegistration(this.appStatus, this.eventLogger, PortalSettings.Current, CommonJs.DnnPlugins);
             base.OnInit(e);
         }
@@ -229,46 +216,32 @@ namespace DotNetNuke.Web.UI.WebControls
 
             if (this.Tabs.Count > 0)
             {
-                const string scriptName = "FormEditorjQuery";
-                ClientScriptManager cs = this.Page.ClientScript;
-
-                if (!cs.IsClientScriptBlockRegistered(this.GetType(), scriptName))
-                {
-                    // Render Script
-                    var scriptBuilder = new StringBuilder();
-                    scriptBuilder.Append("<script language=\"javascript\" type=\"text/javascript\">\r\n");
-                    scriptBuilder.Append("\t(function ($, Sys) {\r\n");
-                    scriptBuilder.Append("\t\tfunction setupFormEditor() {\r\n");
-                    scriptBuilder.Append("\t\t\t$('#" + this.ClientID + "').dnnTabs().dnnPanels();\r\n");
-                    foreach (DnnFormTab formTab in this.Tabs)
-                    {
-                        if (formTab.IncludeExpandAll)
-                        {
-                            scriptBuilder.Append(formTab.ExpandAllScript);
-                        }
-                    }
-
-                    scriptBuilder.Append("\t\t}\r\n");
-                    scriptBuilder.Append("\t\t$(document).ready(function () {\r\n");
-                    scriptBuilder.Append("\t\t\tsetupFormEditor();\r\n");
-                    scriptBuilder.Append("\t\t\tif (typeof Sys != 'undefined') {\r\n");
-                    scriptBuilder.Append("\t\t\t\tSys.WebForms.PageRequestManager.getInstance().add_endRequest(function () {\r\n");
-                    scriptBuilder.Append("\t\t\t\t\tsetupFormEditor();\r\n");
-                    scriptBuilder.Append("\t\t\t\t});\r\n");
-                    scriptBuilder.Append("\t\t\t}\r\n");
-                    scriptBuilder.Append("\t\t});\r\n");
-                    scriptBuilder.Append("\t} (jQuery, window.Sys));\r\n");
-
-                    scriptBuilder.Append("</script>\r\n");
-                    cs.RegisterClientScriptBlock(this.GetType(), scriptName, scriptBuilder.ToString());
-                }
+                this.clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.ControlsInterop.js");
             }
         }
 
         /// <inheritdoc />
-        protected override object SaveControlState()
+        protected override async Task OnAfterRenderAsync(bool firstRender)
         {
-            return this.itemCount > 0 ? (object)this.itemCount : null;
+            await base.OnAfterRenderAsync(firstRender);
+
+            if (this.clientInitialized || this.Tabs.Count == 0 || this.JsRuntime == null)
+            {
+                return;
+            }
+
+            this.clientInitialized = true;
+
+            var expandAllOptions = new List<DnnFormExpandAllOptions>();
+            foreach (var formTab in this.Tabs)
+            {
+                if (formTab.IncludeExpandAll && formTab.ExpandAll != null)
+                {
+                    expandAllOptions.Add(formTab.ExpandAll);
+                }
+            }
+
+            await this.JsRuntime.InvokeVoidAsync("dnn.setupFormEditor", "#" + this.ClientId, expandAllOptions);
         }
 
         private List<DnnFormItemBase> GetAllItems()
@@ -298,7 +271,9 @@ namespace DotNetNuke.Web.UI.WebControls
             return items;
         }
 
-        private void SetUpSections(List<DnnFormSection> sections, WebControl parentControl)
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
+        private void SetUpSections(List<DnnFormSection> sections, DnnComponentBase parentControl)
         {
             if (sections.Count > 0)
             {
@@ -320,6 +295,7 @@ namespace DotNetNuke.Web.UI.WebControls
                 }
             }
         }
+        #pragma warning restore BL0005
 
         private void SetUpTabs()
         {
@@ -337,23 +313,26 @@ namespace DotNetNuke.Web.UI.WebControls
                         resourceKey = formTab.ID;
                     }
 
-                    var tab = new Panel { CssClass = formTab.ID + " dnnClear", ID = "tab_" + formTab.ID };
+                    var tab = new DnnPanel { CssClass = formTab.ID + " dnnClear", ID = "tab_" + formTab.ID };
                     this.Controls.Add(tab);
 
                     if (formTab.IncludeExpandAll)
                     {
-                        var expandAll = new Panel { CssClass = "dnnFormExpandContent" };
+                        var expandAll = new DnnPanel { CssClass = "dnnFormExpandContent" };
                         string expandAllText = Localization.GetString("ExpandAll", Localization.SharedResourceFile);
-                        expandAll.Controls.Add(new LiteralControl("<a href=\"\">" + expandAllText + "</a>"));
+                        expandAll.Controls.Add(new DnnLiteralControl("<a href=\"\">" + expandAllText + "</a>"));
                         tab.Controls.Add(expandAll);
 
-                        formTab.ExpandAllScript = "\t\t\t$('#" + tab.ClientID + " .dnnFormExpandContent a').dnnExpandAll({\r\n";
-                        formTab.ExpandAllScript += "\t\t\t\texpandText: '" + Localization.GetString("ExpandAll", Localization.SharedResourceFile) + "',\r\n";
-                        formTab.ExpandAllScript += "\t\t\t\tcollapseText: '" + Localization.GetString("CollapseAll", Localization.SharedResourceFile) + "',\r\n";
-                        formTab.ExpandAllScript += "\t\t\t\ttargetArea: '#" + tab.ClientID + "' });\r\n";
+                        formTab.ExpandAll = new DnnFormExpandAllOptions
+                        {
+                            Selector = "#" + tab.ClientId + " .dnnFormExpandContent a",
+                            ExpandText = Localization.GetString("ExpandAll", Localization.SharedResourceFile),
+                            CollapseText = Localization.GetString("CollapseAll", Localization.SharedResourceFile),
+                            TargetArea = "#" + tab.ClientId,
+                        };
                     }
 
-                    tabStrip.Items.Add(new ListItem(Localization.GetString(resourceKey, this.LocalResourceFile), "#" + tab.ClientID));
+                    tabStrip.Items.Add(new DnnListItem(Localization.GetString(resourceKey, this.LocalResourceFile), "#" + tab.ClientId));
 
                     if (formTab.Sections.Count > 0)
                     {
@@ -369,6 +348,8 @@ namespace DotNetNuke.Web.UI.WebControls
             }
         }
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         private void DataBindItems(bool useDataSource)
         {
             var items = this.GetAllItems();
@@ -394,5 +375,6 @@ namespace DotNetNuke.Web.UI.WebControls
 
             this.itemCount = this.GetAllItems().Count;
         }
+        #pragma warning restore BL0005
     }
 }

@@ -48,6 +48,12 @@ internal static partial class LoggerMessages
     [LoggerMessage(EventId = 1_200_109, Level = LogLevel.Error)]
     public static partial void ShutdownOverloadUnloadAppDomainException(this ILogger logger, Exception exception);
 
+    [LoggerMessage(EventId = 1_200_110, Level = LogLevel.Information, Message = "Application shutdown starting. Reason: {ShutdownReason}")]
+    public static partial void ShutdownOverloadShutdownStarting(this ILogger logger, string shutdownReason);
+
+    [LoggerMessage(EventId = 1_200_111, Level = LogLevel.Information, Message = "Application shutdown completed")]
+    public static partial void ShutdownOverloadShutdownCompleted(this ILogger logger);
+
     [LoggerMessage(EventId = 1_200_200, Level = LogLevel.Information, Message = "Application Starting ({ElapsedSinceAppStart})")]
     public static partial void ApplicationStarting(this ILogger logger, TimeSpan elapsedSinceAppStart);
 
@@ -221,4 +227,16 @@ internal static partial class LoggerMessages
 
     [LoggerMessage(EventId = 1_203_100, Level = LogLevel.Error, Message = "Cannot find module ID {ModuleId} (tab ID {TabId}, portal ID {PortalId})")]
     public static partial void ModuleServiceControllerCannotFindModule(this ILogger logger, int moduleId, int tabId, int portalId);
+
+    [LoggerMessage(EventId = 1_203_200, Level = LogLevel.Warning, Message = "Unable to add {AssemblyName} as an MVC application part; its service controllers will not be discovered.")]
+    public static partial void StartupExtensionsUnableToAddApplicationPart(this ILogger logger, Exception exception, string assemblyName);
+
+    [LoggerMessage(EventId = 1_203_300, Level = LogLevel.Error, Message = "The authentication handler for the {AuthScheme} scheme failed while processing the response.")]
+    public static partial void DnnAuthMessageHandlerMiddlewareOnSendResponseFailed(this ILogger logger, Exception exception, string authScheme);
+
+    [LoggerMessage(EventId = 1_203_400, Level = LogLevel.Error, Message = "Initializing the dangerous-file watcher failed.")]
+    public static partial void DotNetNukeSecurityInitializeFailed(this ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 1_203_401, Level = LogLevel.Error, Message = "Watcher Activity Error: {Message}")]
+    public static partial void DotNetNukeSecurityWatcherActivityError(this ILogger logger, Exception exception, string message);
 }

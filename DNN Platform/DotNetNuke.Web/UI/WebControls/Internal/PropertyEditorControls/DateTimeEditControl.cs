@@ -7,31 +7,34 @@ namespace DotNetNuke.Web.UI.WebControls.Internal.PropertyEditorControls
     using System.Collections.Specialized;
     using System.Data.SqlTypes;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
-    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.UI.WebControls;
 
-    using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
     using Microsoft.Extensions.Logging;
 
-    /// <summary>The DateEditControl control provides a standard UI component for editing date properties.</summary>
-    /// <remarks>This control is only for internal use, please don't reference it in any other place as it may be removed in the future.</remarks>
-    [ToolboxData("<{0}:DateTimeEditControl runat=server></{0}:DateTimeEditControl>")]
+    /// <summary>The DateTimeEditControl control provides a standard UI component for editing date and time properties.</summary>
+    /// <remarks>
+    /// This control is only for internal use, please don't reference it in any other place as it may be removed in the future.
+    /// It derives from the migrated <see cref="EditControl"/>: the child <c>TextBox</c> with
+    /// <c>TextMode=DateTimeLocal</c> became an <c>input type="datetime-local"</c>. The
+    /// <c>yyyy-MM-dd'T'HH:mm</c> wire format and the exact parse behaviour are preserved.
+    /// </remarks>
     public class DateTimeEditControl : EditControl
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<DateTimeEditControl>();
-        private TextBox dateControl;
 
         /// <inheritdoc />
-        public override string ID
-        {
-            get => base.ID + "_control";
-            set => base.ID = value;
-        }
+        public override string EditControlClientId => this.ClientID;
+
+        // NOTE: the Web Forms control overrode `ID` to append "_control" because the editor and its
+        // child TextBox were two controls sharing one naming scope. There is no child control any
+        // more — the suffix only has to distinguish the posted field name, which is what
+        // <see cref="InputSuffix"/> does — so `ID` is left alone and `ClientID` is the id of the
+        // rendered input, which keeps <see cref="EditControlClientId"/> correct for labels.
 
         /// <summary>Gets dateValue returns the Date representation of the Value.</summary>
         /// <value>A Date representing the Value.</value>
@@ -69,9 +72,9 @@ namespace DotNetNuke.Web.UI.WebControls.Internal.PropertyEditorControls
                 string format = this.DefaultFormat;
                 if (this.CustomAttributes != null)
                 {
-                    foreach (Attribute attribute in this.CustomAttributes)
+                    foreach (var customAttribute in this.CustomAttributes)
                     {
-                        if (attribute is FormatAttribute formatAttribute)
+                        if (customAttribute is FormatAttribute formatAttribute)
                         {
                             format = formatAttribute.Format;
                             break;
@@ -128,15 +131,29 @@ namespace DotNetNuke.Web.UI.WebControls.Internal.PropertyEditorControls
             }
         }
 
-        private TextBox DateControl => this.dateControl ??= new TextBox { TextMode = TextBoxMode.DateTimeLocal, };
+        /// <summary>Gets the value rendered into (and read back from) the datetime input.</summary>
+        protected virtual string InputValue =>
+            this.DateValue != Null.NullDate
+                ? this.DateValue.ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture)
+                : string.Empty;
+
+        // Protected API inherited by derived edit controls; making it static would be a breaking change.
+        #pragma warning disable CA1822 // Mark members as static
+        /// <summary>Gets the field name suffix of the datetime input.</summary>
+        protected string InputSuffix => "_control";
+        #pragma warning restore CA1822 // Mark members as static
+
+        /// <summary>Gets the type of the rendered input.</summary>
+        protected virtual string InputType => "datetime-local";
 
         /// <inheritdoc />
         public override bool LoadPostData(string postDataKey, NameValueCollection postCollection)
         {
-            this.EnsureChildControls();
+            ArgumentNullException.ThrowIfNull(postCollection);
+
             bool dataChanged = false;
             string presentValue = this.StringValue;
-            string postedValue = postCollection[postDataKey + "_control"];
+            string postedValue = postCollection[postDataKey + this.InputSuffix];
             if (!presentValue.Equals(postedValue, StringComparison.Ordinal))
             {
                 if (string.IsNullOrEmpty(postedValue))
@@ -154,28 +171,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal.PropertyEditorControls
                 }
             }
 
-            this.LoadDateControls();
             return dataChanged;
-        }
-
-        /// <inheritdoc />
-        protected override void CreateChildControls()
-        {
-            base.CreateChildControls();
-
-            this.DateControl.ControlStyle.CopyFrom(this.ControlStyle);
-            this.DateControl.ID = base.ID + "_control";
-
-            this.Controls.Add(this.DateControl);
-        }
-
-        /// <summary>Loads the date controls.</summary>
-        protected virtual void LoadDateControls()
-        {
-            if (this.DateValue != Null.NullDate)
-            {
-                this.DateControl.Text = this.DateValue.ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture);
-            }
         }
 
         /// <summary>OnDataChanged is called by the PostBack Handler when the Data has changed.</summary>
@@ -191,34 +187,38 @@ namespace DotNetNuke.Web.UI.WebControls.Internal.PropertyEditorControls
             this.OnValueChanged(args);
         }
 
-        /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
-        {
-            base.OnPreRender(e);
-
-            this.LoadDateControls();
-
-            if (this.Page != null && this.EditMode == PropertyEditorMode.Edit)
-            {
-                this.Page.RegisterRequiresPostBack(this);
-            }
-        }
-
         /// <summary>RenderEditMode is called by the base control to render the control in Edit Mode.</summary>
-        /// <param name="writer">The writer to which to render the HTML.</param>
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            this.RenderChildren(writer);
+            ArgumentNullException.ThrowIfNull(builder);
+
+            builder.OpenElement(0, "input");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddAttribute(5, "type", this.InputType);
+            builder.AddAttribute(6, "id", this.ClientID);
+            builder.AddAttribute(7, "name", this.UniqueID + this.InputSuffix);
+            builder.AddAttribute(8, "value", this.InputValue);
+            builder.AddAttribute(9, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnDateInput));
+            builder.CloseElement();
         }
 
         /// <summary>RenderViewMode renders the View (readonly) mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderViewMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderViewMode(RenderTreeBuilder builder)
         {
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.RenderBeginTag(HtmlTextWriterTag.Span);
-            writer.Write(this.StringValue);
-            writer.RenderEndTag();
+            ArgumentNullException.ThrowIfNull(builder);
+
+            builder.OpenElement(0, "span");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddContent(5, this.StringValue);
+            builder.CloseElement();
+        }
+
+        private void OnDateInput(ChangeEventArgs args)
+        {
+            this.SetPostValue(this.InputSuffix, args?.Value?.ToString());
+            this.CommitPostData();
         }
     }
 }

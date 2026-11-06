@@ -7,7 +7,8 @@ namespace DotNetNuke.Web.UI.WebControls
     using System;
     using System.Globalization;
     using System.Linq;
-    using System.Web.UI;
+    using System.Text.Json;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
@@ -21,19 +22,34 @@ namespace DotNetNuke.Web.UI.WebControls
     using DotNetNuke.Framework.JavaScriptLibraries;
     using DotNetNuke.Services.ClientDependency;
     using DotNetNuke.Services.FileSystem;
+    using DotNetNuke.UI;
     using DotNetNuke.Web.Common;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.JSInterop;
 
     /// <summary>A file upload control.</summary>
-    [ToolboxData("<{0}:DnnFileUpload runat='server'></{0}:DnnFileUpload>")]
-    public class DnnFileUpload : Control, INamingContainer
+    /// <remarks>
+    /// This was a <c>Control, INamingContainer</c> that serialized <see cref="Options"/> into an
+    /// inline <c>dnn.createFileUpload(options)</c> startup script. On ASP.NET Core it is a
+    /// <see cref="DnnComponentBase"/> that renders the host element the client component attaches
+    /// to and makes the very same <c>dnn.createFileUpload</c> call through
+    /// <see cref="IJSRuntime"/>. The client still posts to
+    /// <c>InternalServices/FileUpload/UploadFromLocal</c> (see
+    /// <see cref="DnnFileUploadResources"/>) and the folder picker still reads the
+    /// <c>InternalServices/ItemListService/*</c> endpoints named below.
+    /// </remarks>
+    public class DnnFileUpload : DnnComponentBase
     {
         private readonly IClientResourceController clientResourceController;
         private readonly IApplicationStatusInfo appStatus;
         private readonly IEventLogger eventLogger;
         private readonly IServicesFramework servicesFramework;
         private readonly Lazy<DnnFileUploadOptions> options;
+
+        private bool clientInitialized;
 
         /// <summary>Initializes a new instance of the <see cref="DnnFileUpload"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IClientResourceController. Scheduled removal in v12.0.0.")]
@@ -104,18 +120,34 @@ namespace DotNetNuke.Web.UI.WebControls
             set => this.Options.Height = value;
         }
 
+        /// <summary>Gets or sets the JavaScript runtime used to create the client component.</summary>
+        [Inject]
+        protected IJSRuntime JsRuntime { get; set; }
+
+        /// <inheritdoc />
+        protected override string TagName => "div";
+
         /// <summary>Gets the current upload control.</summary>
-        /// <param name="page">The page.</param>
+        /// <param name="context">The request.</param>
         /// <returns>The control instance or <see langword="null"/>.</returns>
-        public static DnnFileUpload GetCurrent(Page page)
+        /// <remarks>Replaces the <c>Page.Items</c> lookup with the request item bag.</remarks>
+        public static DnnFileUpload GetCurrent(HttpContext context)
         {
-            return page.Items[typeof(DnnFileUpload)] as DnnFileUpload;
+            return context?.Items.TryGetValue(typeof(DnnFileUpload), out var current) == true
+                ? current as DnnFileUpload
+                : null;
         }
 
         /// <inheritdoc />
         protected override void OnInit(EventArgs e)
         {
             base.OnInit(e);
+
+            var context = DotNetNuke.Common.HttpContextSource.Current;
+            if (context != null)
+            {
+                context.Items[typeof(DnnFileUpload)] = this;
+            }
 
             this.servicesFramework.RequestAjaxAntiForgerySupport();
             JavaScript.RequestRegistration(this.appStatus, this.eventLogger, PortalSettings.Current, CommonJs.jQueryFileUpload);
@@ -127,7 +159,20 @@ namespace DotNetNuke.Web.UI.WebControls
             base.OnPreRender(e);
 
             RegisterClientScript(this.clientResourceController, this.appStatus, this.eventLogger, PortalSettings.Current, this.Skin);
-            this.RegisterStartupScript();
+        }
+
+        /// <inheritdoc />
+        protected override async Task OnAfterRenderAsync(bool firstRender)
+        {
+            await base.OnAfterRenderAsync(firstRender);
+
+            if (this.clientInitialized || this.JsRuntime == null)
+            {
+                return;
+            }
+
+            this.clientInitialized = true;
+            await this.CreateClientComponentAsync();
         }
 
         private static void RegisterClientScript(IClientResourceController clientResourceController, IApplicationStatusInfo appStatus, IEventLogger eventLogger, IPortalSettings portalSettings, string skin)
@@ -147,9 +192,13 @@ namespace DotNetNuke.Web.UI.WebControls
             clientResourceController.RegisterScript("~/Resources/Shared/Components/FileUpload/dnn.FileUpload.js", FileOrder.Js.DefaultPriority + 4);
         }
 
-        private void RegisterStartupScript()
+        /// <summary>Creates the client side uploader over the markup this control rendered.</summary>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <remarks>Replaces <c>ScriptManager.RegisterStartupScript</c>; the options payload is
+        /// byte-for-byte the one the inline script carried.</remarks>
+        private async Task CreateClientComponentAsync()
         {
-            this.Options.ClientId = this.ClientID;
+            this.Options.ClientId = this.ClientId;
 
             var portalSettings = PortalSettings.Current;
 
@@ -187,17 +236,8 @@ namespace DotNetNuke.Web.UI.WebControls
             this.Options.FolderPicker.Services.SortTreeMethod = "ItemListService/SortFolders";
             this.Options.FolderPicker.Services.ServiceRoot = "InternalServices";
 
-            var script = $"dnn.createFileUpload({Json.Serialize(this.Options)});{Environment.NewLine}";
-
-            if (ScriptManager.GetCurrent(this.Page) != null)
-            {
-                // respect MS AJAX
-                ScriptManager.RegisterStartupScript(this.Page, this.GetType(), this.ClientID + "DnnFileUpload", script, true);
-            }
-            else
-            {
-                this.Page.ClientScript.RegisterStartupScript(this.GetType(), this.ClientID + "DnnFileUpload", script, true);
-            }
+            using var optionsDocument = JsonDocument.Parse(Json.Serialize(this.Options));
+            await this.JsRuntime.InvokeVoidAsync("dnn.createFileUpload", optionsDocument.RootElement);
         }
     }
 }

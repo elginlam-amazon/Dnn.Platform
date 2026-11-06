@@ -7,13 +7,13 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web;
-    using System.Web.UI.WebControls;
+    using System.Text.Encodings.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Entities.Content.Taxonomy;
+    using DotNetNuke.UI;
 
     using Microsoft.Extensions.DependencyInjection;
 
@@ -90,7 +90,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
                 this.Value = string.Join(",", value.Select(t => t.TermId.ToString(CultureInfo.InvariantCulture)));
 
                 this.Items.Clear();
-                value.Select(t => new ListItem(t.Name, t.TermId.ToString(CultureInfo.InvariantCulture)) { Selected = true }).ToList().ForEach(this.Items.Add);
+                value.Select(t => new DnnListItem(t.Name, t.TermId.ToString(CultureInfo.InvariantCulture)) { Selected = true }).ToList().ForEach(this.Items.Add);
             }
         }
 
@@ -125,7 +125,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
             this.Options.Load = $$"""
                                   function(query, callback) {
                                       $.ajax({
-                                          url: '{{HttpUtility.JavaScriptStringEncode(apiPath)}}' + encodeURIComponent(query),
+                                          url: '{{JavaScriptEncoder.Default.Encode(apiPath)}}' + encodeURIComponent(query),
                                           type: 'GET',
                                           error: function() {
                                               callback();

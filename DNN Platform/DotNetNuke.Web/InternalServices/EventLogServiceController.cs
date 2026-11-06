@@ -6,18 +6,17 @@ namespace DotNetNuke.Web.InternalServices;
 
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Net;
-using System.Net.Http;
 using System.Text;
-using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Logging;
 using DotNetNuke.Common;
 using DotNetNuke.Instrumentation;
 using DotNetNuke.Services.Localization;
 using DotNetNuke.Web.Api;
-
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -48,21 +47,21 @@ public class EventLogServiceController : DnnApiController
     [HttpGet]
     [DnnAuthorize(StaticRoles = "Administrators")]
     [SuppressMessage("Microsoft.Naming", "CA1720:IdentifiersShouldNotContainTypeNames", Justification = "Breaking change")]
-    public HttpResponseMessage GetLogDetails(string guid)
+    public IActionResult GetLogDetails(string guid)
     {
         if (string.IsNullOrEmpty(guid) || !Guid.TryParse(guid, out _))
         {
-            return this.Request.CreateResponse(HttpStatusCode.BadRequest);
+            return DnnApiResults.Response(HttpStatusCode.BadRequest);
         }
 
         try
         {
             if (this.eventLogService.GetLog(guid) is not ILogInfo logInfo)
             {
-                return this.Request.CreateResponse(HttpStatusCode.BadRequest);
+                return DnnApiResults.Response(HttpStatusCode.BadRequest);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new
+            return DnnApiResults.Response(HttpStatusCode.OK, new
             {
                 Title = Localization.GetSafeJSString("CriticalError.Error", Localization.SharedResourceFile),
                 Content = GetPropertiesText(logInfo),
@@ -71,7 +70,7 @@ public class EventLogServiceController : DnnApiController
         catch (Exception ex)
         {
             Logger.EventLogServiceControllerGetLogDetailsException(ex);
-            return this.Request.CreateResponse(HttpStatusCode.BadRequest);
+            return DnnApiResults.Response(HttpStatusCode.BadRequest);
         }
     }
 
@@ -83,15 +82,15 @@ public class EventLogServiceController : DnnApiController
             // display the values in the Panel child controls.
             if (ldi.PropertyName == "Message")
             {
-                str.Append($"<p><strong>{ldi.PropertyName}</strong>:</br><pre>{HttpUtility.HtmlEncode(ldi.PropertyValue)}</pre></p>");
+                str.Append(CultureInfo.CurrentCulture, $"<p><strong>{ldi.PropertyName}</strong>:</br><pre>{WebUtility.HtmlEncode(ldi.PropertyValue)}</pre></p>");
             }
             else
             {
-                str.Append($"<p><strong>{ldi.PropertyName}</strong>:{HttpUtility.HtmlEncode(ldi.PropertyValue)}</p>");
+                str.Append(CultureInfo.CurrentCulture, $"<p><strong>{ldi.PropertyName}</strong>:{WebUtility.HtmlEncode(ldi.PropertyValue)}</p>");
             }
         }
 
-        str.Append($"<p><b>Server Name</b>: {HttpUtility.HtmlEncode(logInfo.LogServerName)}</p>");
+        str.Append(CultureInfo.CurrentCulture, $"<p><b>Server Name</b>: {WebUtility.HtmlEncode(logInfo.LogServerName)}</p>");
         return str.ToString();
     }
 }

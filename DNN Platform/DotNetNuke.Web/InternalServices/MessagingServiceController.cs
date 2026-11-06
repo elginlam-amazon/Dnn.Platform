@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -9,9 +9,6 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Common;
@@ -27,9 +24,16 @@ using DotNetNuke.Services.FileSystem;
 using DotNetNuke.Services.Social.Messaging;
 using DotNetNuke.Services.Social.Messaging.Internal;
 using DotNetNuke.Web.Api;
-
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+// Disambiguates the DNN services framework anti-forgery filter from the same-named
+// Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+// bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+// bypass list fed by the authentication handlers and the iframe relaxation the upload flow needs.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API for messaging.</summary>
 [DnnAuthorize]
@@ -61,16 +65,16 @@ public class MessagingServiceController : DnnApiController
     /// <summary>Gets how long a user needs to wait before being allowed to send a message.</summary>
     /// <returns>A response with an object containing a <c>Value</c> field with the number of seconds.</returns>
     [HttpGet]
-    public HttpResponseMessage WaitTimeForNextMessage()
+    public IActionResult WaitTimeForNextMessage()
     {
         try
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", Value = InternalMessagingController.Instance.WaitTimeForNextMessage(this.UserInfo) });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", Value = InternalMessagingController.Instance.WaitTimeForNextMessage(this.UserInfo) });
         }
         catch (Exception exc)
         {
             Logger.MessagingServiceControllerWaitTimeForNextMessageException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
@@ -79,7 +83,7 @@ public class MessagingServiceController : DnnApiController
     /// <returns>A response with an object containing the ID of the new message.</returns>
     [ValidateAntiForgeryToken]
     [HttpPost]
-    public HttpResponseMessage Create(CreateDTO postData)
+    public IActionResult Create(CreateDTO postData)
     {
         try
         {
@@ -96,7 +100,7 @@ public class MessagingServiceController : DnnApiController
                     var folder = file != null ? FolderManager.Instance.GetFolder(file.FolderId) : null;
                     if (folder == null || !FolderPermissionController.CanViewFolder((FolderInfo)folder))
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.Forbidden, "Access to the specified file is not permitted.");
+                        return DnnApiResults.Response(HttpStatusCode.Forbidden, "Access to the specified file is not permitted.");
                     }
                 }
             }
@@ -111,18 +115,18 @@ public class MessagingServiceController : DnnApiController
                 users = userIdsList.Select(id => UserController.Instance.GetUser(portalId, id)).Where(user => user != null).ToList();
             }
 
-            var body = HttpUtility.UrlDecode(postData.Body);
+            var body = WebUtility.UrlDecode(postData.Body);
 #pragma warning disable CS0618 // Type or member is obsolete
             body = PortalSecurity.Instance.InputFilter(body, PortalSecurity.FilterFlag.NoMarkup);
 #pragma warning restore CS0618 // Type or member is obsolete
-            var message = new Message { Subject = HttpUtility.UrlDecode(postData.Subject), Body = body, };
+            var message = new Message { Subject = WebUtility.UrlDecode(postData.Subject), Body = body, };
             MessagingController.Instance.SendMessage(message, roles, users, fileIdsList);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", Value = message.MessageID });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", Value = message.MessageID });
         }
         catch (Exception exc)
         {
             Logger.MessagingServiceControllerCreateException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
@@ -130,7 +134,7 @@ public class MessagingServiceController : DnnApiController
     /// <param name="q">The search query.</param>
     /// <returns>A response with a list of results (containing <c>id</c>, <c>name</c>, and <c>iconfile</c> fields) or <c>null</c> if there was no search query.</returns>
     [HttpGet]
-    public HttpResponseMessage Search(string q)
+    public IActionResult Search(string q)
     {
         try
         {
@@ -142,7 +146,11 @@ public class MessagingServiceController : DnnApiController
             q = q.Replace(",", string.Empty).Replace("'", string.Empty);
             if (q.Length == 0)
             {
-                return this.Request.CreateResponse<object>(HttpStatusCode.OK, null);
+                // Was Request.CreateResponse<object>(OK, null), i.e. HTTP 200 with a JSON `null` body.
+                // DnnApiResults.Response/ObjectResult cannot be used for this: MVC's HttpNoContentOutputFormatter
+                // turns a null ObjectResult value into a 204, which the calling script does not expect.
+                // JsonResult writes the literal `null` payload and keeps the 200.
+                return new JsonResult(null) { StatusCode = (int)HttpStatusCode.OK, };
             }
 
             var results = UserController.Instance.GetUsersBasicSearch(portalId, 0, numResults, "DisplayName", true, "DisplayName", q)
@@ -168,12 +176,12 @@ public class MessagingServiceController : DnnApiController
                                              : this.PortalSettings.HomeDirectory.TrimEnd('/') + "/" + roleInfo.IconFile),
                              });
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, results.OrderBy(sr => sr.name));
+            return DnnApiResults.Response(HttpStatusCode.OK, results.OrderBy(sr => sr.name));
         }
         catch (Exception exc)
         {
             Logger.MessagingServiceControllerSearchException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 

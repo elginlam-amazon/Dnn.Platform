@@ -4,32 +4,50 @@
 
 namespace DotNetNuke.Web.UI.WebControls
 {
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System;
+    using System.Collections.Generic;
+
+    using DotNetNuke.UI;
+
+    using Microsoft.AspNetCore.Components.Rendering;
 
     /// <summary>A tab strip control.</summary>
-    public class DnnFormTabStrip : ListControl
+    /// <remarks>
+    /// This was a <c>ListControl</c> rendering through <c>HtmlTextWriter</c>. The markup
+    /// (<c>ul &gt; li &gt; a</c>, one per item, the item value being the anchor target) is
+    /// unchanged; <c>ListItem</c> became <see cref="DnnListItem"/>.
+    /// </remarks>
+    public class DnnFormTabStrip : DnnComponentBase
     {
+        private readonly List<DnnListItem> items = new List<DnnListItem>();
+
+        /// <summary>Gets the items of the tab strip.</summary>
+        public IList<DnnListItem> Items => this.items;
+
         /// <inheritdoc />
-        protected override void Render(HtmlTextWriter writer)
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
-            writer.AddAttribute(HtmlTextWriterAttribute.Class, this.CssClass);
-            writer.RenderBeginTag(HtmlTextWriterTag.Ul);
+            ArgumentNullException.ThrowIfNull(builder);
 
-            foreach (ListItem item in this.Items)
+            if (!this.Visible)
             {
-                writer.RenderBeginTag(HtmlTextWriterTag.Li);
-
-                writer.AddAttribute(HtmlTextWriterAttribute.Href, item.Value);
-                writer.RenderBeginTag(HtmlTextWriterTag.A);
-                writer.Write(item.Text);
-
-                writer.RenderEndTag();
-
-                writer.RenderEndTag();
+                return;
             }
 
-            writer.RenderEndTag();
+            builder.OpenElement(0, "ul");
+            builder.AddAttribute(1, "class", this.CssClass);
+
+            foreach (var item in this.items)
+            {
+                builder.OpenElement(2, "li");
+                builder.OpenElement(3, "a");
+                builder.AddAttribute(4, "href", item.Value);
+                builder.AddContent(5, item.Text);
+                builder.CloseElement();
+                builder.CloseElement();
+            }
+
+            builder.CloseElement();
         }
     }
 }

@@ -5,7 +5,6 @@
 namespace DotNetNuke.Web.UI
 {
     using System;
-    using System.Runtime.Serialization;
 
     /// <summary>An exception with a <see cref="DotNetNukeErrorCode"/>.</summary>
     public class DotNetNukeException : Exception
@@ -49,14 +48,6 @@ namespace DotNetNuke.Web.UI
             : base(message, innerException)
         {
             this.errorCode = errorCode;
-        }
-
-        /// <summary>Initializes a new instance of the <see cref="DotNetNukeException"/> class.</summary>
-        /// <param name="info">The serialization info.</param>
-        /// <param name="context">The streaming context.</param>
-        public DotNetNukeException(SerializationInfo info, StreamingContext context)
-            : base(info, context)
-        {
         }
 
         /// <summary>Gets the error code associated with this exception.</summary>

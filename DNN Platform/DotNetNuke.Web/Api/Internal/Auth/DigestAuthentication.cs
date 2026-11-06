@@ -21,9 +21,15 @@ namespace DotNetNuke.Web.Api.Internal.Auth
     {
         /// <summary>The scheme name for <see cref="AuthMessageHandlerBase.AuthScheme"/>.</summary>
         internal const string AuthenticationScheme = "Digest";
-#pragma warning disable CA5351 // Do not use broken cryptographic algorithms
-        private static readonly MD5 Md5 = new MD5CryptoServiceProvider();
-#pragma warning restore CA5351
+
+        /// <summary>
+        /// The encoding used to turn the digest components into bytes before hashing. On net48 this was
+        /// <c>Encoding.Default</c>, i.e. the Windows ANSI code page (Windows-1252 on a western install);
+        /// on .NET <c>Encoding.Default</c> is UTF-8, which would change the HA1/HA2 bytes (and therefore
+        /// the hashes on the wire) for non-ASCII credentials. Latin1 is the single-byte encoding that
+        /// reproduces the net48 bytes, so it is pinned here to keep the wire behaviour identical.
+        /// </summary>
+        private static readonly Encoding DigestEncoding = Encoding.Latin1;
         private readonly int portalId;
         private readonly string ipAddress;
         private string password;
@@ -63,7 +69,9 @@ namespace DotNetNuke.Web.Api.Internal.Auth
         {
             ////Services.Logging.LoggingController.SimpleLog(String.Format("Creating Hash for {0}", val))
             ////Services.Logging.LoggingController.SimpleLog(String.Format("Back and forth: {0}", Encoding.Default.GetString(Encoding.Default.GetBytes(val))))
-            var bha1 = Md5.ComputeHash(Encoding.Default.GetBytes(val));
+#pragma warning disable CA5351 // Do not use broken cryptographic algorithms -- the Digest scheme is defined in terms of MD5
+            var bha1 = MD5.HashData(DigestEncoding.GetBytes(val));
+#pragma warning restore CA5351
             var ha1 = string.Empty;
             for (var i = 0; i <= 15; i++)
             {
@@ -89,7 +97,7 @@ namespace DotNetNuke.Web.Api.Internal.Auth
             try
             {
                 var decodedBytes = Convert.FromBase64String(newNonce);
-                var expireStr = Encoding.Default.GetString(decodedBytes);
+                var expireStr = DigestEncoding.GetString(decodedBytes);
                 expireTime = DateTime.Parse(expireStr, CultureInfo.InvariantCulture);
             }
             catch (FormatException)

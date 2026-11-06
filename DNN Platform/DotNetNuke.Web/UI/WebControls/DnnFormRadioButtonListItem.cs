@@ -6,19 +6,27 @@ namespace DotNetNuke.Web.UI.WebControls
     using System;
     using System.Collections.Generic;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
+    using DotNetNuke.UI;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.JSInterop;
 
     /// <summary>A radio button control.</summary>
+    /// <remarks>
+    /// The <c>RadioButtonList</c> became a <see cref="DnnRadioButtonList"/>, which keeps the same
+    /// item/selection object model. The posted value used to be read from
+    /// <c>Request.Form[UniqueID]</c> on a postback; the component holds the live selection instead,
+    /// so the item's own value seeds the selection the first time the list is populated and the live
+    /// selection is honoured afterwards.
+    /// </remarks>
     public class DnnFormRadioButtonListItem : DnnFormListItemBase
     {
-        private RadioButtonList radioButtonList;
+        private DnnRadioButtonList radioButtonList;
 
         /// <summary>Initializes a new instance of the <see cref="DnnFormRadioButtonListItem"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IApplicationStatusInfo. Scheduled removal in v12.0.0.")]
@@ -35,23 +43,26 @@ namespace DotNetNuke.Web.UI.WebControls
         {
         }
 
+        /// <summary>Gets or sets the JavaScript runtime used to run the item's client click script.</summary>
+        [Inject]
+        protected IJSRuntime JsRuntime { get; set; }
+
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <inheritdoc />
         protected override void BindList()
         {
             if (this.radioButtonList != null)
             {
-                string selectedValue = !this.radioButtonList.Page.IsPostBack
+                string selectedValue = this.radioButtonList.Items.Count == 0
                     ? Convert.ToString(this.Value, CultureInfo.InvariantCulture)
-                    : this.radioButtonList.Page.Request.Form[this.radioButtonList.UniqueID];
+                    : this.radioButtonList.SelectedValue;
 
                 if (this.ListSource is Dictionary<string, string> items)
                 {
                     foreach (var item in items)
                     {
-                        var listItem = new ListItem(item.Key, item.Value);
-                        listItem.Attributes.Add("onClick", this.OnClientClicked);
-
-                        this.radioButtonList.Items.Add(listItem);
+                        this.radioButtonList.Items.Add(new DotNetNuke.UI.DnnListItem(item.Key, item.Value));
                     }
                 }
                 else
@@ -69,9 +80,11 @@ namespace DotNetNuke.Web.UI.WebControls
                 }
 
                 // Reset SelectedValue
-                if (this.radioButtonList.Items.FindByValue(selectedValue) != null)
+                var selectedItem = this.radioButtonList.Items.FindByValue(selectedValue);
+                if (selectedItem != null)
                 {
-                    this.radioButtonList.Items.FindByValue(selectedValue).Selected = true;
+                    this.radioButtonList.ClearSelection();
+                    selectedItem.Selected = true;
                 }
 
                 if (selectedValue != Convert.ToString(this.Value, CultureInfo.InvariantCulture))
@@ -80,13 +93,20 @@ namespace DotNetNuke.Web.UI.WebControls
                 }
             }
         }
+        #pragma warning restore BL0005
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <inheritdoc />
-        protected override WebControl CreateControlInternal(Control container)
+        protected override IDnnControl CreateControlInternal(IDnnControl container)
         {
-            this.radioButtonList = new RadioButtonList { ID = this.ID + "_RadioButtonList", RepeatColumns = 1, RepeatDirection = RepeatDirection.Vertical, RepeatLayout = RepeatLayout.Flow };
+            this.radioButtonList = new DnnRadioButtonList { ID = this.ID + "_RadioButtonList", RepeatDirection = "Vertical", };
 
-            container.Controls.Add(this.radioButtonList);
+            // the click handler the Web Forms version attached to every list item is a single
+            // selection-changed handler here, which is what the inline script ultimately triggered.
+            this.radioButtonList.SelectedIndexChanged += this.SelectionChanged;
+
+            container?.Controls.Add(this.radioButtonList);
 
             if (this.ListSource != null)
             {
@@ -94,6 +114,20 @@ namespace DotNetNuke.Web.UI.WebControls
             }
 
             return this.radioButtonList;
+        }
+        #pragma warning restore BL0005
+
+        // async void is the standard shape for a synchronous EventHandler that has to await an
+        // interop call; the JS invocation must be awaited so that its result/exception is observed.
+        private async void SelectionChanged(object sender, EventArgs e)
+        {
+            this.UpdateDataSource(this.Value, this.radioButtonList.SelectedValue, this.DataField);
+
+            // the Web Forms version put OnClientClicked on every list item's onClick attribute.
+            if (!string.IsNullOrEmpty(this.OnClientClicked) && this.JsRuntime != null)
+            {
+                await this.JsRuntime.InvokeAsync<bool>("dnn.runClientClick", this.OnClientClicked);
+            }
         }
     }
 }

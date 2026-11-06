@@ -5,69 +5,72 @@
 namespace DotNetNuke.Web.Common.Internal
 {
     using System;
-    using System.Globalization;
     using System.IO;
-    using System.Reflection;
     using System.Threading;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
-    using DotNetNuke.Common;
     using DotNetNuke.Instrumentation;
 
+    using Microsoft.Extensions.Hosting;
     using Microsoft.Extensions.Logging;
 
-    /// <summary>Watches <c>bin</c> folder and root files and unloads the app domain proactively when they change.</summary>
+    /// <summary>Watches <c>bin</c> folder and root files and shuts the host down proactively when they change.</summary>
+    /// <remarks>
+    /// <para>
+    /// On .NET Framework this type reached into <c>HttpRuntime.FileChangesMonitor</c> and
+    /// <c>System.Web.DirMonCompletion</c> by reflection to report the File Change Notification mode
+    /// and the active directory-monitor count, and it recycled the application through
+    /// <c>HttpRuntime.UnloadAppDomain()</c>. None of those exist on modern .NET: there is no app
+    /// domain to unload and no <c>HostingEnvironment</c>.
+    /// </para>
+    /// <para>
+    /// The behaviour is preserved against <see cref="IHostApplicationLifetime"/>: the configured FCN
+    /// mode is reported from the <c>HttpRuntime:FcnMode</c> setting (the same
+    /// <c>&lt;httpRuntime fcnMode="..."&gt;</c> value, now in <c>appsettings.json</c>), the root
+    /// folder is still watched and its activity logged, a shutdown is still scheduled on a short
+    /// delay, and the shutdown itself is <see cref="IHostApplicationLifetime.StopApplication"/>.
+    /// The shutdown reason is reported from the <c>ApplicationStopping</c>/<c>ApplicationStopped</c>
+    /// callbacks, which is the modern equivalent of <c>HostingEnvironment.ShutdownReason</c>.
+    /// </para>
+    /// </remarks>
     internal static partial class DotNetNukeShutdownOverload
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger(typeof(DotNetNukeShutdownOverload));
+
+        private static readonly object WatcherLock = new object();
 
         private static Timer shutDownDelayTimer;
         private static bool handleShutdowns;
         private static bool shutdownInprogress;
         private static FileSystemWatcher binOrRootWatcher;
         private static string binFolder = string.Empty;
+        private static IHostApplicationLifetime applicationLifetime;
 
-        /// <summary>Initializes the File Change Notification settings.</summary>
+        /// <summary>
+        /// Initializes the file-change monitoring and the shutdown reporting. Replaces
+        /// <c>InitializeFcnSettings</c>, which read the FCN mode off the private
+        /// <c>HttpRuntime.FileChangesMonitor</c>.
+        /// </summary>
         /// <param name="appStatus">The application status.</param>
-        internal static void InitializeFcnSettings(IApplicationStatusInfo appStatus)
+        /// <param name="lifetime">The host application lifetime.</param>
+        /// <param name="fcnMode">The configured <c>HttpRuntime:FcnMode</c> value.</param>
+        internal static void Initialize(IApplicationStatusInfo appStatus, IHostApplicationLifetime lifetime, string fcnMode)
         {
+            ArgumentNullException.ThrowIfNull(appStatus);
+            ArgumentNullException.ThrowIfNull(lifetime);
+
             // any error/message logged below should be informational only
             try
             {
-                // ReSharper disable once PossibleNullReferenceException
-                var fileChangesMonitor = typeof(HttpRuntime)
-                    .GetProperty("FileChangesMonitor", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)
-                    .GetValue(null, null);
+                applicationLifetime = lifetime;
 
-                if (fileChangesMonitor == null)
-                {
-                    Logger.ShutdownOverloadFileChangesMonitorIsNull();
+                // The replacement for reading HttpRuntime's private _FCNMode field: on modern .NET
+                // the host does not watch content files at all, so the configured value is reported
+                // for diagnostic parity and our own watcher below is what provides the monitoring.
+                Logger.ShutdownOverloadFileChangeNotificationMode(fcnMode);
 
-                    ////AddSiteFilesMonitoring(true);
-                }
-                else
-                {
-                    // ReSharper disable once PossibleNullReferenceException
-                    var fcnVal = fileChangesMonitor.GetType()
-                        .GetField("_FCNMode", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.IgnoreCase)
-                        .GetValue(fileChangesMonitor);
-
-                    Logger.ShutdownOverloadFileChangeNotificationMode(fcnVal);
-
-                    var dirMonCompletion = typeof(HttpRuntime).Assembly.GetType("System.Web.DirMonCompletion");
-                    var dirMonCount = (int)dirMonCompletion.InvokeMember(
-                        "_activeDirMonCompletions",
-                        BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.GetField,
-                        null,
-                        null,
-                        null,
-                        CultureInfo.InvariantCulture);
-                    Logger.ShutdownOverloadDirMonCompletionCount(dirMonCount);
-
-                    // enable our monitor only when fcnMode="Disabled"
-                    ////AddSiteFilesMonitoring(fcnVal.ToString() == "1");
-                }
+                lifetime.ApplicationStopping.Register(OnApplicationStopping);
+                lifetime.ApplicationStopped.Register(OnApplicationStopped);
 
                 // just monitor the root folder but don't interfere
                 AddSiteFilesMonitoring(appStatus, false);
@@ -78,11 +81,21 @@ namespace DotNetNuke.Web.Common.Internal
             }
         }
 
+        private static void OnApplicationStopping()
+        {
+            Logger.ShutdownOverloadShutdownStarting(shutdownInprogress ? "File change in the bin folder" : "Host shutdown requested");
+        }
+
+        private static void OnApplicationStopped()
+        {
+            Logger.ShutdownOverloadShutdownCompleted();
+        }
+
         private static void AddSiteFilesMonitoring(IApplicationStatusInfo appStatus, bool handleShutdowns)
         {
             if (binOrRootWatcher == null)
             {
-                lock (typeof(Initialize))
+                lock (WatcherLock)
                 {
                     if (binOrRootWatcher == null)
                     {
@@ -131,7 +144,9 @@ namespace DotNetNuke.Web.Common.Internal
 
             try
             {
-                HttpRuntime.UnloadAppDomain();
+                // The replacement for HttpRuntime.UnloadAppDomain(): there is no app domain, the
+                // host process is stopped gracefully instead and the process manager restarts it.
+                applicationLifetime?.StopApplication();
             }
             catch (Exception ex)
             {

@@ -10,6 +10,7 @@ namespace DotNetNuke.Web.UI.WebControls
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>An item in a form.</summary>
@@ -33,6 +34,7 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets the default value.</summary>
+        [Parameter]
         public string DefaultValue { get; set; }
 
         /// <summary>Gets or sets the list.</summary>
@@ -55,9 +57,11 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets the name of the field/property with the text.</summary>
+        [Parameter]
         public string ListTextField { get; set; }
 
         /// <summary>Gets or sets the name of the field/property with the value.</summary>
+        [Parameter]
         public string ListValueField { get; set; }
 
         /// <summary>Bind the list.</summary>

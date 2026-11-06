@@ -4,17 +4,17 @@
 
 namespace DotNetNuke.Web.Api
 {
-    using System.Globalization;
     using System.Linq;
-    using System.Net.Http;
-    using System.Web;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Instrumentation;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.Logging;
+    using Microsoft.Extensions.Primitives;
 
     /// <summary>The standard <see cref="ITabAndModuleInfoProvider"/> implementation.</summary>
     public sealed class StandardTabAndModuleInfoProvider : ITabAndModuleInfoProvider
@@ -28,19 +28,19 @@ namespace DotNetNuke.Web.Api
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<StandardTabAndModuleInfoProvider>();
 
         /// <inheritdoc />
-        public bool TryFindTabId(HttpRequestMessage request, out int tabId)
+        public bool TryFindTabId(HttpRequest request, out int tabId)
         {
             return TryFindTabId(request, out tabId, true);
         }
 
         /// <inheritdoc />
-        public bool TryFindModuleId(HttpRequestMessage request, out int moduleId)
+        public bool TryFindModuleId(HttpRequest request, out int moduleId)
         {
             return TryFindModuleId(request, out moduleId, true);
         }
 
         /// <inheritdoc />
-        public bool TryFindModuleInfo(HttpRequestMessage request, out ModuleInfo moduleInfo)
+        public bool TryFindModuleInfo(HttpRequest request, out ModuleInfo moduleInfo)
         {
             if (TryFindTabId(request, out var tabId, false) && TryFindModuleId(request, out var moduleId, false))
             {
@@ -56,7 +56,7 @@ namespace DotNetNuke.Web.Api
             return TryFindByMoniker(request, out moduleInfo);
         }
 
-        private static bool TryFindTabId(HttpRequestMessage request, out int tabId, bool tryMoniker)
+        private static bool TryFindTabId(HttpRequest request, out int tabId, bool tryMoniker)
         {
             tabId = FindInt(request, TabIdKey);
             if (tabId > Null.NullInteger)
@@ -76,7 +76,7 @@ namespace DotNetNuke.Web.Api
             return false;
         }
 
-        private static bool TryFindModuleId(HttpRequestMessage request, out int moduleId, bool tryMoniker)
+        private static bool TryFindModuleId(HttpRequest request, out int moduleId, bool tryMoniker)
         {
             moduleId = FindInt(request, ModuleIdKey);
             if (moduleId > Null.NullInteger)
@@ -96,29 +96,58 @@ namespace DotNetNuke.Web.Api
             return false;
         }
 
-        private static int FindInt(HttpRequestMessage requestMessage, string key)
+        private static int FindInt(HttpRequest request, string key)
         {
-            string value = null;
-            if (requestMessage != null && requestMessage.Headers.TryGetValues(key, out var values))
-            {
-                value = values.FirstOrDefault();
-            }
-
-            if (string.IsNullOrEmpty(value) && requestMessage?.RequestUri != null)
-            {
-                var queryString = HttpUtility.ParseQueryString(requestMessage.RequestUri.Query);
-                value = queryString[key];
-            }
+            var value = FindValue(request, key);
 
             return int.TryParse(value, out var id) ? id : Null.NullInteger;
         }
 
-        private static bool TryFindByMoniker(HttpRequestMessage requestMessage, out ModuleInfo moduleInfo)
+        /// <summary>
+        /// Reads a value from the request headers, then the query string (the legacy
+        /// <c>HttpRequestMessage.Headers</c> then <c>RequestUri.Query</c> probing order), falling back to
+        /// the route values and the form, which carry the value for the DNN endpoints that post it.
+        /// </summary>
+        /// <param name="request">The request.</param>
+        /// <param name="key">The key to look for.</param>
+        /// <returns>The value, or <see langword="null"/>.</returns>
+        private static string FindValue(HttpRequest request, string key)
         {
-            var id = FindIntInHeader(requestMessage, MonikerHeaderKey);
+            if (request is null)
+            {
+                return null;
+            }
+
+            if (request.Headers.TryGetValue(key, out var headerValues) && !StringValues.IsNullOrEmpty(headerValues))
+            {
+                return headerValues[0];
+            }
+
+            if (request.Query.TryGetValue(key, out var queryValues) && !StringValues.IsNullOrEmpty(queryValues))
+            {
+                return queryValues[0];
+            }
+
+            var routeValue = request.HttpContext?.GetRouteValue(key);
+            if (routeValue != null)
+            {
+                return routeValue.ToString();
+            }
+
+            if (request.HasFormContentType && request.Form.TryGetValue(key, out var formValues) && !StringValues.IsNullOrEmpty(formValues))
+            {
+                return formValues[0];
+            }
+
+            return null;
+        }
+
+        private static bool TryFindByMoniker(HttpRequest request, out ModuleInfo moduleInfo)
+        {
+            var id = FindIntInHeader(request, MonikerHeaderKey);
             if (id <= Null.NullInteger)
             {
-                id = FindIntInQueryString(requestMessage, MonikerQueryKey);
+                id = FindIntInQueryString(request, MonikerQueryKey);
             }
 
             moduleInfo = id > Null.NullInteger ? ModuleController.Instance.GetTabModule(id) : null;
@@ -130,24 +159,23 @@ namespace DotNetNuke.Web.Api
             return moduleInfo != null;
         }
 
-        private static int FindIntInHeader(HttpRequestMessage requestMessage, string key)
+        private static int FindIntInHeader(HttpRequest request, string key)
         {
             string value = null;
-            if (requestMessage != null && requestMessage.Headers.TryGetValues(key, out var values))
+            if (request != null && request.Headers.TryGetValue(key, out var values) && !StringValues.IsNullOrEmpty(values))
             {
-                value = values.FirstOrDefault();
+                value = values[0];
             }
 
             return GetTabModuleInfoFromMoniker(value);
         }
 
-        private static int FindIntInQueryString(HttpRequestMessage requestMessage, string key)
+        private static int FindIntInQueryString(HttpRequest request, string key)
         {
             string value = null;
-            if (requestMessage.RequestUri != null)
+            if (request != null && request.Query.TryGetValue(key, out var values) && !StringValues.IsNullOrEmpty(values))
             {
-                var queryString = HttpUtility.ParseQueryString(requestMessage.RequestUri.Query);
-                value = queryString[key];
+                value = values[0];
             }
 
             return GetTabModuleInfoFromMoniker(value);

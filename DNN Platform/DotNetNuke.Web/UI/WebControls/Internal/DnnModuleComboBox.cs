@@ -62,7 +62,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         public int ItemCount => this.moduleCombo.Items.Count;
 
         /// <summary>Gets the client ID of the <see cref="DnnComboBox"/>.</summary>
-        public string RadComboBoxClientId => this.moduleCombo.ClientID;
+        public string RadComboBoxClientId => this.moduleCombo.ClientId;
 
         /// <summary>Gets or sets the filter.</summary>
         public Func<KeyValuePair<string, PortalDesktopModuleInfo>, bool> Filter { get; set; }
@@ -104,6 +104,25 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         }
 
         /// <inheritdoc />
+        /// <remarks>
+        /// This control is a shell around the inner <c>moduleCombo</c>: under Web Forms it was an
+        /// <c>INamingContainer</c> that rendered its children, so it renders the child tree here
+        /// rather than the <c>select</c> that <see cref="DnnComboBox"/> would render.
+        /// </remarks>
+        protected override void BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+
+            if (!this.Visible)
+            {
+                return;
+            }
+
+            var sequence = 0;
+            this.RenderChildControls(builder, ref sequence);
+        }
+
+        /// <inheritdoc />
         protected override void OnInit(EventArgs e)
         {
             base.OnInit(e);
@@ -132,9 +151,10 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         /// <inheritdoc />
         protected override void OnPreRender(EventArgs e)
         {
-            if (this.moduleCombo.FindItemByValue(this.originalValue) != null)
+            var original = this.moduleCombo.FindItemByValue(this.originalValue);
+            if (original != null)
             {
-                this.moduleCombo.FindItemByValue(this.originalValue).Selected = true;
+                original.Selected = true;
             }
 
             this.moduleCombo.Width = this.Width;

@@ -6,15 +6,25 @@ namespace DotNetNuke.Web.InternalServices;
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Linq;
+
+using SixLabors.ImageSharp;
 
 /// <summary>
 ///     Taken from http://stackoverflow.com/questions/111345/getting-image-dimensions-without-reading-the-entire-file/111349
 ///     Minor improvements including supporting unsigned 16-bit integers when decoding Jfif and added logic
-///     to load the image using new Bitmap if reading the headers fails.
+///     to load the image with the imaging library if reading the headers fails.
 /// </summary>
+/// <remarks>
+///     Ported from <c>System.Drawing</c> (not supported cross-platform on modern .NET) to
+///     <c>SixLabors.ImageSharp</c>. The hand-rolled header sniffing below is unchanged, so BMP/GIF/PNG/JFIF
+///     dimensions are byte-for-byte what they were; only the fallback that previously constructed a
+///     <c>System.Drawing.Bitmap</c> now uses <see cref="Image.Identify(string)"/>, which reads the image
+///     metadata without decoding the pixels. <see cref="Size"/> is now
+///     <see cref="SixLabors.ImageSharp.Size"/>, which exposes the same <c>Width</c>/<c>Height</c>
+///     <see cref="int"/> members the callers use.
+/// </remarks>
 public static class ImageHeader
 {
     private const string ErrorMessage = "Could not recognize image format.";
@@ -52,10 +62,17 @@ public static class ImageHeader
         }
         catch (ArgumentException)
         {
-            // do it the old fashioned way
-            using (var b = new Bitmap(path))
+            // do it the old fashioned way: let the imaging library read the header of any format it knows.
+            try
             {
-                size = b.Size;
+                var imageInfo = Image.Identify(path);
+                size = new Size(imageInfo.Width, imageInfo.Height);
+            }
+            catch (Exception e) when (e is not ArgumentException)
+            {
+                // System.Drawing's Bitmap constructor reported an unreadable image as an ArgumentException,
+                // and FileUploadController relies on that to fall back to its 32x32 placeholder.
+                throw new ArgumentException($"{ErrorMessage} file: '{path}' ", nameof(path), e);
             }
         }
 

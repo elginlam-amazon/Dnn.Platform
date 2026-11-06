@@ -7,9 +7,7 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Web;
-using System.Web.Http;
+using System.Text;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Logging;
@@ -22,8 +20,15 @@ using DotNetNuke.Entities.Users;
 using DotNetNuke.Services.Localization;
 using DotNetNuke.Services.Registration;
 using DotNetNuke.Web.Api;
-
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+
+// Disambiguates the DNN services framework anti-forgery filter from the same-named
+// Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+// bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+// bypass list fed by the authentication handlers and the iframe relaxation the upload flow needs.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for a user's profile.</summary>
 /// <param name="portalController">The portal controller.</param>
@@ -37,6 +42,8 @@ using Microsoft.Extensions.DependencyInjection;
 public class ProfileServiceController(IPortalController portalController, IApplicationStatusInfo appStatus, IPortalGroupController portalGroupController, IHostSettings hostSettings, IHostSettingsService hostSettingsService, IEventLogger eventLogger, ListController listController)
     : DnnApiController
 {
+    private static readonly CompositeFormat VanityUrlLookupKeyFormat = CompositeFormat.Parse(CacheController.VanityUrlLookupKey);
+
     private readonly IPortalController portalController = portalController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IPortalController>();
     private readonly IApplicationStatusInfo appStatus = appStatus ?? Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
     private readonly IPortalGroupController portalGroupController = portalGroupController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IPortalGroupController>();
@@ -79,10 +86,10 @@ public class ProfileServiceController(IPortalController portalController, IAppli
     /// <param name="q">The search criteria.</param>
     /// <returns>A response with a list of objects containing <c>id</c> and <c>name</c> fields.</returns>
     [HttpGet]
-    public HttpResponseMessage Search(string q)
+    public IActionResult Search(string q)
     {
         var results = RegistrationProfileController.Instance.Search(PortalController.GetEffectivePortalId(this.portalController, this.appStatus, this.portalGroupController, this.PortalSettings.PortalId), q);
-        return this.Request.CreateResponse(
+        return DnnApiResults.Response(
             HttpStatusCode.OK,
             results.OrderBy(sr => sr)
                 .Select(field => new { id = field, name = field }));
@@ -93,7 +100,7 @@ public class ProfileServiceController(IPortalController portalController, IAppli
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage UpdateVanityUrl(VanityUrlDTO vanityUrl)
+    public IActionResult UpdateVanityUrl(VanityUrlDTO vanityUrl)
     {
         // Clean Url
         var options = UrlRewriterUtils.GetOptionsFromSettings(new FriendlyUrlSettings(this.portalController, this.hostSettings, this.hostSettingsService, this.PortalSettings.PortalId));
@@ -101,7 +108,7 @@ public class ProfileServiceController(IPortalController portalController, IAppli
 
         if (modified)
         {
-            return this.Request.CreateResponse(
+            return DnnApiResults.Response(
                 HttpStatusCode.OK,
                 new
                 {
@@ -117,7 +124,7 @@ public class ProfileServiceController(IPortalController portalController, IAppli
 
         if (modified)
         {
-            return this.Request.CreateResponse(
+            return DnnApiResults.Response(
                 HttpStatusCode.OK,
                 new
                 {
@@ -132,22 +139,22 @@ public class ProfileServiceController(IPortalController portalController, IAppli
         user.VanityUrl = uniqueUrl;
         UserController.UpdateUser(this.eventLogger, this.PortalSettings.PortalId, user);
 
-        DataCache.RemoveCache(string.Format(CultureInfo.InvariantCulture, CacheController.VanityUrlLookupKey, this.PortalSettings.PortalId));
+        DataCache.RemoveCache(string.Format(CultureInfo.InvariantCulture, VanityUrlLookupKeyFormat, this.PortalSettings.PortalId));
 
         // Url is clean and validated so we can update the User
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
     }
 
     /// <summary>Gets the profile property values.</summary>
     /// <returns>A response with a list of values.</returns>
     [DnnAuthorize]
     [HttpGet]
-    public HttpResponseMessage ProfilePropertyValues()
+    public IActionResult ProfilePropertyValues()
     {
-        string searchString = HttpContext.Current.Request.Params["SearchString"].NormalizeString();
-        string propertyName = HttpContext.Current.Request.Params["PropName"].NormalizeString();
-        int portalId = int.Parse(HttpContext.Current.Request.Params["PortalId"], CultureInfo.InvariantCulture);
-        return this.Request.CreateResponse(HttpStatusCode.OK, Entities.Profile.ProfileController.SearchProfilePropertyValues(this.listController, this.hostSettings, this.portalController, this.appStatus, this.portalGroupController, portalId, propertyName, searchString));
+        string searchString = this.Request.GetParam("SearchString").NormalizeString();
+        string propertyName = this.Request.GetParam("PropName").NormalizeString();
+        int portalId = int.Parse(this.Request.GetParam("PortalId"), CultureInfo.InvariantCulture);
+        return DnnApiResults.Response(HttpStatusCode.OK, Entities.Profile.ProfileController.SearchProfilePropertyValues(this.listController, this.hostSettings, this.portalController, this.appStatus, this.portalGroupController, portalId, propertyName, searchString));
     }
 
     /// <summary>A data transfer object with information about a vanity URL.</summary>

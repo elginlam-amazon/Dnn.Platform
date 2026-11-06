@@ -8,6 +8,7 @@ namespace DotNetNuke.Web.Mvp
     using System.Globalization;
 
     using DotNetNuke.Abstractions;
+    using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Internal;
     using DotNetNuke.Common.Utilities;
@@ -15,6 +16,8 @@ namespace DotNetNuke.Web.Mvp
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.UI.Modules;
+    using DotNetNuke.Web.Api;
+
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>Represents a class that is a view for a profile module with a strongly typed view model in a Web Forms Model-View-Presenter application.</summary>
@@ -38,9 +41,13 @@ namespace DotNetNuke.Web.Mvp
             get
             {
                 int userId = Null.NullInteger;
-                if (!string.IsNullOrEmpty(this.Request.Params["UserId"]))
+
+                // Replaces Request.Params["UserId"], which looked in the query string, then the
+                // form and then the cookies; GetParam reproduces that lookup order.
+                var value = this.Request?.GetParam("UserId");
+                if (!string.IsNullOrEmpty(value) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
                 {
-                    userId = int.Parse(this.Request.Params["UserId"], CultureInfo.InvariantCulture);
+                    userId = parsed;
                 }
 
                 return userId;
@@ -73,7 +80,9 @@ namespace DotNetNuke.Web.Mvp
                                 || this.ModuleContext.PortalSettings.ActiveTab.ParentId == this.ModuleContext.PortalSettings.UserTabId))
             {
                 // Clicked on breadcrumb - don't know which user
-                var redirectUrl = this.Request.IsAuthenticated
+                // Replaces Request.IsAuthenticated.
+                var isAuthenticated = this.Request?.HttpContext?.User?.Identity?.IsAuthenticated == true;
+                var redirectUrl = isAuthenticated
                     ? this.NavigationManager.NavigateURL(this.ModuleContext.PortalSettings.ActiveTab.TabID, string.Empty, "UserId=" + this.ModuleContext.PortalSettings.UserId.ToString(CultureInfo.InvariantCulture))
                     : this.GetRedirectUrl();
                 this.Response.Redirect(redirectUrl, true);
@@ -94,7 +103,8 @@ namespace DotNetNuke.Web.Mvp
             }
             else
             {
-                redirectUrl = TestableGlobals.Instance.GetPortalDomainName(PortalSettings.Current.PortalAlias.HTTPAlias, this.Request, true) + "/" + Globals.glbDefaultPage;
+                var portalAlias = (IPortalAliasInfo)PortalSettings.Current.PortalAlias;
+                redirectUrl = TestableGlobals.Instance.GetPortalDomainName(portalAlias.HttpAlias, this.Request, true) + "/" + Globals.glbDefaultPage;
             }
 
             return redirectUrl;

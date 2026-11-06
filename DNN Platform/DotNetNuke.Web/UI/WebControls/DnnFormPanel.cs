@@ -4,40 +4,67 @@
 
 namespace DotNetNuke.Web.UI.WebControls
 {
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System;
+
+    using DotNetNuke.UI;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
 
     /// <summary>A form panel control.</summary>
-    public class DnnFormPanel : WebControl
+    /// <remarks>
+    /// This was a <c>WebControl</c> rendering through <c>HtmlTextWriter</c>; the markup it emits
+    /// (<c>h2 &gt; a</c> followed by a <c>fieldset</c> holding the children) is unchanged.
+    /// </remarks>
+    public class DnnFormPanel : DnnComponentBase
     {
         /// <summary>Gets or sets a value indicating whether the panel is expanded.</summary>
+        [Parameter]
         public bool Expanded { get; set; }
 
         /// <summary>Gets or sets the text.</summary>
+        [Parameter]
         public string Text { get; set; }
 
+        // ASP0006: the render tree of this ported Web Forms control is built imperatively through helper methods that share a running sequence number, so literal sequence numbers cannot express its structure.
+        #pragma warning disable ASP0006
         /// <inheritdoc />
-        protected override void Render(HtmlTextWriter writer)
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
-            writer.AddAttribute(HtmlTextWriterAttribute.Class, this.CssClass);
-            writer.RenderBeginTag(HtmlTextWriterTag.H2);
+            ArgumentNullException.ThrowIfNull(builder);
 
-            if (this.Expanded)
+            this.EnsureChildControls();
+
+            if (!this.Visible)
             {
-                writer.AddAttribute(HtmlTextWriterAttribute.Class, "dnnSectionExpanded");
+                return;
             }
 
-            writer.RenderBeginTag(HtmlTextWriterTag.A);
-            writer.Write(this.Text);
-            writer.RenderEndTag();
+            var sequence = 0;
 
-            writer.RenderEndTag();
+            builder.OpenElement(sequence++, "h2");
+            builder.AddAttribute(sequence++, "class", this.CssClass);
 
-            writer.RenderBeginTag(HtmlTextWriterTag.Fieldset);
+            builder.OpenElement(sequence++, "a");
+            if (this.Expanded)
+            {
+                builder.AddAttribute(sequence++, "class", "dnnSectionExpanded");
+            }
 
-            this.RenderChildren(writer);
+            builder.AddContent(sequence++, this.Text);
+            builder.CloseElement();
 
-            writer.RenderEndTag();
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "fieldset");
+            if (this.ChildContent != null)
+            {
+                builder.AddContent(sequence++, this.ChildContent);
+            }
+
+            this.RenderChildControls(builder, ref sequence);
+            builder.CloseElement();
         }
+        #pragma warning restore ASP0006
     }
 }

@@ -4,14 +4,15 @@
 namespace DotNetNuke.Web.UI.WebControls;
 
 using System;
-using System.Web.UI;
+
+using DotNetNuke.UI;
 
 /// <summary>A collection of <see cref="DnnTab"/> instances.</summary>
 public class DnnTabCollection : TypedControlCollection<DnnTab>
 {
     /// <summary>Initializes a new instance of the <see cref="DnnTabCollection"/> class.</summary>
     /// <param name="owner">The owner control.</param>
-    public DnnTabCollection(Control owner)
+    public DnnTabCollection(DnnComponentBase owner)
         : base(owner)
     {
     }

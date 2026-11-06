@@ -4,9 +4,15 @@
 namespace DotNetNuke.Web.UI
 {
     using System.Globalization;
-    using System.Web.UI.WebControls;
+
+    using DotNetNuke.UI.WebControls;
 
     /// <summary>Information about a message displayed in a window.</summary>
+    /// <remarks>
+    /// The window dimensions were <c>System.Web.UI.WebControls.Unit</c> values; they are the
+    /// migrated <see cref="Unit"/> of <c>DotNetNuke.UI.WebControls</c> now, which has the same
+    /// <c>Pixel</c>/<c>Parse</c>/<c>ToString</c> surface.
+    /// </remarks>
     public class MessageWindowParameters
     {
         private string message = string.Empty;

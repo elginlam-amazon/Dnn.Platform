@@ -6,8 +6,6 @@ namespace DotNetNuke.Web.InternalServices;
 
 using System;
 using System.Net;
-using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Common;
@@ -19,9 +17,15 @@ using DotNetNuke.Services.Localization;
 using DotNetNuke.Services.Social.Messaging.Internal;
 using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
-
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+// Disambiguates the DNN services framework anti-forgery filter from the same-named
+// Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+// bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+// bypass list fed by the authentication handlers and the iframe relaxation the upload flow needs.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for relationships.</summary>
 /// <param name="hostSettings">The host settings.</param>
@@ -45,7 +49,7 @@ public partial class RelationshipServiceController(IHostSettings hostSettings)
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnDeprecated(10, 3, 3, "Use overload taking NotificationRequest")]
-    public partial HttpResponseMessage AcceptFriend(NotificationDTO postData)
+    public partial IActionResult AcceptFriend(NotificationDTO postData)
         => this.AcceptFriend(postData?.ToNotificationRequest());
 
     /// <summary>Accept a friend.</summary>
@@ -53,7 +57,7 @@ public partial class RelationshipServiceController(IHostSettings hostSettings)
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage AcceptFriend(NotificationRequest requestBody)
+    public IActionResult AcceptFriend(NotificationRequest requestBody)
     {
         var success = false;
 
@@ -82,10 +86,10 @@ public partial class RelationshipServiceController(IHostSettings hostSettings)
 
         if (success)
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
         }
 
-        return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "unable to process notification");
+        return DnnApiResults.Error(HttpStatusCode.InternalServerError, "unable to process notification");
     }
 
     /// <summary>Follow a user who has requested to follow you.</summary>
@@ -94,7 +98,7 @@ public partial class RelationshipServiceController(IHostSettings hostSettings)
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnDeprecated(10, 3, 3, "Use overload taking NotificationRequest")]
-    public partial HttpResponseMessage FollowBack(NotificationDTO postData)
+    public partial IActionResult FollowBack(NotificationDTO postData)
         => this.FollowBack(postData?.ToNotificationRequest());
 
     /// <summary>Follow a user who has requested to follow you.</summary>
@@ -102,7 +106,7 @@ public partial class RelationshipServiceController(IHostSettings hostSettings)
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage FollowBack(NotificationRequest requestBody)
+    public IActionResult FollowBack(NotificationRequest requestBody)
     {
         var success = false;
 
@@ -124,7 +128,7 @@ public partial class RelationshipServiceController(IHostSettings hostSettings)
                                 "UserDoesNotExist",
                                 "The user you are trying to follow no longer exists."),
                         };
-                        return this.Request.CreateResponse(HttpStatusCode.InternalServerError, response);
+                        return DnnApiResults.Response(HttpStatusCode.InternalServerError, response);
                     }
 
                     FollowersController.Instance.FollowUser(targetUser);
@@ -143,19 +147,19 @@ public partial class RelationshipServiceController(IHostSettings hostSettings)
                     "AlreadyFollowingUser",
                     "You are already following this user."),
             };
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, response);
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, response);
         }
         catch (Exception exc)
         {
             Logger.RelationshipServiceControllerFollowBackGeneralException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc.Message);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc.Message);
         }
 
         if (success)
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
         }
 
-        return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "unable to process notification");
+        return DnnApiResults.Error(HttpStatusCode.InternalServerError, "unable to process notification");
     }
 }

@@ -6,7 +6,8 @@
 namespace DotNetNuke.Web.Api
 {
     using System.Collections.Generic;
-    using System.Web.Routing;
+
+    using Microsoft.AspNetCore.Routing;
 
     /// <summary>A contract specifying the ability to map web API routes within DNN.</summary>
     public interface IMapRoute
@@ -20,7 +21,7 @@ namespace DotNetNuke.Web.Api
         /// <param name="namespaces">The namespace(s) in which to search for the controllers for this route.</param>
         /// <returns>A list of all routes that were registered.</returns>
         /// <remarks>The combination of <paramref name="moduleFolderName"/> and <paramref name="routeName"/> must be unique for each route.</remarks>
-        IList<Route> MapHttpRoute(string moduleFolderName, string routeName, string url, object? defaults, object? constraints, string[] namespaces);
+        IList<DnnServiceRoute> MapHttpRoute(string moduleFolderName, string routeName, string url, object? defaults, object? constraints, string[] namespaces);
 
         /// <summary>Sets up the route(s) for DotNetNuke services.</summary>
         /// <param name="moduleFolderName">The name of the folder under DesktopModules in which your module resides.</param>
@@ -30,7 +31,7 @@ namespace DotNetNuke.Web.Api
         /// <param name="namespaces">The namespace(s) in which to search for the controllers for this route.</param>
         /// <returns>A list of all routes that were registered.</returns>
         /// <remarks>The combination of <paramref name="moduleFolderName"/> and <paramref name="routeName"/> must be unique for each route.</remarks>
-        IList<Route> MapHttpRoute(string moduleFolderName, string routeName, string url, object? defaults, string[] namespaces);
+        IList<DnnServiceRoute> MapHttpRoute(string moduleFolderName, string routeName, string url, object? defaults, string[] namespaces);
 
         /// <summary>Sets up the route(s) for DotNetNuke services.</summary>
         /// <param name="moduleFolderName">The name of the folder under DesktopModules in which your module resides.</param>
@@ -39,6 +40,6 @@ namespace DotNetNuke.Web.Api
         /// <param name="namespaces">The namespace(s) in which to search for the controllers for this route.</param>
         /// <returns>A list of all routes that were registered.</returns>
         /// <remarks>The combination of <paramref name="moduleFolderName"/> and <paramref name="routeName"/> must be unique for each route.</remarks>
-        IList<Route> MapHttpRoute(string moduleFolderName, string routeName, string url, string[] namespaces);
+        IList<DnnServiceRoute> MapHttpRoute(string moduleFolderName, string routeName, string url, string[] namespaces);
     }
 }

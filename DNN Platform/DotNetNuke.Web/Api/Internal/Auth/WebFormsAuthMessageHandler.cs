@@ -5,8 +5,6 @@
 namespace DotNetNuke.Web.Api.Internal.Auth
 {
     using System.Diagnostics.CodeAnalysis;
-    using System.Net.Http;
-    using System.Threading;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -16,17 +14,33 @@ namespace DotNetNuke.Web.Api.Internal.Auth
     using DotNetNuke.Security.Roles;
     using DotNetNuke.Services.UserRequest;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A web API message handler for web forms auth.</summary>
-    public class WebFormsAuthMessageHandler : MessageProcessingHandler
+    /// <remarks>
+    /// <para>
+    /// This is the bridge that lets a browser session authenticated through the normal DNN sign-in be
+    /// recognised on a services framework request. It is NOT a second cookie scheme: it calls the very
+    /// same <see cref="MembershipModule.AuthenticateRequest(IHostSettingsService,IPortalController,IUserRequestIPAddressController,IRoleController,IEventLogger,IHostSettings,HttpContext,bool)"/>
+    /// the host's own membership middleware calls, which reads the existing <c>.DOTNETNUKE</c>
+    /// authentication cookie registered by <c>AddDnnPlatform</c> and establishes the DNN principal and
+    /// roles from it. No <c>AddAuthentication</c>/<c>AddCookie</c> registration is introduced here.
+    /// </para>
+    /// <para>
+    /// It was a <c>MessageProcessingHandler</c> and is still appended LAST in the handler chain by
+    /// <c>ServicesRoutingManager.RegisterAuthenticationHandlers</c>, so the explicitly configured schemes
+    /// (Basic/Digest/API token) still get the first chance to authenticate the request.
+    /// </para>
+    /// </remarks>
+    public class WebFormsAuthMessageHandler : IDnnAuthMessageHandler
     {
         /// <summary>Gets the auth scheme.</summary>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         public string AuthScheme => "Forms";
 
         /// <inheritdoc />
-        protected override HttpRequestMessage ProcessRequest(HttpRequestMessage request, CancellationToken cancellationToken)
+        public bool OnAuthenticateRequest(HttpContext context)
         {
             using var scope = Globals.GetOrCreateServiceScope();
             MembershipModule.AuthenticateRequest(
@@ -36,13 +50,17 @@ namespace DotNetNuke.Web.Api.Internal.Auth
                 scope.ServiceProvider.GetRequiredService<IRoleController>(),
                 scope.ServiceProvider.GetRequiredService<IEventLogger>(),
                 scope.ServiceProvider.GetRequiredService<IHostSettings>(),
-                request.GetHttpContext(),
+                context,
                 allowUnknownExtensions: true);
 
-            return request;
+            // Never terminates inbound processing; the legacy ProcessRequest always returned the request.
+            return false;
         }
 
         /// <inheritdoc />
-        protected override HttpResponseMessage ProcessResponse(HttpResponseMessage response, CancellationToken cancellationToken) => response;
+        public void OnSendResponse(HttpContext context)
+        {
+            // left empty by design; the legacy ProcessResponse returned the response unchanged.
+        }
     }
 }

@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -8,16 +8,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Web;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions;
 using DotNetNuke.Common;
 using DotNetNuke.Entities.Tabs;
 using DotNetNuke.Services.Localization;
 using DotNetNuke.Web.Api;
-
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>A web API for getting the translation status of a site.</summary>
@@ -54,9 +52,8 @@ public class LanguageServiceController : DnnApiController
     /// <param name="languageCode">The language code.</param>
     /// <returns>A response with a list of <see cref="PageDto"/> instances.</returns>
     [HttpGet]
-    public HttpResponseMessage GetNonTranslatedPages(string languageCode)
+    public IActionResult GetNonTranslatedPages(string languageCode)
     {
-        var request = HttpContext.Current.Request;
         var locale = this.localeController.GetLocale(languageCode);
 
         List<PageDto> pages = [];
@@ -74,7 +71,7 @@ public class LanguageServiceController : DnnApiController
             }
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, pages);
+        return DnnApiResults.Response(HttpStatusCode.OK, pages);
     }
 
     private bool IsDefaultLanguage(string code)

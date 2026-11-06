@@ -14,7 +14,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>This control is only for internal use, please don't reference it in any other place as it may be removed in the future.</summary>
-    [Obsolete("Deprecated in DotNetNuke 10.3.0. Please use TextBox with TextMode=TextBoxMode.DateTimeLocal. Scheduled removal in v12.0.0.")]
+    [Obsolete("Deprecated in DotNetNuke 10.3.0. Please use DnnTextBox with TextMode=TextBoxMode.DateTimeLocal. Scheduled removal in v12.0.0.")]
     public class DnnDateTimePicker : DnnDatePicker
     {
         /// <summary>Initializes a new instance of the <see cref="DnnDateTimePicker"/> class.</summary>

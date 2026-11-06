@@ -7,68 +7,103 @@ namespace DotNetNuke.Web.UI.WebControls
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Web.UI;
+    using System.Linq;
+
+    using DotNetNuke.UI;
+    using DotNetNuke.UI.Utilities;
 
     /// <summary>Restricts the client to add only controls of specific type into the control collection.</summary>
     /// <typeparam name="T">The type of control.</typeparam>
-    public class TypedControlCollection<T> : ControlCollection, IList<T>
-        where T : Control
+    /// <remarks>
+    /// This derived from <c>System.Web.UI.ControlCollection</c>. <see cref="DnnControlCollection"/>
+    /// is sealed, so the type check is now applied by a wrapper around the owner's live child
+    /// collection; the behaviour (adding a control of the wrong type throws) is unchanged.
+    /// </remarks>
+    public class TypedControlCollection<T> : IList<T>
+        where T : class, IClientApiControl
     {
+        private readonly DnnComponentBase owner;
+
         /// <summary>Initializes a new instance of the <see cref="TypedControlCollection{T}"/> class.</summary>
         /// <param name="owner">The owner control.</param>
-        public TypedControlCollection(Control owner)
-            : base(owner)
+        public TypedControlCollection(DnnComponentBase owner)
         {
+            this.owner = owner;
         }
 
         /// <inheritdoc />
-        public new T this[int index]
+        public int Count => this.owner.Controls.Count;
+
+        /// <inheritdoc />
+        public bool IsReadOnly => false;
+
+        /// <inheritdoc />
+        public T this[int index]
         {
-            get => (T)base[index];
+            get => (T)this.owner.Controls[index];
             set => throw new NotSupportedException();
         }
 
         /// <inheritdoc />
         public int IndexOf(T item)
-            => base.IndexOf(item);
+            => this.owner.Controls.IndexOf(item);
 
         /// <inheritdoc />
         public void Insert(int index, T item)
             => throw new NotSupportedException();
 
-        /// <inheritdoc />
-        public override void Add(Control child)
-        {
-            if (child is not T item)
-            {
-                this.ThrowOnInvalidControlType();
-            }
-
-            base.Add(child);
-        }
-
-        /// <inheritdoc />
-        public override void AddAt(int index, Control child)
+        /// <summary>Adds a control, rejecting a control that is not a <typeparamref name="T"/>.</summary>
+        /// <param name="child">The control to add.</param>
+        public virtual void Add(IClientApiControl child)
         {
             if (child is not T)
             {
                 this.ThrowOnInvalidControlType();
             }
 
-            base.AddAt(index, child);
+            this.owner.Controls.Add(child);
+        }
+
+        /// <summary>Inserts a control, rejecting a control that is not a <typeparamref name="T"/>.</summary>
+        /// <param name="index">The position to insert at.</param>
+        /// <param name="child">The control to insert.</param>
+        public virtual void AddAt(int index, IClientApiControl child)
+        {
+            if (child is not T)
+            {
+                this.ThrowOnInvalidControlType();
+            }
+
+            this.owner.Controls.AddAt(index, child);
         }
 
         /// <inheritdoc />
         public void Add(T item)
-            => base.Add(item);
+            => this.owner.Controls.Add(item);
 
         /// <inheritdoc />
         public bool Contains(T item)
-            => base.Contains(item);
+            => this.owner.Controls.Contains(item);
 
         /// <inheritdoc />
         public void CopyTo(T[] array, int arrayIndex)
-            => base.CopyTo(array, arrayIndex);
+        {
+            ArgumentNullException.ThrowIfNull(array);
+
+            var index = arrayIndex;
+            foreach (var item in this)
+            {
+                array[index++] = item;
+            }
+        }
+
+        /// <inheritdoc />
+        public void Clear()
+            => this.owner.Controls.Clear();
+
+        /// <inheritdoc />
+        public void RemoveAt(int index)
+            => this.owner.Controls.RemoveAt(index);
 
         /// <inheritdoc />
         public bool Remove(T item)
@@ -78,37 +113,28 @@ namespace DotNetNuke.Web.UI.WebControls
                 return false;
             }
 
-            base.Remove(item);
+            this.owner.Controls.Remove(item);
             return true;
         }
 
         /// <inheritdoc />
-        IEnumerator<T> IEnumerable<T>.GetEnumerator()
-            => new TypedEnumerator(this.GetEnumerator());
+        public IEnumerator<T> GetEnumerator()
+        {
+            foreach (var child in this.owner.Controls.ToList())
+            {
+                yield return child as T;
+            }
+        }
+
+        /// <inheritdoc />
+        IEnumerator IEnumerable.GetEnumerator()
+            => this.GetEnumerator();
 
         /// <summary>Throws an <see cref="InvalidOperationException"/>.</summary>
         /// <exception cref="InvalidOperationException">Always.</exception>
         protected virtual void ThrowOnInvalidControlType()
         {
             throw new InvalidOperationException("Not supported");
-        }
-
-        private sealed class TypedEnumerator(IEnumerator enumerator) : IEnumerator<T>
-        {
-            /// <inheritdoc />
-            public T Current => (T)enumerator.Current;
-
-            /// <inheritdoc />
-            object IEnumerator.Current => this.Current;
-
-            /// <inheritdoc />
-            public void Dispose() => (enumerator as IDisposable)?.Dispose();
-
-            /// <inheritdoc />
-            public bool MoveNext() => enumerator.MoveNext();
-
-            /// <inheritdoc />
-            public void Reset() => enumerator.Reset();
         }
     }
 }

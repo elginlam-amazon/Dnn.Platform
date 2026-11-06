@@ -7,7 +7,6 @@ namespace DotNetNuke.Web.UI.WebControls
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
     using System.Threading;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
@@ -23,6 +22,9 @@ namespace DotNetNuke.Web.UI.WebControls
     using DotNetNuke.Security;
     using DotNetNuke.Security.Permissions;
     using DotNetNuke.Services.Log.EventLog;
+    using DotNetNuke.UI;
+
+    using Microsoft.AspNetCore.Components.Rendering;
 
     using Microsoft.Extensions.DependencyInjection;
 
@@ -31,14 +33,26 @@ namespace DotNetNuke.Web.UI.WebControls
     /// <param name="appStatus">The application status.</param>
     /// <param name="hostSettings">The host settings.</param>
     /// <param name="eventLogger">The event logger.</param>
-    [ParseChildren(true)]
+    /// <remarks>
+    /// This was a <c>Control, IDnnRibbonBarTool</c> with <c>[ParseChildren]</c>. On ASP.NET Core it
+    /// is a <see cref="DnnComponentBase"/>: the state that lived in view state is held in fields of
+    /// the component (which lives for the circuit), the child <see cref="DnnTextLink"/>/
+    /// <see cref="DnnTextButton"/> are still built into <see cref="DnnComponentBase.Controls"/>, the
+    /// button's postback became the <see cref="DnnTextButton.Click"/> event, and the redirects go
+    /// through the ASP.NET Core <c>HttpResponse</c>.
+    /// </remarks>
     public class DnnRibbonBarTool(INavigationManager navigationManager, IApplicationStatusInfo appStatus, IHostSettings hostSettings, IEventLogger eventLogger)
-        : Control, IDnnRibbonBarTool
+        : DnnComponentBase, IDnnRibbonBarTool
     {
         private readonly IApplicationStatusInfo appStatus = appStatus ?? Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
         private readonly IHostSettings hostSettings = hostSettings ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
         private readonly IEventLogger eventLogger = eventLogger ?? Globals.GetCurrentServiceProvider().GetRequiredService<IEventLogger>();
         private IDictionary<string, RibbonBarToolInfo> allTools;
+        private RibbonBarToolInfo toolInfo;
+        private string navigateUrl = Null.NullString;
+        private string toolCssClass = Null.NullString;
+        private string text = Null.NullString;
+        private string toolTip = Null.NullString;
         private DnnTextLink dnnLink;
         private DnnTextButton dnnLinkButton;
 
@@ -70,48 +84,37 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <summary>Gets or sets the tool info.</summary>
         public virtual RibbonBarToolInfo ToolInfo
         {
-            get
-            {
-                if (this.ViewState["ToolInfo"] == null)
-                {
-                    this.ViewState.Add("ToolInfo", new RibbonBarToolInfo());
-                }
+            get => this.toolInfo ??= new RibbonBarToolInfo();
 
-                return (RibbonBarToolInfo)this.ViewState["ToolInfo"];
-            }
-
-            set
-            {
-                this.ViewState["ToolInfo"] = value;
-            }
+            set => this.toolInfo = value;
         }
 
         /// <summary>Gets or sets the URL.</summary>
         public virtual string NavigateUrl
         {
-            get => Utilities.GetViewStateAsString(this.ViewState["NavigateUrl"], Null.NullString);
-            set => this.ViewState["NavigateUrl"] = value;
+            get => this.navigateUrl;
+            set => this.navigateUrl = value;
         }
 
         /// <summary>Gets or sets the CSS class.</summary>
         public virtual string ToolCssClass
         {
-            get => Utilities.GetViewStateAsString(this.ViewState["ToolCssClass"], Null.NullString);
-            set => this.ViewState["ToolCssClass"] = value;
+            get => this.toolCssClass;
+            set => this.toolCssClass = value;
         }
 
         /// <summary>Gets or sets the text.</summary>
         public virtual string Text
         {
-            get => Utilities.GetViewStateAsString(this.ViewState["Text"], Null.NullString);
-            set => this.ViewState["Text"] = value;
+            get => this.text;
+            set => this.text = value;
         }
 
         /// <summary>Gets or sets the tooltip text.</summary>
         public virtual string ToolTip
         {
-            get => Utilities.GetViewStateAsString(this.ViewState["ToolTip"], Null.NullString);
-            set => this.ViewState["ToolTip"] = value;
+            get => this.toolTip;
+            set => this.toolTip = value;
         }
 
         /// <inheritdoc />
@@ -190,6 +193,11 @@ namespace DotNetNuke.Web.UI.WebControls
                 { "RecycleApp", new RibbonBarToolInfo("RecycleApp", true, true, string.Empty, string.Empty, string.Empty, false) },
             };
 
+        /// <summary>Gets the URL of the current request.</summary>
+        /// <remarks>Replaces <c>Page.Request.RawUrl</c>, which has no ASP.NET Core counterpart.</remarks>
+        protected string CurrentUrl =>
+            this.Request is null ? string.Empty : this.Request.Path + this.Request.QueryString;
+
         /// <summary>Gets the current portal settings.</summary>
         private static PortalSettings PortalSettings => PortalSettings.Current;
 
@@ -205,7 +213,7 @@ namespace DotNetNuke.Web.UI.WebControls
                     if (this.HasToolPermissions("DeletePage"))
                     {
                         string url = TestableGlobals.Instance.NavigateURL(PortalSettings.ActiveTab.TabID, "Tab", "action=delete");
-                        this.Page.Response.Redirect(url, true);
+                        this.Response?.Redirect(url);
                     }
 
                     break;
@@ -213,7 +221,7 @@ namespace DotNetNuke.Web.UI.WebControls
                     if (this.HasToolPermissions("CopyPermissionsToChildren"))
                     {
                         TabController.CopyPermissionsToChildren(this.eventLogger, PortalSettings.ActiveTab, PortalSettings.ActiveTab.TabPermissions);
-                        this.Page.Response.Redirect(this.Page.Request.RawUrl);
+                        this.Response?.Redirect(this.CurrentUrl);
                     }
 
                     break;
@@ -221,7 +229,7 @@ namespace DotNetNuke.Web.UI.WebControls
                     if (this.HasToolPermissions("CopyDesignToChildren"))
                     {
                         TabController.CopyDesignToChildren(this.eventLogger, PortalSettings.ActiveTab, PortalSettings.ActiveTab.SkinSrc, PortalSettings.ActiveTab.ContainerSrc);
-                        this.Page.Response.Redirect(this.Page.Request.RawUrl);
+                        this.Response?.Redirect(this.CurrentUrl);
                     }
 
                     break;
@@ -229,7 +237,7 @@ namespace DotNetNuke.Web.UI.WebControls
                     if (this.HasToolPermissions("ClearCache"))
                     {
                         this.ClearCache();
-                        this.Page.Response.Redirect(this.Page.Request.RawUrl);
+                        this.Response?.Redirect(this.CurrentUrl);
                     }
 
                     break;
@@ -237,7 +245,7 @@ namespace DotNetNuke.Web.UI.WebControls
                     if (this.HasToolPermissions("RecycleApp"))
                     {
                         this.RestartApplication();
-                        this.Page.Response.Redirect(this.Page.Request.RawUrl);
+                        this.Response?.Redirect(this.CurrentUrl);
                     }
 
                     break;
@@ -255,6 +263,7 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <inheritdoc />
         protected override void OnInit(EventArgs e)
         {
+            base.OnInit(e);
             this.EnsureChildControls();
             this.DnnLinkButton.Click += this.ControlPanelTool_OnClick;
         }
@@ -267,6 +276,8 @@ namespace DotNetNuke.Web.UI.WebControls
             base.OnPreRender(e);
         }
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <summary>Processes the tool.</summary>
         protected virtual void ProcessTool()
         {
@@ -311,12 +322,12 @@ namespace DotNetNuke.Web.UI.WebControls
                             {
                                 if (!(PortalSettings.SSLSetup != Abstractions.Security.SiteSslSetup.Off && PortalSettings.SSLEnforced))
                                 {
-                                    this.DnnLink.Attributes.Add("onclick", "return " + UrlUtils.PopUpUrl(this.DnnLink.NavigateUrl, this, PortalSettings, true, false));
+                                    this.DnnLink.Attributes["onclick"] = "return " + UrlUtils.PopUpUrl(this.DnnLink.NavigateUrl, PortalSettings, true, false);
                                 }
                             }
                             else
                             {
-                                this.DnnLink.Attributes.Add("onclick", "return " + UrlUtils.PopUpUrl(this.DnnLink.NavigateUrl, this, PortalSettings, true, false));
+                                this.DnnLink.Attributes["onclick"] = "return " + UrlUtils.PopUpUrl(this.DnnLink.NavigateUrl, PortalSettings, true, false);
                             }
                         }
                     }
@@ -330,6 +341,7 @@ namespace DotNetNuke.Web.UI.WebControls
                 }
             }
         }
+        #pragma warning restore BL0005
 
         /// <summary>Enable the tool.</summary>
         /// <returns>Whether it was successfully enabled.</returns>

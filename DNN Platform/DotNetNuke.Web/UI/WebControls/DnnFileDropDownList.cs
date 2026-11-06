@@ -7,8 +7,6 @@ namespace DotNetNuke.Web.UI.WebControls
     using System;
     using System.ComponentModel;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Common;
@@ -16,13 +14,12 @@ namespace DotNetNuke.Web.UI.WebControls
     using DotNetNuke.Framework;
     using DotNetNuke.Services.FileSystem;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI;
     using DotNetNuke.Web.Common;
     using DotNetNuke.Web.UI.WebControls.Extensions;
-
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A file dropdown control.</summary>
-    [ToolboxData("<{0}:DnnFileDropDownList runat='server'></{0}:DnnFileDropDownList>")]
     public class DnnFileDropDownList : DnnDropDownList
     {
         /// <summary>Initializes a new instance of the <see cref="DnnFileDropDownList"/> class.</summary>
@@ -53,7 +50,7 @@ namespace DotNetNuke.Web.UI.WebControls
 
             set
             {
-                this.SelectedItem = (value != null) ? new ListItem() { Text = value.FileName, Value = value.FileId.ToString(CultureInfo.InvariantCulture) } : null;
+                this.SelectedItem = (value != null) ? new DnnListItem(value.FileName, value.FileId.ToString(CultureInfo.InvariantCulture)) : null;
             }
         }
 
@@ -103,7 +100,7 @@ namespace DotNetNuke.Web.UI.WebControls
 
             if (this.IncludeNoneSpecificItem)
             {
-                this.UndefinedItem = new ListItem(DynamicSharedConstants.Unspecified, Null.NullInteger.ToString(CultureInfo.InvariantCulture));
+                this.UndefinedItem = new DnnListItem(DynamicSharedConstants.Unspecified, Null.NullInteger.ToString(CultureInfo.InvariantCulture));
             }
 
             base.OnPreRender(e);

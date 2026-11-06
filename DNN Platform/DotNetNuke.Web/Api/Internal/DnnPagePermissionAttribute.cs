@@ -7,7 +7,7 @@ namespace DotNetNuke.Web.Api.Internal
     using DotNetNuke.Common;
 
     /// <summary>Requires the user to have access to the page.</summary>
-    public sealed class DnnPagePermissionAttribute : AuthorizeAttributeBase, IOverrideDefaultAuthLevel
+    public sealed class DnnPagePermissionAttribute : DnnAuthorizeBaseAttribute, IOverrideDefaultAuthLevel
     {
         /// <summary>Gets or sets the permission key for the access.</summary>
         public string PermissionKey { get; set; } = "EDIT";
@@ -17,7 +17,7 @@ namespace DotNetNuke.Web.Api.Internal
         {
             Requires.NotNull("context", context);
 
-            return PagePermissionsAttributesHelper.HasTabPermission(this.PermissionKey);
+            return PagePermissionsAttributesHelper.HasTabPermission(this.PermissionKey, context.Principal);
         }
     }
 }

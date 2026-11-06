@@ -6,7 +6,8 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
     using System.Collections.Generic;
     using System.Linq;
     using System.Runtime.Serialization;
-    using System.Web.UI.WebControls;
+
+    using DotNetNuke.UI;
 
     using DotNetNuke.Web.UI.WebControls.Extensions;
 
@@ -67,7 +68,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
 
         /// <summary>Gets or sets the items.</summary>
         [IgnoreDataMember]
-        public IEnumerable<ListItem> Items { get; set; }
+        public IEnumerable<DnnListItem> Items { get; set; }
 
         /// <summary>Gets or sets the localization dictionary.</summary>
         [DataMember(Name = "localization")]

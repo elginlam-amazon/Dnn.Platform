@@ -40,6 +40,11 @@ namespace DotNetNuke.Web.Prompt
                 return new ConsoleErrorResultModel(this.LocalizeString("Prompt_ListServices_Unauthorized"));
             }
 
+            // DependencyInjectionInitialize.ServiceCollection is now the host builder's own
+            // IServiceCollection (it was DNN's private collection under Web API 2), so this command keeps
+            // doing exactly what it advertises — enumerating the registrations that built the running
+            // container — and now sees the framework registrations too. It stays the source here because
+            // an IServiceProvider cannot be enumerated for ServiceDescriptors.
             var services = DependencyInjectionInitialize.ServiceCollection.Select(
                     descriptor => new
                     {
