@@ -4,7 +4,7 @@
 
 using System;
 using System.ComponentModel.DataAnnotations;
-using System.Web.Caching;
+using DotNetNuke.Services.Cache;
 using DotNetNuke.ComponentModel.DataAnnotations;
 
 namespace Dnn.ContactList.Api

@@ -427,6 +427,71 @@ namespace DotNetNuke.Services.Authentication.OAuth
             return this.AuthorizationEndpoint + "?" + this.GetAuthorizationParameters().ToNormalizedString();
         }
 
+        /// <summary>
+        /// Builds the URL the user's browser must be sent to in order to authorize this
+        /// application, for either OAuth version.
+        /// </summary>
+        /// <returns>
+        /// The provider's authorization URL, including the query string, or
+        /// <see langword="null"/> when an OAuth 1.0 provider returned no request token.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// For OAuth 2.0 this simply defers to <see cref="GetAuthorizationUrl"/>, so that path
+        /// cannot drift. OAuth 1.0 needs the asynchronous variant because its authorization URL
+        /// carries a request token which must first be obtained from the provider — a
+        /// server-to-server call that can only be made while an HTTP request is in flight.
+        /// </para>
+        /// <para>
+        /// That is also why a Blazor login component must call this during its initial (static)
+        /// render rather than from an event handler: by the time the SignalR circuit is
+        /// interactive, <see cref="HttpContextSource.Current"/> is <see langword="null"/>, so
+        /// there is neither a request to sign against nor a response left to redirect. The
+        /// component renders the returned URL as an ordinary link instead.
+        /// </para>
+        /// <para>
+        /// This performs exactly the request-token leg <see cref="AuthorizeAsync"/> performs,
+        /// using the same code, including writing the <c>_request</c> token cookie that the
+        /// inbound callback leg reads back.
+        /// </para>
+        /// </remarks>
+        public async Task<string> GetAuthorizationUrlAsync()
+        {
+            if (this.OAuthVersion != "1.0")
+            {
+                return this.GetAuthorizationUrl();
+            }
+
+            string ret = null;
+
+            string response = await this.RequestTokenAsync();
+
+            if (!string.IsNullOrWhiteSpace(response))
+            {
+                // response contains token and token secret. We only need the token.
+                NameValueCollection qs = QueryStringUtils.ParseQueryString(response);
+
+                if (qs[OAuthCallbackConfirmedKey] != null)
+                {
+                    if (qs[OAuthCallbackConfirmedKey] != "true")
+                    {
+                        throw new OAuthException("OAuth callback not confirmed.");
+                    }
+                }
+
+                if (qs[OAuthTokenKey] != null)
+                {
+                    ret = this.AuthorizationEndpoint + "?" + OAuthTokenKey + "=" + qs[OAuthTokenKey];
+
+                    this.AuthToken = qs[OAuthTokenKey];
+                    this.TokenSecret = qs[OAuthTokenSecretKey];
+                    this.SaveTokenCookie("_request");
+                }
+            }
+
+            return ret;
+        }
+
         public void RemoveToken()
         {
             HttpContextSource.Current?.Response.Cookies.Delete(
@@ -565,32 +630,12 @@ namespace DotNetNuke.Services.Authentication.OAuth
             {
                 if (!this.HaveVerificationCode())
                 {
-                    string ret = null;
-
-                    string response = await this.RequestTokenAsync();
-
-                    if (!string.IsNullOrWhiteSpace(response))
-                    {
-                        // response contains token and token secret. We only need the token.
-                        NameValueCollection qs = QueryStringUtils.ParseQueryString(response);
-
-                        if (qs[OAuthCallbackConfirmedKey] != null)
-                        {
-                            if (qs[OAuthCallbackConfirmedKey] != "true")
-                            {
-                                throw new OAuthException("OAuth callback not confirmed.");
-                            }
-                        }
-
-                        if (qs[OAuthTokenKey] != null)
-                        {
-                            ret = this.AuthorizationEndpoint + "?" + OAuthTokenKey + "=" + qs[OAuthTokenKey];
-
-                            this.AuthToken = qs[OAuthTokenKey];
-                            this.TokenSecret = qs[OAuthTokenSecretKey];
-                            this.SaveTokenCookie("_request");
-                        }
-                    }
+                    // The request-token leg, the callback-confirmed check and the "_request"
+                    // token cookie live in GetAuthorizationUrlAsync, so this redirect and a
+                    // login component's link can never request different things. This is the
+                    // same single-source-of-truth split OAuth 2.0 already uses via
+                    // GetAuthorizationParameters.
+                    string ret = await this.GetAuthorizationUrlAsync();
 
                     if (ret != null)
                     {

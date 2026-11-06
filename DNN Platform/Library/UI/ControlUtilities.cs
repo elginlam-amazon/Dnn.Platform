@@ -272,10 +272,18 @@ namespace DotNetNuke.UI
         private static Type FindByConvention(string normalizedSrc)
         {
             var fileName = normalizedSrc;
+            var directoryName = string.Empty;
             var lastSlash = fileName.LastIndexOf('/');
             if (lastSlash >= 0)
             {
+                directoryName = fileName.Substring(0, lastSlash);
                 fileName = fileName.Substring(lastSlash + 1);
+
+                var secondLastSlash = directoryName.LastIndexOf('/');
+                if (secondLastSlash >= 0)
+                {
+                    directoryName = directoryName.Substring(secondLastSlash + 1);
+                }
             }
 
             var dot = fileName.LastIndexOf('.');
@@ -292,12 +300,54 @@ namespace DotNetNuke.UI
                 fileName.Replace(" ", string.Empty).Replace("-", string.Empty),
             };
 
-            return new Framework.Reflections.TypeLocator()
+            var matches = new Framework.Reflections.TypeLocator()
                 .GetAllMatchingTypes(type => type != null
                                              && !type.IsAbstract
                                              && typeof(IComponent).IsAssignableFrom(type)
                                              && candidates.Any(candidate => string.Equals(type.Name, candidate, StringComparison.OrdinalIgnoreCase)))
-                .FirstOrDefault();
+                .ToList();
+
+            if (matches.Count <= 1)
+            {
+                return matches.FirstOrDefault();
+            }
+
+            // The file name alone is not unique across the installation. Generic names such as
+            // Login.razor and Settings.razor are used by every authentication provider, so the
+            // bare-name match below would bind, say, the Google provider's
+            // DesktopModules/AuthenticationServices/Google/Login.razor to
+            // DotNetNuke.Authentication.Facebook.Login - with no error, because both types are
+            // named "Login". The containing directory is what disambiguated these on the
+            // WebForms side, so it is used here too: prefer a type whose namespace ends with the
+            // directory segment (".../Google/Login.razor" -> "DotNetNuke.Authentication.Google").
+            if (!string.IsNullOrEmpty(directoryName))
+            {
+                var sanitizedDirectory = directoryName.Replace(" ", string.Empty).Replace("-", string.Empty);
+                var byDirectory = matches
+                    .Where(type => type.Namespace != null
+                                   && (type.Namespace.EndsWith("." + sanitizedDirectory, StringComparison.OrdinalIgnoreCase)
+                                       || string.Equals(type.Namespace, sanitizedDirectory, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+
+                if (byDirectory.Count == 1)
+                {
+                    return byDirectory[0];
+                }
+
+                if (byDirectory.Count > 1)
+                {
+                    matches = byDirectory;
+                }
+            }
+
+            // Still ambiguous: fail loudly rather than silently binding the wrong component,
+            // which for an authentication control would mean authenticating against the wrong
+            // provider's configuration. An explicit IDnnControlTypeResolver.Register call
+            // resolves this deterministically.
+            throw new InvalidOperationException(
+                $"The control source '{normalizedSrc}' matches more than one component type " +
+                $"({string.Join(", ", matches.Select(type => type.FullName))}). " +
+                "Register the intended component with IDnnControlTypeResolver to resolve the ambiguity.");
         }
     }
 }
