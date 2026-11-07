@@ -117,31 +117,42 @@ namespace DotNetNuke.Tests.Urls
                 replaceAllUrls);
         }
 
+        /// <summary>A provider type that exists, used to prove a valid entry is kept.</summary>
+        /// <remarks>
+        /// These tests only check that <c>ExtensionUrlProviderController.GetModuleProviders</c> can
+        /// resolve this type; none of the overrides is ever invoked. They therefore throw, exactly as
+        /// they did on net48, so that an accidental call fails loudly rather than returning a silent
+        /// default. <see cref="InvalidOperationException"/> is used in place of the original
+        /// <c>NotImplementedException</c>, which is reserved for genuinely unported migration stubs.
+        /// </remarks>
         internal class FakeExtensionUrlProvider : ExtensionUrlProvider
         {
+            private const string NeverCalled =
+                "This test fake only needs to be resolvable by type; its members are never invoked.";
+
             public override bool AlwaysUsesDnnPagePath(int portalId)
             {
-                throw new NotImplementedException();
+                throw new InvalidOperationException(NeverCalled);
             }
 
             public override string ChangeFriendlyUrl(TabInfo tab, string friendlyUrlPath, FriendlyUrlOptions options, string cultureCode, ref string endingPageName, out bool useDnnPagePath, ref List<string> messages)
             {
-                throw new NotImplementedException();
+                throw new InvalidOperationException(NeverCalled);
             }
 
             public override bool CheckForRedirect(int tabId, int portalid, string httpAlias, Uri requestUri, NameValueCollection queryStringCol, FriendlyUrlOptions options, out string redirectLocation, ref List<string> messages)
             {
-                throw new NotImplementedException();
+                throw new InvalidOperationException(NeverCalled);
             }
 
             public override Dictionary<string, string> GetProviderPortalSettings()
             {
-                throw new NotImplementedException();
+                throw new InvalidOperationException(NeverCalled);
             }
 
             public override string TransformFriendlyUrlToQueryString(string[] urlParms, int tabId, int portalId, FriendlyUrlOptions options, string cultureCode, PortalAliasInfo portalAlias, ref List<string> messages, out int status, out string location)
             {
-                throw new NotImplementedException();
+                throw new InvalidOperationException(NeverCalled);
             }
         }
     }

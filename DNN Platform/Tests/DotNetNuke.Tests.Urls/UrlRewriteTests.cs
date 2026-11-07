@@ -4,14 +4,13 @@
 namespace DotNetNuke.Tests.Urls
 {
     using System;
-    using System.Collections;
     using System.Collections.Generic;
     using System.Collections.Specialized;
     using System.Globalization;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
     using DotNetNuke.Entities.Portals;
@@ -20,6 +19,7 @@ namespace DotNetNuke.Tests.Urls
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.AspNetCore.Http.Extensions;
     using Microsoft.Extensions.DependencyInjection;
 
     using NUnit.Framework;
@@ -512,21 +512,34 @@ namespace DotNetNuke.Tests.Urls
             var simulator = new Instance.Utilities.HttpSimulator.HttpSimulator("/", this.WebsitePhysicalAppPath);
             simulator.SimulateRequest(url);
 
-            var browserCaps = new HttpBrowserCapabilities { Capabilities = new Hashtable() };
-            HttpContext.Current.Request.Browser = browserCaps;
+            // On net48 this assigned an HttpBrowserCapabilities with an EMPTY capabilities bag to
+            // HttpContext.Current.Request.Browser, because SimpleWorkerRequest left Browser unset and
+            // the rewriter would have thrown when it touched it. The empty bag meant "no browser
+            // information", which resolved to BrowserTypes.Normal.
+            //
+            // ASP.NET Core has no Request.Browser at all (see the comment in FriendlyUrlController):
+            // FriendlyUrlController.GetBrowserType now derives the browser type from the request
+            // itself — the mobile-view cookie and the client-capability lookup over the User-Agent.
+            // Setting an explicit desktop User-Agent is the modern equivalent of the empty
+            // capabilities bag: it keeps every browser-type-dependent case deterministically on the
+            // BrowserTypes.Normal path instead of leaving it to depend on an absent header.
+            var request = HttpContextSource.CurrentOrThrow.Request;
+            request.Headers.UserAgent =
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
         }
 
         private void ProcessRequest(FriendlyUrlSettings settings, UrlTestHelper testHelper)
         {
             var provider = new AdvancedUrlRewriter();
+            var context = HttpContextSource.CurrentOrThrow;
 
             provider.ProcessTestRequestWithContext(
-                HttpContext.Current,
-                HttpContext.Current.Request.Url,
+                context,
+                new Uri(context.Request.GetDisplayUrl()),
                 true,
                 testHelper.Result,
                 settings);
-            testHelper.Response = HttpContext.Current.Response;
+            testHelper.Response = context.Response;
         }
 
         private string ReplaceTokens(Dictionary<string, string> testFields, string url, string theTabId)
@@ -586,14 +599,17 @@ namespace DotNetNuke.Tests.Urls
 
             this.CreateSimulatedRequest(new Uri(testUrl));
 
-            var request = HttpContext.Current.Request;
+            var request = HttpContextSource.CurrentOrThrow.Request;
             var testHelper = new UrlTestHelper
             {
                 HttpAliasFull = scheme + httpAlias + "/",
                 Result = new UrlAction(request)
                 {
-                    IsSecureConnection = request.IsSecureConnection,
-                    RawUrl = request.RawUrl,
+                    // System.Web's Request.IsSecureConnection is Request.IsHttps on ASP.NET Core,
+                    // and Request.RawUrl is recomposed from PathBase + Path + QueryString by the
+                    // platform's GetRawUrl() extension.
+                    IsSecureConnection = request.IsHttps,
+                    RawUrl = request.GetRawUrl(),
                 },
                 RequestUri = new Uri(testUrl),
                 QueryStringCol = new NameValueCollection(),

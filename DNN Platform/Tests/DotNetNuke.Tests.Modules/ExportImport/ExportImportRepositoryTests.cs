@@ -7,7 +7,6 @@ namespace DotNetNuke.Tests.Modules.ExportImport
     using System;
     using System.IO;
     using System.Linq;
-    using System.Reflection;
 
     using Dnn.ExportImport.Dto.Assets;
     using Dnn.ExportImport.Repository;
@@ -157,8 +156,9 @@ namespace DotNetNuke.Tests.Modules.ExportImport
 
         private static string TestDataDirectory()
         {
-            var assemblyDir = Path.GetDirectoryName(new Uri(typeof(ExportImportRepositoryTests).Assembly.CodeBase).LocalPath);
-            return Path.Combine(assemblyDir, "ExportImport", "TestData");
+            // Assembly.CodeBase does not exist on modern .NET; AppContext.BaseDirectory is the
+            // directory the test host copies the assembly and its Content items into.
+            return Path.Combine(AppContext.BaseDirectory, "ExportImport", "TestData");
         }
 
         private string CopyFixture(string fixtureName)

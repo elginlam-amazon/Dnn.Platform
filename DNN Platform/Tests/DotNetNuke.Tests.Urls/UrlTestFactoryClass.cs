@@ -7,6 +7,7 @@ namespace DotNetNuke.Tests.Urls
     using System;
     using System.Collections;
     using System.Collections.Generic;
+    using System.IO;
 
     using DotNetNuke.Entities.Urls;
     using NUnit.Framework;
@@ -19,7 +20,7 @@ namespace DotNetNuke.Tests.Urls
             {
                 var testData = new ArrayList();
 
-                TestUtil.ReadStream("FriendlyUrl\\BaseTestList", (line, header) => GetTestsWithAliases("FriendlyUrl", line, testData));
+                TestUtil.ReadStream(Path.Combine("FriendlyUrl", "BaseTestList"), (line, header) => GetTestsWithAliases("FriendlyUrl", line, testData));
 
                 return testData;
             }
@@ -43,7 +44,7 @@ namespace DotNetNuke.Tests.Urls
             {
                 var testData = new ArrayList();
 
-                TestUtil.ReadStream("FriendlyUrl\\ImprovedTestList", (line, header) => GetTestsWithAliases("FriendlyUrl", line, testData));
+                TestUtil.ReadStream(Path.Combine("FriendlyUrl", "ImprovedTestList"), (line, header) => GetTestsWithAliases("FriendlyUrl", line, testData));
 
                 return testData;
             }
@@ -91,7 +92,7 @@ namespace DotNetNuke.Tests.Urls
             {
                 var testData = new ArrayList();
 
-                TestUtil.ReadStream("FriendlyUrl\\ReplaceCharsTestList", (line, header) => GetTestsWithAliases("FriendlyUrl", line, testData));
+                TestUtil.ReadStream(Path.Combine("FriendlyUrl", "ReplaceCharsTestList"), (line, header) => GetTestsWithAliases("FriendlyUrl", line, testData));
 
                 return testData;
             }
@@ -139,7 +140,7 @@ namespace DotNetNuke.Tests.Urls
             {
                 var testData = new ArrayList();
 
-                TestUtil.ReadStream("UrlRewrite\\TestList", (line, header) => GetTestsWithAliases("UrlRewrite", line, testData));
+                TestUtil.ReadStream(Path.Combine("UrlRewrite", "TestList"), (line, header) => GetTestsWithAliases("UrlRewrite", line, testData));
 
                 return testData;
             }
@@ -236,7 +237,7 @@ namespace DotNetNuke.Tests.Urls
             {
                 var testData = new ArrayList();
 
-                TestUtil.ReadStream("UrlRewrite\\ReplaceCharsTestList", (line, header) => GetTestsWithAliases("UrlRewrite", line, testData));
+                TestUtil.ReadStream(Path.Combine("UrlRewrite", "ReplaceCharsTestList"), (line, header) => GetTestsWithAliases("UrlRewrite", line, testData));
 
                 return testData;
             }
@@ -300,7 +301,7 @@ namespace DotNetNuke.Tests.Urls
             var settings = new FriendlyUrlSettings(portalId);
 
             // Read Test Settings
-            TestUtil.ReadStream($@"{testType}\{testName}\{settingsFile}", (line, header) =>
+            TestUtil.ReadStream(Path.Combine(testType, testName, settingsFile), (line, header) =>
             {
                 string[] fields = line.Split(',');
                 string key = fields[0].Trim();
@@ -336,7 +337,7 @@ namespace DotNetNuke.Tests.Urls
             var dictionary = new Dictionary<string, string>();
 
             // Read Test Settings
-            TestUtil.ReadStream($@"{testType}\{testName}\{settingsFile}", (line, header) =>
+            TestUtil.ReadStream(Path.Combine(testType, testName, settingsFile), (line, header) =>
             {
                 string[] fields = line.Split(',');
                 string key = fields[0].Trim();
@@ -361,7 +362,7 @@ namespace DotNetNuke.Tests.Urls
             try
             {
                 // Read Test File Data
-                TestUtil.ReadStream($@"{testType}\{testName}\TestFile", (line, header) =>
+                TestUtil.ReadStream(Path.Combine(testType, testName, "TestFile"), (line, header) =>
                             {
                                 var fieldList = new Dictionary<string, string>
                                 {

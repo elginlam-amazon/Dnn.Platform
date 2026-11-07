@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -10,7 +10,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Identity.Client" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Moq" />
@@ -24,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.Web" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
@@ -36,7 +35,27 @@
 
   <ItemGroup>
     <AdditionalFiles Include="..\..\..\stylecop.json" Link="stylecop.json" />
-    <None Include="..\App.config" Link="App.config" />  
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- The CSV test-case sources and the per-test SetUp.sql/TearDown.sql scripts are located at
+         runtime relative to AppContext.BaseDirectory (see TestUtil.FilePath), so they must be
+         copied next to the test assembly. On net48 they were read out of the project directory via
+         Assembly.CodeBase, which does not exist on modern .NET. An empty TestCaseSource would
+         silently erase tests while the build stayed green, so this item is load-bearing. -->
+    <None Update="TestFiles\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- DotNetNuke.config and SiteUrls.config are DNN *runtime content* (skinning defaults,
+         RewriterRules / RewriterConfig rules), read through Config/ApplicationMapPath rather than
+         through the .NET configuration system; they are therefore NOT folded into appsettings.json.
+         They are copied next to the test assembly so the SiteUrls regex cases keep a rule file. -->
+    <None Update="DotNetNuke.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="SiteUrls.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
