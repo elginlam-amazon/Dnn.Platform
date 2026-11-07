@@ -1,24 +1,54 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!-- Module.build's CopyBin copies from bin\ directly, so no TFM subfolder. -->
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
     <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
+    <!-- BL0005: EditBarModule constructs ContentEditorManager and assigns its Skin parameter from
+         outside the component. That assignment is REQUIRED - Skin must be a [Parameter] or the
+         renderer-owned instance (DnnComponentParameters.Capture copies only [Parameter] values)
+         would see Skin == null and every pane-dependent behaviour would silently no-op. The same
+         pattern and the same suppression are used by the already migrated DNNConnect.CKEditorProvider,
+         Groups, Journal, HTML, MemberDirectory, ResourceManager and RazorHost projects.
+         CA1822: ContentEditorManager.PortalSettings intentionally stays an INSTANCE property - it
+         replaces UserControlBase.PortalSettings and is consumed as this.PortalSettings throughout the
+         control; making it static would change the ported call sites for no behavioural gain. Listed
+         as not-an-error by every migrated module csproj above for the same reason. -->
+    <WarningsNotAsErrors>SA1600,BL0005,CA1822</WarningsNotAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Properties/AssemblyInfo.cs is KEPT: the linked SolutionInfo.cs only carries
+         AssemblyCompany/Product/Copyright/Trademark/Version/FileVersion/InformationalVersion -
+         it has no AssemblyTitle, AssemblyDescription, CLSCompliant, ComVisible, Guid or
+         AssemblyDelaySign, all of which this project's Properties/AssemblyInfo.cs provides
+         (verified against SolutionInfo.cs). So GenerateAssemblyInfo stays false and both
+         files are compiled, exactly as on net48. -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Replaces the System.Web and System.Web.Extensions GAC references that existed on net48:
+         the service controllers are ASP.NET Core controllers, the EditBar skin control is a
+         Blazor component and the former IHttpModule is an IHostedService, so the MVC,
+         Components, Hosting and Http types all come from the shared framework. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.Web" />
-    <Reference Include="System.Web.Extensions" />
+    <!-- Newtonsoft.Json at the central Directory.Packages.props version: ContentEditorManager
+         and Services/LocalizationController serialize with JsonConvert directly. No
+         Microsoft.Extensions.DependencyInjection* PackageReference is added - on net10.0 those
+         types ship in the shared framework referenced above and an explicit package reference
+         is rejected by NuGet (NU1510, warning-as-error here). -->
+    <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,6 +63,18 @@
     <ProjectReference Include="..\..\Dnn.PersonaBar.Extensions\Dnn.PersonaBar.Extensions.csproj" />
     <ProjectReference Include="..\..\Library\Dnn.PersonaBar.Library\Dnn.PersonaBar.Library.csproj" />
     <ProjectReference Include="..\Dnn.EditBar.Library\Dnn.EditBar.Library.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The six .resx files under editBar/ are DNN *runtime* localization files: the installer
+         copies them to DesktopModules/admin/Dnn.EditBar/{App_LocalResources,Resources/...} (see
+         Module.build) and Localization.GetString / Controllers.LocalizationController read them
+         from disk as XML. They are not compiled resources, so they are removed from the SDK's
+         default EmbeddedResource glob - embedding them (or converting them to IStringLocalizer,
+         moving them, or generating .Designer.cs) would break packaged installs and the
+         LocalizationController JSON contract. Packaging is handled by Module.build, not by the
+         build output, so no Content/None item is needed either. -->
+    <EmbeddedResource Remove="editBar/**/*.resx" />
   </ItemGroup>
 
   <ItemGroup>

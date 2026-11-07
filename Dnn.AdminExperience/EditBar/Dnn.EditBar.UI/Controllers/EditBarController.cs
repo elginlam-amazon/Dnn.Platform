@@ -9,14 +9,13 @@ namespace Dnn.EditBar.UI.Controllers
     using System.Globalization;
     using System.IO;
     using System.Linq;
-    using System.Web;
-    using System.Web.Hosting;
 
     using Dnn.EditBar.Library.Items;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Extensions;
+    using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Controllers;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Entities.Portals;
@@ -64,13 +63,17 @@ namespace Dnn.EditBar.UI.Controllers
             settings.Add("applicationPath", Globals.ApplicationPath);
             settings.Add("buildNumber", this.hostSettings.CrmVersion.ToString(CultureInfo.InvariantCulture));
             settings.Add("userId", user.UserID);
-            settings.Add("debugMode", HttpContextSource.Current is { IsDebuggingEnabled: true, });
+
+            // Replaces HttpContext.IsDebuggingEnabled (the <compilation debug="true"/> switch, which
+            // does not exist on ASP.NET Core) with the host's DebugMode setting — the same
+            // substitution JavaScript.cs made in the platform.
+            settings.Add("debugMode", this.hostSettings.DebugMode);
             settings.Add("portalId", portalSettings.PortalId);
             settings.Add("culture", portalSettings.CultureCode);
-            settings.Add("loginUrl", Globals.LoginURL(HttpContext.Current?.Request.RawUrl, false));
+            settings.Add("loginUrl", Globals.LoginURL(HttpContextSource.Current?.Request.GetRawUrl(), false));
             settings.Add("items", this.GetMenuItems());
 
-            var customEditBarThemePath = HostingEnvironment.MapPath("~/Portals/_default/EditBarTheme.css");
+            var customEditBarThemePath = HttpContextSource.MapPath("~/Portals/_default/EditBarTheme.css");
             var customEditBarThemeExists = File.Exists(customEditBarThemePath);
             settings.Add("editBarTheme", customEditBarThemeExists);
 

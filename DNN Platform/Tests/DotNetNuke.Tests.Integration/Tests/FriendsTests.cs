@@ -6,7 +6,6 @@ namespace DotNetNuke.Tests.Integration.Tests
 {
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
     using System.Linq;
     using System.Text;
     using System.Threading.Tasks;
@@ -24,6 +23,7 @@ namespace DotNetNuke.Tests.Integration.Tests
     using DotNetNuke.Security.Profile;
     using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.Tests.Instance.Utilities;
     using NUnit.Framework;
 
     public class FriendsTests : IntegrationTestBase
@@ -43,7 +43,7 @@ namespace DotNetNuke.Tests.Integration.Tests
                 { "name", "SqlDataProvider" },
                 { "type", "DotNetNuke.Data.SqlDataProvider, DotNetNuke" },
                 { "connectionStringName", "SiteSqlServer" },
-                { "objectQualifier", ConfigurationManager.AppSettings["objectQualifier"] },
+                { "objectQualifier", TestConfiguration.GetSetting("objectQualifier") ?? string.Empty },
                 { "databaseOwner", "dbo." },
             });
             ComponentFactory.InstallComponents(new ProviderInstaller("caching", typeof(CachingProvider), typeof(FBCachingProvider)));

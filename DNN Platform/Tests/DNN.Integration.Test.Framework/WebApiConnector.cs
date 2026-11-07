@@ -154,6 +154,7 @@ namespace DNN.Integration.Test.Framework
                     var requestUriString = CombineUrlPath(this.Domain, LogoffPath);
                     using (var handler = new HttpClientHandler
                     {
+                        ServerCertificateCustomValidationCallback = ServerCertificateValidation.AcceptAny ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator : null,
                         CookieContainer = this._sessionCookiesContainer,
                     })
                     using (var client = new HttpClient(handler)
@@ -353,6 +354,7 @@ namespace DNN.Integration.Test.Framework
 
             var clientHandler = new HttpClientHandler
             {
+                ServerCertificateCustomValidationCallback = ServerCertificateValidation.AcceptAny ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator : null,
                 CookieContainer = this._sessionCookiesContainer,
             };
 
@@ -808,6 +810,7 @@ namespace DNN.Integration.Test.Framework
         {
             using (var clientHandler = new HttpClientHandler
             {
+                ServerCertificateCustomValidationCallback = ServerCertificateValidation.AcceptAny ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator : null,
                 AllowAutoRedirect = false,
             })
             using (var client = new HttpClient(clientHandler))
@@ -861,6 +864,7 @@ namespace DNN.Integration.Test.Framework
         {
             var clientHandler = new HttpClientHandler
             {
+                ServerCertificateCustomValidationCallback = ServerCertificateValidation.AcceptAny ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator : null,
                 AllowAutoRedirect = autoRedirect,
                 CookieContainer = this._sessionCookiesContainer,
             };
@@ -957,6 +961,7 @@ namespace DNN.Integration.Test.Framework
             // legacy HttpWebResponse was. They are released when the response is disposed.
             var handler = new HttpClientHandler
             {
+                ServerCertificateCustomValidationCallback = ServerCertificateValidation.AcceptAny ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator : null,
                 AllowAutoRedirect = followRedirect,
                 CookieContainer = this._sessionCookiesContainer,
             };

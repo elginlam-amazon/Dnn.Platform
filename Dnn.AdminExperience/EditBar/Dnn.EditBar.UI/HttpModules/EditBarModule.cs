@@ -5,8 +5,8 @@
 namespace Dnn.EditBar.UI.HttpModules
 {
     using System;
-    using System.Diagnostics.CodeAnalysis;
-    using System.Web;
+    using System.Threading;
+    using System.Threading.Tasks;
 
     using Dnn.EditBar.UI.Controllers;
 
@@ -25,9 +25,21 @@ namespace Dnn.EditBar.UI.HttpModules
     using DotNetNuke.UI.Skins.EventListeners;
 
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Hosting;
 
-    /// <summary>An HTTP module which injects the <see cref="ContentEditorManager"/> control on requests that may need to contain the Edit Bar.</summary>
-    public class EditBarModule : IHttpModule
+    /// <summary>An <see cref="IHostedService"/> which injects the <see cref="ContentEditorManager"/> component on requests that may need to contain the Edit Bar.</summary>
+    /// <remarks>
+    /// Was an <c>IHttpModule</c> registered through the extension's <c>.dnn</c> manifest
+    /// (<c>system.webServer/modules</c>) whose <c>Init(HttpApplication)</c> performed the
+    /// application-start work once behind a double-checked lock (ASP.NET created one module
+    /// instance per <c>HttpApplication</c>) and whose <c>Dispose</c> was a no-op. ASP.NET Core has
+    /// no <c>IHttpModule</c> pipeline, so the application-lifetime equivalent is a hosted service:
+    /// <see cref="StartAsync"/> is the former <c>Init</c> and <see cref="StopAsync"/> the former
+    /// <c>Dispose</c> (still a no-op — there was no application-end behavior to preserve). The
+    /// once-only guard is kept because <see cref="ApplicationStart"/> adds a global skin-event
+    /// listener that must never be added twice. Mirrors <c>Dnn.PersonaBar.UI.HttpModules.PersonaBarModule</c>.
+    /// </remarks>
+    public class EditBarModule : IHostedService
     {
         private static readonly object LockAppStarted = new object();
         private static bool hasAppStarted;
@@ -69,29 +81,32 @@ namespace Dnn.EditBar.UI.HttpModules
         }
 
         /// <inheritdoc />
-        [SuppressMessage("Microsoft.Naming", "CA1725:ParameterNamesShouldMatchBaseDeclaration", Justification = "Breaking change")]
-        public void Init(HttpApplication application)
+        public Task StartAsync(CancellationToken cancellationToken)
         {
             if (hasAppStarted)
             {
-                return;
+                return Task.CompletedTask;
             }
 
             lock (LockAppStarted)
             {
                 if (hasAppStarted)
                 {
-                    return;
+                    return Task.CompletedTask;
                 }
 
                 this.ApplicationStart();
                 hasAppStarted = true;
             }
+
+            return Task.CompletedTask;
         }
 
         /// <inheritdoc />
-        public void Dispose()
+        public Task StopAsync(CancellationToken cancellationToken)
         {
+            // The former IHttpModule.Dispose was a no-op, so there is no application-end behavior to run.
+            return Task.CompletedTask;
         }
 
         private void ApplicationStart()
@@ -106,8 +121,10 @@ namespace Dnn.EditBar.UI.HttpModules
                 return;
             }
 
-            var request = e.Skin.Page.Request;
-            var isSpecialPageMode = request.QueryString["dnnprintmode"] == "true" || request.QueryString["popUp"] == "true";
+            // The Blazor skin exposes the ASP.NET Core request directly (there is no
+            // System.Web.UI.Page behind e.Skin.Page any more, so e.Skin.Page.Request is gone).
+            var request = e.Skin.Request;
+            var isSpecialPageMode = request.Query["dnnprintmode"].ToString() == "true" || request.Query["popUp"].ToString() == "true";
             if (isSpecialPageMode || Globals.IsAdminControl())
             {
                 return;
@@ -126,7 +143,9 @@ namespace Dnn.EditBar.UI.HttpModules
                     var hostSettingsService = scope.ServiceProvider.GetRequiredService<IHostSettingsService>();
                     var servicesFramework = scope.ServiceProvider.GetRequiredService<IServicesFramework>();
 
-                    e.Skin.Page.Form.Controls.Add(new ContentEditorManager(clientResourceController, appStatus, eventLogger, portalController, this.hostSettings, userController, hostSettingsService, servicesFramework) { Skin = e.Skin, });
+                    // The Blazor skin has no <form runat="server">, so the component is added to
+                    // the skin's own control tree instead of e.Skin.Page.Form.Controls.
+                    e.Skin.Controls.Add(new ContentEditorManager(clientResourceController, appStatus, eventLogger, portalController, this.hostSettings, userController, hostSettingsService, servicesFramework) { Skin = e.Skin, });
                 }
             }
         }

@@ -5,7 +5,6 @@
 namespace DotNetNuke.Tests.Integration.Modules.DDRMenu
 {
     using System.Collections.Generic;
-    using System.Configuration;
     using System.Linq;
     using System.Threading.Tasks;
 
@@ -26,9 +25,9 @@ namespace DotNetNuke.Tests.Integration.Modules.DDRMenu
 
         public DDRMenuTests()
         {
-            var url = ConfigurationManager.AppSettings["siteUrl"];
-            this._hostName = ConfigurationManager.AppSettings["hostUsername"];
-            this._hostPass = ConfigurationManager.AppSettings["hostPassword"];
+            var url = AppConfigHelper.SiteUrl;
+            this._hostName = AppConfigHelper.HostUserName;
+            this._hostPass = AppConfigHelper.HostPassword;
         }
 
         [OneTimeSetUp]

@@ -5,9 +5,9 @@ namespace DotNetNuke.Tests.Data
 {
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
 
     using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Common;
     using DotNetNuke.Data;
     using DotNetNuke.Data.PetaPoco;
     using DotNetNuke.Tests.Data.Models;
@@ -118,7 +118,7 @@ namespace DotNetNuke.Tests.Data
 
             // Assert
             Database db = Util.GetPrivateMember<PetaPocoDataContext, Database>(context, "_database");
-            string connectionString = ConfigurationManager.ConnectionStrings[connectionStringName].ConnectionString;
+            string connectionString = ConfigurationSource.GetConnectionString(connectionStringName);
 
             Assert.That(Util.GetPrivateMember<Database, string>(db, "_connectionString"), Is.EqualTo(connectionString));
         }
