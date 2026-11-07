@@ -8,7 +8,6 @@ namespace Dnn.PersonaBar.Prompt.Components.Repositories
     using System.Linq;
     using System.Reflection;
     using System.Text.RegularExpressions;
-    using System.Web.Caching;
 
     using Dnn.PersonaBar.Library.Prompt;
     using Dnn.PersonaBar.Library.Prompt.Attributes;
@@ -20,6 +19,7 @@ namespace Dnn.PersonaBar.Prompt.Components.Repositories
     using DotNetNuke.Framework;
     using DotNetNuke.Framework.Reflections;
     using DotNetNuke.Internal.SourceGenerators;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Localization;
 
     using Microsoft.Extensions.DependencyInjection;

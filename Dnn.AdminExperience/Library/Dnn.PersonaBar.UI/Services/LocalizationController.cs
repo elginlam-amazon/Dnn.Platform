@@ -9,18 +9,18 @@ namespace Dnn.PersonaBar.UI.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Text;
-    using System.Web;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
 
     using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Mvc;
     using Newtonsoft.Json;
 
     /// <summary>A Persona Bar API controller for localization.</summary>
@@ -48,7 +48,7 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="culture">The culture name.</param>
         /// <returns>A response with a dictionary of resource file names to resource dictionaries.</returns>
         [HttpGet]
-        public HttpResponseMessage GetTable(string culture)
+        public IActionResult GetTable(string culture)
         {
             try
             {
@@ -65,25 +65,25 @@ namespace Dnn.PersonaBar.UI.Services
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, resources);
+                return this.Ok(resources);
             }
             catch (Exception ex)
             {
                 Exceptions.LogException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.NotFound, ex.Message);
             }
         }
 
         private static string GetJsonFileContent(string culture)
         {
             var path = GetResourcesJsonFilePath(culture);
-            return File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8) : null;
+            return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path, Encoding.UTF8) : null;
         }
 
         private static string GetResourcesJsonFilePath(string culture)
         {
             var path = Path.Combine(Constants.PersonaBarRelativePath, "Resources", $"LocalResources.{culture}.resources");
-            return HttpContext.Current.Server.MapPath(path);
+            return HttpContextSource.MapPath(path);
         }
 
         private IDictionary<string, IDictionary<string, string>> GetResourcesFromFile(string culture)
@@ -135,7 +135,7 @@ namespace Dnn.PersonaBar.UI.Services
             {
                 var key = resourcesFile.Key;
                 var relativePath = resourcesFile.Value.Replace(this.appStatus.ApplicationMapPath, "~").Replace(@"\", "/");
-                if (File.Exists(HttpContext.Current.Server.MapPath(relativePath)))
+                if (System.IO.File.Exists(HttpContextSource.MapPath(relativePath)))
                 {
                     var keys = this.GetLocalizedDictionary(relativePath, culture);
                     resources.Add(key, keys);
@@ -150,7 +150,7 @@ namespace Dnn.PersonaBar.UI.Services
                 Directory.CreateDirectory(folderPath);
             }
 
-            File.WriteAllText(filePath, content, Encoding.UTF8);
+            System.IO.File.WriteAllText(filePath, content, Encoding.UTF8);
 
             return resources;
         }
@@ -167,12 +167,12 @@ namespace Dnn.PersonaBar.UI.Services
                 var culturePart = fallbackCulture.Equals(Localization.SystemLocale, StringComparison.OrdinalIgnoreCase)
                                     ? string.Empty : "." + fallbackCulture;
                 var fallbackFilePath = $"{folder}//{fileName}{culturePart}.resx";
-                if (!File.Exists(HttpContext.Current.Server.MapPath(fallbackFilePath)))
+                if (!System.IO.File.Exists(HttpContextSource.MapPath(fallbackFilePath)))
                 {
                     fallbackFilePath = $"{folder}//{fileName}.resx";
                 }
 
-                if (File.Exists(HttpContext.Current.Server.MapPath(fallbackFilePath)))
+                if (System.IO.File.Exists(HttpContextSource.MapPath(fallbackFilePath)))
                 {
                     var fallbackDict = Dnn.PersonaBar.Library.Controllers.LocalizationController.Instance.GetLocalizedDictionary(fallbackFilePath, culture);
                     foreach (var kvp in fallbackDict)
@@ -201,7 +201,7 @@ namespace Dnn.PersonaBar.UI.Services
 
         private Dictionary<string, string> GetAllResourceFiles(string culture)
         {
-            var physicalPath = HttpContext.Current.Server.MapPath(Constants.PersonaBarRelativePath);
+            var physicalPath = HttpContextSource.MapPath(Constants.PersonaBarRelativePath);
             var allFiles = Directory.GetFiles(physicalPath, "*.resx", SearchOption.AllDirectories);
             var resourceFiles = new Dictionary<string, string>();
             foreach (var resourceFile in allFiles)
@@ -213,7 +213,7 @@ namespace Dnn.PersonaBar.UI.Services
                     continue;
                 }
 
-                if (key.Contains(".", StringComparison.Ordinal))
+                if (key.Contains('.'))
                 {
                     key = key.Substring(0, key.IndexOf(".", StringComparison.InvariantCultureIgnoreCase));
                 }

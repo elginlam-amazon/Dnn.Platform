@@ -7,8 +7,6 @@ namespace Dnn.PersonaBar.UI.Services
     using System;
     using System.Collections.Generic;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -22,7 +20,12 @@ namespace Dnn.PersonaBar.UI.Services
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
+
+    // DNN's own anti-forgery attribute (the one the services framework validates) is kept, aliased
+    // because the Microsoft.AspNetCore.Mvc namespace also defines ValidateAntiForgeryTokenAttribute.
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A Persona Bar API controller for user settings.</summary>
     [MenuPermission(Scope = ServiceScope.Regular)]
@@ -55,7 +58,7 @@ namespace Dnn.PersonaBar.UI.Services
         /// <returns>A response with an empty object.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateUserSettings(IDictionary<string, object> settings)
+        public IActionResult UpdateUserSettings(IDictionary<string, object> settings)
         {
             try
             {
@@ -69,12 +72,12 @@ namespace Dnn.PersonaBar.UI.Services
                 });
 
                 controller.UpdatePersonaBarUserSettings(userSettings, this.UserInfo.UserID, portalId);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { });
+                return this.Ok(new { });
             }
             catch (Exception ex)
             {
                 Exceptions.LogException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.NotFound, ex.Message);
             }
         }
     }

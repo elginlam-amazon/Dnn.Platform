@@ -1,0 +1,375 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Modules
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using System.Globalization
+@using System.IO
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.Web.UI.WebControls.Internal
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+
+@*
+    Replaces admin/Modules/viewsource.ascx + viewsource.ascx.cs + viewsource.ascx.designer.cs,
+    element for element. A control which displays (and, for a local request only, writes) the
+    source code for a module.
+
+    Control mapping:
+      - dnn:Label plFile / dnn:label plSource -> <LabelControl> with the same ControlName and the
+        same resource keys (the ID is the key).
+      - dnn:DnnComboBox cboFile (AutoPostBack) -> the migrated DnnComboBox component; its
+        SelectedIndexChanged handler is wired through SelectedIndexChangedCallback, so the same
+        DisplayFile() runs on every selection change.
+      - asp:Label lblSourceFile (Visible=false) -> the conditional span.
+      - <div id="trSource" runat="server" visible="false"> -> the conditional div.
+      - asp:TextBox txtSource (MultiLine, 20 rows, 80 cols) -> the textarea, disabled exactly when
+        the WebForms text box was disabled (txtSource.Enabled = CanEditSource).
+      - asp:LinkButton cmdUpdate -> the anchor whose @@onclick is OnUpdateClick, rendered only when
+        CanEditSource (cmdUpdate.Visible = CanEditSource).
+      - asp:HyperLink cmdCancel -> the anchor whose href is ReturnUrl.
+
+    *** SECURITY - THE EDIT GUARD IS PRESERVED EXACTLY ***
+    The WebForms control gated BOTH the save button and the editability of the text box on one
+    expression: `protected bool CanEditSource => this.Request.IsLocal;`
+    `HttpRequest.IsLocal` does not exist on ASP.NET Core, so it is replaced by the same loopback /
+    remote-equals-local test the rest of the platform already uses for it
+    (ApplicationStatusInfo.IsLocalRequest and ImageHandlerInternal.IsLocal). The value is evaluated
+    ONCE, from the request that produced the page, and cached - a Blazor circuit has no
+    HttpContext, so re-evaluating it later would silently change the answer. When there is no
+    request at all the cached value is FALSE: the guard fails closed and is never widened.
+    Nothing else gates this control; access to it is gated by the module control's own security,
+    which is unchanged.
+
+    Path handling: the file that is read and written is NOT derived from user input. It is
+    `ModuleControlController.GetModuleControl(hostSettings, ModuleControlId).ControlSrc`, a value
+    read from the database by the integer `ctlid` query string parameter, and the file is always
+    one of exactly three forms of it (the control itself, its .vb/.cs code file, or its
+    App_LocalResources/<name>.resx). That set is reproduced verbatim below - it is not widened, and
+    no new extension or directory is accepted. `this.Server.MapPath(controlSrc)` (viewsource.ascx.cs
+    lines 105 and 123) becomes `HttpContextSource.MapPath(controlSrc)`, which resolves against the
+    content root.
+
+    No @@rendermode directive on purpose: the component is a descendant of
+    <Routes @@rendermode="RenderModeForPage"> in Website/Components/App.razor (InteractiveServer).
+*@
+
+<div class="dnnForm dnnViewSource dnnClear">
+    <fieldset>
+        <div class="dnnFormItem">
+            <LabelControl ID="plFile" LocalResourceFile="@this.LocalResourceFile" />
+            <DnnComboBox @ref="this.cboFile" AutoPostBack="true" SelectedIndexChangedCallback="@this.OnFileIndexChanged" />
+        </div>
+        <div class="dnnFormItem" style="text-align:center">
+            @if (this.sourceFileVisible)
+            {
+                <span id="lblSourceFile">@this.sourceFileText</span>
+            }
+        </div>
+        @if (this.sourceVisible)
+        {
+            <div class="dnnFormItem" id="trSource">
+                <LabelControl ID="plSource" ControlName="txtSource" LocalResourceFile="@this.LocalResourceFile" />
+                <textarea id="txtSource" rows="20" cols="80" disabled="@(!this.CanEditSource)"
+                          @onchange="@(e => this.SourceText = e.Value?.ToString() ?? string.Empty)">@this.SourceText</textarea>
+            </div>
+        }
+    </fieldset>
+    <ul class="dnnActions dnnClear">
+        @if (this.CanEditSource)
+        {
+            <li><a id="cmdUpdate" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.OnUpdateClick" @onclick:preventDefault="true">@this.LocalizeText("cmdUpdate")</a></li>
+        }
+        <li><a id="cmdCancel" class="dnnSecondaryAction" href="@this.cancelUrl">@this.LocalizeText("cmdCancel")</a></li>
+    </ul>
+</div>
+
+@code {
+    private readonly INavigationManager navigationManager;
+    private readonly IHostSettings hostSettings;
+
+    private DnnComboBox cboFile;
+    private string cancelUrl = string.Empty;
+    private string sourceFileText = string.Empty;
+    private bool sourceFileVisible;
+    private bool sourceVisible;
+    private bool initialBindDone;
+
+    // Was Request.IsLocal, read on every access. It is captured once from the request that
+    // produced the page (see the remarks above) and defaults to false - deny - when there is none.
+    private bool canEditSource;
+    private int moduleControlId = Null.NullInteger;
+
+    /// <summary>Initializes a new instance of the <see cref="ViewSource"/> class.</summary>
+    /// <remarks>A Blazor component cannot take constructor parameters; the services are resolved
+    /// from the module's dependency provider, which is what the parameterless overload did.</remarks>
+    public ViewSource()
+    {
+        this.navigationManager = this.DependencyProvider.GetRequiredService<INavigationManager>();
+        this.hostSettings = this.DependencyProvider.GetRequiredService<IHostSettings>();
+    }
+
+    /// <summary>Gets a value indicating whether the source may be edited (was <c>Request.IsLocal</c>).</summary>
+    protected bool CanEditSource => this.canEditSource;
+
+    /// <summary>Gets the id of the module control whose source is shown (was the <c>ctlid</c> query string).</summary>
+    protected int ModuleControlId => this.moduleControlId;
+
+    /// <summary>Gets or sets the source text (was <c>txtSource.Text</c>).</summary>
+    protected string SourceText { get; set; } = string.Empty;
+
+    /// <summary>Gets the navigation manager used for the redirect <c>Response.Redirect</c> issued.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    private string ReturnUrl => UrlUtils.ValidReturnUrl(this.Request?.GetValue("ReturnURL")) ?? this.navigationManager.NavigateURL();
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Was the body of <c>OnLoad</c>. Everything it read from the request (the <c>ctlid</c>
+    /// parameter and <c>Request.IsLocal</c>) has to be read while the request is still in flight,
+    /// which is this phase.
+    /// </remarks>
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // The .resx of this control is App_LocalResources/ViewSource.ascx.resx.
+        this.LocalResourceFile = "~/admin/Modules/" + Localization.LocalResourceDirectory + "/ViewSource.ascx";
+
+        var context = HttpContextSource.Current;
+
+        // *** THE GUARD. Fails closed when there is no request. ***
+        this.canEditSource = context != null && IsLocalRequest(context);
+
+        var ctlId = this.GetQueryValue("ctlid");
+        if (ctlId != null)
+        {
+            this.moduleControlId = int.Parse(ctlId);
+        }
+
+        this.cancelUrl = this.ReturnUrl;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The file picker is a child component, so it only exists once this component has rendered;
+    /// the BindFiles call the WebForms !IsPostBack branch made runs here, in the phase that was
+    /// OnPreRender. The <c>ViewState["UrlReferrer"]</c> slot the control also filled here was never
+    /// read by anything, and there is no view state, so it has no replacement.
+    /// </remarks>
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+
+        if (this.initialBindDone)
+        {
+            return;
+        }
+
+        this.initialBindDone = true;
+
+        try
+        {
+            var objModuleControl = ModuleControlController.GetModuleControl(this.hostSettings, this.ModuleControlId);
+            if (objModuleControl != null)
+            {
+                this.BindFiles(objModuleControl.ControlSrc);
+            }
+
+            this.StateHasChanged();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Displays the newly selected file (was <c>cboFile.SelectedIndexChanged</c>).</summary>
+    /// <param name="e">The event arguments.</param>
+    protected void OnFileIndexChanged(EventArgs e)
+    {
+        this.DisplayFile();
+    }
+
+    /// <summary>Writes the edited source back to disk (was <c>cmdUpdate.Click</c>).</summary>
+    protected void OnUpdateClick()
+    {
+        try
+        {
+            // The button is only rendered when CanEditSource, but the write is gated again here:
+            // the authority for writing a file on disk must not be the visibility of a link.
+            if (!this.CanEditSource)
+            {
+                return;
+            }
+
+            if (this.cboFile.SelectedValue == "None")
+            {
+                // No file type selected
+                DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("NoFileTypeSelected", this.LocalResourceFile), ModuleMessage.ModuleMessageType.RedError);
+            }
+            else
+            {
+                var objModuleControl = ModuleControlController.GetModuleControl(this.hostSettings, this.ModuleControlId);
+                if (objModuleControl != null)
+                {
+                    var srcVirtualPath = objModuleControl.ControlSrc;
+                    var srcPhysicalPath = this.GetSourceFileName(srcVirtualPath);
+                    if (File.Exists(srcPhysicalPath))
+                    {
+                        File.SetAttributes(srcPhysicalPath, FileAttributes.Normal);
+                        var objStream = File.CreateText(srcPhysicalPath);
+                        objStream.WriteLine(this.SourceText);
+                        objStream.Close();
+                    }
+                }
+
+                this.Navigation.NavigateTo(this.ReturnUrl, forceLoad: true);
+            }
+        }
+        catch (NavigationException)
+        {
+            // The redirect above; during a static server render NavigateTo signals the response by
+            // throwing, which the WebForms Response.Redirect did by ending the response.
+            throw;
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>
+    /// Determines whether the request originates from the local machine (replaces
+    /// <c>HttpRequest.IsLocal</c>).
+    /// </summary>
+    /// <param name="context">The request's context.</param>
+    /// <returns><see langword="true"/> when the request comes from a loopback address or the remote
+    /// and local addresses match.</returns>
+    /// <remarks>Identical to <c>ApplicationStatusInfo.IsLocalRequest</c> and
+    /// <c>ImageHandlerInternal.IsLocal</c>, the platform's two other replacements for it.</remarks>
+    private static bool IsLocalRequest(Microsoft.AspNetCore.Http.HttpContext context)
+    {
+        var connection = context.Connection;
+        var remoteIp = connection.RemoteIpAddress;
+        if (remoteIp == null)
+        {
+            // No remote address means the request was not made over the network (in-process/test host).
+            return true;
+        }
+
+        if (System.Net.IPAddress.IsLoopback(remoteIp))
+        {
+            return true;
+        }
+
+        return connection.LocalIpAddress != null && remoteIp.Equals(connection.LocalIpAddress);
+    }
+
+    private void BindFiles(string controlSrc)
+    {
+        this.cboFile.Items.Clear();
+
+        this.cboFile.AddItem(Localization.GetString("None_Specified"), "None");
+        this.cboFile.AddItem("User Control", "UserControl");
+
+        // Was this.Server.MapPath(controlSrc) - viewsource.ascx.cs:105.
+        var srcPhysicalPath = HttpContextSource.MapPath(controlSrc);
+        if (File.Exists(srcPhysicalPath + ".vb") || File.Exists(srcPhysicalPath + ".cs"))
+        {
+            this.cboFile.AddItem("Code File", "CodeFile");
+        }
+
+        var fileName = Path.GetFileName(srcPhysicalPath);
+        var folder = Path.GetDirectoryName(srcPhysicalPath);
+        if (File.Exists(folder + "\\App_LocalResources\\" + fileName + ".resx"))
+        {
+            this.cboFile.AddItem("Resource File", "ResourceFile");
+        }
+    }
+
+    private string GetSourceFileName(string controlSrc)
+    {
+        // Was this.Server.MapPath(controlSrc) - viewsource.ascx.cs:123.
+        var srcPhysicalPath = HttpContextSource.MapPath(controlSrc);
+        var srcFile = Null.NullString;
+        switch (this.cboFile.SelectedValue)
+        {
+            case "UserControl":
+                srcFile = srcPhysicalPath;
+                break;
+            case "CodeFile":
+                if (File.Exists(srcPhysicalPath + ".vb"))
+                {
+                    srcFile = srcPhysicalPath + ".vb";
+                }
+                else if (File.Exists(srcPhysicalPath + ".cs"))
+                {
+                    srcFile = srcPhysicalPath + ".cs";
+                }
+
+                break;
+            case "ResourceFile":
+                var fileName = Path.GetFileName(srcPhysicalPath);
+                var folder = Path.GetDirectoryName(srcPhysicalPath);
+                srcFile = folder + "\\App_LocalResources\\" + fileName + ".resx";
+                break;
+        }
+
+        return srcFile;
+    }
+
+    private void DisplayFile()
+    {
+        var objModuleControl = ModuleControlController.GetModuleControl(this.hostSettings, this.ModuleControlId);
+        if (objModuleControl != null)
+        {
+            var srcVirtualPath = objModuleControl.ControlSrc;
+            var srcFile = Null.NullString;
+            var displaySource = this.cboFile.SelectedValue != "None";
+
+            if (displaySource)
+            {
+                srcFile = this.GetSourceFileName(srcVirtualPath);
+                this.sourceFileText = string.Format(CultureInfo.CurrentCulture, Localization.GetString("SourceFile", this.LocalResourceFile), srcFile);
+
+                var objStreamReader = File.OpenText(srcFile);
+                this.SourceText = objStreamReader.ReadToEnd();
+                objStreamReader.Close();
+            }
+
+            this.sourceFileVisible = displaySource;
+            this.sourceVisible = displaySource;
+        }
+    }
+
+    /// <summary>Reads a query string value, from the captured request when there is one and from
+    /// the current URL otherwise (an interactive circuit has no <c>HttpContext</c>).</summary>
+    /// <param name="name">The query string key.</param>
+    /// <returns>The value, or <see langword="null"/> when the key is absent - the same
+    /// <c>Request.QueryString[key] != null</c> test the WebForms control made.</returns>
+    private string GetQueryValue(string name)
+    {
+        var request = this.Request;
+        if (request != null && request.Query.ContainsKey(name))
+        {
+            return request.Query[name].ToString();
+        }
+
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(this.Navigation.Uri).Query);
+        return query.TryGetValue(name, out var values) ? values.ToString() : null;
+    }
+}

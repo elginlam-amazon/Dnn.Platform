@@ -173,7 +173,7 @@ namespace DotNetNuke.UI.WebControls
             }
 
             JavaScript.RequestRegistration(this.appStatus, this.eventLogger, PortalSettings.Current, CommonJs.DnnPlugins);
-            this.clientResourceController.RegisterScript("~/Resources/Shared/Scripts/initTooltips.js");
+            this.clientResourceController.RegisterScript("~/resources/Shared/Scripts/initTooltips.js");
         }
 
         /// <inheritdoc />

@@ -11,8 +11,6 @@ namespace Dnn.PersonaBar.Security.Components
     using System.Linq;
     using System.Net;
     using System.Security.Cryptography;
-    using System.Web;
-    using System.Web.UI;
 
     using Dnn.PersonaBar.Security.Services.Dto;
 
@@ -31,15 +29,26 @@ namespace Dnn.PersonaBar.Security.Components
     {
         private static IPortalSettings PortalSettings => PortalController.Instance.GetCurrentSettings();
 
+        /// <summary>Gets the authentication types of every enabled, non-OAuth authentication provider.</summary>
+        /// <returns>A sequence of authentication type names.</returns>
+        /// <remarks>
+        /// On ASP.NET the provider's login control was instantiated with
+        /// <c>UserControl.LoadControl("~/" + LoginControlSrc)</c> purely so its
+        /// <see cref="AuthenticationLoginBase.Enabled"/> flag and its concrete type could be
+        /// inspected. There is no <c>LoadControl</c> on ASP.NET Core, so the platform's
+        /// <see cref="AuthenticationController.CreateLoginComponent(string)"/> seam is used
+        /// instead: it locates the provider's <see cref="AuthenticationLoginBase"/>-derived
+        /// component by reflection and instantiates it, yielding the very same
+        /// <c>Enabled</c> value and the same <see cref="OAuthLoginBase"/> type test.
+        /// </remarks>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         public IEnumerable<string> GetAuthenticationProviders()
         {
             var authSystems = AuthenticationController.GetEnabledAuthenticationServices();
-            UserControl uc = new UserControl();
             var authProviders = from authProvider in authSystems
-                                 let authLoginControl = (AuthenticationLoginBase)uc.LoadControl("~/" + authProvider.LoginControlSrc)
+                                 let authLoginControl = AuthenticationController.CreateLoginComponent(authProvider.LoginControlSrc)
                                  let oAuthLoginControl = authLoginControl as OAuthLoginBase
-                                 where oAuthLoginControl == null && authLoginControl.Enabled
+                                 where oAuthLoginControl == null && (authLoginControl?.Enabled ?? true)
                                  select authProvider.AuthenticationType;
 
             return authProviders;

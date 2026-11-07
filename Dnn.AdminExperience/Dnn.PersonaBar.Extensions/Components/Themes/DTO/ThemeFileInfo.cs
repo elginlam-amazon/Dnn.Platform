@@ -10,7 +10,6 @@ namespace Dnn.PersonaBar.Themes.Components.DTO
     using System.Linq;
     using System.Runtime.Serialization;
     using System.Text.RegularExpressions;
-    using System.Web;
 
     [Serializable]
     [DataContract]

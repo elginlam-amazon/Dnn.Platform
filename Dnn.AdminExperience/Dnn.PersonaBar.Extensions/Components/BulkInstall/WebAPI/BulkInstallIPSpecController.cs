@@ -8,8 +8,6 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Extensions.Components.BulkInstall;
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.DataAccess.Models;
@@ -18,6 +16,9 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Mvc;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for <see cref="IPSpec"/>.</summary>
     /// <param name="ipSpecManager">The IP spec manager.</param>
@@ -32,22 +33,22 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
         private readonly SettingManager settingManager = settingManager;
 
         /// <summary>Gets all <see cref="IPSpec"/> instances.</summary>
-        /// <returns>A request with a list of <see cref="IPSpec"/>.</returns>
+        /// <returns>A result with a list of <see cref="IPSpec"/>.</returns>
         [HttpGet]
-        public HttpResponseMessage GetAll()
+        public IActionResult GetAll()
         {
             List<IPSpec> ipSpecs = this.ipSpecManager.GetAll().ToList();
             var safelist = ipSpecs.Select(ip => new { ip.IPSpecId, ip.Name, ip.Address, });
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Safelist = safelist, });
+            return this.Ok(new { Safelist = safelist, });
         }
 
         /// <summary>Creates a new <see cref="IPSpec"/>.</summary>
         /// <param name="name">The label.</param>
         /// <param name="ip">The IP address.</param>
-        /// <returns>A response with the new <see cref="IPSpec"/>.</returns>
+        /// <returns>A result with the new <see cref="IPSpec"/>.</returns>
         [HttpPost]
-        public HttpResponseMessage Create(string name, string ip)
+        public IActionResult Create(string name, string ip)
         {
             IPSpec ipSpec;
 
@@ -57,26 +58,26 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
             }
             catch (IPSpecExistsException ex)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.Conflict, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.Conflict, ex.Message);
             }
             catch (Exception ex)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.Created, new { Ip = ipSpec, });
+            return DnnApiResults.Response(HttpStatusCode.Created, new { Ip = ipSpec, });
         }
 
         /// <summary>Deletes an <see cref="IPSpec"/>.</summary>
         /// <param name="id">The IP spec ID.</param>
-        /// <returns>A response indicating success.</returns>
+        /// <returns>A result indicating success.</returns>
         [HttpDelete]
-        public HttpResponseMessage Delete(int id)
+        public IActionResult Delete(int id)
         {
             IPSpec ipSpec = this.ipSpecManager.GetById(id);
             if (ipSpec == null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "IP spec not found.");
+                return DnnApiResults.Error(HttpStatusCode.NotFound, "IP spec not found.");
             }
 
             try
@@ -85,29 +86,29 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
             }
             catch (Exception)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Failed to delete IP spec.");
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Failed to delete IP spec.");
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.NoContent);
+            return DnnApiResults.Response(HttpStatusCode.NoContent);
         }
 
         /// <summary>Enables or disables the IP safelist.</summary>
-        /// <returns>A response with a <see cref="bool"/> indicating whether it's enabled or not.</returns>
+        /// <returns>A result with a <see cref="bool"/> indicating whether it's enabled or not.</returns>
         [HttpGet]
-        public HttpResponseMessage GetIpSafelistConfiguration()
+        public IActionResult GetIpSafelistConfiguration()
         {
             var enabled = this.settingManager.GetSetting(Settings.IpSafelistGroup, Settings.IpSafelistKey);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Enabled = enabled.ValueAsBoolean, });
+            return this.Ok(new { Enabled = enabled.ValueAsBoolean, });
         }
 
         /// <summary>Enables or disables the IP safelist.</summary>
         /// <param name="enabled">Whether to enable the feature.</param>
-        /// <returns>A response indicating success.</returns>
+        /// <returns>A result indicating success.</returns>
         [HttpPost]
-        public HttpResponseMessage SaveIpSafelistConfiguration(bool enabled)
+        public IActionResult SaveIpSafelistConfiguration(bool enabled)
         {
             this.settingManager.SetSetting(Settings.IpSafelistGroup, Settings.IpSafelistKey, enabled.ToString());
-            return this.Request.CreateResponse(HttpStatusCode.NoContent);
+            return DnnApiResults.Response(HttpStatusCode.NoContent);
         }
     }
 }

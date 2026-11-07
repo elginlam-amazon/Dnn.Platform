@@ -9,10 +9,10 @@ namespace Dnn.PersonaBar.AdminLogs.Components
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.IO;
+    using System.Net;
     using System.Net.Mail;
     using System.Net.Mime;
     using System.Text;
-    using System.Web;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Logging;
@@ -75,12 +75,12 @@ namespace Dnn.PersonaBar.AdminLogs.Components
                     if (ldi.PropertyName == "Message")
                     {
                         str.Append("<p><strong>" + ldi.PropertyName + "</strong>:</br><pre>" +
-                                   HttpUtility.HtmlEncode(ldi.PropertyValue) + "</pre></p>");
+                                   WebUtility.HtmlEncode(ldi.PropertyValue) + "</pre></p>");
                     }
                     else
                     {
                         str.Append("<p><strong>" + ldi.PropertyName + "</strong>:" +
-                                   HttpUtility.HtmlEncode(ldi.PropertyValue) + "</p>");
+                                   WebUtility.HtmlEncode(ldi.PropertyValue) + "</p>");
                     }
                 }
 
@@ -90,7 +90,7 @@ namespace Dnn.PersonaBar.AdminLogs.Components
                 }
 
                 str.Append("<p>" + Localization.GetString("ServerName", Constants.LocalResourcesFile) +
-                           HttpUtility.HtmlEncode(objLogInfo.LogServerName) + "</p>");
+                           WebUtility.HtmlEncode(objLogInfo.LogServerName) + "</p>");
             }
 
             return str.ToString();

@@ -97,11 +97,11 @@ namespace DotNetNuke.Web.UI.WebControls
         protected override void OnInit(EventArgs e)
         {
             base.OnInit(e);
-            this.clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.jquery.extensions.js");
-            this.clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.jquery.tooltip.js");
-            this.clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.PasswordStrength.js");
+            this.clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.jquery.extensions.js");
+            this.clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.jquery.tooltip.js");
+            this.clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.PasswordStrength.js");
 
-            this.clientResourceController.RegisterStylesheet("~/Resources/Shared/stylesheets/dnn.PasswordStrength.css", FileOrder.Css.ResourceCss);
+            this.clientResourceController.RegisterStylesheet("~/resources/Shared/stylesheets/dnn.PasswordStrength.css", FileOrder.Css.ResourceCss);
 
             JavaScript.RequestRegistration(this.AppStatus, this.EventLogger, this.PortalSettings, CommonJs.DnnPlugins);
         }

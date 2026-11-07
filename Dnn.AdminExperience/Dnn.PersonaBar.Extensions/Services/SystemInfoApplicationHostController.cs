@@ -8,8 +8,6 @@ namespace Dnn.PersonaBar.Servers.Services
     using System.Globalization;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -17,7 +15,9 @@ namespace Dnn.PersonaBar.Servers.Services
     using DotNetNuke.Framework;
     using DotNetNuke.Framework.Providers;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     [MenuPermission(Scope = ServiceScope.Host)]
@@ -39,12 +39,12 @@ namespace Dnn.PersonaBar.Servers.Services
         }
 
         [HttpGet]
-        public HttpResponseMessage GetApplicationInfo()
+        public IActionResult GetApplicationInfo()
         {
             try
             {
                 var friendlyUrlProvider = GetProviderConfiguration("friendlyUrl");
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     product = DotNetNukeContext.Current.Application.Description,
                     version = DotNetNukeContext.Current.Application.Version.ToString(3),
@@ -64,7 +64,7 @@ namespace Dnn.PersonaBar.Servers.Services
             catch (Exception exc)
             {
                 Logger.SystemInfoApplicationHostControllerGetApplicationInfoException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 

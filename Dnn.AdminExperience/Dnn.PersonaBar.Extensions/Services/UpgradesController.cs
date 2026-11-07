@@ -9,10 +9,8 @@ namespace Dnn.PersonaBar.Extensions.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Extensions.Services.Dto;
     using Dnn.PersonaBar.Library;
@@ -21,8 +19,11 @@ namespace Dnn.PersonaBar.Extensions.Services
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Installer;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     [MenuPermission(Scope = ServiceScope.Host)]
@@ -43,11 +44,11 @@ namespace Dnn.PersonaBar.Extensions.Services
         }
 
         /// <summary>Retrieves upgrade settings.</summary>
-        /// <returns>A <see cref="HttpResponseMessage"/> containing the upgrade settings with a status code
+        /// <returns>An <see cref="IActionResult"/> containing the upgrade settings with a status code
         /// of <see cref="HttpStatusCode.OK"/> if successful, or an error message with a status code of
         /// <see cref="HttpStatusCode.InternalServerError"/> if an exception occurs.</returns>
         [HttpGet]
-        public HttpResponseMessage GetSettings()
+        public IActionResult GetSettings()
         {
             try
             {
@@ -56,34 +57,34 @@ namespace Dnn.PersonaBar.Extensions.Services
                     allowDnnUpgradeUpload = false;
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     AllowDnnUpgradeUpload = allowDnnUpgradeUpload,
                 });
             }
             catch (Exception ex)
             {
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError, new { ex.Message, });
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError, new { ex.Message, });
             }
         }
 
         /// <summary>Retrieves a list of local upgrades.</summary>
         /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-        /// <returns>A <see cref="HttpResponseMessage"/> containing the list of local upgrades with a status code
+        /// <returns>An <see cref="IActionResult"/> containing the list of local upgrades with a status code
         /// of <see cref="HttpStatusCode.OK"/> if successful, or an error message with a status code of
         /// <see cref="HttpStatusCode.InternalServerError"/> if an exception occurs.</returns>
         [HttpGet]
-        public async Task<HttpResponseMessage> List(CancellationToken cancellationToken)
+        public async Task<IActionResult> List(CancellationToken cancellationToken)
         {
             try
             {
                 var upgrades = await this.localUpgradeService.GetLocalUpgrades(cancellationToken);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, upgrades);
+                return this.Ok(upgrades);
             }
             catch (Exception ex)
             {
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError, new { Message = ex.Message });
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError, new { Message = ex.Message });
             }
         }
 
@@ -92,42 +93,42 @@ namespace Dnn.PersonaBar.Extensions.Services
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>An empty success response.</returns>
         [HttpPost]
-        public async Task<HttpResponseMessage> StartUpgrade(UpgradePackageRequestDto data, CancellationToken cancellationToken)
+        public async Task<IActionResult> StartUpgrade(UpgradePackageRequestDto data, CancellationToken cancellationToken)
         {
             var upgrades = await this.localUpgradeService.GetLocalUpgrades(cancellationToken);
             if (!upgrades.Any(u => u.IsValid && !u.IsOutdated))
             {
-                return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { message = LocalizeString("Upgrade_NoUpgrade"), });
+                return DnnApiResults.Response(HttpStatusCode.BadRequest, new { message = LocalizeString("Upgrade_NoUpgrade"), });
             }
 
             var upgrade = upgrades.FirstOrDefault(u => u.PackageName.Equals(data.PackageName, StringComparison.OrdinalIgnoreCase));
             if (upgrade is not { CanInstall: true, })
             {
-                return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_NoValidUpgrade", data.PackageName), });
+                return DnnApiResults.Response(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_NoValidUpgrade", data.PackageName), });
             }
 
             await this.localUpgradeService.StartLocalUpgrade(upgrade, cancellationToken);
 
             await this.localUpgradeService.DeleteLocalUpgrade(data.PackageName, cancellationToken);
 
-            return this.Request.CreateResponse(HttpStatusCode.NoContent);
+            return DnnApiResults.Response(HttpStatusCode.NoContent);
         }
 
         /// <summary>Starts a local upgrade.</summary>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>An empty success response.</returns>
         [HttpPost]
-        public async Task<HttpResponseMessage> StartFirstUpgrade(CancellationToken cancellationToken)
+        public async Task<IActionResult> StartFirstUpgrade(CancellationToken cancellationToken)
         {
             var upgrades = await this.localUpgradeService.GetLocalUpgrades(cancellationToken);
             if (!upgrades.Any(u => u.IsValid && !u.IsOutdated))
             {
-                return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { message = LocalizeString("Upgrade_NoUpgrade"), });
+                return DnnApiResults.Response(HttpStatusCode.BadRequest, new { message = LocalizeString("Upgrade_NoUpgrade"), });
             }
 
             await this.localUpgradeService.StartLocalUpgrade(upgrades, cancellationToken);
 
-            return this.Request.CreateResponse(HttpStatusCode.NoContent);
+            return DnnApiResults.Response(HttpStatusCode.NoContent);
         }
 
         /// <summary>Deletes a local upgrade package.</summary>
@@ -135,7 +136,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>An empty success response.</returns>
         [HttpPost]
-        public async Task<HttpResponseMessage> Delete(UpgradePackageRequestDto data, CancellationToken cancellationToken)
+        public async Task<IActionResult> Delete(UpgradePackageRequestDto data, CancellationToken cancellationToken)
         {
             try
             {
@@ -144,10 +145,10 @@ namespace Dnn.PersonaBar.Extensions.Services
             catch (Exception ex)
             {
                 Logger.UpgradesControllerDeleteException(ex);
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError, new { message = ex.Message, });
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError, new { message = ex.Message, });
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.NoContent);
+            return DnnApiResults.Response(HttpStatusCode.NoContent);
         }
 
         /// <summary>Uploads a DNN package for local upgrade.</summary>
@@ -155,7 +156,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         /// <returns>Either a package info or an error message.</returns>
         [HttpPost]
         [IFrameSupportedValidateAntiForgeryToken]
-        public Task<HttpResponseMessage> Upload(CancellationToken cancellationToken)
+        public Task<IActionResult> Upload(CancellationToken cancellationToken)
         {
             try
             {
@@ -166,7 +167,7 @@ namespace Dnn.PersonaBar.Extensions.Services
 
                 if (!allowDnnUpgradeUpload)
                 {
-                    return Task.FromResult(this.Request.CreateResponse(HttpStatusCode.Forbidden, new { message = LocalizeString("Upgrade_UploadNotAllowed"), }));
+                    return Task.FromResult(DnnApiResults.Response(HttpStatusCode.Forbidden, new { message = LocalizeString("Upgrade_UploadNotAllowed"), }));
                 }
 
                 return this.UploadFileAction(cancellationToken);
@@ -174,7 +175,7 @@ namespace Dnn.PersonaBar.Extensions.Services
             catch (Exception ex)
             {
                 Logger.UpgradesControllerUploadException(ex);
-                return Task.FromResult(this.Request.CreateResponse(HttpStatusCode.InternalServerError, new { message = ex.Message, }));
+                return Task.FromResult(DnnApiResults.Response(HttpStatusCode.InternalServerError, new { message = ex.Message, }));
             }
         }
 
@@ -186,7 +187,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         /// <returns>Either a package info or an error message.</returns>
         [HttpPost]
         [IFrameSupportedValidateAntiForgeryToken]
-        public async Task<HttpResponseMessage> UploadComplete(UpgradeUploadCompleteDto data, CancellationToken cancellationToken)
+        public async Task<IActionResult> UploadComplete(UpgradeUploadCompleteDto data, CancellationToken cancellationToken)
         {
             var fileName = Path.GetFileName(data.FileName);
             var fileId = Path.GetFileName(data.FileId);
@@ -194,29 +195,29 @@ namespace Dnn.PersonaBar.Extensions.Services
             if (!string.IsNullOrEmpty(fileName) && !string.IsNullOrEmpty(fileId))
             {
                 var writtenFile = Path.Combine(this.applicationStatusInfo.ApplicationMapPath, "App_Data", "Upgrade", fileId + ".resources");
-                if (!File.Exists(writtenFile))
+                if (!System.IO.File.Exists(writtenFile))
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_InvalidPackage", fileName), });
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_InvalidPackage", fileName), });
                 }
 
                 var info = await this.localUpgradeService.GetLocalUpgradeInfo(writtenFile, cancellationToken);
                 if (!info.IsValid)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_InvalidPackage", fileName), });
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_InvalidPackage", fileName), });
                 }
                 else if (info.IsOutdated)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_OutdatedPackage", fileName), });
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_OutdatedPackage", fileName), });
                 }
                 else
                 {
                     var upgradePath = Path.Combine(this.applicationStatusInfo.ApplicationMapPath, "App_Data", "Upgrade", Path.GetFileNameWithoutExtension(fileName) + ".zip");
-                    File.Move(writtenFile, upgradePath);
-                    return this.Request.CreateResponse(HttpStatusCode.OK, fileName);
+                    System.IO.File.Move(writtenFile, upgradePath);
+                    return this.Ok(fileName);
                 }
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_InvalidPackage", fileName), });
+            return DnnApiResults.Response(HttpStatusCode.BadRequest, new { message = LocalizeString($"Upgrade_InvalidPackage", fileName), });
         }
 
         private static string LocalizeString(string key, params object[] args)
@@ -224,54 +225,55 @@ namespace Dnn.PersonaBar.Extensions.Services
             return string.Format(CultureInfo.CurrentCulture, Localization.GetString(key, ResourceFile), args);
         }
 
-        private async Task<HttpResponseMessage> UploadFileAction(CancellationToken cancellationToken)
+        private async Task<IActionResult> UploadFileAction(CancellationToken cancellationToken)
         {
             var request = this.Request;
-            if (!request.Content.IsMimeMultipartContent())
+            if (!request.HasFormContentType ||
+                !Microsoft.Net.Http.Headers.MediaTypeHeaderValue.TryParse(request.ContentType, out var mediaType) ||
+                !mediaType.MediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase))
             {
-                throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
+                return DnnApiResults.Response(HttpStatusCode.UnsupportedMediaType);
             }
 
-            // Ensure content is buffered (helps if something read headers but not the body).
-            // Note: if a filter already consumed the body, buffering here won't restore it —
-            // the filter must use LoadIntoBufferAsync or otherwise avoid consuming the stream.
-            await request.Content.LoadIntoBufferAsync().ConfigureAwait(false);
-
-            var provider = new MultipartMemoryStreamProvider();
-
-            // read multipart parts
-            await request.Content.ReadAsMultipartAsync(provider, cancellationToken).ConfigureAwait(false);
+            // Reading the form materializes the whole multipart body, which is what the legacy
+            // Content.LoadIntoBufferAsync()/ReadAsMultipartAsync() pair did.
+            var form = await request.ReadFormAsync(cancellationToken).ConfigureAwait(false);
 
             long startPosition = 0;
             long totalSize = 0;
             string fileId = string.Empty;
             Stream stream = null;
 
-            foreach (var item in provider.Contents)
+            foreach (var file in form.Files)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var name = item.Headers.ContentDisposition.Name;
-                switch (name.ToUpperInvariant())
+                if (file.Name.ToUpperInvariant() == "CHUNK")
                 {
-                    case "\"CHUNK\"":
-                        stream = await item.ReadAsStreamAsync();
-                        break;
-                    case "\"START\"":
-                        if (!long.TryParse(await item.ReadAsStringAsync(), out startPosition))
+                    stream = file.OpenReadStream();
+                }
+            }
+
+            foreach (var field in form)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                switch (field.Key.ToUpperInvariant())
+                {
+                    case "START":
+                        if (!long.TryParse(field.Value.ToString(), out startPosition))
                         {
                             startPosition = 0;
                         }
 
                         break;
-                    case "\"TOTALSIZE\"":
-                        if (!long.TryParse(await item.ReadAsStringAsync(), out totalSize))
+                    case "TOTALSIZE":
+                        if (!long.TryParse(field.Value.ToString(), out totalSize))
                         {
                             totalSize = 0;
                         }
 
                         break;
-                    case "\"FILEID\"":
-                        fileId = await item.ReadAsStringAsync();
+                    case "FILEID":
+                        fileId = field.Value.ToString();
                         break;
                 }
             }
@@ -283,10 +285,10 @@ namespace Dnn.PersonaBar.Extensions.Services
                 // use the file stream and start position to write the chunk to the file
                 using var fileStream = new FileStream(fileToWriteTo, FileMode.OpenOrCreate, FileAccess.Write);
                 fileStream.Position = startPosition;
-                await stream.CopyToAsync(fileStream).ConfigureAwait(false);
+                await stream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
             }
 
-            return request.CreateResponse(HttpStatusCode.OK);
+            return DnnApiResults.Response(HttpStatusCode.OK);
         }
     }
 }

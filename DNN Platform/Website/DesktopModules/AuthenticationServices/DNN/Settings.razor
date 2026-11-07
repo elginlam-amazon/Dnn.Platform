@@ -1,0 +1,119 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Authentication
+@inherits DotNetNuke.Services.Authentication.AuthenticationSettingsBase
+
+@using System
+@using Microsoft.AspNetCore.Components
+@using DotNetNuke.Services.Authentication
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.UI.WebControls
+
+@*
+    Replaces DesktopModules/AuthenticationServices/DNN/Settings.ascx — the DNN authentication
+    provider's settings control.
+
+    <dnn:propertyeditorcontrol> is the PropertyEditorControl component, which kept its full object
+    model (DataSource, DataBind(), IsValid, IsDirty and the Style sub-objects). Several of the
+    .ascx attributes map to plain properties rather than Blazor parameters (EditControlWidth,
+    LabelWidth, Width, HelpStyle-CssClass, LabelStyle-CssClass), so the editor is created and
+    configured in C# and rendered through the platform's own seam for exactly this case,
+    PropertyEditorComponentBase.Render() — which renders THIS instance, so IsValid/IsDirty and
+    DataSource read back the real posted state.
+
+    UpdateSettings() keeps its exact guard: settings are written only when the editor is both valid
+    AND dirty.
+*@
+
+@this.SettingsEditor.Render()
+
+@code {
+    private PropertyEditorControl settingsEditor;
+
+    /// <summary>Gets the property editor, which is this control's single editable surface.</summary>
+    /// <remarks>
+    /// Replaces the designer field <c>SettingsEditor</c>.
+    /// <para>
+    /// Created lazily rather than in a field initializer because the parameterless
+    /// <c>PropertyEditorControl()</c> constructor is obsolete (it reached for
+    /// <c>Globals.GetCurrentServiceProvider()</c> internally). The non-obsolete overload takes the
+    /// <see cref="IServiceProvider"/> explicitly, and the one to hand is
+    /// <see cref="DotNetNuke.Entities.Modules.PortalModuleBase.DependencyProvider"/> — the
+    /// scoped container for this module — which is only valid once the base control is initialized,
+    /// i.e. after field initializers have run. The configured property values are unchanged.
+    /// </para>
+    /// </remarks>
+    protected PropertyEditorControl SettingsEditor =>
+#pragma warning disable BL0005 // this control CONSTRUCTS, owns and renders the instance (@this.SettingsEditor.Render()), so these are owner-writes
+        this.settingsEditor ??= new PropertyEditorControl(this.DependencyProvider)
+        {
+            ID = "SettingsEditor",
+            EditControlWidth = new Unit("200px"),
+            LabelWidth = new Unit("250px"),
+            Width = new Unit("450px"),
+            EditMode = PropertyEditorMode.Edit,
+            SortMode = PropertySortType.SortOrderAttribute,
+        };
+#pragma warning restore BL0005
+
+    private bool loaded;
+    private bool updateApplied;
+
+    /// <inheritdoc />
+    public override void UpdateSettings()
+    {
+        if (this.SettingsEditor.IsValid && this.SettingsEditor.IsDirty)
+        {
+            var config = (AuthenticationConfig)this.SettingsEditor.DataSource;
+            AuthenticationConfig.UpdateConfig(config);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // helpstyle-cssclass="Help" and labelstyle-cssclass="SubHead" of the .ascx.
+        this.SettingsEditor.HelpStyle.CssClass = "Help";
+        this.SettingsEditor.LabelStyle.CssClass = "SubHead";
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (!this.loaded)
+        {
+            this.loaded = true;
+
+            try
+            {
+                AuthenticationConfig config = AuthenticationConfig.GetConfig(this.PortalId);
+
+                // BL0005: SettingsEditor is the instance this control constructs, owns and renders
+                // itself (see the @this.SettingsEditor.Render() expression above), so this is an
+                // owner-write and not an outsider mutating a child component's parameter.
+#pragma warning disable BL0005
+                this.SettingsEditor.DataSource = config;
+#pragma warning restore BL0005
+                this.SettingsEditor.DataBind();
+            }
+            catch (Exception exc)
+            {
+                Exceptions.ProcessModuleLoadException(this, exc);
+            }
+        }
+
+        // The host asks for the save through this parameter rather than by calling UpdateSettings()
+        // on an instance it owns; see AuthenticationSettingsBase.UpdateRequested.
+        if (this.UpdateRequested && !this.updateApplied)
+        {
+            this.updateApplied = true;
+            this.UpdateSettings();
+        }
+    }
+}

@@ -40,6 +40,19 @@ namespace DotNetNuke.Web.UI.WebControls
         {
         }
 
+        /// <summary>Gets or sets a value indicating whether the text box accepts input.</summary>
+        /// <remarks>
+        /// Replaces <c>System.Web.UI.WebControls.WebControl.Enabled</c>, which this item inherited
+        /// when it was a <c>WebControl</c> and which Web Forms propagated down to the rendered
+        /// input as <c>disabled="disabled"</c>. <see cref="DnnComponentBase"/> has no such member,
+        /// so the value is forwarded explicitly to the child <see cref="DnnTextBox"/>, whose own
+        /// <see cref="DnnTextBox.Enabled"/> writes the <c>disabled</c> attribute. Callers such as
+        /// Admin/EditExtension use this to make a field read-only for package types that must not
+        /// be edited, so it is permission-visible behaviour rather than styling.
+        /// </remarks>
+        [Parameter]
+        public bool Enabled { get; set; } = true;
+
         /// <summary>Gets or sets the value of the input's <c>autocomplete</c> attribute.</summary>
         /// <remarks>
         /// This was a <c>System.Web.UI.WebControls.AutoCompleteType</c>, an enumeration of the
@@ -84,6 +97,7 @@ namespace DotNetNuke.Web.UI.WebControls
             this.textBox.Columns = this.Columns;
             this.textBox.TextMode = this.TextMode.ToInputType();
             this.textBox.CssClass = this.TextBoxCssClass;
+            this.textBox.Enabled = this.Enabled;
             if (!string.IsNullOrEmpty(this.AutoCompleteType))
             {
                 this.textBox.Attributes["autocomplete"] = this.AutoCompleteType;
@@ -115,6 +129,14 @@ namespace DotNetNuke.Web.UI.WebControls
         protected override void OnPreRender(EventArgs e)
         {
             base.OnPreRender(e);
+
+            if (this.textBox != null)
+            {
+                // Enabled is assigned by callers during data binding, i.e. after
+                // CreateControlInternal has already built the child, so re-sync it here. This
+                // mirrors Web Forms, where WebControl.Enabled was read at render time.
+                this.textBox.Enabled = this.Enabled;
+            }
 
             if (this.textBox != null && this.TextMode == TextBoxMode.Password && !this.ClearContentInPasswordMode)
             {

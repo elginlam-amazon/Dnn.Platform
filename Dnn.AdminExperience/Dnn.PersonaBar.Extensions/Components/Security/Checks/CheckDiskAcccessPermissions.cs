@@ -8,6 +8,7 @@ namespace Dnn.PersonaBar.Security.Components.Checks
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Runtime.Versioning;
     using System.Security.AccessControl;
     using System.Security.Principal;
 
@@ -28,6 +29,17 @@ namespace Dnn.PersonaBar.Security.Components.Checks
         public CheckResult Execute()
         {
             var result = new CheckResult(SeverityEnum.Unverified, this.Id);
+
+            if (!OperatingSystem.IsWindows())
+            {
+                // This check inspects NTFS discretionary access control lists, which only exist on
+                // Windows hosts. On other platforms there are no Windows ACLs to report on, so the
+                // check reports a definite "unverified" with an explanatory note rather than
+                // throwing PlatformNotSupportedException.
+                result.Notes.Add("Disk ACL inspection is only applicable to Windows hosts; file permissions must be reviewed with the host operating system's own tooling.");
+                return result;
+            }
+
             var accessErrors = new List<string>();
             try
             {
@@ -59,6 +71,7 @@ namespace Dnn.PersonaBar.Security.Components.Checks
             return result;
         }
 
+        [SupportedOSPlatform("windows")]
         private static List<string> CheckAccessToDrives()
         {
             var errors = new List<string>();
@@ -133,6 +146,7 @@ namespace Dnn.PersonaBar.Security.Components.Checks
                 $@"{dir.FullName} - Read:{permissions.Read}, Write:{permissions.Write}, Create:{permissions.Create}, Delete:{permissions.Delete}";
         }
 
+        [SupportedOSPlatform("windows")]
         private static Permissions CheckPermissionOnDir(DirectoryInfo dir)
         {
             var permissions = new Permissions(No);

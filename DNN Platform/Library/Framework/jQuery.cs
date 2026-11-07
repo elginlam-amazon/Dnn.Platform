@@ -37,15 +37,15 @@ namespace DotNetNuke.Framework
         public const string DefaultHostedUrl = "https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js";
 
         public const string DefaultUIHostedUrl = "https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.3/jquery-ui.min.js";
-        private const string JQueryDebugFile = "~/Resources/Shared/Scripts/jquery/jquery.js";
-        private const string JQueryMinFile = "~/Resources/Shared/Scripts/jquery/jquery.min.js";
-        private const string JQueryMigrateDebugFile = "~/Resources/Shared/Scripts/jquery/jquery-migrate.js";
-        private const string JQueryMigrateMinFile = "~/Resources/Shared/Scripts/jquery/jquery-migrate.min.js";
+        private const string JQueryDebugFile = "~/resources/Shared/Scripts/jquery/jquery.js";
+        private const string JQueryMinFile = "~/resources/Shared/Scripts/jquery/jquery.min.js";
+        private const string JQueryMigrateDebugFile = "~/resources/Shared/Scripts/jquery/jquery-migrate.js";
+        private const string JQueryMigrateMinFile = "~/resources/Shared/Scripts/jquery/jquery-migrate.min.js";
         private const string JQueryVersionKey = "jQueryVersionKey";
         private const string JQueryVersionMatch = "(?<=(jquery|core_version)\\s*[:=]\\s*\")(.*)(?=\")";
 
-        private const string JQueryUIDebugFile = "~/Resources/Shared/Scripts/jquery/jquery-ui.js";
-        private const string JQueryUIMinFile = "~/Resources/Shared/Scripts/jquery/jquery-ui.min.js";
+        private const string JQueryUIDebugFile = "~/resources/Shared/Scripts/jquery/jquery-ui.js";
+        private const string JQueryUIMinFile = "~/resources/Shared/Scripts/jquery/jquery-ui.min.js";
         private const string JQueryUIVersionKey = "jQueryUIVersionKey";
         private const string JQueryUIVersionMatch = "(?<=version:\\s\")(.*)(?=\")";
 

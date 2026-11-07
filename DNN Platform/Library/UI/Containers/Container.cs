@@ -334,7 +334,7 @@ namespace DotNetNuke.UI.Containers
                     this.ContentPane.Controls.Add(actionMenu);
 
                     // register admin.css
-                    this.clientResourceController.RegisterStylesheet(Globals.HostPath + "admin.css", FileOrder.Css.AdminCss, true);
+                    this.clientResourceController.RegisterStylesheet(Globals.ApplicationPath + "/portals/_default/admin.css", FileOrder.Css.AdminCss, true);
                 }
 
                 // Process Module Header
@@ -379,11 +379,11 @@ namespace DotNetNuke.UI.Containers
                 {
                     if (controlSrc.EndsWith(".mvc", StringComparison.OrdinalIgnoreCase))
                     {
-                        stylesheet = $"{Globals.ApplicationPath}/DesktopModules/MVC/{folderName.Replace(@"\", "/")}/module.css";
+                        stylesheet = $"{Globals.ApplicationPath}/desktopmodules/MVC/{folderName.Replace(@"\", "/")}/module.css";
                     }
                     else
                     {
-                        stylesheet = $"{Globals.ApplicationPath}/DesktopModules/{folderName.Replace(@"\", "/")}/module.css";
+                        stylesheet = $"{Globals.ApplicationPath}/desktopmodules/{folderName.Replace(@"\", "/")}/module.css";
                     }
 
                     this.clientResourceController.RegisterStylesheet(stylesheet, FileOrder.Css.ModuleCss, true);

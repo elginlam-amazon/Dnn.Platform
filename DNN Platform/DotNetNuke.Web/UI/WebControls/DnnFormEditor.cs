@@ -216,7 +216,7 @@ namespace DotNetNuke.Web.UI.WebControls
 
             if (this.Tabs.Count > 0)
             {
-                this.clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.ControlsInterop.js");
+                this.clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.ControlsInterop.js");
             }
         }
 

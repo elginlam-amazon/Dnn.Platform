@@ -309,10 +309,10 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
                 {
                     JavaScript.RequestRegistration(this.appStatus, this.eventLogger, PortalSettings.Current, "Selectize");
 
-                    var libraryPath = $"~/Resources/Libraries/{package.LibraryName}/{Globals.FormatVersion(package.Version, "00", 3, "_")}/";
+                    var libraryPath = $"~/resources/Libraries/{package.LibraryName}/{Globals.FormatVersion(package.Version, "00", 3, "_")}/";
                     this.clientResourceController.RegisterStylesheet($"{libraryPath}selectize.css");
                     this.clientResourceController.RegisterStylesheet($"{libraryPath}selectize.default.css");
-                    this.clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.ControlsInterop.js");
+                    this.clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.ControlsInterop.js");
                 }
             }
         }

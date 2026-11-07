@@ -1,0 +1,52 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Common.Controls
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using Microsoft.AspNetCore.Components
+
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+
+@*
+    Replaces terms.ascx + Terms.ascx.cs + Terms.ascx.designer.cs (the module control stored as
+    `Admin/Portal/Terms.ascx`, ControlKey "Terms").
+
+    The file is named Terms.razor because a component file may not start with a lowercase letter
+    (RZ10011); the TYPE name and the namespace are unchanged (DotNetNuke.Common.Controls.Terms), so
+    the stored ControlSrc still binds - see admin/CoreAdminControlRegistrations.cs, which registers
+    it explicitly because DotNetNuke.UI.Skins.Controls.Terms (the skin object) carries the same type
+    name and the convention-based resolver would be ambiguous.
+
+    <asp:Label ID="lblTerms"> rendered its Text as raw markup, and
+    Localization.GetSystemMessage returns the portal's HTML terms text, so it is rendered as a
+    MarkupString here. Encoding it would show the markup instead of the terms.
+
+    `if (!this.Page.IsPostBack)` guarded a one-time assignment; a Blazor component computes the
+    text once in OnLoad and keeps it in a field for the life of the circuit, which is the same
+    "assign once" contract.
+*@
+
+<div class="dnnTerms dnnClear"><span id="lblTerms">@((MarkupString)this.termsText)</span></div>
+
+@code {
+    private string termsText = string.Empty;
+
+    /// <summary>The Page_Load server event handler on this page is used to populate the role information for the page.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        try
+        {
+            this.termsText = Localization.GetSystemMessage(this.PortalSettings, "MESSAGE_PORTAL_TERMS");
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+}

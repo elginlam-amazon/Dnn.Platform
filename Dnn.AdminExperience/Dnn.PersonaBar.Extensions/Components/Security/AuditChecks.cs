@@ -6,7 +6,7 @@ namespace Dnn.PersonaBar.Security.Components
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
+    using System.Net;
 
     using Dnn.PersonaBar.Pages.Components;
     using Dnn.PersonaBar.Security.Components.Checks;
@@ -51,7 +51,7 @@ namespace Dnn.PersonaBar.Security.Components
             var checks = new List<IAuditCheck>
             {
                 new CheckDebug(),
-                new CheckTracing(),
+                new CheckTracing(this.hostSettings),
                 new CheckBiography(),
                 new CheckSiteRegistration(),
                 new CheckRarelyUsedSuperuser(),
@@ -102,7 +102,7 @@ namespace Dnn.PersonaBar.Security.Components
                 catch (Exception ex)
                 {
                     var result = new CheckResult(SeverityEnum.Unverified, check.Id);
-                    result.Notes.Add("An error occurred, Message: " + HttpUtility.HtmlEncode(ex.Message));
+                    result.Notes.Add("An error occurred, Message: " + WebUtility.HtmlEncode(ex.Message));
                     results.Add(result);
                 }
             }

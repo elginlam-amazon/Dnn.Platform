@@ -1,0 +1,82 @@
+@* Ported from terms.ascx / Terms.ascx.cs / Terms.ascx.designer.cs — the dnn:TERMS skin object.
+   hypTerms (<asp:hyperlink cssclass="SkinObject">) becomes the <a> below; its Text came from the
+   DNN localization engine (Localization.GetString with the control's App_LocalResources file), which
+   is KEPT rather than replaced by IStringLocalizer because the caption is routinely customized per
+   portal through the Language Editor and IStringLocalizer silently drops those overrides.
+
+   Not superseded by Dnn.Skins.Aperture's ApertureTermsLink (theme private: IApertureSkinContext,
+   no Rel/Text settings, no sentinel-aware fallback to ctl=Terms on the current tab).
+*@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+@using Exceptions = DotNetNuke.Services.Exceptions.Exceptions
+@using Globals = DotNetNuke.Common.Globals
+
+@if (this.Visible)
+{
+    <a href="@this.navigateUrl"
+       class="@(string.IsNullOrEmpty(this.CssClass) ? "SkinObject" : this.CssClass)"
+       rel="@NullIfWhiteSpace(this.Rel)">@((MarkupString)this.linkText)</a>
+}
+
+@code {
+    private const string MyFileName = "Terms.ascx";
+
+    private INavigationManager navigationManager;
+
+    private string linkText = string.Empty;
+    private string navigateUrl = string.Empty;
+
+    /// <summary>Gets or sets the text of the link.</summary>
+    [Parameter]
+    public string Text { get; set; }
+
+    /// <summary>Gets or sets the <c>rel</c> attribute of the link.</summary>
+    [Parameter]
+    public string Rel { get; set; } = "nofollow";
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.navigationManager ??= Globals.GetCurrentServiceProvider().GetRequiredService<INavigationManager>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        try
+        {
+            if (!string.IsNullOrEmpty(this.Text))
+            {
+                this.linkText = this.Text;
+            }
+            else
+            {
+                this.linkText = Localization.GetString("Terms", Localization.GetResourceFile(this, MyFileName));
+            }
+
+            // Null.NullInteger (-1) is the "no terms page configured" sentinel; a TabId of 0 is a
+            // real tab, so the comparison stays an equality check against the sentinel.
+            this.navigateUrl = this.PortalSettings.TermsTabId == Null.NullInteger
+                ? this.navigationManager.NavigateURL(this.PortalSettings.ActiveTab.TabID, "Terms")
+                : this.navigationManager.NavigateURL(this.PortalSettings.TermsTabId);
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    private static string NullIfWhiteSpace(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+}

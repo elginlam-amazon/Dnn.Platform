@@ -351,17 +351,17 @@ namespace DotNetNuke.Modules.MemberDirectory
         /// </summary>
         private void RegisterClientResources()
         {
-            this.clientResourceController.RegisterScript("~/Resources/Shared/Components/ComposeMessage/ComposeMessage.js", (FileOrder.Js)101);
-            this.clientResourceController.RegisterStylesheet("~/Resources/Shared/Components/ComposeMessage/ComposeMessage.css");
-            this.clientResourceController.RegisterScript("~/Resources/Shared/Components/UserFileManager/UserFileManager.js", (FileOrder.Js)102);
+            this.clientResourceController.RegisterScript("~/resources/Shared/Components/ComposeMessage/ComposeMessage.js", (FileOrder.Js)101);
+            this.clientResourceController.RegisterStylesheet("~/resources/Shared/Components/ComposeMessage/ComposeMessage.css");
+            this.clientResourceController.RegisterScript("~/resources/Shared/Components/UserFileManager/UserFileManager.js", (FileOrder.Js)102);
 
             // the .ascx declared this stylesheet twice (DnnCssInclude2 and DnnCssInclude3 had the
             // same FilePath); registering the same file twice is idempotent, as it was there.
-            this.clientResourceController.RegisterStylesheet("~/Resources/Shared/Components/UserFileManager/UserFileManager.css");
-            this.clientResourceController.RegisterStylesheet("~/Resources/Shared/Components/UserFileManager/UserFileManager.css");
-            this.clientResourceController.RegisterScript("~/Resources/Shared/Components/Tokeninput/jquery.tokeninput.js", (FileOrder.Js)103);
-            this.clientResourceController.RegisterStylesheet("~/Resources/Shared/Components/Tokeninput/Themes/token-input-facebook.css");
-            this.clientResourceController.RegisterScript("~/Resources/Shared/Components/UserFileManager/jquery.dnnUserFileUpload.js", (FileOrder.Js)104);
+            this.clientResourceController.RegisterStylesheet("~/resources/Shared/Components/UserFileManager/UserFileManager.css");
+            this.clientResourceController.RegisterStylesheet("~/resources/Shared/Components/UserFileManager/UserFileManager.css");
+            this.clientResourceController.RegisterScript("~/resources/Shared/Components/Tokeninput/jquery.tokeninput.js", (FileOrder.Js)103);
+            this.clientResourceController.RegisterStylesheet("~/resources/Shared/Components/Tokeninput/Themes/token-input-facebook.css");
+            this.clientResourceController.RegisterScript("~/resources/Shared/Components/UserFileManager/jquery.dnnUserFileUpload.js", (FileOrder.Js)104);
         }
 
         private void AddIe7StyleSheet()

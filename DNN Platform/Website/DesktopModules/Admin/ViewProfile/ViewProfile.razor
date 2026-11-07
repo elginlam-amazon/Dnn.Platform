@@ -1,0 +1,60 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.ViewProfile
+@inherits DotNetNuke.UI.Modules.ProfileModuleUserControlBase
+
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+@*
+    Replaces ViewProfile.ascx, element for element.
+
+    - <div id="profileOutput" runat="server" data-bind="visible: Visible"> is the div below. Its
+      content is still the RAW HTML the token replacement produced, because the Web Forms control
+      assigned it to InnerHtml - the profile template is admin authored markup, so rendering it as
+      text would show its tags instead of the profile. That is the ONLY MarkupString in this
+      component, and the values substituted into that markup are encoded exactly as before: by
+      DNN's own TokenReplace / ProfilePropertyAccess, which is what produced the string.
+    - <asp:Label ID="noPropertiesLabel" resourcekey="NoProperties"> is the second block, which
+      renders the same localized text and is auto-encoded (it was a Label, i.e. encoded, before).
+    - <div id="buttonPanel"> + <asp:HyperLink ID="editLink" resourcekey="Edit"> are the third block,
+      with the same NavigateUrl.
+    - <asp:Panel ID="pnlScripts"> carried the inline knockout bootstrap. A Razor component may not
+      emit a <script> block, so the view model it built travels as JSON in the data island below and
+      is applied by ~/desktopmodules/Admin/ViewProfile/dnn.viewProfile.js, which contains that same
+      bootstrap (the Location computed observable, the data-bind fallback pass and ko.applyBindings
+      over this module's own container). The container id is per module instance, exactly as the
+      ProfileViewModelModule<ModuleId> function name used to be.
+
+    Every block is additionally guarded by Visible, which OnLoad clears for a null profile user id:
+    DnnComponentBase.BuildRenderTree applied that check, and this markup replaces it.
+*@
+
+@if (this.Visible && this.ProfileOutputVisible)
+{
+    <div id="@this.ProfileOutputElementId" style="display: none" data-bind="visible: Visible">@((MarkupString)this.ProfileOutputHtml)</div>
+}
+
+@if (this.Visible && this.NoPropertiesLabelVisible)
+{
+    <span id="noPropertiesLabel">@this.LocalizeString("NoProperties")</span>
+}
+
+@if (this.Visible && this.ButtonPanelVisible)
+{
+    <div id="buttonPanel">
+        <ul class="dnnActions dnnClear">
+            <li>
+                <a id="editLink" href="@this.EditLinkNavigateUrl" class="dnnPrimaryAction">@this.LocalizeString("Edit")</a>
+            </li>
+        </ul>
+    </div>
+}
+
+@if (this.Visible && this.ScriptsVisible)
+{
+    <div id="@this.ViewModelElementId" class="dnnViewProfileViewModel" data-view-model="@this.ProfileProperties"
+         data-container="@this.ProfileOutputElementId"></div>
+}

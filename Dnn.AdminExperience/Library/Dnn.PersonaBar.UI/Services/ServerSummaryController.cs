@@ -8,10 +8,8 @@ namespace Dnn.PersonaBar.UI.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -24,7 +22,8 @@ namespace Dnn.PersonaBar.UI.Services
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Installer;
-
+    using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A Persona Bar API controller for the server summary.</summary>
@@ -54,7 +53,7 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>A response with server info.</returns>
         [HttpGet]
-        public HttpResponseMessage GetServerInfo(CancellationToken cancellationToken)
+        public IActionResult GetServerInfo(CancellationToken cancellationToken)
         {
             try
             {
@@ -70,12 +69,12 @@ namespace Dnn.PersonaBar.UI.Services
                     Update = this.UpdateInfo(cancellationToken),
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception ex)
             {
                 Exceptions.LogException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.NotFound, ex.Message);
             }
         }
 
@@ -83,9 +82,9 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>A serialized <see cref="FrameworkQueryDTO"/> object.</returns>
         [HttpGet]
-        public HttpResponseMessage GetUpdateInfo(CancellationToken cancellationToken)
+        public IActionResult GetUpdateInfo(CancellationToken cancellationToken)
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, this.UpdateInfo(cancellationToken));
+            return this.Ok(this.UpdateInfo(cancellationToken));
         }
 
         private bool GetVisibleSetting(string settingName)

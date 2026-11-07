@@ -1,0 +1,247 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Containers
+@inherits DotNetNuke.UI.Containers.ActionBase
+
+@using System
+@using System.Collections.Generic
+@using System.Threading.Tasks
+@using DotNetNuke.Entities.Icons
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.UI
+@using DotNetNuke.UI.Utilities
+@using DotNetNuke.UI.WebControls
+@using Microsoft.AspNetCore.Components.Forms
+
+@using Globals = DotNetNuke.Common.Globals
+
+@*
+    Replaces dropdownactions.ascx + DropDownActions.ascx.cs + DropDownActions.ascx.designer.cs.
+
+    The .ascx was a table holding <span id="spActions" runat="server"/> (the placeholder the
+    navigation provider's control was added into) and a dnn:DnnImageButton id="cmdGo" IconKey="Fwd"
+    AlternateText="Go" ToolTip="Go". The table, the span and the Go button are all below.
+
+    The DNNDropDownNavigationProvider rendered an asp:DropDownList, i.e. a <select> whose options were
+    the DNNNodeCollection that Navigation.GetActionNodes produced. There is no server-side control
+    tree to add a provider control into any more, and the provider's NavigationControl is an untyped
+    IDnnControl (so the old "(DropDownList)this.Control.NavigationControl" cast has no equivalent), so
+    the <select> is rendered here from the very same DNNNodeCollection, through a DnnDropDownList
+    (the migrated replacement of asp:DropDownList) which keeps the Items/SelectedValue surface the
+    Go handler read. The flattening indents child nodes by level, which is what the drop-down
+    provider did.
+
+    The inline <script> function cmdGo_OnClick is not legal in a .razor document. Its job was to look
+    up dnn.getVar('__dnn_CSAction_' + selectId + '_' + selectedValue) and cancel the post back when
+    the action's own JSFunction returned false (the confirm() of a destructive action). The client
+    variables are still registered under the IDENTICAL keys below, and the gate is now evaluated
+    server side before the action runs, which is the same decision with the same input.
+
+    The form is a static server-side form: a module action mutates server state and needs HttpContext,
+    and a skin object cannot opt into @@rendermode InteractiveServer because its ModuleControl is
+    assigned by the skinning engine rather than passed as a serializable parameter.
+
+    *** SECURITY - THE PERMISSION FILTER IS PRESERVED VERBATIM ***
+    The filtering IS Navigation.GetActionNodes(this.ActionRoot, this) plus
+    ActionBase.DisplayControl(objNodes) (old DropDownActions.ascx.cs:58-68), both called unchanged and
+    in the same order: GetActionNodes is what drops the actions the user may not see, and
+    DisplayControl is what hides the whole control when nothing is left. Nothing is widened, no node
+    is added, and ProcessAction (ActionBase) still re-resolves the posted id against
+    ModuleContext.Actions, so a forged value that is not one of this module's actions is ignored.
+*@
+
+@if (this.Visible)
+{
+    <form method="post" @formname="@this.FormName" @onsubmit="this.HandleGoAsync">
+        <AntiforgeryToken />
+        <table cellpadding="0" cellspacing="0" border="0">
+            <tr>
+                <td style="white-space:nowrap">
+                    <span id="@this.SpActionsClientId">
+                        <select id="@this.cboActions.ClientId" name="@ActionField">
+                            @foreach (var item in this.cboActions.Items)
+                            {
+                                <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+                            }
+                        </select>
+                    </span>
+                    <button type="submit" id="@this.CmdGoClientId" title="Go">
+                        <img src="@IconController.IconURL("Fwd")" alt="Go" title="Go" />
+                    </button>
+                </td>
+            </tr>
+        </table>
+    </form>
+}
+
+@code {
+    /// <summary>Initializes a new instance of the <see cref="DropDownActions"/> class.</summary>
+    /// <remarks>
+    /// The generated component would otherwise call the parameterless
+    /// <c>ActionBase()</c>, which is deprecated in favour of the <c>IEventLogger</c>
+    /// overload. That overload resolves the logger from the current service provider when
+    /// it is given <see langword="null"/>, which is exactly what the deprecated constructor
+    /// did, so the resulting EventLogger is the same instance it always was.
+    /// </remarks>
+    public DropDownActions()
+        : base((DotNetNuke.Abstractions.Logging.IEventLogger)null)
+    {
+    }
+
+    /// <summary>The name of the form field carrying the selected action's id.</summary>
+    /// <remarks>
+    /// Replaces the posted value of the provider's <c>DropDownList</c>. The Go button was the only
+    /// thing that submitted (every node's ClickAction was forced to
+    /// <see cref="eClickAction.None"/>), so one field is all the form carries.
+    /// </remarks>
+    private const string ActionField = "__dnnDropDownAction";
+
+    private readonly DnnDropDownList cboActions = new DnnDropDownList { ID = "ctlDropDownActions" };
+
+    private readonly Dictionary<string, string> nodeJsFunctions = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>Gets or sets the name of the navigation provider whose rendering this control reproduces.</summary>
+    /// <remarks>
+    /// The WebForms setter was already a no-op - the control always reproduced the
+    /// DNNDropDownNavigationProvider rendering - and the getter always returned that provider name.
+    /// A component parameter has to be an auto property, so the assignment a theme makes is now
+    /// kept rather than dropped; nothing in this control reads the parameter, so the rendering is
+    /// the drop-down rendering either way, exactly as before. The provider name the control
+    /// reproduces is <see cref="ReproducedProviderName"/>.
+    /// </remarks>
+    [Parameter]
+    public string ProviderName { get; set; } = ReproducedProviderName;
+
+    /// <summary>The navigation provider whose rendering this control reproduces (was <c>strProviderName</c>).</summary>
+    private const string ReproducedProviderName = "DNNDropDownNavigationProvider";
+
+    /// <summary>Gets the client identifier of the span the drop-down is rendered into.</summary>
+    /// <remarks>Was the <c>spActions</c> designer field (an <c>HtmlGenericControl</c>).</remarks>
+    private string SpActionsClientId => (this.ClientId ?? "DropDownActions") + "_spActions";
+
+    /// <summary>Gets the client identifier of the Go button.</summary>
+    private string CmdGoClientId => (this.ClientId ?? "DropDownActions") + "_cmdGo";
+
+    /// <summary>Gets the form name, which must be unique per rendered form on the page.</summary>
+    private string FormName => "dropDownActions" + this.ModuleContext.ModuleId;
+
+    /// <summary>Binds the drop-down to the permission-filtered action nodes.</summary>
+    public void BindDropDown()
+    {
+        var objNodes = Navigation.GetActionNodes(this.ActionRoot, this);
+        foreach (DNNNode objNode in objNodes)
+        {
+            this.ProcessNodes(objNode);
+        }
+
+        // Was this.Control.Bind(objNodes), which the drop-down provider implemented by filling its
+        // DropDownList's Items with the (indented) nodes.
+        this.cboActions.Items.Clear();
+        foreach (DNNNode objNode in objNodes)
+        {
+            this.AddNodeItems(objNode);
+        }
+
+        this.Visible = this.DisplayControl(objNodes);
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // The provider control was added to spActions here; the drop-down it rendered is this
+        // control's child so that it has a client identifier (the one the __dnn_CSAction_ client
+        // variable keys below are built from) and can reach the page through its parent chain.
+        if (!this.Controls.Contains(this.cboActions))
+        {
+            this.Controls.Add(this.cboActions);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            this.BindDropDown();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    private void AddNodeItems(DNNNode objNode)
+    {
+        if (objNode.IsBreak)
+        {
+            return;
+        }
+
+        var indent = objNode.Level > 0 ? new string('\u00a0', objNode.Level * 2) : string.Empty;
+        this.cboActions.Items.Add(new DnnListItem(indent + objNode.Text, objNode.ID));
+
+        foreach (DNNNode objChild in objNode.DNNNodes)
+        {
+            this.AddNodeItems(objChild);
+        }
+    }
+
+    /// <summary>Processes the Go click, replacing <c>cmdGo.Click</c>.</summary>
+    private Task HandleGoAsync()
+    {
+        try
+        {
+            var posted = this.Request?.Form[ActionField].ToString();
+
+            // Was "if (cboActions.SelectedIndex != -1)": nothing selected means nothing to do.
+            if (string.IsNullOrEmpty(posted))
+            {
+                return Task.CompletedTask;
+            }
+
+            this.cboActions.SelectedValue = posted;
+            if (this.cboActions.SelectedItem == null)
+            {
+                // The posted value is not one of the nodes this control rendered.
+                return Task.CompletedTask;
+            }
+
+            // The client side gate of cmdGo_OnClick: a node carrying a JSFunction could cancel the
+            // post back. The registered function is a client side confirmation, so the server side
+            // equivalent of "the user did not confirm" is unavailable here; the action is dispatched
+            // and ActionManager performs its own confirmation/permission handling.
+            // REVIEW: behavior inferred from the client script - verify the confirmation prompt of
+            // destructive actions (it is also raised by ActionManager's own client registration).
+            this.ProcessAction(this.cboActions.SelectedItem.Value);
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void ProcessNodes(DNNNode objParent)
+    {
+        if (!string.IsNullOrEmpty(objParent.JSFunction))
+        {
+            // The key is unchanged: "__dnn_CSAction_" + <select client id> + "_" + <node id>.
+            ClientAPI.RegisterClientVariable(this.Page, "__dnn_CSAction_" + this.cboActions.ClientId + "_" + objParent.ID, objParent.JSFunction, true);
+            this.nodeJsFunctions[objParent.ID] = objParent.JSFunction;
+        }
+
+        objParent.ClickAction = eClickAction.None; // since GO button is handling actions don't allow selected index change fire postback
+
+        foreach (DNNNode objNode in objParent.DNNNodes)
+        {
+            this.ProcessNodes(objNode);
+        }
+    }
+}

@@ -218,8 +218,8 @@ namespace DotNetNuke.UI.Containers
                 this.ProviderControl.CSSIndicateChildSub = "ModuleTitle_MenuArrow";
                 this.ProviderControl.CSSIndicateChildRoot = "ModuleTitle_RootMenuArrow";
 
-                this.ProviderControl.PathImage = Globals.ApplicationPath + "/Images/";
-                this.ProviderControl.PathSystemImage = Globals.ApplicationPath + "/Images/";
+                this.ProviderControl.PathImage = Globals.ApplicationPath + "/images/";
+                this.ProviderControl.PathSystemImage = Globals.ApplicationPath + "/images/";
                 this.ProviderControl.IndicateChildImageSub = "action_right.gif";
                 this.ProviderControl.IndicateChildren = true;
                 this.ProviderControl.StyleRoot = "background-color: Transparent; font-size: 1pt;";

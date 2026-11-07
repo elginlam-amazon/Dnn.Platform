@@ -8,10 +8,7 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using System.Collections.Generic;
     using System.IO;
     using System.Net;
-    using System.Net.Http;
     using System.Threading.Tasks;
-    using System.Web;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Extensions.Components.BulkInstall;
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.DataAccess.Models;
@@ -21,10 +18,14 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using Dnn.PersonaBar.Library.Attributes;
 
     using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Newtonsoft.Json;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for <see cref="Session"/>.</summary>
     /// <param name="sessionManager">The session manager.</param>
@@ -43,9 +44,9 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
         private readonly IServiceProvider serviceProvider = serviceProvider;
 
         /// <summary>Create a new session.</summary>
-        /// <returns>A response with the <see cref="Session"/>.</returns>
+        /// <returns>A result with the <see cref="Session"/>.</returns>
         [HttpPost]
-        public HttpResponseMessage Create()
+        public IActionResult Create()
         {
             var session = this.sessionManager.CreateSession();
 
@@ -54,54 +55,62 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
                 Session = new SessionDto(session),
                 MaxUploadFileSize = Config.GetMaxUploadSize(this.appStatus),
             };
-            return this.Request.CreateResponse(HttpStatusCode.OK, responseBody);
+            return this.Ok(responseBody);
         }
 
         /// <summary>Gets a session by its <paramref name="sessionGuid"/>.</summary>
         /// <param name="sessionGuid">The public identifier for the <see cref="Session"/>.</param>
-        /// <returns>A response with either the <see cref="Session"/> or <see langword="null"/>.</returns>
+        /// <returns>A result with either the <see cref="Session"/> or <see langword="null"/>.</returns>
         [HttpGet]
-        public HttpResponseMessage Get(string sessionGuid)
+        public IActionResult Get(string sessionGuid)
         {
             var session = this.sessionManager.GetSession(sessionGuid);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Session = new SessionDto(session), });
+            return this.Ok(new { Session = new SessionDto(session), });
         }
 
         /// <summary>Adds package files to the session.</summary>
         /// <param name="sessionGuid">The public identifier for the <see cref="Session"/>.</param>
-        /// <returns>A response indicating success.</returns>
-        /// <exception cref="HttpResponseException">The request is not a multipart MIME type.</exception>
+        /// <returns>A result indicating success, or <c>415 Unsupported Media Type</c> when the request is not a multipart MIME type.</returns>
         [HttpPost]
-        public async Task<HttpResponseMessage> AddPackages(string sessionGuid)
+        public async Task<IActionResult> AddPackages(string sessionGuid)
         {
             if (!this.sessionManager.SessionExists(sessionGuid))
             {
                 // Session doesn't exist.
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "Invalid session.");
+                return DnnApiResults.Error(HttpStatusCode.NotFound, "Invalid session.");
             }
 
             try
             {
                 // Does the request contain multipart/form-data?
-                if (!this.Request.Content.IsMimeMultipartContent())
+                if (!this.Request.HasFormContentType ||
+                    !Microsoft.Net.Http.Headers.MediaTypeHeaderValue.TryParse(this.Request.ContentType, out var mediaType) ||
+                    !mediaType.MediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
+                    this.eventLogManager.Log("SESSION_EXCEPTION", EventLogSeverity.Warning, "Request was not multipart/form-data.");
+                    return DnnApiResults.Response(HttpStatusCode.UnsupportedMediaType);
                 }
 
                 // Receive files.
-                MultipartMemoryStreamProvider provider = await this.Request.Content.ReadAsMultipartAsync();
+                var form = await this.Request.ReadFormAsync();
 
-                foreach (HttpContent file in provider.Contents)
+                foreach (var file in form.Files)
                 {
-                    string filename = file.Headers.ContentDisposition.FileName.Replace("\"", string.Empty);
+                    string filename = file.FileName.Replace("\"", string.Empty);
                     if (!string.Equals(Path.GetExtension(filename), ".zip", StringComparison.OrdinalIgnoreCase))
                     {
                         this.eventLogManager.Log("INVALID_PACKAGE", EventLogSeverity.Warning, $"Attempted to upload {filename}, only zip archives are allowed");
-                        return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Package files must be zip archives");
+                        return DnnApiResults.Error(HttpStatusCode.BadRequest, "Package files must be zip archives");
                     }
 
-                    using MemoryStream ms = new MemoryStream(await file.ReadAsByteArrayAsync());
+                    using MemoryStream ms = new MemoryStream();
+                    using (var uploadStream = file.OpenReadStream())
+                    {
+                        await uploadStream.CopyToAsync(ms);
+                    }
+
+                    ms.Position = 0;
                     this.sessionManager.AddPackage(sessionGuid, ms, filename);
                 }
             }
@@ -109,28 +118,28 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
             {
                 this.eventLogManager.Log("SESSION_EXCEPTION", EventLogSeverity.Warning, ex);
 
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.Created);
+            return DnnApiResults.Response(HttpStatusCode.Created);
         }
 
         /// <summary>Gets the summary of a session.</summary>
         /// <param name="sessionGuid">The public identifier for the <see cref="Session"/>.</param>
-        /// <returns>A response with a sorted list of <see cref="InstallJob"/>.</returns>
+        /// <returns>A result with a sorted list of <see cref="InstallJob"/>.</returns>
         [HttpGet]
-        public HttpResponseMessage Summary(string sessionGuid)
+        public IActionResult Summary(string sessionGuid)
         {
             if (!this.sessionManager.SessionExists(sessionGuid))
             {
                 // Session doesn't exist.
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "Invalid session.");
+                return DnnApiResults.Error(HttpStatusCode.NotFound, "Invalid session.");
             }
 
             try
             {
                 // Get the users ip address.
-                string ipAddress = HttpContext.Current.Request.UserHostAddress;
+                string ipAddress = GetUserHostAddress();
 
                 // Get the session.
                 Session sessionObj = this.sessionManager.GetSession(sessionGuid);
@@ -140,32 +149,32 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
 
                 var summary = deployOperation.Summary();
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { InstallJobs = summary.Values, });
+                return this.Ok(new { InstallJobs = summary.Values, });
             }
             catch (Exception ex)
             {
                 this.eventLogManager.Log("SESSION_EXCEPTION", EventLogSeverity.Warning, ex);
 
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex);
             }
         }
 
         /// <summary>Starts the installation for the session.</summary>
         /// <param name="sessionGuid">The public identifier for the <see cref="Session"/>.</param>
-        /// <returns>A response indicating success.</returns>
+        /// <returns>A result indicating success.</returns>
         [HttpPost]
-        public HttpResponseMessage Install(string sessionGuid)
+        public IActionResult Install(string sessionGuid)
         {
             if (!this.sessionManager.SessionExists(sessionGuid))
             {
                 // Session doesn't exist.
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "Invalid session.");
+                return DnnApiResults.Error(HttpStatusCode.NotFound, "Invalid session.");
             }
 
             try
             {
                 // Get the users ip address.
-                string ipAddress = HttpContext.Current.Request.UserHostAddress;
+                string ipAddress = GetUserHostAddress();
 
                 // Get the session.
                 Session sessionObj = this.sessionManager.GetSession(sessionGuid);
@@ -175,14 +184,35 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
 
                 deployOperation.Deploy();
 
-                return this.Request.CreateResponse(HttpStatusCode.OK);
+                return DnnApiResults.Response(HttpStatusCode.OK);
             }
             catch (Exception ex)
             {
                 this.eventLogManager.Log("SESSION_EXCEPTION", EventLogSeverity.Warning, ex);
 
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex);
             }
+        }
+
+        /// <summary>
+        /// Gets the IP address the current request physically came from, the ASP.NET Core equivalent
+        /// of the legacy <c>HttpContext.Current.Request.UserHostAddress</c> (<c>REMOTE_ADDR</c>).
+        /// </summary>
+        /// <returns>The remote IP address, or <see cref="string.Empty"/> when there is no ambient request.</returns>
+        private static string GetUserHostAddress()
+        {
+            var remoteIpAddress = HttpContextSource.Current?.Connection?.RemoteIpAddress;
+            if (remoteIpAddress == null)
+            {
+                return string.Empty;
+            }
+
+            if (remoteIpAddress.IsIPv4MappedToIPv6)
+            {
+                remoteIpAddress = remoteIpAddress.MapToIPv4();
+            }
+
+            return remoteIpAddress.ToString();
         }
 
         private sealed class SessionDto(Session session)

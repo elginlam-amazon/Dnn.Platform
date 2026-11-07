@@ -1,0 +1,19 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* Replaces Users.ascx + Users.ascx.cs + Users.ascx.designer.cs.
+
+   Users.ascx was a single @@ Control directive with no markup at all, and both the code-behind and
+   the designer file declared an empty class body: the control exists purely as the host that the
+   user-accounts page loads so that the UserUserControlBase event surface (UserCreated,
+   UserDeleted, UserRestored, UserRemoved, UserUpdated and their error events) is available to the
+   page that wires it up. There is therefore nothing to render and nothing to port beyond the base
+   class, which is already the Blazor UserUserControlBase.
+
+   The unused `using` list the code-behind carried (System.Web.UI, System.Web.UI.WebControls,
+   System.Web.UI.HtmlControls, ClientResourceManagement, ...) referenced no symbol in the empty
+   body and is not reproduced. *@
+
+@namespace DotNetNuke.Modules.Admin.Users
+@inherits DotNetNuke.Entities.Modules.UserUserControlBase

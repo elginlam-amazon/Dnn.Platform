@@ -5,10 +5,8 @@
 namespace Dnn.PersonaBar.Users.Components;
 
 using System;
-using System.Runtime.Serialization;
 
 /// <summary>An exception thrown when there is a failure registering a new user.</summary>
-[Serializable]
 public class RegistrationException : Exception
 {
     /// <inheritdoc />
@@ -25,12 +23,6 @@ public class RegistrationException : Exception
     /// <inheritdoc />
     public RegistrationException(string message, Exception innerException)
         : base(message, innerException)
-    {
-    }
-
-    /// <inheritdoc />
-    protected RegistrationException(SerializationInfo info, StreamingContext context)
-        : base(info, context)
     {
     }
 }

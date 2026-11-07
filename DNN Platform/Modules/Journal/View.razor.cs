@@ -158,7 +158,7 @@ namespace DotNetNuke.Modules.Journal
         /// <summary>Gets the URL of the user file manager templates folder, encoded for a script literal.</summary>
         /// <remarks>Replaces <c>Page.ResolveUrl(...)</c>, which has no component equivalent.</remarks>
         protected MarkupString UserFileManagerTemplatePathJs =>
-            this.JsEncode(Globals.ResolveUrl("~/Resources/Shared/Components/UserFileManager/Templates/"));
+            this.JsEncode(Globals.ResolveUrl("~/resources/Shared/Components/UserFileManager/Templates/"));
 
         /// <summary>Gets the base URL of this module's client resources, encoded for a script literal.</summary>
         protected MarkupString BaseUrlJs => this.JsEncode(this.BaseUrl);
@@ -187,15 +187,15 @@ namespace DotNetNuke.Modules.Journal
             // FilePath and Priority; AddTag="false" meant "register only, emit no CDF comment",
             // which is what a registration without a tag does.
             this.clientResourceController
-                .CreateScript("~/Resources/Shared/Components/UserFileManager/jquery.dnnUserFileUpload.js")
+                .CreateScript("~/resources/Shared/Components/UserFileManager/jquery.dnnUserFileUpload.js")
                 .SetPriority(102)
                 .Register();
             this.clientResourceController
-                .CreateScript("~/Resources/Shared/Components/UserFileManager/UserFileManager.js")
+                .CreateScript("~/resources/Shared/Components/UserFileManager/UserFileManager.js")
                 .SetPriority(105)
                 .Register();
             this.clientResourceController
-                .CreateStylesheet("~/Resources/Shared/Components/UserFileManager/UserFileManager.css")
+                .CreateStylesheet("~/resources/Shared/Components/UserFileManager/UserFileManager.css")
                 .Register();
 
             var isAdmin = this.UserInfo.IsInRole(RoleController.Instance.GetRoleById(this.PortalId, this.PortalSettings.AdministratorRoleId).RoleName);

@@ -6,7 +6,8 @@ namespace DotNetNuke.Website
 {
     using System;
     using System.Threading;
-    using System.Web.Security;
+
+    using DotNetNuke.Security.Membership;
 
     using Microsoft.Extensions.Logging;
 

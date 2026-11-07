@@ -2,12 +2,16 @@
   xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <PropertyGroup>
-    <RootDirectory>$(MSBuildProjectDirectory)\..\..\..</RootDirectory>
+    <RootDirectory>$(MSBuildProjectDirectory)/../../..</RootDirectory>
   </PropertyGroup>
 
-  <Import Project="..\..\..\DNN_Platform.build" />
-  <Import Project="..\..\..\Build\BuildScripts\AEPackage.targets" />
-  <Import Project="..\..\..\Build\BuildScripts\AEModule.build"/>
+  <!-- Import paths use forward slashes and the on-disk casing (DNN_Platform.build,
+       Build/BuildScripts/AEPackage.targets, Build/BuildScripts/AEModule.build); on
+       case-sensitive (Linux) file systems a wrong-cased or back-slashed path fails with
+       MSB4019. AEPackage.targets in turn imports Package.targets (lower-case "t"). -->
+  <Import Project="../../../DNN_Platform.build" />
+  <Import Project="../../../Build/BuildScripts/AEPackage.targets" />
+  <Import Project="../../../Build/BuildScripts/AEModule.build" />
 
   <PropertyGroup>
     <Extension>zip</Extension>

@@ -1,0 +1,79 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@*
+    Replaces user.ascx. The designer controls map onto the state built in User.razor.cs:
+    registerLink / enhancedRegisterLink / messageLink / notificationLink (asp:HyperLink) become the
+    anchors below, and registerGroup / messageGroup / notificationGroup / avatarGroup
+    (HtmlGenericControl) become the conditionally rendered div and li elements. An asp:HyperLink
+    renders nothing but an <a>, so each one is only emitted when its Visible flag is set - the same
+    rule the WebForms control applied.
+
+    The popup "onclick" the code-behind added through HyperLink.Attributes is a plain HTML attribute
+    here (NOT Blazor's @@onclick): it is the client side window.open call DNN's popup support emits,
+    and the skin object renders under static server-side rendering.
+
+    This control is NOT superseded by the Aperture theme: Dnn.Skins.Aperture's ApertureUserLink
+    renders only the display-name/register anchor for its own header, while this platform skin
+    object additionally renders the avatar and the unread message/notification counters that any
+    theme using dnn:USER relies on.
+*@
+
+@* SkinObjectBase.Visible: OnInit hides the whole skin object on a custom 404/500 page unless
+   ShowInErrorPage was set. The .razor file owns rendering, so that flag is honoured here. *@
+@if (!this.Visible)
+{
+    return;
+}
+
+@if (this.RegisterLinkVisible)
+{
+    <a id="registerLink"
+       class="@(string.IsNullOrEmpty(this.CssClass) ? "SkinObject" : this.CssClass)"
+       rel="nofollow"
+       href="@this.RegisterNavigateUrl"
+       title="@this.RegisterToolTip"
+       onclick="@this.RegisterOnClick">@((MarkupString)(this.RegisterText ?? string.Empty))</a>
+}
+
+@if (this.RegisterGroupVisible)
+{
+    <div class="registerGroup" id="registerGroup">
+        <ul class="buttonGroup">
+            @if (this.MessageGroupVisible)
+            {
+                <li class="userMessages alpha" id="messageGroup">
+                    <a href="@this.MessageNavigateUrl" title="@this.MessageToolTip">@((MarkupString)(this.MessageText ?? string.Empty))</a>
+                </li>
+            }
+            @if (this.NotificationGroupVisible)
+            {
+                <li class="userNotifications omega" id="notificationGroup">
+                    <a href="@this.NotificationNavigateUrl" title="@this.NotificationToolTip">@((MarkupString)(this.NotificationText ?? string.Empty))</a>
+                </li>
+            }
+            <li class="userDisplayName">
+                @if (this.EnhancedRegisterLinkVisible)
+                {
+                    <a class="@(string.IsNullOrEmpty(this.CssClass) ? null : this.CssClass)"
+                       rel="nofollow"
+                       href="@this.RegisterNavigateUrl"
+                       title="@this.RegisterToolTip"
+                       onclick="@this.RegisterOnClick">@((MarkupString)(this.EnhancedRegisterText ?? string.Empty))</a>
+                }
+            </li>
+            @if (this.AvatarGroupVisible)
+            {
+                <li class="userProfileImg" id="avatarGroup">
+                    <a href="@this.RegisterNavigateUrl" title="@this.AvatarToolTip">
+                        <img src="@this.AvatarImageUrl" alt="@this.AvatarToolTip" />
+                    </a>
+                </li>
+            }
+        </ul>
+    </div>
+}

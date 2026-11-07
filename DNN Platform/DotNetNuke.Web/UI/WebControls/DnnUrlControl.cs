@@ -32,6 +32,7 @@ namespace DotNetNuke.Web.UI.WebControls
 
     /// <summary>A URL control.</summary>
     /// <remarks>
+    /// <para>
     /// This was an <c>abstract UserControlBase</c> whose markup lived in
     /// <c>controls/DnnUrlControl.ascx</c>. On ASP.NET Core it is a <see cref="DnnComponentBase"/>
     /// that owns its child tree (built in <see cref="CreateChildControls"/> with exactly the same
@@ -40,8 +41,17 @@ namespace DotNetNuke.Web.UI.WebControls
     /// (<c>DoRenderTypeControls</c>), the <c>UrlType</c>/<c>Url</c> round-trip and the
     /// track-clicks/log-activity/new-window checkboxes behave exactly as before; the auto-postback
     /// events became component events.
+    /// </para>
+    /// <para>
+    /// The class is concrete. Under WebForms the code-behind of a user control had to be
+    /// <c>abstract</c> because the instantiable type was the one the ASP.NET compiler generated
+    /// from <c>controls/DnnUrlControl.ascx</c>. That generated type no longer exists — the markup
+    /// now lives in <see cref="CreateChildControls"/> — so the <c>abstract</c> modifier would make
+    /// the control impossible to instantiate. It declares no abstract members and nothing derives
+    /// from it.
+    /// </para>
     /// </remarks>
-    public abstract class DnnUrlControl : DnnComponentBase
+    public class DnnUrlControl : DnnComponentBase
     {
         // ReSharper disable InconsistentNaming
 

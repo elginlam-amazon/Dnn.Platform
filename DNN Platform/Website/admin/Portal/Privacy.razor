@@ -1,0 +1,47 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Common.Controls
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using Microsoft.AspNetCore.Components
+
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+
+@*
+    Replaces privacy.ascx + Privacy.ascx.cs + Privacy.ascx.designer.cs (the module control stored as
+    `Admin/Portal/Privacy.ascx`, ControlKey "Privacy").
+
+    The file is named Privacy.razor because a component file may not start with a lowercase letter
+    (RZ10011); the TYPE name and the namespace are unchanged
+    (DotNetNuke.Common.Controls.Privacy), so the stored ControlSrc still binds - see
+    admin/CoreAdminControlRegistrations.cs, which registers it explicitly because
+    DotNetNuke.UI.Skins.Controls.Privacy (the skin object) carries the same type name and the
+    convention-based resolver would be ambiguous.
+
+    <asp:Label ID="lblPrivacy"> rendered its Text as raw markup, and Localization.GetSystemMessage
+    returns the portal's HTML privacy statement, so it is rendered as a MarkupString here.
+*@
+
+<div class="dnnPrivacy dnnClear"><span id="lblPrivacy">@((MarkupString)this.privacyText)</span></div>
+
+@code {
+    private string privacyText = string.Empty;
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        try
+        {
+            this.privacyText = Localization.GetSystemMessage(this.PortalSettings, "MESSAGE_PORTAL_PRIVACY");
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+}

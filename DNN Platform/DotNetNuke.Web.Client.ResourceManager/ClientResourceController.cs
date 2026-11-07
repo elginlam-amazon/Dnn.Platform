@@ -52,7 +52,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
             this.hostSettings = hostSettings;
             this.appStatus = appStatus;
             this.clientResourceSettings = clientResourceSettings;
-            this.RegisterPathNameAlias("SharedScripts", "~/Resources/Shared/Scripts/");
+            this.RegisterPathNameAlias("SharedScripts", "~/resources/Shared/Scripts/");
             this.controllerId = Guid.NewGuid();
             if (clientResourceSettings != null)
             {

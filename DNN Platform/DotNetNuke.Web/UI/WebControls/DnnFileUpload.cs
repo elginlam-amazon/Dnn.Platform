@@ -179,17 +179,17 @@ namespace DotNetNuke.Web.UI.WebControls
         {
             DnnDropDownList.RegisterClientScript(clientResourceController, skin);
 
-            clientResourceController.RegisterStylesheet("~/Resources/Shared/Components/FileUpload/dnn.FileUpload.css", FileOrder.Css.ResourceCss);
+            clientResourceController.RegisterStylesheet("~/resources/Shared/Components/FileUpload/dnn.FileUpload.css", FileOrder.Css.ResourceCss);
             if (!string.IsNullOrEmpty(skin))
             {
-                clientResourceController.RegisterStylesheet("~/Resources/Shared/Components/FileUpload/dnn.FileUpload." + skin + ".css", FileOrder.Css.ResourceCss);
+                clientResourceController.RegisterStylesheet("~/resources/Shared/Components/FileUpload/dnn.FileUpload." + skin + ".css", FileOrder.Css.ResourceCss);
             }
 
             JavaScript.RequestRegistration(appStatus, eventLogger, portalSettings, CommonJs.jQueryUI);
 
-            clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.WebResourceUrl.js", FileOrder.Js.DefaultPriority + 2);
-            clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.jquery.extensions.js", FileOrder.Js.DefaultPriority + 3);
-            clientResourceController.RegisterScript("~/Resources/Shared/Components/FileUpload/dnn.FileUpload.js", FileOrder.Js.DefaultPriority + 4);
+            clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.WebResourceUrl.js", FileOrder.Js.DefaultPriority + 2);
+            clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.jquery.extensions.js", FileOrder.Js.DefaultPriority + 3);
+            clientResourceController.RegisterScript("~/resources/Shared/Components/FileUpload/dnn.FileUpload.js", FileOrder.Js.DefaultPriority + 4);
         }
 
         /// <summary>Creates the client side uploader over the markup this control rendered.</summary>

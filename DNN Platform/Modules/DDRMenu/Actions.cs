@@ -238,8 +238,8 @@ namespace DotNetNuke.Web.DDRMenu
                 this.navProvider.CSSNodeHover = "ModuleTitle_MenuItemSel";
                 this.navProvider.CSSIndicateChildSub = "ModuleTitle_MenuArrow";
                 this.navProvider.CSSIndicateChildRoot = "ModuleTitle_RootMenuArrow";
-                this.navProvider.PathImage = Globals.ApplicationPath + "/Images/";
-                this.navProvider.PathSystemImage = Globals.ApplicationPath + "/Images/";
+                this.navProvider.PathImage = Globals.ApplicationPath + "/images/";
+                this.navProvider.PathSystemImage = Globals.ApplicationPath + "/images/";
                 this.navProvider.IndicateChildImageSub = "action_right.gif";
                 this.navProvider.IndicateChildren = true;
                 this.navProvider.StyleRoot = "background-color: Transparent; font-size: 1pt;";

@@ -1,0 +1,81 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* The dnn:TEXT skin object (was Text.ascx + Text.ascx.cs).
+   Renders the <asp:Label id="lblText" cssclass="Normal"> of the original markup. The text is
+   portal/skin authored and was emitted raw by the label, and the token replacement engine
+   produces HTML, so the value stays raw (MarkupString) - encoding it here would break every skin
+   that puts markup in a dnn:TEXT. *@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+@using System
+@using System.IO
+@using DotNetNuke.Common
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Services.Tokens
+@using Microsoft.AspNetCore.Components
+
+@if (this.Visible)
+{
+    <span class="@this.TextCssClass">@((MarkupString)(this.text ?? string.Empty))</span>
+}
+
+@code {
+    private string text;
+
+    /// <summary>Gets or sets the literal text to display when no resource value is found.</summary>
+    [Parameter]
+    public string ShowText { get; set; }
+
+    /// <summary>Gets or sets the resource key to look the text up by.</summary>
+    [Parameter]
+    public string ResourceKey { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether environment tokens are replaced.</summary>
+    [Parameter]
+    public bool ReplaceTokens { get; set; }
+
+    /// <summary>Gets the CSS class of the text, which defaults to the markup's "Normal".</summary>
+    private string TextCssClass => string.IsNullOrEmpty(this.CssClass) ? "Normal" : this.CssClass;
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        string strText = this.ShowText;
+
+        // load resources
+        if (!string.IsNullOrEmpty(this.ResourceKey))
+        {
+            // localization. Was Path.GetFileName(this.Server.MapPath(...)); HttpContextSource.MapPath
+            // resolves a virtual path against the content root, which is where the skin lives.
+            string strFile = Path.GetFileName(HttpContextSource.MapPath(this.PortalSettings.ActiveTab.SkinSrc));
+            strFile = this.PortalSettings.ActiveTab.SkinPath + Localization.LocalResourceDirectory + "/" + strFile;
+
+            // Localization.GetString is kept (rather than IStringLocalizer) because this lookup is
+            // the one the Language Editor customises per portal and per host.
+            string strLocalization = Localization.GetString(this.ResourceKey, strFile);
+            if (!string.IsNullOrEmpty(strLocalization))
+            {
+                strText = strLocalization;
+            }
+        }
+
+        // If no value is found then use the value set the the Text attribute
+        if (string.IsNullOrEmpty(strText))
+        {
+            strText = this.ShowText;
+        }
+
+        // token replace
+        if (this.ReplaceTokens)
+        {
+            var tr = new TokenReplace();
+            tr.AccessingUser = this.PortalSettings.UserInfo;
+            strText = tr.ReplaceEnvironmentTokens(strText);
+        }
+
+        this.text = strText;
+    }
+}

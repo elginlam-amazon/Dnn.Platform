@@ -6,8 +6,6 @@ namespace Dnn.PersonaBar.SiteGroups.Services
 {
     using System;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -15,7 +13,10 @@ namespace Dnn.PersonaBar.SiteGroups.Services
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Host)]
     public class SiteGroupsController : PersonaBarApiController
@@ -25,48 +26,48 @@ namespace Dnn.PersonaBar.SiteGroups.Services
         private static IManagePortalGroups GroupManager => SiteGroups.Instance;
 
         [HttpGet]
-        public HttpResponseMessage GetSiteGroups()
+        public IActionResult GetSiteGroups()
         {
             var groups = GroupManager.SiteGroups();
-            return this.Request.CreateResponse(HttpStatusCode.OK, groups);
+            return this.Ok(groups);
         }
 
         [HttpGet]
-        public HttpResponseMessage GetAvailablePortals()
+        public IActionResult GetAvailablePortals()
         {
             var portals = GroupManager.AvailablePortals();
-            return this.Request.CreateResponse(HttpStatusCode.OK, portals);
+            return this.Ok(portals);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage Save(PortalGroupInfo portalGroup)
+        public IActionResult Save(PortalGroupInfo portalGroup)
         {
             try
             {
                 var id = GroupManager.Save(portalGroup);
-                return this.Request.CreateResponse(HttpStatusCode.OK, id);
+                return this.Ok(id);
             }
             catch (Exception ex)
             {
                 Logger.SiteGroupsControllerSaveException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage Delete(int groupId)
+        public IActionResult Delete(int groupId)
         {
             try
             {
                 GroupManager.Delete(groupId);
-                return this.Request.CreateResponse(HttpStatusCode.OK, groupId);
+                return this.Ok(groupId);
             }
             catch (Exception ex)
             {
                 Logger.SiteGroupsControllerDeleteException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
     }

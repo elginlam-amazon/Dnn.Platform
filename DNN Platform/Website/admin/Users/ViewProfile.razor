@@ -1,0 +1,138 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Users
+@inherits DotNetNuke.Entities.Modules.UserModuleBase
+
+@using System
+@using System.IO
+@using System.Linq
+@using Microsoft.AspNetCore.Components
+@using DotNetNuke.Abstractions.Security
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.WebControls
+
+@*
+    Replaces ViewProfile.ascx + ViewProfile.ascx.cs + ViewProfile.ascx.designer.cs (the module
+    control stored as `Admin/Users/ViewProfile.ascx`, ControlKey "ViewProfile").
+
+    COMPOSITION AGAINST THE MIGRATED PROFILE CONTROL
+    ------------------------------------------------
+    The original carried `<%@ Register TagPrefix="dnn" TagName="Profile"
+    Src="~/DesktopModules/Admin/Security/Profile.ascx" %>` and a designer field
+    `DesktopModules.Admin.Security.DNNProfile ctlProfile`. That .ascx no longer exists: it is now
+    DesktopModules/Admin/Security/Profile.razor, and because the Razor compiler names a component
+    after its FILE, the type formerly called DNNProfile is now
+    DesktopModules.Admin.Security.Profile. The field below is therefore typed `Profile` and the
+    component is composed by that name. (It is written fully qualified rather than imported, so that
+    the name cannot collide with anything else in scope.)
+
+    Profile exposes UserId / EditorMode / ShowUpdate / UserProfile / DataBind() as plain properties
+    rather than Blazor [Parameter]s, so they cannot be passed as markup attributes. They are applied
+    through @@ref in OnAfterRender(firstRender) - the point at which the child component instance
+    exists - and Profile.DataBind() ends with StateHasChanged(), so the editor re-renders with the
+    requested user. This is the same configure-then-bind order the WebForms OnInit/OnLoad pair used:
+    EditorMode="View" and ShowUpdate="False" (from the .ascx markup) plus UserId (from OnInit) are
+    set BEFORE DataBind() is called, so the editor is never bound in update mode.
+
+    `<asp:Label id="lblNoProperties" resourcekey="NoProperties" Visible="false" />` becomes a
+    conditionally rendered span reading the same `NoProperties.Text` resource key from
+    App_LocalResources/ViewProfile.ascx.resx.
+*@
+
+@if (this.noPropertiesVisible)
+{
+    <span id="lblNoProperties">@this.LocalizeText("NoProperties.Text")</span>
+}
+<DesktopModules.Admin.Security.Profile @ref="this.ctlProfile" />
+
+@code {
+    /// <summary>Initializes a new instance of the <see cref="ViewProfile"/> class.</summary>
+    /// <remarks>
+    /// The generated component would otherwise call the parameterless
+    /// <c>UserModuleBase()</c>, which is deprecated in favour of the overload taking the
+    /// <c>ListController</c> and the host settings. That overload resolves both from the
+    /// dependency provider when it is given <see langword="null"/> - which is literally what
+    /// <c>UserModuleBase()</c> delegated to - so nothing about the resolved services changes.
+    /// </remarks>
+    public ViewProfile()
+        : base(null, null)
+    {
+    }
+
+    private DesktopModules.Admin.Security.Profile ctlProfile;
+    private bool noPropertiesVisible;
+    private bool profileConfigured;
+
+    /// <summary>Gets or sets the cryptography provider that decrypts the <c>userticket</c> parameter.</summary>
+    [Inject]
+    protected ICryptographyProvider CryptographyProvider { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // `Control.ID` is what pointed LocalResourceFile at App_LocalResources/ViewProfile.ascx.
+        this.LocalResourceFile = Path.Combine(this.ControlPath, Localization.LocalResourceDirectory + "/ViewProfile.ascx");
+
+        // SENTINEL PRESERVED: Null.NullInteger (-1) means "no user requested". It is assigned
+        // unconditionally first, so a request without a userticket can never inherit a UserId from
+        // anywhere else, and it is NOT replaced by 0 - user 0 is a real UserId.
+        this.UserId = Null.NullInteger;
+
+        // The userticket is an ENCRYPTED parameter: it is decrypted with the portal's key before it
+        // is parsed, so a caller cannot ask for an arbitrary user by editing the URL. Read here,
+        // while the request is still available - HttpContext is gone once the circuit is
+        // interactive, so the value must not be read from an event handler.
+        var userTicket = this.Request?.GetQueryString()["userticket"];
+        if (userTicket != null)
+        {
+            this.UserId = int.Parse(UrlUtils.DecryptParameter(this.CryptographyProvider, userTicket));
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnAfterRender(bool firstRender)
+    {
+        base.OnAfterRender(firstRender);
+
+        if (!firstRender || this.profileConfigured || this.ctlProfile is null)
+        {
+            return;
+        }
+
+        this.profileConfigured = true;
+
+        try
+        {
+            // From the .ascx markup: EditorMode="View" ShowUpdate="False".
+            this.ctlProfile.EditorMode = PropertyEditorMode.View;
+            this.ctlProfile.ShowUpdate = false;
+            this.ctlProfile.UserId = this.UserId;
+
+            if (this.ctlProfile.UserProfile == null)
+            {
+                this.noPropertiesVisible = true;
+                this.StateHasChanged();
+                return;
+            }
+
+            this.ctlProfile.DataBind();
+            if (!this.ctlProfile.UserProfile.ProfileProperties.Any(profProperty => profProperty.Visible))
+            {
+                this.noPropertiesVisible = true;
+            }
+
+            this.StateHasChanged();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+}

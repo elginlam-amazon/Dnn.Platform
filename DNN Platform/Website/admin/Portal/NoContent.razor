@@ -1,0 +1,22 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Common.Controls
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using Microsoft.AspNetCore.Components
+
+@*
+    Replaces nocontent.ascx + NoContent.ascx.cs + NoContent.ascx.designer.cs.
+
+    The original .ascx carried ONLY its @@Control directive: the control deliberately renders
+    nothing. It is the module control DNN loads for a module instance whose content must not be
+    emitted, so an empty render tree is the correct and complete behaviour - there is no markup,
+    no code-behind logic (OnInit only called an empty InitializeComponent) and no designer field to
+    port.
+
+    The file is named NoContent.razor because a component file may not start with a lowercase letter
+    (RZ10011); the TYPE name and namespace are unchanged (DotNetNuke.Common.Controls.NoContent).
+*@

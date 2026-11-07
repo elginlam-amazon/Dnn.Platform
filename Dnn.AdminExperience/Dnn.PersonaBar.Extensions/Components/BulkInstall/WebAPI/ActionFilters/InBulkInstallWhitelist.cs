@@ -74,11 +74,12 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI.ActionFilters
                 // There is a strong possibility that this is not the ip address of the machine
                 // that sent the request. Being behind a load balancer with transparency switched
                 // off or being served through CloudFlare will both affect this value.
-                clientIpAddress = HttpContextSource.Current.Request.UserHostAddress;
+                clientIpAddress = GetUserHostAddress();
 
                 // We need to get the X-Forwarded-For header from the request, if this is set we
                 // should use it instead of the ip address from the request.
-                var forwardedFor = HttpContextSource.Current.Request.Headers.Get("X-Forwarded-For");
+                var forwardedForHeader = HttpContextSource.Current.Request.Headers["X-Forwarded-For"];
+                var forwardedFor = forwardedForHeader.Count > 0 ? forwardedForHeader.ToString() : null;
 
                 // Forwarded for set?
                 if (forwardedFor != null)
@@ -113,6 +114,27 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI.ActionFilters
             this.EventLogManager.Log("AUTH_BAD_IPADDRESS", EventLogSeverity.Warning, log);
 
             return false;
+        }
+
+        /// <summary>
+        /// Gets the IP address the current request physically came from, the ASP.NET Core equivalent
+        /// of the legacy <c>HttpContext.Current.Request.UserHostAddress</c> (<c>REMOTE_ADDR</c>).
+        /// </summary>
+        /// <returns>The remote IP address, or <see langword="null"/> when there is no ambient request.</returns>
+        private static string GetUserHostAddress()
+        {
+            var remoteIpAddress = HttpContextSource.Current?.Connection?.RemoteIpAddress;
+            if (remoteIpAddress == null)
+            {
+                return null;
+            }
+
+            if (remoteIpAddress.IsIPv4MappedToIPv6)
+            {
+                remoteIpAddress = remoteIpAddress.MapToIPv4();
+            }
+
+            return remoteIpAddress.ToString();
         }
     }
 }

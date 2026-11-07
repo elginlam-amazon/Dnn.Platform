@@ -62,7 +62,7 @@ namespace DotNetNuke.Services.Upgrade
     public partial class Upgrade
     {
         private const string FipsCompilanceAssembliesCheckedKey = "FipsCompilanceAssembliesChecked";
-        private const string FipsCompilanceAssembliesFolder = "App_Data\\FipsCompilanceAssemblies";
+        private const string FipsCompilanceAssembliesFolder = "App_Data/FipsCompilanceAssemblies";
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<Upgrade>();
         private static readonly object ThreadLocker = new object();
         private static DateTime startTime;
@@ -596,7 +596,7 @@ namespace DotNetNuke.Services.Upgrade
                 HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 2, "Cleaning Up Files: " + stringVersion);
             }
 
-            string listFile = $@"{Globals.InstallMapPath}Cleanup\{stringVersion}.txt";
+            string listFile = Path.Combine(Globals.InstallMapPath, "Cleanup", $"{stringVersion}.txt");
             try
             {
                 if (File.Exists(listFile))
@@ -1421,14 +1421,16 @@ namespace DotNetNuke.Services.Upgrade
             }
 
             // Remove any .txt and .config files that may exist in the Install folder
-            foreach (string file in Directory.GetFiles(Globals.InstallMapPath + "Cleanup\\", "??.??.??.txt")
-                                        .Concat(Directory.GetFiles(Globals.InstallMapPath + "Cleanup\\", "??.??.??.??.txt")))
+            var cleanupPath = Path.Combine(Globals.InstallMapPath, "Cleanup");
+            foreach (string file in Directory.GetFiles(cleanupPath, "??.??.??.txt")
+                                        .Concat(Directory.GetFiles(cleanupPath, "??.??.??.??.txt")))
             {
                 FileSystemUtils.DeleteFile(file);
             }
 
-            foreach (string file in Directory.GetFiles(Globals.InstallMapPath + "Config\\", "??.??.??.config")
-                                        .Concat(Directory.GetFiles(Globals.InstallMapPath + "Config\\", "??.??.??.??.config")))
+            var installConfigPath = Path.Combine(Globals.InstallMapPath, "Config");
+            foreach (string file in Directory.GetFiles(installConfigPath, "??.??.??.config")
+                                        .Concat(Directory.GetFiles(installConfigPath, "??.??.??.??.config")))
             {
                 FileSystemUtils.DeleteFile(file);
             }
@@ -1507,7 +1509,7 @@ namespace DotNetNuke.Services.Upgrade
                 HtmlUtils.WriteFeedback(HttpContextSource.Current.Response, 2, $"Updating Config Files: {stringVersion}");
             }
 
-            string strExceptions = UpdateConfig(providerPath, Globals.InstallMapPath + "Config\\" + stringVersion + ".config", version, "Core Upgrade");
+            string strExceptions = UpdateConfig(providerPath, Path.Combine(Globals.InstallMapPath, "Config", stringVersion + ".config"), version, "Core Upgrade");
             if (string.IsNullOrEmpty(strExceptions))
             {
                 DnnInstallLogger.InstallLogInfo(Localization.GetString("LogEnd", Localization.GlobalResourceFile) + "UpdateConfig:" + stringVersion);
@@ -1900,7 +1902,7 @@ namespace DotNetNuke.Services.Upgrade
                     {
                         if (NewtonsoftNeedUpdate())
                         {
-                            var matchedFiles = Directory.GetFiles(Path.Combine(Globals.ApplicationMapPath, "Install\\Module"), "Newtonsoft.Json_*_Install.zip");
+                            var matchedFiles = Directory.GetFiles(Path.Combine(Globals.ApplicationMapPath, "Install/Module"), "Newtonsoft.Json_*_Install.zip");
                             if (matchedFiles.Length > 0)
                             {
                                 return InstallPackage(matchedFiles[0], "Library", false);
@@ -2690,12 +2692,12 @@ namespace DotNetNuke.Services.Upgrade
                     var newPage = AddHostPage(
                         "Superuser Accounts",
                         "Manage host user accounts.",
-                        "~/Icons/Sigma/Users_16X16_Standard.png",
-                        "~/Icons/Sigma/Users_32X32_Standard.png",
+                        "~/icons/Sigma/Users_16X16_Standard.png",
+                        "~/icons/Sigma/Users_32X32_Standard.png",
                         false);
 
                     // Add Module To Page
-                    AddModuleToPage(newPage, moduleDefId, "SuperUser Accounts", "~/Icons/Sigma/Users_32X32_Standard.png");
+                    AddModuleToPage(newPage, moduleDefId, "SuperUser Accounts", "~/icons/Sigma/Users_32X32_Standard.png");
                 }
             }
         }

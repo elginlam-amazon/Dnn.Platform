@@ -121,7 +121,7 @@ namespace Dnn.PersonaBar.UI.MenuControllers
         private static Dictionary<string, string> GetPathQuery(MenuItem menuItem)
         {
             var path = menuItem.Path;
-            if (!path.Contains("?"))
+            if (!path.Contains('?'))
             {
                 return null;
             }

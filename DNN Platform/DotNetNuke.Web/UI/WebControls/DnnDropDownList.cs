@@ -241,22 +241,22 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <param name="skin">The skin.</param>
         internal static void RegisterClientScript(IClientResourceController clientResourceController, string skin)
         {
-            clientResourceController.RegisterStylesheet("~/Resources/Shared/components/DropDownList/dnn.DropDownList.css", FileOrder.Css.ResourceCss);
+            clientResourceController.RegisterStylesheet("~/resources/Shared/components/DropDownList/dnn.DropDownList.css", FileOrder.Css.ResourceCss);
             if (!string.IsNullOrEmpty(skin))
             {
-                clientResourceController.RegisterStylesheet("~/Resources/Shared/components/DropDownList/dnn.DropDownList." + skin + ".css", FileOrder.Css.ResourceCss);
+                clientResourceController.RegisterStylesheet("~/resources/Shared/components/DropDownList/dnn.DropDownList." + skin + ".css", FileOrder.Css.ResourceCss);
             }
 
-            clientResourceController.RegisterStylesheet("~/Resources/Shared/scripts/jquery/dnn.jScrollBar.css", FileOrder.Css.ResourceCss);
+            clientResourceController.RegisterStylesheet("~/resources/Shared/scripts/jquery/dnn.jScrollBar.css", FileOrder.Css.ResourceCss);
 
-            clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.extensions.js");
-            clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.jquery.extensions.js");
-            clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.DataStructures.js");
-            clientResourceController.RegisterScript("~/Resources/Shared/scripts/jquery/jquery.mousewheel.js");
-            clientResourceController.RegisterScript("~/Resources/Shared/scripts/jquery/dnn.jScrollBar.js");
-            clientResourceController.RegisterScript("~/Resources/Shared/scripts/TreeView/dnn.TreeView.js");
-            clientResourceController.RegisterScript("~/Resources/Shared/scripts/TreeView/dnn.DynamicTreeView.js");
-            clientResourceController.RegisterScript("~/Resources/Shared/Components/DropDownList/dnn.DropDownList.js");
+            clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.extensions.js");
+            clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.jquery.extensions.js");
+            clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.DataStructures.js");
+            clientResourceController.RegisterScript("~/resources/Shared/scripts/jquery/jquery.mousewheel.js");
+            clientResourceController.RegisterScript("~/resources/Shared/scripts/jquery/dnn.jScrollBar.js");
+            clientResourceController.RegisterScript("~/resources/Shared/scripts/TreeView/dnn.TreeView.js");
+            clientResourceController.RegisterScript("~/resources/Shared/scripts/TreeView/dnn.DynamicTreeView.js");
+            clientResourceController.RegisterScript("~/resources/Shared/Components/DropDownList/dnn.DropDownList.js");
         }
 
         /// <inheritdoc />

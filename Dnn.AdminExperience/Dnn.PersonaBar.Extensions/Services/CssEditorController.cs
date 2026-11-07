@@ -6,8 +6,6 @@ namespace Dnn.PersonaBar.CssEditor.Services
     using System;
     using System.IO;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.CssEditor.Services.Dto;
     using Dnn.PersonaBar.Library;
@@ -22,7 +20,10 @@ namespace Dnn.PersonaBar.CssEditor.Services
     using DotNetNuke.Web.Client;
     using DotNetNuke.Web.Client.ClientResourceManagement;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Admin)]
     public class CssEditorController : PersonaBarApiController
@@ -34,7 +35,7 @@ namespace Dnn.PersonaBar.CssEditor.Services
         /// <param name="portalId">ID of portal.</param>
         /// <returns>Content of portal.css.</returns>
         [HttpGet]
-        public HttpResponseMessage GetStyleSheet(int portalId)
+        public IActionResult GetStyleSheet(int portalId)
         {
             try
             {
@@ -54,18 +55,18 @@ namespace Dnn.PersonaBar.CssEditor.Services
                 }
 
                 // read CSS file
-                if (File.Exists(uploadDirectory + "portal.css"))
+                if (System.IO.File.Exists(uploadDirectory + "portal.css"))
                 {
-                    using var text = File.OpenText(uploadDirectory + "portal.css");
+                    using var text = System.IO.File.OpenText(uploadDirectory + "portal.css");
                     styleSheetContent = text.ReadToEnd();
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Content = styleSheetContent });
+                return this.Ok(new { Content = styleSheetContent });
             }
             catch (Exception exc)
             {
                 Logger.CssEditorControllerGetStyleSheetException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -75,7 +76,7 @@ namespace Dnn.PersonaBar.CssEditor.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateStyleSheet(UpdateCssRequest request)
+        public IActionResult UpdateStyleSheet(UpdateCssRequest request)
         {
             if (!PortalSettings.Current.UserInfo.IsSuperUser && PortalSettings.Current.UserInfo.PortalID != request.PortalId)
             {
@@ -95,13 +96,13 @@ namespace Dnn.PersonaBar.CssEditor.Services
                 }
 
                 // reset attributes
-                if (File.Exists(strUploadDirectory + "portal.css"))
+                if (System.IO.File.Exists(strUploadDirectory + "portal.css"))
                 {
-                    File.SetAttributes(strUploadDirectory + "portal.css", FileAttributes.Normal);
+                    System.IO.File.SetAttributes(strUploadDirectory + "portal.css", FileAttributes.Normal);
                 }
 
                 // write CSS file
-                using (var writer = File.CreateText(strUploadDirectory + "portal.css"))
+                using (var writer = System.IO.File.CreateText(strUploadDirectory + "portal.css"))
                 {
                     writer.WriteLine(request.StyleSheetContent);
                 }
@@ -124,12 +125,12 @@ namespace Dnn.PersonaBar.CssEditor.Services
 
                 ClientResourceManager.ClearFileExistsCache(relativePath);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.CssEditorControllerUpdateStyleSheetException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -139,7 +140,7 @@ namespace Dnn.PersonaBar.CssEditor.Services
         /// <returns>Content of portal.css.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage RestoreStyleSheet(RestoreCssRequest request)
+        public IActionResult RestoreStyleSheet(RestoreCssRequest request)
         {
             if (!PortalSettings.Current.UserInfo.IsSuperUser && PortalSettings.Current.UserInfo.PortalID != request.PortalId)
             {
@@ -151,16 +152,16 @@ namespace Dnn.PersonaBar.CssEditor.Services
                 PortalInfo portal = PortalController.Instance.GetPortal(request.PortalId);
                 if (portal != null)
                 {
-                    if (File.Exists(portal.HomeDirectoryMapPath + "portal.css"))
+                    if (System.IO.File.Exists(portal.HomeDirectoryMapPath + "portal.css"))
                     {
                         // delete existing style sheet
-                        File.Delete(portal.HomeDirectoryMapPath + "portal.css");
+                        System.IO.File.Delete(portal.HomeDirectoryMapPath + "portal.css");
                     }
 
                     // copy file from Host
-                    if (File.Exists(Globals.HostMapPath + "portal.css"))
+                    if (System.IO.File.Exists(Globals.HostMapPath + "portal.css"))
                     {
-                        File.Copy(Globals.HostMapPath + "portal.css", portal.HomeDirectoryMapPath + "portal.css");
+                        System.IO.File.Copy(Globals.HostMapPath + "portal.css", portal.HomeDirectoryMapPath + "portal.css");
                     }
 
                     ClientResourceManager.ClearFileExistsCache($"{Globals.ApplicationPath}/{portal.HomeDirectory}/portal.css");
@@ -168,12 +169,12 @@ namespace Dnn.PersonaBar.CssEditor.Services
 
                 var content = LoadStyleSheet(request.PortalId);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, StyleSheetContent = content });
+                return this.Ok(new { Success = true, StyleSheetContent = content });
             }
             catch (Exception exc)
             {
                 Logger.CssEditorControllerRestoreStyleSheetException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -190,9 +191,9 @@ namespace Dnn.PersonaBar.CssEditor.Services
             }
 
             // read CSS file
-            if (File.Exists(uploadDirectory + "portal.css"))
+            if (System.IO.File.Exists(uploadDirectory + "portal.css"))
             {
-                using (var text = File.OpenText(uploadDirectory + "portal.css"))
+                using (var text = System.IO.File.OpenText(uploadDirectory + "portal.css"))
                 {
                     styleSheetContent = text.ReadToEnd();
                 }

@@ -9,11 +9,8 @@ namespace Dnn.PersonaBar.Seo.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -33,7 +30,11 @@ namespace Dnn.PersonaBar.Seo.Services
     using DotNetNuke.Services.Url.FriendlyUrl;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = "Dnn.Seo")]
     public class SeoController : PersonaBarApiController
@@ -55,7 +56,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <summary>Gets general SEO settings.</summary>
         /// <returns>General SEO settings.</returns>
         [HttpGet]
-        public HttpResponseMessage GetGeneralSettings()
+        public IActionResult GetGeneralSettings()
         {
             try
             {
@@ -88,12 +89,12 @@ namespace Dnn.PersonaBar.Seo.Services
                     AdminRoleId = this.PortalSettings.AdministratorRoleId,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerGetGeneralSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -103,7 +104,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateGeneralSettings(UpdateGeneralSettingsRequest request)
+        public IActionResult UpdateGeneralSettings(UpdateGeneralSettingsRequest request)
         {
             try
             {
@@ -124,12 +125,12 @@ namespace Dnn.PersonaBar.Seo.Services
                 DataCache.ClearPortalCache(this.PortalId, false);
                 DataCache.ClearTabsCache(this.PortalId);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerUpdateGeneralSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -138,7 +139,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <returns>General SEO regex settings.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetRegexSettings()
+        public IActionResult GetRegexSettings()
         {
             try
             {
@@ -162,12 +163,12 @@ namespace Dnn.PersonaBar.Seo.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerGetRegexSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -178,7 +179,7 @@ namespace Dnn.PersonaBar.Seo.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateRegexSettings(UpdateRegexSettingsRequest request)
+        public IActionResult UpdateRegexSettings(UpdateRegexSettingsRequest request)
         {
             try
             {
@@ -235,7 +236,7 @@ namespace Dnn.PersonaBar.Seo.Services
 
                 if (validationErrors.Count > 0)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { Success = false, Errors = validationErrors });
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest, new { Success = false, Errors = validationErrors });
                 }
                 else
                 {
@@ -245,13 +246,13 @@ namespace Dnn.PersonaBar.Seo.Services
                     // clear cache
                     this.ClearCache();
 
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                    return this.Ok(new { Success = true, });
                 }
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerUpdateRegexSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -259,7 +260,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <summary>Gets sitemap settings.</summary>
         /// <returns>Data of sitemap settings.</returns>
         [HttpGet]
-        public HttpResponseMessage GetSitemapSettings()
+        public IActionResult GetSitemapSettings()
         {
             try
             {
@@ -298,7 +299,7 @@ namespace Dnn.PersonaBar.Seo.Services
                     new KeyValuePair<string, string>("Yahoo!", this.controller.GetSearchEngineSubmissionUrl("yahoo!")),
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Success = true,
                     Settings = settings,
@@ -308,7 +309,7 @@ namespace Dnn.PersonaBar.Seo.Services
             catch (Exception exc)
             {
                 Logger.SeoControllerGetSitemapSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -318,17 +319,17 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage CreateVerification(string verification)
+        public IActionResult CreateVerification(string verification)
         {
             try
             {
                 this.controller.CreateVerification(verification);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerCreateVerificationException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -338,7 +339,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateSitemapSettings(SitemapSettingsRequest request)
+        public IActionResult UpdateSitemapSettings(SitemapSettingsRequest request)
         {
             try
             {
@@ -366,12 +367,12 @@ namespace Dnn.PersonaBar.Seo.Services
                 }
 
                 PortalController.UpdatePortalSetting(this.PortalId, "SitemapCacheDays", request.SitemapCacheDays.ToString(CultureInfo.InvariantCulture));
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerUpdateSitemapSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -380,17 +381,17 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage ResetCache()
+        public IActionResult ResetCache()
         {
             try
             {
                 this.controller.ResetCache();
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerResetCacheException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -398,7 +399,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <summary>Gets list of sitemap providers.</summary>
         /// <returns>Web Server information.</returns>
         [HttpGet]
-        public HttpResponseMessage GetSitemapProviders()
+        public IActionResult GetSitemapProviders()
         {
             try
             {
@@ -415,12 +416,12 @@ namespace Dnn.PersonaBar.Seo.Services
                     Success = true,
                     Providers = providers,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerGetSitemapProvidersException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -430,7 +431,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateSitemapProvider(UpdateSitemapProviderRequest request)
+        public IActionResult UpdateSitemapProvider(UpdateSitemapProviderRequest request)
         {
             try
             {
@@ -448,12 +449,12 @@ namespace Dnn.PersonaBar.Seo.Services
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerUpdateSitemapProviderException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -461,7 +462,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <summary>Gets list of extension url providers.</summary>
         /// <returns>extension url providers.</returns>
         [HttpGet]
-        public HttpResponseMessage GetExtensionUrlProviders()
+        public IActionResult GetExtensionUrlProviders()
         {
             try
             {
@@ -478,12 +479,12 @@ namespace Dnn.PersonaBar.Seo.Services
                     Success = true,
                     Providers = providers,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerGetExtensionUrlProvidersException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -493,7 +494,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateExtensionUrlProviderStatus(UpdateExtensionUrlProviderStatusRequest request)
+        public IActionResult UpdateExtensionUrlProviderStatus(UpdateExtensionUrlProviderStatusRequest request)
         {
             try
             {
@@ -506,12 +507,12 @@ namespace Dnn.PersonaBar.Seo.Services
                     ExtensionUrlProviderController.DisableProvider(request.ProviderId, this.PortalId);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerUpdateExtensionUrlProviderStatusException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -526,7 +527,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// </code>
         /// </example>
         [HttpGet]
-        public HttpResponseMessage TestUrl(int pageId, string queryString, string customPageName)
+        public IActionResult TestUrl(int pageId, string queryString, string customPageName)
         {
             try
             {
@@ -535,12 +536,12 @@ namespace Dnn.PersonaBar.Seo.Services
                     Success = true,
                     Urls = this.TestUrlInternal(pageId, queryString, customPageName),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerTestUrlException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -554,7 +555,7 @@ namespace Dnn.PersonaBar.Seo.Services
         /// </code>
         /// </example>
         [HttpGet]
-        public HttpResponseMessage TestUrlRewrite(string uri)
+        public IActionResult TestUrlRewrite(string uri)
         {
             try
             {
@@ -563,12 +564,12 @@ namespace Dnn.PersonaBar.Seo.Services
                     Success = true,
                     RewritingResult = this.TestUrlRewritingInternal(uri),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SeoControllerTestUrlRewriteException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -653,7 +654,30 @@ namespace Dnn.PersonaBar.Seo.Services
                 {
                     RawUrl = uriString,
                 };
-                var httpContext = new HttpContext(HttpContext.Current.Request, new HttpResponse(new StringWriter()));
+
+                // The legacy code wrapped the current request in a throwaway HttpContext whose response
+                // wrote to a StringWriter, so the rewriter's response side effects never reached the real
+                // response. The ASP.NET Core equivalent is a DefaultHttpContext seeded from the current
+                // request; its response body is Stream.Null, so writes are discarded exactly as before.
+                var currentContext = HttpContextSource.Current;
+                var httpContext = new DefaultHttpContext();
+                httpContext.Request.Method = currentContext?.Request.Method ?? HttpMethods.Get;
+                httpContext.Request.Scheme = currentContext?.Request.Scheme ?? uri.Scheme;
+                httpContext.Request.Host = currentContext?.Request.Host ?? new HostString(uri.Authority);
+                httpContext.Request.PathBase = currentContext?.Request.PathBase ?? PathString.Empty;
+                httpContext.Request.Path = currentContext?.Request.Path ?? new PathString(uri.AbsolutePath);
+                httpContext.Request.QueryString = currentContext?.Request.QueryString ?? new QueryString(uri.Query);
+                if (currentContext is not null)
+                {
+                    foreach (var header in currentContext.Request.Headers)
+                    {
+                        httpContext.Request.Headers[header.Key] = header.Value;
+                    }
+
+                    httpContext.User = currentContext.User;
+                    httpContext.RequestServices = currentContext.RequestServices;
+                }
+
                 provider.ProcessTestRequestWithContext(httpContext, uri, true, result, new FriendlyUrlSettings(this.PortalId));
                 rewritingResult.RewritingResult = string.IsNullOrEmpty(result.RewritePath) ? noneText : result.RewritePath;
                 rewritingResult.Culture = string.IsNullOrEmpty(result.CultureCode) ? noneText : result.CultureCode;

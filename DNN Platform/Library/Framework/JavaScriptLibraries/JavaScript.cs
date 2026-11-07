@@ -583,7 +583,7 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
             }
 
             var formatVersion = Globals.FormatVersion(js.Version, "00", 3, "_");
-            return $"~/Resources/libraries/{js.LibraryName}/{formatVersion}/{js.FileName}";
+            return $"~/resources/Libraries/{js.LibraryName}/{formatVersion}/{js.FileName}";
         }
 
         private static string GetScriptLocation(JavaScriptLibrary js)
@@ -680,7 +680,7 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
                 // equivalent control is DnnJsIncludeFallbackTagHelper, which cannot be inserted from
                 // code, so the identical markup it renders is handed to IPageService, which emits the
                 // page's head. The priority keeps the fallback after the script it falls back for.
-                var localPath = Globals.ResolveUrl("~/Resources/libraries/" + jsl.LibraryName + "/" + Globals.FormatVersion(jsl.Version, "00", 3, "_") + "/" + jsl.FileName);
+                var localPath = Globals.ResolveUrl("~/resources/Libraries/" + jsl.LibraryName + "/" + Globals.FormatVersion(jsl.Version, "00", 3, "_") + "/" + jsl.FileName);
                 var pageService = (context?.RequestServices ?? Globals.GetCurrentServiceProvider()).GetRequiredService<IPageService>();
                 pageService.AddToHead(new PageTag(BuildJsIncludeFallback(jsl.ObjectName, localPath), GetFileOrder(jsl) + 1));
             }

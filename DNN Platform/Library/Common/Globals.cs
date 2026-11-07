@@ -330,14 +330,14 @@ namespace DotNetNuke.Common
         public static string ApplicationMapPath => applicationStatusInfo.ApplicationMapPath;
 
         /// <summary>Gets the desktop module path.</summary>
-        /// <value>ApplicationPath + "/DesktopModules/".</value>
+        /// <value>ApplicationPath + "/desktopmodules/".</value>
         public static string DesktopModulePath
         {
             get
             {
                 if (desktopModulePath == null)
                 {
-                    desktopModulePath = ApplicationPath + "/DesktopModules/";
+                    desktopModulePath = ApplicationPath + "/desktopmodules/";
                 }
 
                 return desktopModulePath;
@@ -345,14 +345,14 @@ namespace DotNetNuke.Common
         }
 
         /// <summary>Gets the image path.</summary>
-        /// <value>ApplicationPath + "/Images/".</value>
+        /// <value>ApplicationPath + "/images/".</value>
         public static string ImagePath
         {
             get
             {
                 if (imagePath == null)
                 {
-                    imagePath = ApplicationPath + "/Images/";
+                    imagePath = ApplicationPath + "/images/";
                 }
 
                 return imagePath;
@@ -371,7 +371,12 @@ namespace DotNetNuke.Common
             {
                 if (hostMapPath == null)
                 {
-                    hostMapPath = Path.Combine(applicationStatusInfo.ApplicationMapPath, @"Portals\_default\");
+                    // Path.Combine with separate segments: the former @"Portals\_default\" literal
+                    // produced a single directory named "Portals\_default\" on any non-Windows
+                    // file system, which silently broke EventQueue.config, Snippets.config and
+                    // every other _default host file.
+                    hostMapPath = Path.Combine(applicationStatusInfo.ApplicationMapPath, "Portals", "_default")
+                                  + Path.DirectorySeparatorChar;
                 }
 
                 return hostMapPath;
@@ -401,7 +406,8 @@ namespace DotNetNuke.Common
             {
                 if (installMapPath == null)
                 {
-                    installMapPath = applicationStatusInfo.ApplicationMapPath + "\\Install\\";
+                    installMapPath = Path.Combine(applicationStatusInfo.ApplicationMapPath, "Install")
+                                     + Path.DirectorySeparatorChar;
                 }
 
                 return installMapPath;

@@ -1,0 +1,179 @@
+@* Ported from Styles.ascx / Styles.ascx.cs / Styles.ascx.designer.cs — the dnn:STYLES skin object.
+
+   The WebForms control found the page's "CSS" placeholder and inserted an HtmlLink into it
+   (Controls.Add, or Controls.AddAt before the first existing link when IsFirst was set). There is
+   no control tree and no CSS placeholder any more: stylesheets reach the document through the
+   client-resource pipeline, which DefaultPage.razor renders in one pass with
+   IClientResourceController.RenderDependencies(ResourceType.All, DnnPageHeaderProvider,
+   Globals.ApplicationPath) at the exact position the CSS placeholder occupied.
+
+   *** ORDERING CONTRACT *** FileOrder IS behaviour (a later stylesheet overrides an earlier one),
+   so the two positions this control could occupy are mapped onto two priorities, preserving both
+   the relative order of these links among themselves and their position after the framework
+   stylesheets (default.css = FileOrder.Css.DefaultCss (5), admin/feature/ie/skin/portal css, …)
+   that the WebForms head emitted before the CSS placeholder:
+     * IsFirst = false -> (int)DotNetNuke.Web.Client.FileOrder.Css.DefaultPriority      == 100 (registration order wins)
+     * IsFirst = true  -> (int)DotNetNuke.Web.Client.FileOrder.Css.DefaultPriority - 1   == 99  (ahead of all of those)
+   Registration happens once per component instance, in OnLoad, so the registration SEQUENCE is the
+   skin's markup order, exactly as the WebForms Controls.Add sequence was.
+
+   Condition (an IE conditional comment: <!--[if lt IE 9]><link …><![endif]-->) cannot be expressed
+   by a client-resource registration, and registering such a stylesheet unconditionally would WIDEN
+   its reach from old IE to every browser. So when Condition is set the <link> is emitted verbatim
+   inside its conditional comment through <HeadContent> (the same <HeadOutlet /> App.razor already
+   declares — no second outlet), which keeps the original semantics.
+
+   Not superseded by Aperture: its README maps dnn:STYLES to "<link> inside <HeadContent>" of the
+   theme itself, i.e. the theme never instantiated the skin object and ships no replacement
+   component for it, so the platform skin object is converted here.
+*@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using System.Globalization
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.ClientResources
+@using DotNetNuke.Common
+@using DotNetNuke.Services.ClientDependency
+@using DotNetNuke.UI
+@using DotNetNuke.UI.Skins
+@using DotNetNuke.Web.Client
+@using DotNetNuke.Web.Client.ResourceManager
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.DependencyInjection
+@using Globals = DotNetNuke.Common.Globals
+
+@inject IClientResourceController ClientResourceController
+
+@if (this.Visible && !string.IsNullOrEmpty(this.Condition) && !string.IsNullOrEmpty(this.resolvedHref))
+{
+    <HeadContent>
+        @((MarkupString)this.RenderConditionalLink())
+    </HeadContent>
+}
+
+@code {
+    private IHostSettings hostSettings;
+    private bool registered;
+    private string resolvedHref = string.Empty;
+    private string linkId = string.Empty;
+
+    /// <summary>Gets or sets an IE conditional comment expression wrapping the emitted link.</summary>
+    [Parameter]
+    public string Condition { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether this stylesheet is inserted before the other skin stylesheets.</summary>
+    [Parameter]
+    public bool IsFirst { get; set; }
+
+    /// <summary>Gets or sets the name used to build the identifier of the emitted link.</summary>
+    [Parameter]
+    public string Name { get; set; }
+
+    /// <summary>Gets or sets the path of the stylesheet.</summary>
+    [Parameter]
+    public string StyleSheet { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the stylesheet path is relative to the skin folder.</summary>
+    [Parameter]
+    public bool UseSkinPath { get; set; } = true;
+
+    /// <summary>Gets or sets the <c>media</c> attribute of the emitted link.</summary>
+    [Parameter]
+    public string Media { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.hostSettings ??= Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        this.AddStyleSheet();
+    }
+
+    /// <summary>Registers (or, for a conditional stylesheet, prepares) this stylesheet.</summary>
+    /// <remarks>
+    /// Replaces the WebForms AddStyleSheet/AddLink pair. The "have we already added the LINK
+    /// control" guard of the original becomes the <see cref="registered"/> flag, because OnLoad is
+    /// raised from OnParametersSet and may therefore run more than once for one instance.
+    /// </remarks>
+    protected void AddStyleSheet()
+    {
+        if (this.registered)
+        {
+            return;
+        }
+
+        this.registered = true;
+
+        string skinpath = string.Empty;
+        if (this.UseSkinPath)
+        {
+            // Was ((Skin)this.Parent).SkinPath. The skin object is a child component of the skin in
+            // the DNN component tree, so the skin is located by walking up that tree; the active
+            // tab's skin path is the fallback for a skin object hosted outside a Skin.
+            skinpath = ControlUtilities.FindParentControl<Skin>(this)?.SkinPath
+                       ?? this.PortalSettings?.ActiveTab?.SkinPath
+                       ?? string.Empty;
+        }
+
+        this.linkId = Globals.CreateValidID(this.hostSettings, this.Name);
+        this.resolvedHref = skinpath + this.StyleSheet;
+
+        if (string.IsNullOrEmpty(this.resolvedHref))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(this.Condition))
+        {
+            // Rendered inside its conditional comment by this component's <HeadContent>.
+            return;
+        }
+
+        var stylesheet = this.ClientResourceController
+            .CreateStylesheet(this.resolvedHref)
+            .SetPriority(this.IsFirst
+                ? (int)DotNetNuke.Web.Client.FileOrder.Css.DefaultPriority - 1
+                : (int)DotNetNuke.Web.Client.FileOrder.Css.DefaultPriority)
+            .SetProvider(ClientResourceProviders.DnnPageHeaderProvider);
+
+        if (!string.IsNullOrEmpty(this.Media))
+        {
+            // NWS: add support for "media" attribute
+            stylesheet = stylesheet.SetMedia(this.Media);
+        }
+
+        if (!string.IsNullOrEmpty(this.linkId))
+        {
+            // Was objLink.ID, which rendered as the id attribute of the <link> element.
+            stylesheet = stylesheet.AddAttribute("id", this.linkId);
+        }
+
+        stylesheet.Register();
+    }
+
+    /// <summary>Builds the conditional-comment wrapped link of a Condition-ed stylesheet.</summary>
+    /// <returns>The markup to place in the document head.</returns>
+    private string RenderConditionalLink()
+    {
+        var id = string.IsNullOrEmpty(this.linkId) ? string.Empty : $" id=\"{this.linkId}\"";
+        var media = string.IsNullOrEmpty(this.Media) ? string.Empty : $" media=\"{this.Media}\"";
+        var href = Globals.ResolveUrl(this.resolvedHref);
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "<!--[if {0}]><link{1} rel=\"stylesheet\" type=\"text/css\" href=\"{2}\"{3} /><![endif]-->",
+            this.Condition,
+            id,
+            href,
+            media);
+    }
+}

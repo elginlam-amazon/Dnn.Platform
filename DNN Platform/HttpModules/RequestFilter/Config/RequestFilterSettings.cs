@@ -116,7 +116,7 @@ namespace DotNetNuke.HttpModules.RequestFilter
             string filePath = Config.GetPathToFile(appStatus, Config.ConfigFileType.DotNetNuke);
             if (!File.Exists(filePath))
             {
-                string defaultConfigFile = appStatus.ApplicationMapPath + Globals.glbConfigFolder + Globals.glbDotNetNukeConfig;
+                string defaultConfigFile = Path.Combine(appStatus.ApplicationMapPath, "Config", Globals.glbDotNetNukeConfig);
                 if (File.Exists(defaultConfigFile))
                 {
                     File.Copy(defaultConfigFile, filePath, true);

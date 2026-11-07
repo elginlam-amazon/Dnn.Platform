@@ -6,10 +6,7 @@ namespace Dnn.PersonaBar.Prompt.Services
     using System;
     using System.Globalization;
     using System.Linq;
-    using System.Net;
-    using System.Net.Http;
     using System.Text;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Library.Prompt.Models;
@@ -26,13 +23,16 @@ namespace Dnn.PersonaBar.Prompt.Services
     using DotNetNuke.Services.Log.EventLog;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
+    using ControllerBase = Dnn.PersonaBar.Prompt.Common.ControllerBase;
     using IConsoleCommand = DotNetNuke.Abstractions.Prompt.IConsoleCommand;
 #pragma warning disable CS0618
     using IOldConsoleCommand = Dnn.PersonaBar.Library.Prompt.IConsoleCommand;
 #pragma warning restore CS0618
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = "Dnn.Prompt")]
     [RequireHost]
@@ -98,7 +98,7 @@ namespace Dnn.PersonaBar.Prompt.Services
 
         [ValidateAntiForgeryToken]
         [HttpPost]
-        public HttpResponseMessage Cmd(int portalId, [FromBody] CommandInputModel command)
+        public IActionResult Cmd(int portalId, CommandInputModel command)
         {
             var portal = PortalController.Instance.GetPortal(portalId);
 
@@ -117,7 +117,7 @@ namespace Dnn.PersonaBar.Prompt.Services
 
         [ValidateAntiForgeryToken]
         [HttpPost]
-        public HttpResponseMessage Cmd([FromBody] CommandInputModel command)
+        public IActionResult Cmd(CommandInputModel command)
         {
             var startTime = DateTime.Now;
             try
@@ -129,14 +129,14 @@ namespace Dnn.PersonaBar.Prompt.Services
                 var cmdName = isHelpCmd ? (args.Length > 1 ? args[1].ToUpperInvariant() : string.Empty) : args.First().ToUpperInvariant();
                 if (isHelpSyntax)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new CommandHelp()
+                    return this.Ok(new CommandHelp()
                     {
                         ResultHtml = Localization.GetString("Prompt_CommandHelpSyntax", Constants.LocalResourcesFile),
                     });
                 }
                 else if (isHelpLearn)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new CommandHelp()
+                    return this.Ok(new CommandHelp()
                     {
                         ResultHtml = Localization.GetString("Prompt_CommandHelpLearn", Constants.LocalResourcesFile),
                     });
@@ -222,7 +222,7 @@ namespace Dnn.PersonaBar.Prompt.Services
             this.PortalSettings.PortalAlias = PortalAliasController.Instance.GetPortalAlias(this.PortalSettings.DefaultPortalAlias);
         }
 
-        private HttpResponseMessage TryRunOldCommand(CommandInputModel command, Type cmdTypeToRun, string[] args, bool isHelpCmd, DateTime startTime)
+        private IActionResult TryRunOldCommand(CommandInputModel command, Type cmdTypeToRun, string[] args, bool isHelpCmd, DateTime startTime)
         {
             // Instantiate and run the command
             try
@@ -230,7 +230,7 @@ namespace Dnn.PersonaBar.Prompt.Services
                 var cmdObj = (IOldConsoleCommand)ActivatorUtilities.GetServiceOrCreateInstance(this.serviceProvider, cmdTypeToRun);
                 if (isHelpCmd)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, this.oldCommandRepository.GetCommandHelp(command.Args, cmdObj));
+                    return this.Ok(this.oldCommandRepository.GetCommandHelp(command.Args, cmdObj));
                 }
 
                 // set env. data for command use
@@ -244,14 +244,14 @@ namespace Dnn.PersonaBar.Prompt.Services
             }
         }
 
-        private HttpResponseMessage TryRunNewCommand(CommandInputModel command, IConsoleCommand cmdObj, string[] args, bool isHelpCmd, DateTime startTime)
+        private IActionResult TryRunNewCommand(CommandInputModel command, IConsoleCommand cmdObj, string[] args, bool isHelpCmd, DateTime startTime)
         {
             // Instantiate and run the command that uses the new interfaces and base class
             try
             {
                 if (isHelpCmd)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, this.commandRepository.GetCommandHelp(cmdObj));
+                    return this.Ok(this.commandRepository.GetCommandHelp(cmdObj));
                 }
 
                 // set env. data for command use
@@ -265,9 +265,9 @@ namespace Dnn.PersonaBar.Prompt.Services
             }
         }
 
-        private HttpResponseMessage AddLogAndReturnResponseNewCommands(IConsoleCommand consoleCommand, CommandInputModel command, DateTime startTime, string error = null)
+        private IActionResult AddLogAndReturnResponseNewCommands(IConsoleCommand consoleCommand, CommandInputModel command, DateTime startTime, string error = null)
         {
-            HttpResponseMessage message;
+            IActionResult message;
             var isValid = consoleCommand?.IsValid() ?? false;
             var logInfo = new LogInfo
             {
@@ -319,7 +319,7 @@ namespace Dnn.PersonaBar.Prompt.Services
                         }
                     }
 
-                    message = this.Request.CreateResponse(HttpStatusCode.OK, result);
+                    message = this.Ok(result);
                     logInfo.LogProperties.Add(new LogDetailInfo("RecordsAffected", result.Records.ToString(CultureInfo.InvariantCulture)));
                     logInfo.LogProperties.Add(new LogDetailInfo("Output", result.Output));
                 }
@@ -347,9 +347,9 @@ namespace Dnn.PersonaBar.Prompt.Services
         /// <param name="startTime">The start time of the command run.</param>
         /// <param name="error">An error message.</param>
         /// <returns>A <see cref="ConsoleResultModel"/> response.</returns>
-        private HttpResponseMessage AddLogAndReturnResponse(IOldConsoleCommand consoleCommand, Type cmdTypeToRun, CommandInputModel command, DateTime startTime, string error = null)
+        private IActionResult AddLogAndReturnResponse(IOldConsoleCommand consoleCommand, Type cmdTypeToRun, CommandInputModel command, DateTime startTime, string error = null)
         {
-            HttpResponseMessage message;
+            IActionResult message;
             var isValid = consoleCommand?.IsValid() ?? false;
             var logInfo = new LogInfo
             {
@@ -405,7 +405,7 @@ namespace Dnn.PersonaBar.Prompt.Services
                         }
                     }
 
-                    message = this.Request.CreateResponse(HttpStatusCode.OK, result);
+                    message = this.Ok(result);
                     logInfo.LogProperties.Add(new LogDetailInfo("RecordsAffected", result.Records.ToString(CultureInfo.InvariantCulture)));
                     logInfo.LogProperties.Add(new LogDetailInfo("Output", result.Output));
                 }

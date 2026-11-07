@@ -17,7 +17,7 @@ namespace DotNetNuke.Abstractions.ClientResources
         public const string SkinPath = "SkinPath";
 
         /// <summary>
-        /// Path relative to ~/Resources/Shared/Scripts/.
+        /// Path relative to ~/resources/Shared/Scripts/.
         /// </summary>
         public const string SharedScripts = "SharedScripts";
     }

@@ -1,0 +1,50 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.NavObjectBase
+
+@*
+    Replaces treeviewmenu.ascx. The designer controls map as follows:
+      tblMain (HtmlTable) -> the outer table, keeping border/cellpadding/cellspacing and taking its
+        width and class from the Width/CssClass properties.
+      cellHeader (HtmlTableCell) + tblHeader (HtmlTable) + lblHeader (asp:Label) -> the header row,
+        shown when IncludeHeader is set, with HeaderCssClass on the cell and HeaderTextCssClass on
+        the caption.
+      cellBody (HtmlTableCell) -> the body cell. The navigation provider control that
+        InitializeNavControl added to it (Controls.Add) is rendered here through the base
+        component's child-control rendering, which is how the migrated skinning engine hosts
+        provider controls (see DotNetNuke.UI.Containers.ActionsMenu).
+
+    The tree is built from the navigation node collection by NavObjectBase.GetNavigationNodes, which
+    applies DNN's page permission filtering - a page the visitor may not view never becomes a node.
+    That path is untouched.
+*@
+
+@if (!this.Visible)
+{
+    return;
+}
+
+<table id="tblMain" border="0" cellpadding="5" cellspacing="0" class="@this.CssClass" style="@this.TableWidthStyle">
+    <tr>
+        <td id="cellHeader" valign="top" class="@(string.IsNullOrEmpty(this.HeaderCssClass) ? null : this.HeaderCssClass)">
+            @if (this.IncludeHeader)
+            {
+                <table id="tblHeader" cellpadding="0" cellspacing="0" border="0" width="100%">
+                    <tr>
+                        <td>
+                            <span id="lblHeader" class="@(string.IsNullOrEmpty(this.HeaderTextCssClass) ? null : this.HeaderTextCssClass)">@this.HeaderLabelText</span>
+                        </td>
+                    </tr>
+                </table>
+            }
+        </td>
+    </tr>
+    <tr>
+        <td id="cellBody" valign="top" class="@(string.IsNullOrEmpty(this.BodyCssClass) ? null : this.BodyCssClass)" style="@this.BodyWrapStyle">
+            @this.NavigationContent
+        </td>
+    </tr>
+</table>

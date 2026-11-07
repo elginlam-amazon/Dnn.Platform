@@ -4,7 +4,7 @@
 
 namespace Dnn.PersonaBar.UI.Components.EventHandlers
 {
-    using System.ComponentModel.Composition;
+    using System.Composition;
 
     using Dnn.PersonaBar.UI.Components.Controllers;
     using DotNetNuke.Entities.Tabs.Actions;

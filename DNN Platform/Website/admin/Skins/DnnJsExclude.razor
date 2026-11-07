@@ -1,0 +1,29 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* The dnn:DnnJsExclude skin object (was DnnJsExclude.ascx + .cs, which wrapped the
+   <dnn:DnnJsExclude> control of DotNetNuke.Web.Client). The wrapped control's whole behaviour
+   was IClientResourceController.RemoveScriptByName(Name) (see
+   DotNetNuke.Web.Client/Controls/ClientResourceExcludeTagHelper.cs), called while the control
+   initialized - i.e. before the page renders its dependencies - and it never emitted markup.
+   Both properties are preserved here: the exclusion runs in OnInit and nothing is rendered. *@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+@using System
+@using DotNetNuke.Abstractions.ClientResources
+@using Microsoft.AspNetCore.Components
+@inject IClientResourceController ClientResources
+
+@code {
+    /// <summary>Gets or sets the name of the script resource to exclude.</summary>
+    [Parameter]
+    public string Name { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+        this.ClientResources.RemoveScriptByName(this.Name);
+    }
+}

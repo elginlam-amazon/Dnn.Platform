@@ -9,7 +9,6 @@ namespace Dnn.Modules.ResourceManager.Components
     using System.IO;
     using System.Linq;
     using System.Threading;
-    using System.Web.Caching;
     using System.Xml;
 
     using Dnn.Modules.ResourceManager.Components.Models;
@@ -163,7 +162,7 @@ namespace Dnn.Modules.ResourceManager.Components
             {
                 using (
                     var stream = new FileStream(
-                        System.Web.HttpContext.Current.Server.MapPath(fullPath),
+                        HttpContextSource.MapPath(fullPath),
                         FileMode.Open,
                         FileAccess.Read))
                 {
@@ -231,7 +230,7 @@ namespace Dnn.Modules.ResourceManager.Components
 
             private DateTime GetLastModifiedTimeInternal(string resourceFile, string culture)
             {
-                var cultureSpecificFile = System.Web.HttpContext.Current.Server.MapPath(
+                var cultureSpecificFile = HttpContextSource.MapPath(
                     resourceFile.Replace(".resx", string.Empty) + "." + culture + ".resx");
                 var lastModifiedDate = DateTime.MinValue;
 
@@ -241,7 +240,7 @@ namespace Dnn.Modules.ResourceManager.Components
                 }
                 else
                 {
-                    var cultureNeutralFile = System.Web.HttpContext.Current.Server.MapPath(resourceFile);
+                    var cultureNeutralFile = HttpContextSource.MapPath(resourceFile);
                     if (File.Exists(cultureNeutralFile))
                     {
                         lastModifiedDate = File.GetLastWriteTime(cultureNeutralFile);

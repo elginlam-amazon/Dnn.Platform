@@ -399,7 +399,7 @@ namespace DNNConnect.CKEditorProvider.Web
                 cssFiles.Add(containerSrc.Replace(containerSrc.Substring(containerSrc.LastIndexOf('/'), containerSrc.Length - containerSrc.Substring(0, containerSrc.LastIndexOf('/')).Length), "/container.css"));
                 if (this.portalModule != null && this.portalModule.ModuleId > -1)
                 {
-                    cssFiles.Add("~/DesktopModules/" + this.portalModule.ModuleConfiguration.DesktopModule.FolderName + "/module.css");
+                    cssFiles.Add("~/desktopmodules/" + this.portalModule.ModuleConfiguration.DesktopModule.FolderName + "/module.css");
                 }
 
                 cssFiles.Add("~" + this.PortalSettings.HomeDirectory + "portal.css");

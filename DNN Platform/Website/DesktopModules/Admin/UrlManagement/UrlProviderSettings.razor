@@ -1,0 +1,35 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.UrlManagement
+@inherits DotNetNuke.UI.Modules.ModuleUserControlBase
+
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+@*
+    Replaces UrlProviderSettings.ascx, element for element.
+
+    - <asp:PlaceHolder id="providerSettingsPlaceHolder"> held the control the code behind loaded
+      with Page.LoadControl(provider.ProviderConfig.SettingsControlSrc). ASP.NET Core has no
+      runtime markup compiler, so that markup source is resolved to the component that replaced it
+      (IDnnControlTypeResolver, the same seam ControlUtilities.LoadControl uses) and rendered here.
+    - the two <asp:LinkButton>s become the two buttons below, with the same css classes and the same
+      resource keys. cmdCancel kept CausesValidation="False", which it still has: its handler only
+      navigates away.
+
+    This control has no App_LocalResources of its own - the hosting page's localization pass
+    resolved cmdUpdate/cmdCancel - so the two captions are read from the shared resource file they
+    actually live in.
+*@
+
+@this.SettingsControlFragment
+
+<ul class="dnnActions dnnClear">
+    <li><button type="button" id="cmdUpdate" class="dnnPrimaryAction" @onclick="this.CmdUpdateClick">@this.UpdateText</button></li>
+    @if (this.CancelVisible)
+    {
+        <li><button type="button" id="cmdCancel" class="dnnSecondaryAction" @onclick="this.CmdCancelClick">@this.CancelText</button></li>
+    }
+</ul>

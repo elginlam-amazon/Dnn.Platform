@@ -1,0 +1,139 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.SearchResults
+@inherits DotNetNuke.Entities.Modules.ModuleSettingsBase
+
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using DotNetNuke.UI.UserControls
+
+@*
+    Replaces ResultsSettings.ascx, element for element.
+
+    - <dnn:Label> becomes the migrated <LabelControl> component with the same ID (which is the
+      resource key it falls back to) and ControlName, pointed at this control's resource file, so
+      plTitleLinkTarget / plResultsScopeForPortals / plResultsScopeForFilters /
+      plResultsScopeForRoles / plEnableWildSearch / plShowDescription / plMaxDescriptionLength /
+      plShowSnippet / plShowFriendlyTitle / plShowLastUpdated / plShowSource / plShowTags all
+      resolve the same .Text/.Help keys as before.
+    - the four <dnn:DnnComboBox>es are the <select>s below. comboBoxLinkTarget keeps its two literal
+      items (values "0"/"1"); the three CheckBoxes="true" ones become <select multiple>, which is
+      the same "several of these" control and whose selected values are what DnnComboBox.Value
+      returned as a comma separated list.
+    - the two <asp:RequiredFieldValidator>s (portalsRequired / filtersRequired) are the two
+      validation messages below, shown by the same rule the validators applied: a required
+      selection, skipped for the portals row while it is hidden - which is exactly what Web Forms
+      did, since a validator inside an invisible container does not validate.
+    - the <div id="divPortalGroup" runat="server"> whose Visible the code behind cleared is the
+      @@if guard around the portals row.
+    - the inline jQuery block that toggled #maxDescriptionLengthRow with chkShowDescription and
+      #scopeForRolesRow with the "Users" filter is now expressed declaratively: the @@onchange
+      handlers below keep the server state current, the @@if guards render the same two rows, and
+      module.css additionally carries the equivalent :has() rules so the rows also follow the live
+      selection before a round trip.
+*@
+
+<div class="dnnForm dnnClear">
+    <div class="dnnFormItem">
+        <LabelControl ID="plTitleLinkTarget" ControlName="comboBoxLinkTarget" LocalResourceFile="@this.LocalResourceFile" />
+        <select id="comboBoxLinkTarget" name="comboBoxLinkTarget" style="width:437px"
+                @onchange="@((ChangeEventArgs args) => this.LinkTargetSelectedValue = args.Value?.ToString())">
+            @foreach (var item in this.LinkTargetItems)
+            {
+                <option value="@item.Value" selected="@(item.Value == this.LinkTargetSelectedValue)">@item.Text</option>
+            }
+        </select>
+    </div>
+    @if (this.PortalGroupRowVisible)
+    {
+        <div class="dnnFormItem" id="divPortalGroup">
+            <LabelControl ID="plResultsScopeForPortals" ControlName="comboBoxPortals" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="comboBoxPortals" name="comboBoxPortals" multiple="multiple" style="width:437px"
+                    @onchange="this.PortalsSelectionChanged">
+                @foreach (var item in this.PortalItems)
+                {
+                    <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+                }
+            </select>
+            @if (this.PortalsRequiredMessageVisible)
+            {
+                <span id="portalsRequiedValidator" class="dnnFormMessage dnnFormError">@DotNetNuke.Services.Localization.Localization.GetString("portalsRequired", this.LocalResourceFile)</span>
+            }
+        </div>
+    }
+
+    <div class="dnnFormItem">
+        <LabelControl ID="plResultsScopeForFilters" ControlName="comboBoxFilters" LocalResourceFile="@this.LocalResourceFile" />
+        <select id="comboBoxFilters" name="comboBoxFilters" multiple="multiple" style="width:437px"
+                @onchange="this.FiltersSelectionChanged">
+            @foreach (var item in this.FilterItems)
+            {
+                <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+            }
+        </select>
+        @if (this.FiltersRequiredMessageVisible)
+        {
+            <span id="filtersRequiredFieldValidator" class="dnnFormMessage dnnFormError">@DotNetNuke.Services.Localization.Localization.GetString("filtersRequired", this.LocalResourceFile)</span>
+        }
+    </div>
+
+    @if (this.ScopeForRolesRowVisible)
+    {
+        <div class="dnnFormItem" id="scopeForRolesRow">
+            <LabelControl ID="plResultsScopeForRoles" ControlName="comboBoxRoles" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="comboBoxRoles" name="comboBoxRoles" multiple="multiple" style="width:437px"
+                    @onchange="this.RolesSelectionChanged">
+                @foreach (var item in this.RoleItems)
+                {
+                    <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+                }
+            </select>
+        </div>
+    }
+
+    <div class="dnnFormItem">
+        <LabelControl ID="plEnableWildSearch" ControlName="chkEnableWildSearch" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="chkEnableWildSearch" name="chkEnableWildSearch" checked="@this.EnableWildSearchChecked"
+               @onchange="@((ChangeEventArgs args) => this.EnableWildSearchChecked = Convert.ToBoolean(args.Value))" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plShowDescription" ControlName="chkShowDescription" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="chkShowDescription" name="chkShowDescription" checked="@this.ShowDescriptionChecked"
+               @onchange="@((ChangeEventArgs args) => this.ShowDescriptionChecked = Convert.ToBoolean(args.Value))" />
+    </div>
+    @if (this.MaxDescriptionLengthRowVisible)
+    {
+        <div class="dnnFormItem" id="maxDescriptionLengthRow">
+            <LabelControl ID="plMaxDescriptionLength" ControlName="txtMaxDescriptionLength" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="text" id="txtMaxDescriptionLength" name="txtMaxDescriptionLength" value="@this.MaxDescriptionLengthText"
+                   @onchange="@((ChangeEventArgs args) => this.MaxDescriptionLengthText = args.Value?.ToString())" />
+        </div>
+    }
+    <div class="dnnFormItem">
+        <LabelControl ID="plShowSnippet" ControlName="chkShowSnippet" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="chkShowSnippet" name="chkShowSnippet" checked="@this.ShowSnippetChecked"
+               @onchange="@((ChangeEventArgs args) => this.ShowSnippetChecked = Convert.ToBoolean(args.Value))" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plShowFriendlyTitle" ControlName="chkShowFriendlyTitle" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="chkShowFriendlyTitle" name="chkShowFriendlyTitle" checked="@this.ShowFriendlyTitleChecked"
+               @onchange="@((ChangeEventArgs args) => this.ShowFriendlyTitleChecked = Convert.ToBoolean(args.Value))" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plShowLastUpdated" ControlName="chkShowLastUpdated" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="chkShowLastUpdated" name="chkShowLastUpdated" checked="@this.ShowLastUpdatedChecked"
+               @onchange="@((ChangeEventArgs args) => this.ShowLastUpdatedChecked = Convert.ToBoolean(args.Value))" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plShowSource" ControlName="chkShowSource" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="chkShowSource" name="chkShowSource" checked="@this.ShowSourceChecked"
+               @onchange="@((ChangeEventArgs args) => this.ShowSourceChecked = Convert.ToBoolean(args.Value))" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plShowTags" ControlName="chkShowTags" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="chkShowTags" name="chkShowTags" checked="@this.ShowTagsChecked"
+               @onchange="@((ChangeEventArgs args) => this.ShowTagsChecked = Convert.ToBoolean(args.Value))" />
+    </div>
+</div>

@@ -1,0 +1,577 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Tabs
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using System.Linq
+@using System.Xml
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Abstractions.Modules
+@using DotNetNuke.Abstractions.Security.Permissions
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Tabs
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.FileSystem
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.Web.UI.WebControls
+@using DotNetNuke.Web.UI.WebControls.Internal
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+
+@*
+    Replaces admin/Tabs/import.ascx + Import.ascx.cs + Import.ascx.designer.cs, element for element.
+    Renamed to TabImport because admin/Modules also ships an import.ascx.
+
+    Control mapping:
+      - dnn:label plFolder/plTemplate/plMode/plTabName/plParentTab/plInsertPosition/plRedirect ->
+        <LabelControl> with the same ControlName and ResourceKey values.
+      - dnn:DnnFolderDropDownList cboFolders (AutoPostBack) -> the migrated component; its
+        SelectionChanged handler is wired through SelectionChangedCallback.
+      - dnn:DnnComboBox cboTemplate (AutoPostBack) -> the migrated component, wired through
+        SelectedIndexChangedCallback.
+      - asp:RequiredFieldValidator valTemplate (InitialValue="-1") -> the validation message below;
+        the resource key valTemplate.ErrorMessage and the CSS classes are unchanged. The import
+        button's own "SpecifyFile" check (SelectedItem == null || SelectedValue == "None_Specified")
+        is preserved separately, exactly as written.
+      - asp:Label lblTemplateDescription -> the conditional div content.
+      - asp:radiobuttonlist optMode (ADD selected, AutoPostBack) -> the two radio inputs; the
+        SelectedIndexChanged handler is the @@onchange, calling the same DisplayNewRows().
+        optMode.SelectedIndex == 0 is still "ADD", so the row visibility logic is unchanged.
+      - asp:TextBox txtTabName -> the bound text input (maxlength 200).
+      - dnn:DnnPageDropDownList cboParentTab -> the migrated component; AutoPostBack is set where
+        BindTabControls set it and SelectionChanged is wired through SelectionChangedCallback.
+      - asp:RadioButtonList rbInsertPosition (AutoPostBack) -> the radio inputs built by
+        BindBeforeAfterTabControls, still defaulting to "After".
+      - dnn:DnnComboBox cboPositionTab (DataTextField LocalizedTabName, DataValueField TabId) ->
+        the migrated component with the same data binding.
+      - asp:radiobuttonlist optRedirect (VIEW selected) -> the two radio inputs.
+      - asp:LinkButton cmdImport / asp:HyperLink cmdCancel -> the two anchors.
+
+    SECURITY: the TabPermissionController.CanImportPage() guard and its AccessDeniedURL redirect
+    are preserved verbatim in OnInit. The import path still only reads files the portal file system
+    returns for the selected folder (FolderManager.GetFolders(UserInfo, "BROWSE, ADD") and
+    Globals.GetFileList for "page.template"), the XmlDocument/XmlReader keep XmlResolver = null
+    (no external entity resolution), and every validation branch - SpecifyFile, SpecifyMode,
+    NoTabsInTemplate, TabController.IsValidTabName, TabExists/TabRecycled - is preserved with its
+    original message and order. Null.NullInteger stays the "no parent"/"no position" sentinel and
+    the `positionTabId > Null.NullInteger` tests are untouched.
+
+    No @@rendermode directive on purpose: the component is a descendant of
+    <Routes @@rendermode="RenderModeForPage"> in Website/Components/App.razor (InteractiveServer).
+*@
+
+<div class="dnnForm dnnTabImport dnnClear" id="dnnTabImport">
+    <div class="dnnFormItem">
+        <LabelControl ID="plFolder" ControlName="cboFolders" LocalResourceFile="@this.LocalResourceFile" />
+        <DnnFolderDropDownList @ref="this.cboFolders" AutoPostBack="true" SelectionChangedCallback="@this.OnFolderIndexChanged" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plTemplate" ControlName="cboTemplate" LocalResourceFile="@this.LocalResourceFile" />
+        <DnnComboBox @ref="this.cboTemplate" AutoPostBack="true" SelectedIndexChangedCallback="@this.OnTemplateIndexChanged" />
+        @if (this.templateError)
+        {
+            <span class="dnnFormMessage dnnFormError">@this.LocalizeText("valTemplate.ErrorMessage")</span>
+        }
+        <div class="labelTemplateDescription">
+            @if (this.templateDescriptionVisible)
+            {
+                <span id="lblTemplateDescription">@this.templateDescription</span>
+            }
+        </div>
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plMode" ControlName="optMode" LocalResourceFile="@this.LocalResourceFile" />
+        <span id="optMode" class="dnnTIRadioButtons">
+            <input type="radio" id="optMode_0" name="optMode" value="ADD" checked="@(this.ModeValue == "ADD")" @onchange="@(() => this.OptModeSelectedIndexChanged("ADD"))" />
+            <label for="optMode_0">@this.LocalizeText("ModeAdd")</label>
+            <input type="radio" id="optMode_1" name="optMode" value="REPLACE" checked="@(this.ModeValue == "REPLACE")" @onchange="@(() => this.OptModeSelectedIndexChanged("REPLACE"))" />
+            <label for="optMode_1">@this.LocalizeText("ModeReplace")</label>
+        </span>
+    </div>
+    @* The three runat="server" rows whose Visible DisplayNewRows()/BindTabControls() toggled. They
+       are always part of the render tree (so the pickers inside them exist for the whole
+       interaction, as the WebForms control objects did) and carry the hidden attribute when the
+       WebForms row would not have been rendered. *@
+    <div class="dnnFormItem" id="divTabName" hidden="@(!this.divTabNameVisible)">
+        <LabelControl ID="plTabName" ControlName="txtTabName" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="text" id="txtTabName" maxlength="200" value="@this.TabName" @onchange="@(e => this.TabName = e.Value?.ToString() ?? string.Empty)" />
+    </div>
+    <div class="dnnFormItem" id="divParentTab" hidden="@(!this.divParentTabVisible)">
+        <LabelControl ID="plParentTab" ControlName="cboParentTab" LocalResourceFile="@this.LocalResourceFile" />
+        <DnnPageDropDownList @ref="this.cboParentTab" AutoPostBack="@this.parentTabAutoPostBack" SelectionChangedCallback="@this.OnParentTabIndexChanged" />
+    </div>
+    <div class="dnnFormItem" id="divInsertPositionRow" hidden="@(!this.divInsertPositionRowVisible)">
+        <LabelControl ID="plInsertPosition" ResourceKey="InsertPosition" ControlName="cboPositionTab" LocalResourceFile="@this.LocalResourceFile" />
+        <span id="rbInsertPosition" class="dnnTIRadioButtons">
+            @foreach (var item in this.insertPositionItems)
+            {
+                <input type="radio" id="@("rbInsertPosition_" + item.Value)" name="rbInsertPosition" value="@item.Value"
+                       checked="@(this.InsertPositionValue == item.Value)"
+                       @onchange="@(() => this.InsertPositionValue = item.Value)" />
+                <label for="@("rbInsertPosition_" + item.Value)">@item.Text</label>
+            }
+        </span>
+        <div class="dnnFormItem dnnClear">
+            <DnnComboBox @ref="this.cboPositionTab" DataTextField="LocalizedTabName" DataValueField="TabId" CssClass="dnnPositionInput" />
+        </div>
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plRedirect" ControlName="optRedirect" LocalResourceFile="@this.LocalResourceFile" />
+        <span id="optRedirect" class="dnnTIRadioButtons">
+            <input type="radio" id="optRedirect_0" name="optRedirect" value="VIEW" checked="@(this.RedirectValue == "VIEW")" @onchange="@(() => this.RedirectValue = "VIEW")" />
+            <label for="optRedirect_0">@this.LocalizeText("ModeView")</label>
+            <input type="radio" id="optRedirect_1" name="optRedirect" value="SETTINGS" checked="@(this.RedirectValue == "SETTINGS")" @onchange="@(() => this.RedirectValue = "SETTINGS")" />
+            <label for="optRedirect_1">@this.LocalizeText("ModeSettings")</label>
+        </span>
+    </div>
+    <ul class="dnnActions dnnClear">
+        <li><a id="cmdImport" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.OnImportClick" @onclick:preventDefault="true">@this.LocalizeText("cmdImport")</a></li>
+        <li><a id="cmdCancel" class="dnnSecondaryAction" href="@this.cancelUrl">@this.LocalizeText("cmdCancel")</a></li>
+    </ul>
+</div>
+
+@code {
+    private readonly IBusinessControllerProvider businessControllerProvider;
+    private readonly INavigationManager navigationManager;
+    private readonly IEventLogger eventLogger;
+    private readonly IPermissionDefinitionService permissionDefinitionService;
+    private readonly IHostSettings hostSettings;
+
+    private readonly List<DotNetNuke.UI.DnnListItem> insertPositionItems = new List<DotNetNuke.UI.DnnListItem>();
+
+    private TabInfo tab;
+    private DnnFolderDropDownList cboFolders;
+    private DnnComboBox cboTemplate;
+    private DnnPageDropDownList cboParentTab;
+    private DnnComboBox cboPositionTab;
+
+    private string cancelUrl = string.Empty;
+    private string templateDescription = string.Empty;
+    private bool templateDescriptionVisible;
+    private bool templateError;
+    private bool parentTabAutoPostBack;
+    private bool divTabNameVisible;
+    private bool divParentTabVisible;
+    private bool divInsertPositionRowVisible = true;
+    private bool initialBindDone;
+
+    /// <summary>Initializes a new instance of the <see cref="TabImport"/> class.</summary>
+    /// <remarks>A Blazor component cannot take constructor parameters; the services are resolved
+    /// from the module's dependency provider, which is what the parameterless overload did.</remarks>
+    public TabImport()
+    {
+        this.businessControllerProvider = this.DependencyProvider.GetRequiredService<IBusinessControllerProvider>();
+        this.navigationManager = this.DependencyProvider.GetRequiredService<INavigationManager>();
+        this.eventLogger = this.DependencyProvider.GetRequiredService<IEventLogger>();
+        this.permissionDefinitionService = this.DependencyProvider.GetRequiredService<IPermissionDefinitionService>();
+        this.hostSettings = this.DependencyProvider.GetRequiredService<IHostSettings>();
+    }
+
+    /// <summary>Gets the page the import replaces.</summary>
+    public TabInfo Tab => this.tab ??= TabController.Instance.GetTab(this.TabId, this.PortalId, false);
+
+    /// <summary>Gets or sets the import mode (was <c>optMode.SelectedValue</c>; "ADD" was selected in the markup).</summary>
+    protected string ModeValue { get; set; } = "ADD";
+
+    /// <summary>Gets or sets the post import redirect (was <c>optRedirect.SelectedValue</c>; "VIEW" was selected in the markup).</summary>
+    protected string RedirectValue { get; set; } = "VIEW";
+
+    /// <summary>Gets or sets the insert position (was <c>rbInsertPosition.SelectedValue</c>).</summary>
+    protected string InsertPositionValue { get; set; } = "After";
+
+    /// <summary>Gets or sets the name of the new page (was <c>txtTabName.Text</c>).</summary>
+    protected string TabName { get; set; } = string.Empty;
+
+    /// <summary>Gets the navigation manager used for the redirects <c>Response.Redirect</c> issued.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets the index of the selected mode (was <c>optMode.SelectedIndex</c>).</summary>
+    private int ModeSelectedIndex => this.ModeValue switch
+    {
+        "ADD" => 0,
+        "REPLACE" => 1,
+        _ => -1,
+    };
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // The .resx of this control is still App_LocalResources/Import.ascx.resx.
+        this.LocalResourceFile = "~/admin/Tabs/" + Localization.LocalResourceDirectory + "/Import.ascx";
+
+        if (!TabPermissionController.CanImportPage())
+        {
+            this.Navigation.NavigateTo(Globals.AccessDeniedURL(), forceLoad: true);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            // Was the !Page.IsPostBack guard.
+            if (this.initialBindDone)
+            {
+                return;
+            }
+
+            this.cancelUrl = this.navigationManager.NavigateURL();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The pickers are child components, so they only exist once this component has rendered; the
+    /// whole of the WebForms !IsPostBack body that configured them (UndefinedItem, the default
+    /// Templates/ folder, BindFiles, BindTabControls and DisplayNewRows) runs here, in the phase
+    /// that was OnPreRender.
+    /// </remarks>
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+
+        if (this.initialBindDone)
+        {
+            return;
+        }
+
+        this.initialBindDone = true;
+
+        try
+        {
+            if (this.cboFolders == null)
+            {
+                return;
+            }
+
+            this.cboFolders.UndefinedItem = new DotNetNuke.UI.DnnListItem("<" + Localization.GetString("None_Specified") + ">", string.Empty);
+            var folders = FolderManager.Instance.GetFolders(this.UserInfo, "BROWSE, ADD");
+            var templateFolder = folders.SingleOrDefault(f => f.FolderPath == "Templates/");
+            if (templateFolder != null)
+            {
+                this.cboFolders.SelectedFolder = templateFolder;
+            }
+
+            this.BindFiles();
+            this.BindTabControls();
+            this.DisplayNewRows();
+
+            this.StateHasChanged();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Rebuilds the template list for the selected folder (was <c>cboFolders.SelectionChanged</c>).</summary>
+    /// <param name="e">The event arguments.</param>
+    protected void OnFolderIndexChanged(EventArgs e)
+    {
+        this.BindFiles();
+    }
+
+    /// <summary>Imports the selected page template (was <c>cmdImport.Click</c>).</summary>
+    protected void OnImportClick()
+    {
+        try
+        {
+            this.templateError = this.cboTemplate?.SelectedItem == null || this.cboTemplate.SelectedValue == "-1";
+
+            if (this.cboTemplate?.SelectedItem == null || this.cboTemplate.SelectedValue == "None_Specified")
+            {
+                DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("SpecifyFile", this.LocalResourceFile), ModuleMessage.ModuleMessageType.RedError);
+                return;
+            }
+
+            if (this.ModeSelectedIndex == -1)
+            {
+                DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("SpecifyMode", this.LocalResourceFile), ModuleMessage.ModuleMessageType.RedError);
+                return;
+            }
+
+            if (this.cboFolders?.SelectedItem == null)
+            {
+                return;
+            }
+
+            var selectedFolder = FolderManager.Instance.GetFolder(this.cboFolders.SelectedItemValueAsInt);
+            if (selectedFolder == null)
+            {
+                return;
+            }
+
+            var selectedFile = FileManager.Instance.GetFile(Convert.ToInt32(this.cboTemplate.SelectedValue));
+            var xmlDoc = new XmlDocument { XmlResolver = null };
+            using (var content = FileManager.Instance.GetFileContent(selectedFile))
+            using (var xmlReader = XmlReader.Create(content, new XmlReaderSettings { XmlResolver = null, }))
+            {
+                xmlDoc.Load(xmlReader);
+            }
+
+            var tabNodes = new List<XmlNode>();
+            var selectSingleNode = xmlDoc.SelectSingleNode("//portal/tabs");
+            if (selectSingleNode != null)
+            {
+                tabNodes.AddRange(selectSingleNode.ChildNodes.Cast<XmlNode>());
+            }
+
+            if (tabNodes.Count == 0)
+            {
+                DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("NoTabsInTemplate", this.LocalResourceFile), ModuleMessage.ModuleMessageType.RedError);
+                return;
+            }
+
+            TabInfo objTab;
+            if (this.ModeValue == "ADD")
+            {
+                // Check for invalid
+                string invalidType;
+                if (!TabController.IsValidTabName(this.TabName, out invalidType))
+                {
+                    var warningMessage = string.Format(CultureInfo.CurrentCulture, Localization.GetString(invalidType, this.LocalResourceFile), this.TabName);
+                    DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, warningMessage, ModuleMessage.ModuleMessageType.RedError);
+                    return;
+                }
+
+                // New Tab
+                objTab = new TabInfo { PortalID = this.PortalId, TabName = this.TabName, IsVisible = true };
+                var parentId = this.cboParentTab?.SelectedItemValueAsInt ?? Null.NullInteger;
+                if (parentId != Null.NullInteger)
+                {
+                    objTab.ParentId = parentId;
+                }
+
+                objTab.TabPath = Globals.GenerateTabPath(objTab.ParentId, objTab.TabName);
+                var tabId = TabController.GetTabByTabPath(this.hostSettings, objTab.PortalID, objTab.TabPath, Null.NullString);
+
+                // Check if tab exists
+                if (tabId != Null.NullInteger)
+                {
+                    TabInfo existingTab = TabController.Instance.GetTab(tabId, this.PortalId, false);
+                    if (existingTab != null && existingTab.IsDeleted)
+                    {
+                        DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("TabRecycled", this.LocalResourceFile), ModuleMessage.ModuleMessageType.YellowWarning);
+                    }
+                    else
+                    {
+                        DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("TabExists", this.LocalResourceFile), ModuleMessage.ModuleMessageType.RedError);
+                    }
+
+                    return;
+                }
+
+                var positionTabId = int.Parse(this.cboPositionTab.SelectedItem.Value);
+
+                if (this.InsertPositionValue == "After" && positionTabId > Null.NullInteger)
+                {
+                    objTab.TabID = TabController.Instance.AddTabAfter(objTab, positionTabId);
+                }
+                else if (this.InsertPositionValue == "Before" && positionTabId > Null.NullInteger)
+                {
+                    objTab.TabID = TabController.Instance.AddTabBefore(objTab, positionTabId);
+                }
+                else
+                {
+                    objTab.TabID = TabController.Instance.AddTab(objTab);
+                }
+
+                this.eventLogger.AddLog(objTab, this.PortalSettings, this.UserId, string.Empty, EventLogType.TAB_CREATED);
+
+                objTab = TabController.DeserializeTab(this.businessControllerProvider, this.permissionDefinitionService, tabNodes[0], objTab, this.PortalId, PortalTemplateModuleAction.Replace);
+
+                var exceptions = string.Empty;
+
+                // Create second tabs onwards. For firs tab, we like to use tab details from text box, for rest it'll come from template
+                for (var tabIndex = 1; tabIndex < tabNodes.Count; tabIndex++)
+                {
+                    try
+                    {
+                        TabController.DeserializeTab(this.businessControllerProvider, this.permissionDefinitionService, tabNodes[tabIndex], null, this.PortalId, PortalTemplateModuleAction.Replace);
+                    }
+                    catch (Exception ex)
+                    {
+                        Exceptions.LogException(ex);
+                        exceptions += string.Format("Template Tab # {0}. Error {1}<br/>", tabIndex + 1, ex.Message);
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(exceptions))
+                {
+                    DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, exceptions, ModuleMessage.ModuleMessageType.RedError);
+                    return;
+                }
+            }
+            else
+            {
+                // Replace Existing Tab
+                objTab = TabController.DeserializeTab(this.businessControllerProvider, this.permissionDefinitionService, tabNodes[0], this.Tab, this.PortalId, PortalTemplateModuleAction.Replace);
+            }
+
+            switch (this.RedirectValue)
+            {
+                case "VIEW":
+                    this.Navigation.NavigateTo(this.navigationManager.NavigateURL(objTab.TabID), forceLoad: true);
+                    break;
+                default:
+                    this.Navigation.NavigateTo(this.navigationManager.NavigateURL(objTab.TabID, "Tab", "action=edit"), forceLoad: true);
+                    break;
+            }
+        }
+        catch (NavigationException)
+        {
+            // The redirects above; during a static server render NavigateTo signals the response by
+            // throwing, which the WebForms Response.Redirect did by ending the response.
+            throw;
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Rebuilds the before/after list for the selected parent (was <c>cboParentTab.SelectionChanged</c>).</summary>
+    /// <param name="e">The event arguments.</param>
+    protected void OnParentTabIndexChanged(EventArgs e)
+    {
+        this.BindBeforeAfterTabControls();
+    }
+
+    /// <summary>Shows the selected template's description (was <c>cboTemplate.SelectedIndexChanged</c>).</summary>
+    /// <param name="e">The event arguments.</param>
+    protected void OnTemplateIndexChanged(EventArgs e)
+    {
+        try
+        {
+            if (this.cboTemplate.SelectedIndex > 0 && this.cboFolders.SelectedItem != null)
+            {
+                var selectedFile = FileManager.Instance.GetFile(Convert.ToInt32(this.cboTemplate.SelectedValue));
+                var xmldoc = new XmlDocument { XmlResolver = null };
+                using (var fileContent = FileManager.Instance.GetFileContent(selectedFile))
+                using (var xmlReader = XmlReader.Create(fileContent, new XmlReaderSettings { XmlResolver = null, }))
+                {
+                    xmldoc.Load(xmlReader);
+                }
+
+                var node = xmldoc.SelectSingleNode("//portal/description");
+                if (node != null && !string.IsNullOrEmpty(node.InnerXml))
+                {
+                    this.templateDescriptionVisible = true;
+
+                    // Server.HtmlDecode has no ASP.NET Core equivalent; WebUtility.HtmlDecode is
+                    // the same decoding.
+                    this.templateDescription = System.Net.WebUtility.HtmlDecode(node.InnerXml);
+                    this.TabName = this.cboTemplate.SelectedItem.Text;
+                }
+                else
+                {
+                    this.templateDescriptionVisible = false;
+                }
+            }
+            else
+            {
+                this.templateDescriptionVisible = false;
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Shows or hides the new-page rows (was <c>optMode.SelectedIndexChanged</c>).</summary>
+    /// <param name="mode">The newly selected mode.</param>
+    protected void OptModeSelectedIndexChanged(string mode)
+    {
+        this.ModeValue = mode;
+        this.DisplayNewRows();
+    }
+
+    private void BindBeforeAfterTabControls()
+    {
+        var noneSpecified = "<" + Localization.GetString("None_Specified") + ">";
+        if (this.cboParentTab != null)
+        {
+            this.cboParentTab.UndefinedItem = new DotNetNuke.UI.DnnListItem(noneSpecified, string.Empty);
+        }
+
+        var parentTab = this.cboParentTab?.SelectedPage;
+
+        List<TabInfo> listTabs = parentTab != null ? TabController.Instance.GetTabsByPortal(parentTab.PortalID).WithParentId(parentTab.TabID) : TabController.Instance.GetTabsByPortal(this.PortalId).WithParentId(Null.NullInteger);
+        listTabs = TabController.GetPortalTabs(listTabs, Null.NullInteger, true, noneSpecified, false, false, false, false, true);
+        if (this.cboPositionTab != null)
+        {
+            this.cboPositionTab.DataSource = listTabs;
+            this.cboPositionTab.DataBind();
+        }
+
+        this.insertPositionItems.Clear();
+        this.insertPositionItems.Add(new DotNetNuke.UI.DnnListItem(Localization.GetString("InsertBefore", this.LocalResourceFile), "Before"));
+        this.insertPositionItems.Add(new DotNetNuke.UI.DnnListItem(Localization.GetString("InsertAfter", this.LocalResourceFile), "After"));
+        this.insertPositionItems.Add(new DotNetNuke.UI.DnnListItem(Localization.GetString("InsertAtEnd", this.LocalResourceFile), "AtEnd"));
+        this.InsertPositionValue = "After";
+    }
+
+    private void BindFiles()
+    {
+        this.cboTemplate.Items.Clear();
+        if (this.cboFolders.SelectedItem != null)
+        {
+            var folder = FolderManager.Instance.GetFolder(this.cboFolders.SelectedItemValueAsInt);
+            if (folder != null)
+            {
+                var files = Globals.GetFileList(this.PortalId, "page.template", false, folder.FolderPath);
+                foreach (FileItem file in files)
+                {
+                    this.cboTemplate.AddItem(file.Text.Replace(".page.template", string.Empty), file.Value);
+                }
+
+                this.cboTemplate.InsertItem(0, "<" + Localization.GetString("None_Specified") + ">", "None_Specified");
+                this.cboTemplate.SelectedIndex = 0;
+            }
+        }
+    }
+
+    private void BindTabControls()
+    {
+        this.BindBeforeAfterTabControls();
+        this.divInsertPositionRowVisible = (this.cboPositionTab?.Items.Count ?? 0) > 0;
+        this.parentTabAutoPostBack = true;
+        if (this.cboPositionTab?.FindItemByValue(this.TabId.ToString(CultureInfo.InvariantCulture)) != null)
+        {
+            this.cboPositionTab.ClearSelection();
+            this.cboPositionTab.FindItemByValue(this.TabId.ToString(CultureInfo.InvariantCulture)).Selected = true;
+        }
+    }
+
+    private void DisplayNewRows()
+    {
+        this.divTabNameVisible = this.ModeSelectedIndex == 0;
+        this.divParentTabVisible = this.ModeSelectedIndex == 0;
+        this.divInsertPositionRowVisible = this.ModeSelectedIndex == 0;
+        this.divInsertPositionRowVisible = this.ModeSelectedIndex == 0;
+    }
+}

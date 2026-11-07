@@ -14,6 +14,14 @@
       <PersonaBar-data Include="admin/personaBar/**/data/*.resources" />
       <PersonaBar-css Include="admin/personaBar/**/css/**/*" />
       <PersonaBar-resources Include="admin/personaBar/**/App_LocalResources/*.resx" />
+      <!-- UserControls/*.ascx: PersonaBarContainer.ascx was converted to a Blazor component
+           (compiled into the assembly, nothing to deploy), so this glob now matches nothing for
+           Dnn.PersonaBar.UI. It is kept because the item is shared by the other Admin Experience
+           extensions built through this file, and an empty item list simply contributes nothing
+           to @(Resources)/DebugProject. The component's JS interop module ships through
+           PersonaBar-scripts below (admin/personaBar/scripts/personaBarContainerInterop.js) -
+           the **/ matches zero directories, so files directly under admin/personaBar/scripts
+           are included. -->
       <PersonaBar-controls Include="admin/personaBar/**/UserControls/*.ascx" />
       <PersonaBar-scripts Include="admin/personaBar/**/scripts/**/*" />
       <Resources Include="@(PersonaBar-views);@(PersonaBar-images);@(PersonaBar-css);@(PersonaBar-scripts);@(PersonaBar-data);@(PersonaBar-resources);@(PersonaBar-controls)" Exclude="**/node_modules/**/*" />

@@ -9,9 +9,7 @@ namespace Dnn.PersonaBar.Servers.Services
     using System.Globalization;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Text;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -28,7 +26,10 @@ namespace Dnn.PersonaBar.Servers.Services
     using DotNetNuke.Services.Mail.OAuth;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>Provides the APIs for SMTP settings management.</summary>
     [MenuPermission(Scope = ServiceScope.Admin)]
@@ -53,7 +54,7 @@ namespace Dnn.PersonaBar.Servers.Services
         /// <summary>Gets the SMTP settings.</summary>
         /// <returns>An object representing the SMTP settings for the current portal.</returns>
         [HttpGet]
-        public HttpResponseMessage GetSmtpSettings()
+        public IActionResult GetSmtpSettings()
         {
             try
             {
@@ -77,12 +78,12 @@ namespace Dnn.PersonaBar.Servers.Services
                     portalName = PortalSettings.Current.PortalName,
                     hideCoreSettings = ProviderConfiguration.GetProviderConfiguration("mail").GetDefaultProvider().Attributes.GetValueOrDefault("hideCoreSettings", false),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, smtpSettings);
+                return this.Ok(smtpSettings);
             }
             catch (Exception exc)
             {
                 Logger.ServerSettingsSmtpAdminControllerGetSmtpSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -91,7 +92,7 @@ namespace Dnn.PersonaBar.Servers.Services
         /// <returns>A value indicating whether the operation succeeded.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateSmtpSettings(UpdateSmtpSettingsRequest request)
+        public IActionResult UpdateSmtpSettings(UpdateSmtpSettingsRequest request)
         {
             try
             {
@@ -148,15 +149,15 @@ namespace Dnn.PersonaBar.Servers.Services
                 DataCache.ClearCache();
                 if (errorMessages.Any())
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new { success = false, errors = errorMessages });
+                    return this.Ok(new { success = false, errors = errorMessages });
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { success = true, providerChanged });
+                return this.Ok(new { success = true, providerChanged });
             }
             catch (Exception exc)
             {
                 Logger.ServerSettingsSmtpAdminControllerUpdateSmtpSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -165,7 +166,7 @@ namespace Dnn.PersonaBar.Servers.Services
         /// <returns>A localized test result message.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage SendTestEmail(SendTestEmailRequest request)
+        public IActionResult SendTestEmail(SendTestEmailRequest request)
         {
             try
             {
@@ -197,7 +198,7 @@ namespace Dnn.PersonaBar.Servers.Services
                     smtpHostMode ? this.hostSettingsService.GetString("SMTPAuthProvider", string.Empty) : request.AuthProvider);
 
                 var success = string.IsNullOrEmpty(errMessage);
-                return this.Request.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.BadRequest, new
+                return DnnApiResults.Response(success ? HttpStatusCode.OK : HttpStatusCode.BadRequest, new
                 {
                     success,
                     errMessage,
@@ -212,7 +213,7 @@ namespace Dnn.PersonaBar.Servers.Services
             catch (Exception exc)
             {
                 Logger.ServerSettingsSmtpAdminControllerSendTestEmailException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -221,7 +222,7 @@ namespace Dnn.PersonaBar.Servers.Services
         /// </summary>
         /// <returns>smtp oauth providers.</returns>
         [HttpGet]
-        public HttpResponseMessage GetSmtpOAuthProviders()
+        public IActionResult GetSmtpOAuthProviders()
         {
             try
             {
@@ -236,12 +237,12 @@ namespace Dnn.PersonaBar.Servers.Services
                     authorizeUrl = i.GetAuthorizeUrl(portalId),
                 });
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { host = Array.Empty<object>(), site = result });
+                return this.Ok(new { host = Array.Empty<object>(), site = result });
             }
             catch (Exception exc)
             {
                 Logger.ServerSettingsSmtpAdminControllerGetSmtpOAuthProvidersException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 

@@ -1,0 +1,42 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* The dnn:DOTNETNUKE skin object (was dotnetnuke.ascx + DotNetNuke.ascx.cs).
+   Renders the <asp:HyperLink id="hypDotNetNuke" cssclass="Normal" font-size="9px"> of the original
+   markup (font-size became the inline style WebForms generated for it). The component keeps the
+   class name DotNetNukeControl, because "DotNetNuke" is a namespace; the markup path
+   admin/Skins/dotnetnuke.ascx is mapped onto it explicitly in Program.cs. *@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+@using System
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Application
+@using Microsoft.AspNetCore.Components
+@inject IHostSettingsService HostSettingsService
+
+@if (this.Visible)
+{
+    <a class="@this.LinkCssClass" style="font-size:9px;" href="@this.navigateUrl">@((MarkupString)(this.text ?? string.Empty))</a>
+}
+
+@code {
+    private string text;
+    private string navigateUrl;
+
+    /// <summary>Gets the CSS class of the link, which defaults to the markup's "Normal".</summary>
+    private string LinkCssClass => string.IsNullOrEmpty(this.CssClass) ? "Normal" : this.CssClass;
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        // get Product Name and Legal Copyright from constants (Medium Trust)
+        this.text = DotNetNukeContext.Current.Application.LegalCopyright;
+        this.navigateUrl = DotNetNukeContext.Current.Application.Url;
+
+        // show copyright credits?
+        this.Visible = this.HostSettingsService.GetBoolean("Copyright", true);
+    }
+}

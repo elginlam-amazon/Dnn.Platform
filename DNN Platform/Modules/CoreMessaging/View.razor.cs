@@ -301,14 +301,14 @@ namespace DotNetNuke.Modules.CoreMessaging
         /// </summary>
         private void RegisterClientResources()
         {
-            this.clientResourceController.RegisterScript("~/Resources/Shared/Components/ComposeMessage/ComposeMessage.js", (FileOrder.Js)101);
-            this.clientResourceController.RegisterStylesheet("~/Resources/Shared/Components/ComposeMessage/ComposeMessage.css");
-            this.clientResourceController.RegisterScript("~/Resources/Shared/Components/UserFileManager/UserFileManager.js", (FileOrder.Js)102);
-            this.clientResourceController.RegisterStylesheet("~/Resources/Shared/Components/UserFileManager/UserFileManager.css");
-            this.clientResourceController.RegisterScript("~/Resources/Shared/Components/Tokeninput/jquery.tokeninput.js", (FileOrder.Js)103);
-            this.clientResourceController.RegisterStylesheet("~/Resources/Shared/Components/Tokeninput/Themes/token-input-facebook.css");
-            this.clientResourceController.RegisterScript("~/Resources/Shared/Scripts/jquery.history.js", (FileOrder.Js)104);
-            this.clientResourceController.RegisterScript("~/Resources/Shared/Components/UserFileManager/jquery.dnnUserFileUpload.js", (FileOrder.Js)106);
+            this.clientResourceController.RegisterScript("~/resources/Shared/Components/ComposeMessage/ComposeMessage.js", (FileOrder.Js)101);
+            this.clientResourceController.RegisterStylesheet("~/resources/Shared/Components/ComposeMessage/ComposeMessage.css");
+            this.clientResourceController.RegisterScript("~/resources/Shared/Components/UserFileManager/UserFileManager.js", (FileOrder.Js)102);
+            this.clientResourceController.RegisterStylesheet("~/resources/Shared/Components/UserFileManager/UserFileManager.css");
+            this.clientResourceController.RegisterScript("~/resources/Shared/Components/Tokeninput/jquery.tokeninput.js", (FileOrder.Js)103);
+            this.clientResourceController.RegisterStylesheet("~/resources/Shared/Components/Tokeninput/Themes/token-input-facebook.css");
+            this.clientResourceController.RegisterScript("~/resources/Shared/Scripts/jquery.history.js", (FileOrder.Js)104);
+            this.clientResourceController.RegisterScript("~/resources/Shared/Components/UserFileManager/jquery.dnnUserFileUpload.js", (FileOrder.Js)106);
         }
 
         private void AddIe7StyleSheet()
@@ -429,7 +429,7 @@ namespace DotNetNuke.Modules.CoreMessaging
             script.AppendLine("                cancelText: '" + Js("Cancel") + "',");
             script.AppendLine("                attachText: '" + Js("Attach") + "',");
             script.AppendLine("                getItemsServiceUrl: $.ServicesFramework(" + moduleId + ").getServiceRoot('InternalServices') + 'UserFile/GetItems',");
-            script.AppendLine("                templatePath: '" + Globals.ResolveUrl("~/Resources/Shared/Components/UserFileManager/Templates/") + "',");
+            script.AppendLine("                templatePath: '" + Globals.ResolveUrl("~/resources/Shared/Components/UserFileManager/Templates/") + "',");
             script.AppendLine("                templateName: 'Default',");
             script.AppendLine("                templateExtension: '.html',");
             script.AppendLine("                nameHeaderText: '" + Js("Name.Header") + "',");

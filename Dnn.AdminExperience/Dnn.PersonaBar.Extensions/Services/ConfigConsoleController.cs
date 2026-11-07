@@ -7,9 +7,7 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Threading.Tasks;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.ConfigConsole.Services.Dto;
     using Dnn.PersonaBar.Library;
@@ -19,8 +17,11 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>The web API controller for the Config Console component in the Persona Bar.</summary>
     [MenuPermission(Scope = ServiceScope.Host)]
@@ -47,7 +48,7 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
         /// <summary>Gets list of config files.A response indicating success.</summary>
         /// <returns>List of config files.</returns>
         [HttpGet]
-        public async Task<HttpResponseMessage> GetConfigFilesList()
+        public async Task<IActionResult> GetConfigFilesList()
         {
             try
             {
@@ -60,12 +61,12 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
                     TotalResults = configFileList.Count,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.ConfigConsoleControllerGetConfigFilesListException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -74,7 +75,7 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
         /// <param name="fileName">Name of a config file.</param>
         /// <returns>Content of a config file.</returns>
         [HttpGet]
-        public async Task<HttpResponseMessage> GetConfigFile(string fileName)
+        public async Task<IActionResult> GetConfigFile(string fileName)
         {
             try
             {
@@ -84,16 +85,16 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
                     FileContent = await this.controller.GetConfigFileAsync(fileName),
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (ArgumentException exc)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, exc.Message);
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, exc.Message);
             }
             catch (Exception exc)
             {
                 Logger.ConfigConsoleControllerGetConfigFileException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -103,7 +104,7 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
         /// <returns>A list of validation errors.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<HttpResponseMessage> ValidateConfigFile(ConfigFileDto configFileDto)
+        public async Task<IActionResult> ValidateConfigFile(ConfigFileDto configFileDto)
         {
             try
             {
@@ -111,16 +112,16 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
                 {
                     ValidationErrors = await this.controller.ValidateConfigFileAsync(configFileDto.FileName, configFileDto.FileContent),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (ArgumentException exc)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, exc.Message);
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, exc.Message);
             }
             catch (Exception exc)
             {
                 Logger.ConfigConsoleControllerValidateConfigFileException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -130,21 +131,21 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<HttpResponseMessage> UpdateConfigFile(ConfigFileDto configFileDto)
+        public async Task<IActionResult> UpdateConfigFile(ConfigFileDto configFileDto)
         {
             try
             {
                 await this.controller.UpdateConfigFileAsync(configFileDto.FileName, configFileDto.FileContent);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (ArgumentException exc)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, exc.Message);
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, exc.Message);
             }
             catch (Exception exc)
             {
                 Logger.ConfigConsoleControllerUpdateConfigFileException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -154,17 +155,17 @@ namespace Dnn.PersonaBar.ConfigConsole.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage MergeConfigFile(ConfigFileDto configFileDto)
+        public IActionResult MergeConfigFile(ConfigFileDto configFileDto)
         {
             try
             {
                 this.controller.MergeConfigFile(configFileDto.FileContent);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.ConfigConsoleControllerMergeConfigFileException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
     }

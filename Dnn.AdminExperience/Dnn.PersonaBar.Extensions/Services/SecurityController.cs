@@ -15,8 +15,6 @@ namespace Dnn.PersonaBar.Security.Services
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web;
-    using System.Web.Http;
     using System.Xml;
 
     using Dnn.PersonaBar.Extensions.Components.Security.Ssl;
@@ -46,11 +44,14 @@ namespace Dnn.PersonaBar.Security.Services
     using DotNetNuke.Web.Api.Auth.ApiTokens;
     using DotNetNuke.Web.Api.Auth.ApiTokens.Models;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
     using Constants = Dnn.PersonaBar.Library.Constants;
     using Localization = DotNetNuke.Services.Localization.Localization;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>Provides REST APIs to manage security settings.</summary>
     [MenuPermission(MenuName = Components.Constants.MenuName)]
@@ -125,7 +126,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>Portal's basic login settings.</returns>
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.BasicLoginSettingsView)]
-        public HttpResponseMessage GetBasicLoginSettings(string cultureCode)
+        public IActionResult GetBasicLoginSettings(string cultureCode)
         {
             try
             {
@@ -170,12 +171,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetBasicLoginSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -186,11 +187,14 @@ namespace Dnn.PersonaBar.Security.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.BasicLoginSettingsView + "&" + Components.Constants.BasicLoginSettingsEdit)]
-        public HttpResponseMessage UpdateBasicLoginSettings(UpdateBasicLoginSettingsRequest request)
+        public IActionResult UpdateBasicLoginSettings(UpdateBasicLoginSettingsRequest request)
         {
             if (!this.ModelState.IsValid)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, this.ModelState);
+                // REVIEW: Web API 2's HttpError wrapped the model state in a {"Message":…,"ModelState":{…}}
+                // body; ASP.NET Core serialises the ModelStateDictionary directly. The status code and the
+                // per-field error messages are preserved — verify the client's error rendering.
+                return this.BadRequest(this.ModelState);
             }
 
             try
@@ -216,12 +220,12 @@ namespace Dnn.PersonaBar.Security.Services
                     this.hostSettingsService.Update(UserRequestIPHeaderSettingName, request.UserRequestIPHeader, true);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerUpdateBasicLoginSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -230,7 +234,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>List of IP filters.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetIpFilters()
+        public IActionResult GetIpFilters()
         {
             try
             {
@@ -251,12 +255,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetIpFiltersException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -266,7 +270,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>IP filter.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetIpFilter(int filterId)
+        public IActionResult GetIpFilter(int filterId)
         {
             try
             {
@@ -284,12 +288,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetIpFilterException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -300,7 +304,7 @@ namespace Dnn.PersonaBar.Security.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage UpdateIpFilter(UpdateIpFilterRequest request)
+        public IActionResult UpdateIpFilter(UpdateIpFilterRequest request)
         {
             try
             {
@@ -314,12 +318,12 @@ namespace Dnn.PersonaBar.Security.Services
 
                 if (ipf.IPAddress is "127.0.0.1" or "localhost" or "::1" or "*" && ipf.RuleType == 2)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, Localization.GetString("CannotDeleteLocalhost.Text", Components.Constants.LocalResourcesFile));
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, Localization.GetString("CannotDeleteLocalhost.Text", Components.Constants.LocalResourcesFile));
                 }
 
-                if (!IPFilterController.Instance.IsAllowableDeny(HttpContext.Current.Request.UserHostAddress, ipf))
+                if (!IPFilterController.Instance.IsAllowableDeny(GetUserHostAddress(), ipf))
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, Localization.GetString("CannotDeleteIPInUse.Text", Components.Constants.LocalResourcesFile));
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, Localization.GetString("CannotDeleteIPInUse.Text", Components.Constants.LocalResourcesFile));
                 }
 
                 if (request.IPFilterID > 0)
@@ -332,17 +336,17 @@ namespace Dnn.PersonaBar.Security.Services
                     IPFilterController.Instance.AddIPFilter(ipf);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (ArgumentException exc)
             {
                 Logger.SecurityControllerUpdateIpFilterArgumentException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, exc.Message);
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, exc.Message);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerUpdateIpFilterException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -353,25 +357,25 @@ namespace Dnn.PersonaBar.Security.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage DeleteIpFilter(int filterId)
+        public IActionResult DeleteIpFilter(int filterId)
         {
             try
             {
                 IList<IPFilterInfo> currentRules = IPFilterController.Instance.GetIPFilters();
                 List<IPFilterInfo> currentWithDeleteRemoved = currentRules.Where(p => p.IPFilterID != filterId).ToList();
 
-                if (!IPFilterController.Instance.CanIPStillAccess(HttpContext.Current.Request.UserHostAddress, currentWithDeleteRemoved))
+                if (!IPFilterController.Instance.CanIPStillAccess(GetUserHostAddress(), currentWithDeleteRemoved))
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, Localization.GetString("CannotDelete.Text", Components.Constants.LocalResourcesFile));
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, Localization.GetString("CannotDelete.Text", Components.Constants.LocalResourcesFile));
                 }
 
                 IPFilterController.Instance.DeleteIPFilter(new IPFilterInfo { IPFilterID = filterId, });
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerDeleteIpFilterException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -380,7 +384,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>Portal's member settings.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetMemberSettings()
+        public IActionResult GetMemberSettings()
         {
             try
             {
@@ -406,12 +410,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetMemberSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -422,7 +426,7 @@ namespace Dnn.PersonaBar.Security.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage UpdateMemberSettings(UpdateMemberSettingsRequest request)
+        public IActionResult UpdateMemberSettings(UpdateMemberSettingsRequest request)
         {
             try
             {
@@ -438,12 +442,12 @@ namespace Dnn.PersonaBar.Security.Services
                 this.hostSettingsService.Update("PasswordExpiryReminder", request.PasswordExpiryReminder.ToString(CultureInfo.InvariantCulture));
                 this.hostSettingsService.Update("ForceLogoutAfterPasswordChanged", request.ForceLogoutAfterPasswordChanged ? "Y" : "N", false);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerUpdateMemberSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -452,7 +456,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>Portal's registration settings.</returns>
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RegistrationSettingsView)]
-        public HttpResponseMessage GetRegistrationSettings()
+        public IActionResult GetRegistrationSettings()
         {
             try
             {
@@ -503,12 +507,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetRegistrationSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -517,7 +521,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>Portal's SSL settings.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetSslSettings()
+        public IActionResult GetSslSettings()
         {
             try
             {
@@ -545,12 +549,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetSslSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -561,11 +565,14 @@ namespace Dnn.PersonaBar.Security.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RegistrationSettingsView + "&" + Components.Constants.RegistrationSettingsEdit)]
-        public HttpResponseMessage UpdateRegistrationSettings(UpdateRegistrationSettingsRequest request)
+        public IActionResult UpdateRegistrationSettings(UpdateRegistrationSettingsRequest request)
         {
             if (!this.ModelState.IsValid)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, this.ModelState);
+                // REVIEW: Web API 2's HttpError wrapped the model state in a {"Message":…,"ModelState":{…}}
+                // body; ASP.NET Core serialises the ModelStateDictionary directly. The status code and the
+                // per-field error messages are preserved — verify the client's error rendering.
+                return this.BadRequest(this.ModelState);
             }
 
             try
@@ -594,12 +601,12 @@ namespace Dnn.PersonaBar.Security.Services
                 PortalController.UpdatePortalSetting(this.PortalId, "Security_RequireValidProfile", request.RequireValidProfile.ToString(), false);
                 PortalController.UpdatePortalSetting(this.PortalId, "Security_CaptchaRegister", request.UseCaptchaRegister.ToString(), false);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerUpdateRegistrationSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -610,7 +617,7 @@ namespace Dnn.PersonaBar.Security.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateSslSettings(UpdateSslSettingsRequest request)
+        public IActionResult UpdateSslSettings(UpdateSslSettingsRequest request)
         {
             try
             {
@@ -641,12 +648,12 @@ namespace Dnn.PersonaBar.Security.Services
 
                 DataCache.ClearPortalCache(this.PortalId, false);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerUpdateSslSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -656,17 +663,17 @@ namespace Dnn.PersonaBar.Security.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage SetAllPagesSecure()
+        public IActionResult SetAllPagesSecure()
         {
             try
             {
                 DotNetNuke.Data.DataProvider.Instance().SetAllPortalTabsSecure(this.PortalId, true);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerSetAllPagesSecureException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -675,42 +682,47 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>Security bulletins.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetSecurityBulletins()
+        public async Task<IActionResult> GetSecurityBulletins()
         {
             try
             {
-                var platformVersion = System.Reflection.Assembly.LoadFrom(this.applicationStatusInfo.ApplicationMapPath + @"\bin\DotNetNuke.dll").GetName().Version;
+                // DotNetNuke.dll is already loaded into the current AssemblyLoadContext; read the version
+                // from the loaded assembly rather than loading a second copy of it from ~/bin.
+                var platformVersion = typeof(Globals).Assembly.GetName().Version;
                 string sRequest = $"https://dnnplatform.io/security.aspx?type={DotNetNukeContext.Current.Application.Type}&name=DNNCORP.CE&version={Globals.FormatVersion(platformVersion, "00", 3, string.Empty)}";
 
                 // format for display with "." delimiter
                 string sVersion = Globals.FormatVersion(platformVersion, "00", 3, ".");
 
                 // make remote request
-                Stream oStream = null;
+                string responseBody;
                 try
                 {
-                    HttpWebRequest oRequest = Globals.GetExternalRequest(this.hostSettings, sRequest);
-                    oRequest.Timeout = 10000; // 10 seconds
-                    WebResponse oResponse = oRequest.GetResponse();
-                    oStream = oResponse.GetResponseStream();
+                    // The host-configured external-request client (user agent, proxy and credentials),
+                    // with the original per-request 10 second time-out expressed as a cancellation token
+                    // because the factory-managed client's Timeout must not be mutated.
+                    var client = Globals.GetExternalHttpClient();
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    using var oResponse = await client.GetAsync(sRequest, timeout.Token);
+                    oResponse.EnsureSuccessStatusCode();
+                    responseBody = await oResponse.Content.ReadAsStringAsync(timeout.Token);
                 }
                 catch (Exception oExc)
                 {
                     // connectivity issues
                     if (PortalSecurity.IsInRoles(this.PortalSettings.AdministratorRoleId.ToString(CultureInfo.InvariantCulture)))
                     {
-                        return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, string.Format(CultureInfo.CurrentCulture, Localization.GetString("RequestFailed_Admin.Text", Components.Constants.LocalResourcesFile), sRequest));
+                        return DnnApiResults.Error(HttpStatusCode.BadRequest, string.Format(CultureInfo.CurrentCulture, Localization.GetString("RequestFailed_Admin.Text", Components.Constants.LocalResourcesFile), sRequest));
                     }
                     else
                     {
-                        return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, Localization.GetString("RequestFailed_User.Text", Components.Constants.LocalResourcesFile) + oExc.Message);
+                        return DnnApiResults.Error(HttpStatusCode.BadRequest, Localization.GetString("RequestFailed_User.Text", Components.Constants.LocalResourcesFile) + oExc.Message);
                     }
                 }
 
                 // load XML document
-                StreamReader oReader = new StreamReader(oStream);
                 XmlDocument oDoc = new XmlDocument { XmlResolver = null, };
-                using (var xmlReader = XmlReader.Create(new StringReader(oReader.ReadToEnd()), new XmlReaderSettings { XmlResolver = null, }))
+                using (var xmlReader = XmlReader.Create(new StringReader(responseBody), new XmlReaderSettings { XmlResolver = null, }))
                 {
                     oDoc.Load(xmlReader);
                 }
@@ -738,12 +750,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetSecurityBulletinsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -752,7 +764,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>Portal's other settings.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetOtherSettings()
+        public IActionResult GetOtherSettings()
         {
             try
             {
@@ -778,12 +790,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetOtherSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -794,7 +806,7 @@ namespace Dnn.PersonaBar.Security.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateOtherSettings(UpdateOtherSettingsRequest request)
+        public IActionResult UpdateOtherSettings(UpdateOtherSettingsRequest request)
         {
             try
             {
@@ -827,12 +839,12 @@ namespace Dnn.PersonaBar.Security.Services
 
                 DataCache.ClearCache();
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerUpdateOtherSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -842,7 +854,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>audit check results.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetAuditCheckResults([FromUri] bool checkAll = false)
+        public IActionResult GetAuditCheckResults(bool checkAll = false)
         {
             try
             {
@@ -854,12 +866,12 @@ namespace Dnn.PersonaBar.Security.Services
                     Results = results,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetAuditCheckResultsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -869,7 +881,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>audit check result.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetAuditCheckResult([FromUri] string id)
+        public IActionResult GetAuditCheckResult(string id)
         {
             try
             {
@@ -881,12 +893,12 @@ namespace Dnn.PersonaBar.Security.Services
                     Result = result,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetAuditCheckResultException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -895,7 +907,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>superuser activities.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetSuperuserActivities()
+        public IActionResult GetSuperuserActivities()
         {
             try
             {
@@ -920,12 +932,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetSuperuserActivitiesException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -935,7 +947,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>The search results from files and database.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage SearchFileSystemAndDatabase(string term)
+        public IActionResult SearchFileSystemAndDatabase(string term)
         {
             try
             {
@@ -956,12 +968,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerSearchFileSystemAndDatabaseException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -970,7 +982,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>last modified files.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetLastModifiedFiles()
+        public IActionResult GetLastModifiedFiles()
         {
             try
             {
@@ -994,12 +1006,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetLastModifiedFilesException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1008,7 +1020,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>last modified settings.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetLastModifiedSettings()
+        public IActionResult GetLastModifiedSettings()
         {
             try
             {
@@ -1067,12 +1079,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetLastModifiedSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1081,7 +1093,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>API token settings.</returns>
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.ManageApiTokens)]
-        public HttpResponseMessage GetApiTokenSettings()
+        public IActionResult GetApiTokenSettings()
         {
             try
             {
@@ -1094,12 +1106,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetApiTokenSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1110,7 +1122,7 @@ namespace Dnn.PersonaBar.Security.Services
         [HttpPost]
         [RequireAdmin]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateApiTokenSettings(UpdateApiTokenSettingsRequest request)
+        public IActionResult UpdateApiTokenSettings(UpdateApiTokenSettingsRequest request)
         {
             try
             {
@@ -1142,12 +1154,12 @@ namespace Dnn.PersonaBar.Security.Services
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerUpdateApiTokenSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1163,7 +1175,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>A paged list of `ApiToken` objects for the specified portal and page.</returns>
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.ManageApiTokens)]
-        public HttpResponseMessage GetApiTokens(int portalId, int filter, string apiKey, int scope, int pageIndex, int pageSize)
+        public IActionResult GetApiTokens(int portalId, int filter, string apiKey, int scope, int pageIndex, int pageSize)
         {
             if (portalId < 0)
             {
@@ -1197,7 +1209,7 @@ namespace Dnn.PersonaBar.Security.Services
                 }
                 else if (scope > 1)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Invalid scope");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "Invalid scope");
                 }
                 else
                 {
@@ -1209,12 +1221,12 @@ namespace Dnn.PersonaBar.Security.Services
                 portalId = PortalSettings.Current.PortalId;
                 if (scope > 1)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Invalid scope");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "Invalid scope");
                 }
             }
 
             var response = this.apiTokenController.GetApiTokens(requestedScope, noScopeDefined, portalId, requestingUser, (ApiTokenFilter)filter, apiKey, pageIndex, pageSize);
-            return this.Request.CreateResponse(HttpStatusCode.OK, response.Serialize());
+            return this.Ok(response.Serialize());
         }
 
         /// <summary>
@@ -1223,7 +1235,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>A dictionary with the API token keyword and its corresponding attribute.</returns>
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.ManageApiTokens)]
-        public HttpResponseMessage GetApiTokenKeys()
+        public IActionResult GetApiTokenKeys()
         {
             // The response.
             var response = new SortedDictionary<string, ApiTokenAttribute>();
@@ -1248,7 +1260,7 @@ namespace Dnn.PersonaBar.Security.Services
             }
 
             // Returns the response.
-            return this.Request.CreateResponse(HttpStatusCode.OK, response.Values);
+            return this.Ok(response.Values);
         }
 
         /// <summary>
@@ -1258,12 +1270,12 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>A new <see cref="ApiToken"/> object.</returns>
         [HttpPost]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.ManageApiTokens)]
-        public HttpResponseMessage CreateApiToken(CreateApiTokenRequest data)
+        public IActionResult CreateApiToken(CreateApiTokenRequest data)
         {
             var settings = ApiTokenSettings.GetSettings(this.PortalId);
             if (!settings.ApiTokensEnabled || (!settings.AllowApiTokens && data.Scope != (int)ApiTokenScope.Host))
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "API tokens are disabled");
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, "API tokens are disabled");
             }
 
             var requestedScope = ApiTokenScope.User;
@@ -1279,7 +1291,7 @@ namespace Dnn.PersonaBar.Security.Services
             {
                 if (data.Scope > 1)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Invalid scope");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "Invalid scope");
                 }
                 else
                 {
@@ -1292,7 +1304,7 @@ namespace Dnn.PersonaBar.Security.Services
             {
                 if (data.Scope > 1)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Invalid scope");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "Invalid scope");
                 }
 
                 requestedTimespan = (int)settings.UserTokenTimespan;
@@ -1324,7 +1336,7 @@ namespace Dnn.PersonaBar.Security.Services
             }
 
             var token = this.apiTokenController.CreateApiToken(this.PortalId, data.TokenName.Trim(), requestedScope, expirationTime, data.ApiKeys, this.UserInfo.UserID);
-            return this.Request.CreateResponse(HttpStatusCode.OK, token);
+            return this.Ok(token);
         }
 
         /// <summary>
@@ -1334,12 +1346,12 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>An HTTP response message with a boolean value indicating whether the token was successfully revoked or deleted.</returns>
         [HttpPost]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.ManageApiTokens)]
-        public HttpResponseMessage RevokeOrDeleteApiToken(RevokeDeleteApiTokenRequest data)
+        public IActionResult RevokeOrDeleteApiToken(RevokeDeleteApiTokenRequest data)
         {
             var token = this.apiTokenController.GetApiToken(data.ApiTokenId);
             if (token == null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Invalid token");
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, "Invalid token");
             }
 
             // Checks if the user is authorized.
@@ -1353,7 +1365,7 @@ namespace Dnn.PersonaBar.Security.Services
             {
                 if (token.PortalId != PortalSettings.Current.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "You have no access to this token.");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "You have no access to this token.");
                 }
                 else
                 {
@@ -1364,7 +1376,7 @@ namespace Dnn.PersonaBar.Security.Services
             {
                 if (token.PortalId != PortalSettings.Current.PortalId || token.CreatedByUserId != user.UserID)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "You have no access to this token.");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "You have no access to this token.");
                 }
                 else
                 {
@@ -1377,7 +1389,7 @@ namespace Dnn.PersonaBar.Security.Services
                 this.apiTokenController.RevokeOrDeleteApiToken(token, data.Delete, user.UserID);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, true);
+            return this.Ok(true);
         }
 
         /// <summary>
@@ -1391,7 +1403,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>An HTTP response message with a boolean value indicating whether expired API tokens were deleted.</returns>
         [HttpPost]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.ManageApiTokens)]
-        public HttpResponseMessage DeleteExpiredTokens()
+        public IActionResult DeleteExpiredTokens()
         {
             var portalId = this.PortalId;
             var user = this.UserInfo;
@@ -1409,7 +1421,7 @@ namespace Dnn.PersonaBar.Security.Services
 
             this.apiTokenController.DeleteExpiredAndRevokedApiTokens(portalId, userId);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, true);
+            return this.Ok(true);
         }
 
         /// GET: api/Security/GetCspSettings
@@ -1417,7 +1429,7 @@ namespace Dnn.PersonaBar.Security.Services
         /// <returns>CSP settings.</returns>
         [HttpGet]
         [RequireAdmin]
-        public HttpResponseMessage GetCspSettings()
+        public IActionResult GetCspSettings()
         {
             try
             {
@@ -1439,12 +1451,12 @@ namespace Dnn.PersonaBar.Security.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerGetCspSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1455,7 +1467,7 @@ namespace Dnn.PersonaBar.Security.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireAdmin]
-        public HttpResponseMessage UpdateCspSettings(UpdateCspSettingsRequest request)
+        public IActionResult UpdateCspSettings(UpdateCspSettingsRequest request)
         {
             try
             {
@@ -1467,7 +1479,7 @@ namespace Dnn.PersonaBar.Security.Services
                 }
                 catch (Exception ex)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new
+                    return this.Ok(new
                     {
                         Success = false,
                         Message = "Bad CspHeader - " + ex.Message,
@@ -1489,7 +1501,7 @@ namespace Dnn.PersonaBar.Security.Services
                     }
                     catch (Exception ex)
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.OK, new
+                        return this.Ok(new
                         {
                             Success = false,
                             Message = "Bad CspReportingHeader - " + ex.Message,
@@ -1509,12 +1521,12 @@ namespace Dnn.PersonaBar.Security.Services
                 PortalController.UpdatePortalSetting(this.PortalId, "CspHeader", request.CspHeader);
                 PortalController.UpdatePortalSetting(this.PortalId, "CspReportingHeader", request.CspReportingHeader);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true });
+                return this.Ok(new { Success = true });
             }
             catch (Exception exc)
             {
                 Logger.SecurityControllerUpdateCspSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1545,6 +1557,31 @@ namespace Dnn.PersonaBar.Security.Services
             }
 
             return portalAlias;
+        }
+
+        /// <summary>
+        /// Gets the IP address the current request physically came from, the ASP.NET Core equivalent
+        /// of the legacy <c>HttpContext.Current.Request.UserHostAddress</c> (<c>REMOTE_ADDR</c>).
+        /// </summary>
+        /// <returns>The remote IP address, or <see cref="string.Empty"/> when there is no ambient request.</returns>
+        /// <remarks>
+        /// The connection's remote address is used deliberately rather than a forwarded-for header: the
+        /// value gates the IP filter rules below, so it must not be attacker-controlled.
+        /// </remarks>
+        private static string GetUserHostAddress()
+        {
+            var remoteIpAddress = HttpContextSource.Current?.Connection?.RemoteIpAddress;
+            if (remoteIpAddress == null)
+            {
+                return string.Empty;
+            }
+
+            if (remoteIpAddress.IsIPv4MappedToIPv6)
+            {
+                remoteIpAddress = remoteIpAddress.MapToIPv4();
+            }
+
+            return remoteIpAddress.ToString();
         }
 
         private static string DisplayDate(DateTime userDate)

@@ -1,0 +1,77 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@*
+    Replaces UserAndLogin.ascx. The WebForms file already rendered this tree with inline <% if %>
+    blocks over IsAuthenticated / CanRegister / PortalSettings.HideLoginControl, so the conditions
+    below are the same ones; the asp:HyperLink controls become anchors whose href comes from the
+    URLs computed in UserAndLogin.razor.cs, and the asp:Label counters become the conditionally
+    rendered spans an asp:Label produced.
+
+    The "onclick" attributes are plain HTML attributes (NOT Blazor's @@onclick): they carry the
+    window.open script DNN's popup support generates, exactly as HyperLink.Attributes did.
+
+    Not superseded by the Aperture theme: ApertureLoginLink/ApertureUserLink render that theme's own
+    header links and have neither the user menu, the message/notification counters, the popup login
+    routing nor the AlwaysShowCount portal/host setting this skin object implements.
+*@
+
+@if (!this.Visible)
+{
+    return;
+}
+
+<div class="userProperties">
+    <ul>
+        @if (!this.IsAuthenticated)
+        {
+            @if (this.CanRegister)
+            {
+                <li class="userRegister">
+                    <a id="registerLink" rel="nofollow" href="@this.RegisterUrl" onclick="@this.RegisterOnClick">@this.LocalizeString("Register")</a>
+                </li>
+            }
+
+            @* PortalSettings.HideLoginControl is the portal's "do not show a login link" switch. *@
+            @if (!this.PortalSettings.HideLoginControl)
+            {
+                <li class="userLogin">
+                    <a id="loginLink" rel="nofollow" href="@this.LoginUrl" onclick="@this.LoginOnClick">@this.LocalizeString("Login")</a>
+                </li>
+            }
+        }
+        else
+        {
+            <li class="userName">
+                <a id="dnn_dnnUser_userNameLink" href="#">@this.DisplayName</a>
+                <ul class="userMenu">
+                    <li class="viewProfile"><a href="@this.ViewProfileUrl">@this.LocalizeString("Profile")</a></li>
+                    <li class="userMessages">
+                        <a href="@this.MessagesUrl">@if (this.MessageCountVisible)
+                            {<span>@this.MessageCountText</span>}@this.LocalizeString("Messages")</a>
+                    </li>
+                    <li class="userNotifications">
+                        <a href="@this.NotificationsUrl">@if (this.NotificationCountVisible)
+                            {<span>@this.NotificationCountText</span>}@this.LocalizeString("Notifications")</a>
+                    </li>
+                    <li class="userSettings"><a href="@this.AccountUrl">@this.LocalizeString("Account")</a></li>
+                    <li class="userProfilename"><a href="@this.EditProfileUrl">@this.LocalizeString("EditProfile")</a></li>
+                    <li class="userLogout"><a href="@this.LogoffUrl"><strong>@this.LocalizeString("Logout")</strong></a></li>
+                </ul><!--close userMenu-->
+            </li>
+            <li class="userProfile">
+                <a href="@this.ViewProfileUrl">
+                    <span class="userProfileImg"><img src="@this.ProfilePictureUrl" alt="@this.ProfilePictureAlternateText" /></span>
+                </a>
+                @if (this.MessagesVisible)
+                {
+                    <span class="userMessages" title="@this.MessagesToolTip">@this.MessagesText</span>
+                }
+            </li>
+        }
+    </ul>
+</div>

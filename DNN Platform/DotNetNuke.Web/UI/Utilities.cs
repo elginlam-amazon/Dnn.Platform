@@ -66,7 +66,7 @@ namespace DotNetNuke.Web.UI
                 }
                 else
                 {
-                    skinVirtualFolder = Globals.ResolveUrl("~/Portals/_default/skins/_default/Aphelia"); // developer skin Aphelia
+                    skinVirtualFolder = Globals.ResolveUrl("~/portals/_default/skins/_default/Aphelia"); // developer skin Aphelia
                 }
 
                 string skinName = string.Empty;
@@ -114,7 +114,7 @@ namespace DotNetNuke.Web.UI
                     // No skin, try default folder
                     if (string.IsNullOrEmpty(systemWebControlSkin))
                     {
-                        skinVirtualFolder = Globals.ResolveUrl("~/Portals/_default/Skins/_default");
+                        skinVirtualFolder = Globals.ResolveUrl("~/portals/_default/Skins/_default");
                         skinName = "Default";
 
                         if (skinVirtualFolder.EndsWith('/'))

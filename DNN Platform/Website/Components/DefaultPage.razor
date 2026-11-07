@@ -1,0 +1,1360 @@
+@* Ported from Default.aspx / Default.aspx.cs / Default.aspx.designer.cs — the DNN page host.
+
+   This is THE page: the URL rewriter maps every friendly portal URL onto ~/Default.aspx, so this
+   component is what Routes.razor renders for every portal URL. The "/" route is declared as well,
+   because a request for the site root that the rewriter leaves alone must still reach this page.
+
+   Document structure: App.razor owns <!DOCTYPE html>, <html>, <head> and <body> (and the
+   <HeadOutlet />). The WebForms page owned them, so:
+
+     * <asp:literal skinDocType>  — the skin package doctype. App.razor already emits
+       <!DOCTYPE html>; a second doctype is illegal, so the resolved value is NOT emitted again.
+       See SetSkinDoctype for how its remaining observable effects are preserved.
+     * <asp:literal attributeList> — the xml:lang/lang/xmlns/dir attributes SetSkinDoctype computed
+       for the <html> element. They are applied to document.documentElement after the first render
+       (ApplyDocumentAttributesAsync), because the element belongs to App.razor.
+     * metaPanel / <title> / the 7 <meta> tags / the canonical <link> / the ClientDependencyHeadCss,
+       ClientDependencyHeadJs, CSS and SCRIPTS placeholders and
+       <dnncrm:DnnResources Provider="DnnPageHeaderProvider" /> — all of them are head content, so
+       they are rendered inside <PageTitle> / <HeadContent>, which <HeadOutlet /> relocates into
+       App.razor's <head>. The head is rendered in exactly the order the WebForms page emitted it.
+     * <dnn:Form ID="Form"> — kept as a real <form id="Form">, because the DNN client scripts
+       address the page's fields through document.forms['Form'] / Form_<id> (which is also why
+       HttpContextClientApiPage exposes a Form child with that identifier), and
+       GetPostBackEventReference emits __doPostBack against it.
+     * SkinError — no longer a Label: Skin.LoadSkin publishes a skin load failure through
+       IPageService instead, and this page renders IPageService's messages (see OnPreRender).
+     * BodySCRIPTS / ClientResourcesFormBottom / ClientResourceIncludes — the body-side client
+       resource providers, rendered from the client resource controller at the same positions.
+
+   Lifecycle: OnInit/OnLoad/OnPreRender are the PageBase hooks (raised from OnInitialized /
+   OnParametersSet / OnAfterRender). The two things that must happen BEFORE the response starts —
+   the X-UA-Compatible and Content-Security-Policy headers — are therefore written from
+   OnParametersSet (which still runs before the first render) rather than from OnPreRender, which
+   now runs after it. That is what the HeaderIsWritten guard of the original was protecting against.
+*@
+@page "/"
+@page "/Default.aspx"
+@namespace DotNetNuke.Framework
+@inherits CDefault
+@implements DotNetNuke.UI.Utilities.IClientAPICallbackEventHandler
+
+@using System.Collections.Generic
+@using System.Globalization
+@using System.IO
+@using System.Text
+@using System.Text.RegularExpressions
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Http
+@using Microsoft.AspNetCore.Http.Features
+@using Microsoft.AspNetCore.Http.Timeouts
+@using Microsoft.JSInterop
+@using Microsoft.Extensions.Logging
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.ClientResources
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Abstractions.Pages
+@using DotNetNuke.Abstractions.Portals
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.ContentSecurityPolicy
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Portals.Extensions
+@using DotNetNuke.Entities.Tabs
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.ClientDependency
+@using DotNetNuke.Services.FileSystem
+@using DotNetNuke.Services.Installer.Blocker
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Services.Pages
+@using DotNetNuke.Services.Personalization
+@using DotNetNuke.UI
+@using DotNetNuke.UI.Modules
+@using DotNetNuke.UI.Skins
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.UI.Utilities
+@using DotNetNuke.Web.Client.ResourceManager
+@using DotNetNuke.Website
+@using DataCache = DotNetNuke.Common.Utilities.DataCache
+@using Globals = DotNetNuke.Common.Globals
+@using ReleaseMode = DotNetNuke.Abstractions.Application.ReleaseMode
+@using Exceptions = DotNetNuke.Services.Exceptions.Exceptions
+
+@inject IApplicationInfo AppInfo
+@inject IModuleControlPipeline ModuleControlPipeline
+@inject IEventLogger EventLogger
+@inject IPortalSettingsController PortalSettingsController
+@inject IClientResourceController ClientResourceController
+@inject IContentSecurityPolicy ContentSecurityPolicy
+@inject INavigationManager NavigationManager
+@inject Microsoft.AspNetCore.Components.NavigationManager Navigator
+@inject IClientApiPage ClientApiPage
+@inject IJSRuntime JavaScriptRuntime
+
+@* <title /> — the WebForms page assigned Page.Header.Title from OnPreRender. *@
+<PageTitle>@this.Title</PageTitle>
+
+<HeadContent>
+    @* Page.Header.Controls.AddAt(0, new LiteralControl(this.Comment)) — "Only insert the header
+       control if a comment is needed", at the very top of the head. *@
+    @if (!string.IsNullOrWhiteSpace(this.Comment))
+    {
+        @((MarkupString)this.Comment)
+    }
+
+    @* <asp:PlaceHolder ID="metaPanel"> — the portal level header tags. Hidden inside popups. *@
+    @if (this.metaPanelVisible && !string.IsNullOrEmpty(this.portalHeaderTags))
+    {
+        @((MarkupString)this.portalHeaderTags)
+    }
+
+    @if (this.metaRefreshVisible)
+    {
+        <meta id="MetaRefresh" http-equiv="Refresh" name="Refresh" content="@this.metaRefreshContent" />
+    }
+    @if (this.metaDescriptionVisible)
+    {
+        <meta id="MetaDescription" name="description" content="@this.Description" />
+    }
+    @if (this.metaKeywordsVisible)
+    {
+        <meta id="MetaKeywords" name="keywords" content="@this.KeyWords" />
+    }
+    @if (this.metaCopyrightVisible)
+    {
+        <meta id="MetaCopyright" name="copyright" content="@this.Copyright" />
+    }
+    @if (this.metaGeneratorVisible)
+    {
+        <meta id="MetaGenerator" name="generator" content="@this.Generator" />
+    }
+    @if (this.metaAuthorVisible)
+    {
+        <meta id="MetaAuthor" name="author" content="@this.metaAuthorContent" />
+    }
+    @if (this.metaRobotsVisible)
+    {
+        <meta id="MetaRobots" name="robots" content="@this.metaRobotsContent" />
+    }
+
+    @* <dnncrm:DnnResources Provider="DnnPageHeaderProvider" /> plus the ClientDependencyHeadCss,
+       ClientDependencyHeadJs, CSS and SCRIPTS placeholders. All four placeholders were filled by
+       the same client resource pipeline, which renders every registered stylesheet and script of
+       the page-header provider in one pass, ordered by the FileOrder priority each registration
+       carried and, within a priority, by registration order — so the ordering the OnInit/
+       InitializePage registration sequence establishes is the ordering emitted here. *@
+    @((MarkupString)this.RenderHeadResources())
+
+    @* Page.Header.Controls.Add(new LiteralControl(tabHeaderTags)) — the page level header tags. *@
+    @if (!string.IsNullOrEmpty(this.tabHeaderTags))
+    {
+        @((MarkupString)this.tabHeaderTags)
+    }
+
+    @* ManageFavicon(): Page.Header.Controls.Add(new Literal { Text = headerLink }). *@
+    @if (!string.IsNullOrEmpty(this.faviconHeaderLink))
+    {
+        @((MarkupString)this.faviconHeaderLink)
+    }
+
+    @* The canonical <link> built in OnPreRender from the primary alias. *@
+    @if (!string.IsNullOrEmpty(this.CanonicalLinkUrl))
+    {
+        <link rel="canonical" href="@this.CanonicalLinkUrl" />
+    }
+
+    @* foreach (var item in this.pageService.GetHeadTags()) Page.Header.Controls.Add(...) *@
+    @foreach (var item in this.headTags)
+    {
+        @((MarkupString)item)
+    }
+
+    @* foreach (var item in this.pageService.GetMetaTags()) Page.Header.Controls.Add(new Meta...) *@
+    @foreach (var item in this.metaTags)
+    {
+        <meta name="@item.Name" content="@item.Content" />
+    }
+</HeadContent>
+
+@* <dnn:Form ID="Form" runat="server" ENCTYPE="multipart/form-data"> *@
+<form id="@HttpContextClientApiPage.FormId" method="post" enctype="multipart/form-data">
+    @* <dnncrm:DnnResources Provider="DnnBodyProvider" /> + <asp:PlaceHolder ID="BodySCRIPTS" />.
+       The body provider must be the first content inside the form (it replaces the WebForms
+       re-parenting of BodySCRIPTS to index 0 of the form), which is this position. *@
+    @((MarkupString)this.RenderBodyResources())
+
+    @* <asp:PlaceHolder ID="SkinPlaceHolder" /> — this.SkinPlaceHolder.Controls.Add(ctlSkin). *@
+    @if (this.skin is not null)
+    {
+        @this.RenderSkin
+    }
+
+    @* <input id="ScrollTop" name="ScrollTop" type="hidden" /> — see PageScrollTop. *@
+    <input id="ScrollTop" name="ScrollTop" type="hidden" value="@this.scrollTopValue" />
+
+    @* <input id="__dnnVariable" name="__dnnVariable" type="hidden" autocomplete="off" /> — the
+       field the Client API passes its client variables through. The control itself belongs to the
+       request's IClientApiPage (ClientAPI.RegisterDNNVariableControl), so its value is read from
+       there rather than kept twice. *@
+    <input id="@ClientAPI.DNNVARIABLE_CONTROLID" name="@ClientAPI.DNNVARIABLE_CONTROLID" type="hidden"
+           autocomplete="off" value="@this.dnnVariable?.Value" />
+
+    @* <asp:placeholder ID="ClientResourcesFormBottom" /> +
+       <dnncrm:DnnResources Provider="DnnFormBottomProvider" /> *@
+    @((MarkupString)this.RenderFormBottomResources())
+</form>
+
+@* <asp:placeholder id="ClientResourceIncludes" /> stood after the form and carried the keyed script
+   includes/blocks the Client API registered on the page. Those are rendered by
+   Components/ClientApiScripts.razor, which App.razor renders at the end of <body> — the same
+   position — so nothing is emitted for it here. *@
+
+@code {
+    private static readonly ILogger Logger = DnnLoggingController.GetLogger<DefaultPage>();
+
+    private static readonly Regex HeaderTextRegex = new Regex(
+        "<meta([^>])+name=('|\")robots('|\")",
+        RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.Compiled);
+
+    // The designer fields that survive as component state. The WebForms controls that only ever
+    // carried a Visible flag and a Content string are represented by exactly that.
+    private readonly List<string> headTags = new List<string>();
+    private readonly List<PageMeta> metaTags = new List<PageMeta>();
+
+    private HttpContext httpContext;
+    private Skin skin;
+    private IClientApiHiddenInput dnnVariable;
+
+    private string bodyCssClass = string.Empty;
+    private string bodyStyle = string.Empty;
+    private string scrollTopValue = string.Empty;
+
+    private string tabHeaderTags = string.Empty;
+    private string portalHeaderTags = string.Empty;
+    private string faviconHeaderLink = string.Empty;
+
+    private bool metaPanelVisible;
+    private bool metaRefreshVisible;
+    private string metaRefreshContent = string.Empty;
+    private bool metaDescriptionVisible;
+    private bool metaKeywordsVisible;
+    private bool metaCopyrightVisible;
+    private bool metaGeneratorVisible;
+    private bool metaAuthorVisible = false;
+    private string metaAuthorContent = string.Empty;
+    private bool metaRobotsVisible;
+    private string metaRobotsContent = string.Empty;
+
+    private bool documentAttributesApplied;
+
+    /// <summary>Initializes a new instance of the <see cref="DefaultPage"/> class.</summary>
+    /// <remarks>
+    /// Blazor activates a component through its parameterless constructor, so the base services are
+    /// passed as <see langword="null"/> and resolved lazily from the current service provider on
+    /// first use — the pattern <see cref="PageBase"/>/<see cref="CDefault"/> were migrated to. The
+    /// services this page itself needs arrive through <c>@inject</c>, which is why the long
+    /// constructor of the WebForms code-behind has no counterpart (a Blazor component may not take
+    /// constructor parameters).
+    /// </remarks>
+    public DefaultPage()
+        : base(null, null, null, null, null)
+    {
+    }
+
+    /// <summary>Gets or sets the doctype declared by the skin package.</summary>
+    /// <remarks>
+    /// Was the <c>skinDocType</c> literal, which emitted the value at the very top of the document.
+    /// <c>App.razor</c> owns the document's single <c>&lt;!DOCTYPE html&gt;</c>, so the value is
+    /// resolved and kept here (a theme that inspects it still sees it) but is not emitted again.
+    /// </remarks>
+    private string SkinDocType { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the rendered <c>&lt;html&gt;</c> attribute list.</summary>
+    /// <remarks>
+    /// Was the <c>attributeList</c> literal inside the <c>&lt;html&gt;</c> start tag; the attributes
+    /// are applied to the live document element instead (see <c>ApplyDocumentAttributesAsync</c>).
+    /// </remarks>
+    private string AttributeListText { get; set; } = string.Empty;
+
+    /// <summary>Gets the skin path of the active tab.</summary>
+    /// <remarks>
+    /// Was <c>((PortalSettings)HttpContext.Current.Items["PortalSettings"]).ActiveTab.SkinPath</c>.
+    /// <see cref="PageBase.PortalSettings"/> reads the very same request item, so the cast through
+    /// <c>HttpContext.Current</c> (which does not exist on ASP.NET Core) is simply dropped.
+    /// </remarks>
+    public string CurrentSkinPath => this.PortalSettings.ActiveTab.SkinPath;
+
+    /// <summary>Gets or sets property to allow the programmatic assigning of ScrollTop position.</summary>
+    /// <value>Property to allow the programmatic assigning of ScrollTop position.</value>
+    public int PageScrollTop
+    {
+        get
+        {
+            int pageScrollTop;
+            var scrollValue = this.scrollTopValue ?? string.Empty;
+            if (!int.TryParse(scrollValue, out pageScrollTop) || pageScrollTop < 0)
+            {
+                pageScrollTop = Null.NullInteger;
+            }
+
+            return pageScrollTop;
+        }
+
+        set
+        {
+            this.scrollTopValue = value.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>Gets a string representation of the list HTML attributes.</summary>
+    protected string HtmlAttributeList
+    {
+        get
+        {
+            if (this.HtmlAttributes is not { Count: > 0 })
+            {
+                return string.Empty;
+            }
+
+            var attr = new StringBuilder();
+            foreach (string attributeName in this.HtmlAttributes.Keys)
+            {
+                if (string.IsNullOrEmpty(attributeName) || this.HtmlAttributes[attributeName] == null)
+                {
+                    continue;
+                }
+
+                var attributeValue = this.HtmlAttributes[attributeName];
+                if (attributeValue.IndexOf(',') > 0)
+                {
+                    var attributeValues = attributeValue.Split(',');
+                    for (var attributeCounter = 0;
+                         attributeCounter <= attributeValues.Length - 1;
+                         attributeCounter++)
+                    {
+                        attr.Append(string.Concat(" ", attributeName, "=\"", attributeValues[attributeCounter], "\""));
+                    }
+                }
+                else
+                {
+                    attr.Append(string.Concat(" ", attributeName, "=\"", attributeValue, "\""));
+                }
+            }
+
+            return attr.ToString();
+        }
+    }
+
+    /// <summary>
+    /// Gets the fragment that renders the resolved skin, which replaces
+    /// <c>this.SkinPlaceHolder.Controls.Add(ctlSkin)</c>.
+    /// </summary>
+    /// <remarks>
+    /// A configured component instance is rendered by its own type so that its Blazor lifecycle
+    /// runs, carrying over the parameters the skinning engine assigned to the instance — the same
+    /// protocol <c>DotNetNuke.UI.DnnComponentBase.RenderControl</c> uses for every other
+    /// dynamically loaded DNN control.
+    /// </remarks>
+    private RenderFragment RenderSkin => builder =>
+    {
+        var current = this.skin;
+        if (current is null)
+        {
+            return;
+        }
+
+        builder.OpenComponent(0, current.GetType());
+        var parameters = DnnComponentParameters.Capture(current);
+        if (parameters.Count > 0)
+        {
+            builder.AddMultipleAttributes(1, parameters);
+        }
+
+        builder.CloseComponent();
+    };
+
+    private IPortalAliasInfo CurrentPortalAlias => this.PortalSettings.PortalAlias;
+
+    private IPortalAliasInfo PrimaryPortalAlias => this.PortalSettings.PrimaryAlias;
+
+    /// <summary>Handles a Client API callback raised against the page.</summary>
+    /// <param name="eventArgument">The callback argument posted by the client.</param>
+    /// <returns>The response to send back to the client.</returns>
+    /// <remarks>
+    /// The personalization callbacks of the page. They are dispatched by
+    /// <c>ClientAPI.HandleClientAPICallbackEvent</c>, which this page hands the request's
+    /// <see cref="IClientApiPage"/> (see OnInit).
+    /// </remarks>
+    public string RaiseClientAPICallbackEvent(string eventArgument)
+    {
+        var dict = this.ParsePageCallBackArgs(eventArgument);
+        if (!dict.ContainsKey("type"))
+        {
+            return string.Empty;
+        }
+
+        if (!DNNClientAPI.IsPersonalizationKeyRegistered(dict["namingcontainer"] + ClientAPI.CUSTOM_COLUMN_DELIMITER + dict["key"]))
+        {
+            throw new Exception($"This personalization key has not been enabled ({dict["namingcontainer"]}:{dict["key"]}).  Make sure you enable it with DNNClientAPI.EnableClientPersonalization");
+        }
+
+        switch ((DNNClientAPI.PageCallBackType)Enum.Parse(typeof(DNNClientAPI.PageCallBackType), dict["type"]))
+        {
+            case DNNClientAPI.PageCallBackType.GetPersonalization:
+                return Personalization.GetProfile(dict["namingcontainer"], dict["key"]).ToString();
+            case DNNClientAPI.PageCallBackType.SetPersonalization:
+                Personalization.SetProfile(dict["namingcontainer"], dict["key"], dict["value"]);
+                return dict["value"];
+            default:
+                throw new Exception("Unknown Callback Type");
+        }
+    }
+
+    /// <summary>Checks if the current version is not a production version.</summary>
+    /// <returns>A value indicating whether the current version is not a production version.</returns>
+    protected bool NonProductionVersion()
+    {
+        return this.AppInfo.Status != ReleaseMode.Stable;
+    }
+
+    /// <summary>Contains the functionality to populate the Root aspx page with controls.</summary>
+    /// <param name="e">The event arguments.</param>
+    /// <remarks>
+    /// - obtain PortalSettings from Current Context
+    /// - set global page settings.
+    /// - initialise reference paths to load the cascading style sheets
+    /// - add skin control placeholder.  This holds all the modules and content of the page.
+    /// </remarks>
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // HttpContext is null for the rest of the circuit, so the request is captured here (during
+        // the initial, static render) and everything that needs it reads this field afterwards.
+        this.httpContext = this.ClientApiPage?.HttpContext ?? DotNetNuke.Common.HttpContextSource.Current;
+
+        // set global page settings
+        this.InitializePage();
+
+        if (this.PortalSettings.CspHeaderMode == PortalSettings.CspMode.On ||
+            this.PortalSettings.CspHeaderMode == PortalSettings.CspMode.ReportOnly)
+        {
+            // If not fixed, we need to setup the default CSP settings
+            // After this modules can add there policies via the ContentSecurityPolicy service
+            if (!this.PortalSettings.CspHeaderFixed)
+            {
+                try
+                {
+                    this.AddCspHeaders();
+                }
+                catch (Exception ex)
+                {
+                    Logger.DefaultCspError(ex);
+                }
+            }
+        }
+
+        var ctlSkin = this.GetSkin();
+
+        this.ClientResourceController.RegisterPathNameAlias("SkinPath", this.CurrentSkinPath);
+
+        // check for and read skin package level doctype
+        this.SetSkinDoctype();
+
+        // Manage disabled pages
+        if (this.PortalSettings.ActiveTab.DisableLink)
+        {
+            if (TabPermissionController.CanAdminPage())
+            {
+                var heading = Localization.GetString("PageDisabled.Header");
+                var message = Localization.GetString("PageDisabled.Text");
+                this.PageService.AddMessage(new PageMessage(
+                    heading,
+                    message,
+                    PageMessageType.Warning,
+                    string.Empty,
+                    PagePriority.Page));
+            }
+            else
+            {
+                // Was Response.Redirect(url, endResponse: true). Navigating from a statically
+                // rendered component throws a NavigationException that the framework turns into the
+                // redirect response, which is exactly the "end the response here" semantic.
+                if (this.PortalSettings.HomeTabId > 0)
+                {
+                    this.Navigator.NavigateTo(this.NavigationManager.NavigateURL(this.PortalSettings.HomeTabId), true);
+                }
+                else
+                {
+                    this.Navigator.NavigateTo(Globals.GetPortalDomainName(this.CurrentPortalAlias.HttpAlias, this.Request, true), true);
+                }
+            }
+        }
+
+        // Manage canonical urls
+        if (this.PortalSettings.PortalAliasMappingMode == PortalSettings.PortalAliasMapping.CanonicalUrl)
+        {
+            string primaryHttpAlias = null;
+            if (Config.GetFriendlyUrlProvider() == "advanced")
+            {
+                // advanced mode compares on the primary alias as set during alias identification
+                if (this.PrimaryPortalAlias != null && this.PortalSettings.PortalAlias != null)
+                {
+                    if (string.Compare(this.PrimaryPortalAlias.HttpAlias, this.CurrentPortalAlias.HttpAlias, StringComparison.InvariantCulture) != 0)
+                    {
+                        primaryHttpAlias = this.PrimaryPortalAlias.HttpAlias;
+                    }
+                }
+            }
+            else
+            {
+                // other modes just depend on the default alias
+                if (string.Compare(this.CurrentPortalAlias.HttpAlias, this.PortalSettings.DefaultPortalAlias, StringComparison.InvariantCulture) != 0)
+                {
+                    primaryHttpAlias = this.PortalSettings.DefaultPortalAlias;
+                }
+            }
+
+            if (primaryHttpAlias != null && string.IsNullOrEmpty(this.CanonicalLinkUrl))
+            {
+                // a primary http alias was identified
+                var originalurl = this.httpContext?.Items["UrlRewrite:OriginalUrl"]?.ToString();
+                this.CanonicalLinkUrl = originalurl?.Replace(this.CurrentPortalAlias.HttpAlias, primaryHttpAlias);
+
+                if (UrlUtils.IsSecureConnectionOrSslOffload(this.Request))
+                {
+                    this.CanonicalLinkUrl = this.CanonicalLinkUrl?.Replace("http://", "https://");
+                }
+            }
+        }
+
+        // add CSS links. The ORDER of these registrations is behaviour: a stylesheet registered
+        // later (or with a higher FileOrder) overrides the ones before it, so the sequence below is
+        // identical to the WebForms page's.
+        this.ClientResourceController.CreateStylesheet("~/resources/Shared/stylesheets/dnndefault/10.0.0/default.css")
+            .SetNameAndVersion("dnndefault", "10.0.0", false)
+            .SetPriority(DotNetNuke.Abstractions.ClientResources.FileOrder.Css.DefaultCss)
+            .Register();
+
+        if (ctlSkin is not null)
+        {
+            this.ClientResourceController.RegisterStylesheet(string.Concat(ctlSkin.SkinPath, "skin.css"), DotNetNuke.Abstractions.ClientResources.FileOrder.Css.SkinCss, true);
+            this.ClientResourceController.RegisterStylesheet(ctlSkin.SkinSrc.Replace(".ascx", ".css"), DotNetNuke.Abstractions.ClientResources.FileOrder.Css.SpecificSkinCss, true);
+
+            // add skin to page (was this.SkinPlaceHolder.Controls.Add(ctlSkin))
+            this.skin = ctlSkin;
+        }
+
+        this.ClientResourceController.RegisterStylesheet(string.Concat(this.PortalSettings.HomeDirectory, "portal.css"), DotNetNuke.Abstractions.ClientResources.FileOrder.Css.PortalCss, true);
+
+        // add Favicon
+        this.ManageFavicon();
+
+        // ClientCallback Logic. The handler is this page; the page object the Client API dispatches
+        // against is the request scoped IClientApiPage (the replacement for the WebForms Page).
+        ClientAPI.HandleClientAPICallbackEvent(this.ClientApiPage);
+
+        // The Client API passes its variables through the __dnnVariable hidden field, which belongs
+        // to the page's form; get (or create) it so that the field this page renders is the one the
+        // Client API writes into.
+        this.dnnVariable = ClientAPI.RegisterDNNVariableControl(this.ClientApiPage);
+
+        // Was: add viewstateuserkey to protect against CSRF attacks
+        // (if (this.User.Identity.IsAuthenticated) this.ViewStateUserKey = this.User.Identity.Name;)
+        // There is no ViewState to bind to a user on ASP.NET Core. The CSRF protection of the
+        // request is ASP.NET Core antiforgery, which the host registers with the legacy DNN token
+        // names and which is already bound to the authenticated identity by the framework, so the
+        // protection this line provided is in place without the page doing anything.
+
+        // set the async postback timeout.
+        if (AJAX.IsEnabled())
+        {
+            // Was: AJAX.GetScriptManager(this).AsyncPostBackTimeout = (int)AsyncTimeout.TotalSeconds.
+            // GetScriptManager now reports the per-request AJAX registration — there is no
+            // ScriptManager control to configure. The live equivalent of its timeout is the request
+            // timeout, and the request-timeouts middleware the host installs only exposes
+            // DisableTimeout(); since the DNN AsyncTimeout host setting (minimum 90 minutes) is far
+            // beyond any configured request timeout, removing the limit for this request is what
+            // raising it to AsyncTimeout did.
+            // REVIEW: behavior inferred — verify against the host's request timeout policy.
+            if (AJAX.GetScriptManager(this.httpContext))
+            {
+                this.httpContext?.Features.Get<IHttpRequestTimeoutFeature>()?.DisableTimeout();
+            }
+        }
+
+        // this.DnnResources{1,2,3}.ApplicationPath = Globals.ApplicationPath: the three DnnResources
+        // controls are now rendered by RenderHeadResources/RenderBodyResources/
+        // RenderFormBottomResources, each of which passes Globals.ApplicationPath along.
+    }
+
+    /// <summary>Initialize the Scrolltop html control which controls the open / closed nature of each module.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        this.ManageInstallerFiles();
+
+        // Was: this.ScrollTop.Value, the value posted by the browser in the ScrollTop field.
+        this.scrollTopValue = this.ClientApiPage?.GetRequestValue("ScrollTop") ?? string.Empty;
+
+        if (!string.IsNullOrEmpty(this.scrollTopValue))
+        {
+            DNNClientAPI.SetScrollTop(this.ClientApiPage);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        // Raises OnLoad.
+        base.OnParametersSet();
+
+        // The former OnPreRender. It runs here, before the first render, because (a) the head
+        // content it computes has to be in place when the head renders and (b) the HTTP headers it
+        // writes must be written before the response starts — PageBase raises OnPreRender from
+        // OnAfterRender, which is already too late for a header.
+        this.PreRenderPage();
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Raises OnPreRender on the base (anti-forgery/AJAX script registration and
+        // CDefault.ApplyPageMetadata).
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // Was Render(HtmlTextWriter) and the <html ...>/<body ...> attributes of the .aspx markup:
+        // both the document element and the body element belong to App.razor, so the attributes the
+        // page computed for them are applied to the live document once it exists.
+        await this.ApplyDocumentAttributesAsync();
+
+        // The modules and skin objects of the page register their own client resources while they
+        // render, i.e. after this component's head content was produced. Re-rendering picks those
+        // up — this is what the WebForms page got for free by rendering its head last.
+        this.StateHasChanged();
+    }
+
+    /// <summary>
+    /// Writes this page's head content, response headers and page messages.
+    /// </summary>
+    /// <remarks>Ported from <c>OnPreRender</c>; see <see cref="OnParametersSet"/> for the timing.</remarks>
+    private void PreRenderPage()
+    {
+        var inPopUp = UrlUtils.InPopUp();
+
+        // Set the Head tags
+        this.metaPanelVisible = !inPopUp;
+        if (!inPopUp)
+        {
+            this.PageService.SetTitle(this.Title, PagePriority.Page);
+            this.Title = this.PageService.GetTitle();
+            this.PageService.SetDescription(this.Description, PagePriority.Page);
+            this.Description = this.PageService.GetDescription();
+            this.PageService.SetKeyWords(this.KeyWords, PagePriority.Page);
+            this.KeyWords = this.PageService.GetKeyWords();
+
+            this.metaGeneratorVisible = !string.IsNullOrEmpty(this.Generator);
+            this.metaAuthorContent = this.PortalSettings.PortalName;
+
+            // NOTE: MetaAuthor.Visible is deliberately NOT set, exactly as in the WebForms page —
+            // the control was declared Visible="False" in the markup and OnPreRender only assigned
+            // its Content, so the author meta tag reached the head through IPageService
+            // (CDefault.ApplyPageMetadata) and not through this control. Same for MetaCopyright,
+            // whose Content the page never assigned at all.
+            this.metaKeywordsVisible = !string.IsNullOrEmpty(this.KeyWords);
+            this.metaDescriptionVisible = !string.IsNullOrEmpty(this.Description);
+        }
+
+        var response = this.httpContext?.Response;
+        var headerIsWritten = this.HeaderIsWritten || response is null || response.HasStarted;
+
+        if (!string.IsNullOrEmpty(this.PortalSettings.AddCompatibleHttpHeader) && !headerIsWritten)
+        {
+            response.Headers["X-UA-Compatible"] = this.PortalSettings.AddCompatibleHttpHeader;
+        }
+
+        if ((this.PortalSettings.CspHeaderMode == PortalSettings.CspMode.ReportOnly ||
+                this.PortalSettings.CspHeaderMode == PortalSettings.CspMode.On) &&
+                !headerIsWritten)
+        {
+            bool.TryParse(Config.GetSetting("DisableCsp"), out bool disableCsp);
+
+            if (!disableCsp)
+            {
+                var header = "Content-Security-Policy";
+                if (this.PortalSettings.CspHeaderMode == PortalSettings.CspMode.ReportOnly)
+                {
+                    header = "Content-Security-Policy-Report-Only";
+                }
+
+                // If fixed, we need to clear any existing contributors and just use the fixed headers
+                if (this.PortalSettings.CspHeaderFixed)
+                {
+                    this.ContentSecurityPolicy.ClearContentSecurityPolicyContributors();
+                    this.ContentSecurityPolicy.ClearReportingEndpointsContributors();
+                    this.AddCspHeaders();
+                }
+
+                var policy = this.ContentSecurityPolicy.GeneratePolicy();
+                if (!string.IsNullOrEmpty(policy))
+                {
+                    response.Headers[header] = policy;
+                }
+
+                policy = this.ContentSecurityPolicy.GenerateReportingEndpoints();
+                if (!string.IsNullOrEmpty(policy))
+                {
+                    response.Headers["Reporting-Endpoints"] = policy;
+                }
+            }
+        }
+
+        this.PageService.SetCanonicalLinkUrl(this.CanonicalLinkUrl, PagePriority.Page);
+        this.CanonicalLinkUrl = this.PageService.GetCanonicalLinkUrl();
+
+        // The canonical <link rel="canonical"> itself is rendered from CanonicalLinkUrl in the head.
+        this.headTags.Clear();
+        foreach (var item in this.PageService.GetHeadTags())
+        {
+            this.headTags.Add(item.Value);
+        }
+
+        this.metaTags.Clear();
+        foreach (var item in this.PageService.GetMetaTags())
+        {
+            this.metaTags.Add(item);
+        }
+
+        foreach (var item in this.PageService.GetMessages())
+        {
+            Skin.AddPageMessage(this, item.Heading, item.Message, item.MessageType.ToModuleMessageType(), item.IconSrc);
+        }
+    }
+
+    /// <summary>
+    /// Initializes the page.
+    /// </summary>
+    /// <remarks>
+    /// - Obtain PortalSettings from Current Context
+    /// - redirect to a specific tab based on name
+    /// - if first time loading this page then reload to avoid caching
+    /// - set page title and stylesheet
+    /// - check to see if we should show the Assembly Version in Page Title
+    /// - set the background image if there is one selected
+    /// - set META tags, copyright, keywords and description.
+    /// </remarks>
+    private void InitializePage()
+    {
+        // There could be a pending installation/upgrade process
+        if (InstallBlocker.Instance.IsInstallInProgress())
+        {
+            // Was new HttpException(503, ...); BadHttpRequestException is the ASP.NET Core type that
+            // carries an HTTP status code the same way.
+            Exceptions.ProcessHttpException(new BadHttpRequestException(
+                Localization.GetString("SiteAccessedWhileInstallationWasInProgress.Error", Localization.GlobalResourceFile),
+                503));
+        }
+
+        // Configure the ActiveTab with Skin/Container information
+        this.PortalSettingsController.ConfigureActiveTab(this.PortalSettings);
+
+        // moved this call to OnInit to avoid incorrect CurrentSkinPath if using fallback skin
+        ////this.ClientResourceController.RegisterPathNameAlias("SkinPath", this.CurrentSkinPath);
+
+        // redirect to a specific tab based on name
+        if (!string.IsNullOrEmpty(this.QueryValue("tabname")))
+        {
+            TabInfo tab = TabController.Instance.GetTabByName(this.QueryValue("TabName"), this.PortalSettings.PortalId);
+            if (tab != null)
+            {
+                var parameters = new List<string>(); // maximum number of elements
+                foreach (var queryItem in this.Request.Query)
+                {
+                    switch (queryItem.Key.ToLowerInvariant())
+                    {
+                        case "tabid":
+                        case "tabname":
+                            break;
+                        default:
+                            parameters.Add(queryItem.Key + "=" + queryItem.Value.ToString());
+                            break;
+                    }
+                }
+
+                this.Navigator.NavigateTo(this.NavigationManager.NavigateURL(tab.TabID, Null.NullString, parameters.ToArray()), true);
+            }
+            else
+            {
+                // 404 Error - Redirect to ErrorPage
+                Exceptions.ProcessHttpException(this.Request);
+            }
+        }
+
+        var isAuthenticated = this.httpContext?.User?.Identity?.IsAuthenticated == true;
+        var cacheability = isAuthenticated ? this.HostSettings.AuthenticatedCacheability : this.HostSettings.UnauthenticatedCacheability;
+
+        // Was Response.Cache.SetCacheability(HttpCacheability.X). On ASP.NET Core the policy is the
+        // Cache-Control header itself; the values are the ones documented on CacheControlHeader.
+        // The "ServerAnd..." variants additionally enabled ASP.NET output caching, which DNN does
+        // through its own tab output caching — only the client directive belongs here.
+        var cacheControl = cacheability switch
+        {
+            CacheControlHeader.NoCache => "no-cache",
+            CacheControlHeader.Private => "private",
+            CacheControlHeader.Public => "public",
+            CacheControlHeader.ServerAndNoCache => "no-cache",
+            CacheControlHeader.ServerAndPrivate => "private",
+            _ => null,
+        };
+
+        if (cacheControl is not null && this.httpContext?.Response is { HasStarted: false } cacheResponse)
+        {
+            cacheResponse.Headers.CacheControl = cacheControl;
+        }
+
+        // Only insert the header control if a comment is needed — this.Comment is rendered at the
+        // top of the head (the WebForms code inserted it at index 0 of the header's controls).
+        var tabHeaderTagsValue = string.Empty;
+        if (!Globals.IsAdminControl())
+        {
+            tabHeaderTagsValue = PageHeaderTagInfo.Render(PageHeaderTagInfo.GetTabItems(this.PortalSettings.ActiveTab.TabID));
+            if (!string.IsNullOrEmpty(tabHeaderTagsValue))
+            {
+                this.tabHeaderTags = tabHeaderTagsValue;
+            }
+        }
+
+        var portalHeaderTagsValue = PageHeaderTagInfo.Render(PageHeaderTagInfo.GetPortalItems(this.PortalSettings.PortalId, this.PortalSettings.CultureCode));
+        if (!string.IsNullOrEmpty(portalHeaderTagsValue))
+        {
+            this.portalHeaderTags = portalHeaderTagsValue;
+        }
+
+        // set page title
+        if (UrlUtils.InPopUp())
+        {
+            var strTitle = new StringBuilder(this.PortalSettings.PortalName);
+            var slaveModule = UIUtilities.GetSlaveModule(this.PortalSettings.ActiveTab.TabID);
+
+            // Skip is popup is just a tab (no slave module)
+            if (slaveModule.DesktopModuleID != Null.NullInteger)
+            {
+                var control = (IModuleControl)this.ModuleControlPipeline.CreateModuleControl(slaveModule);
+                string extension = Path.GetExtension(slaveModule.ModuleControl.ControlSrc.ToLowerInvariant());
+                switch (extension)
+                {
+                    case ".mvc":
+                        var segments = slaveModule.ModuleControl.ControlSrc.Split('/');
+                        control.LocalResourceFile =
+                            $"~/desktopmodules/MVC/{slaveModule.DesktopModule.FolderName}/{Localization.LocalResourceDirectory}/{(segments.Length == 2 ? segments[0] : segments[1])}.resx";
+                        break;
+                    default:
+                        var controlFileName = Path.GetFileName(slaveModule.ModuleControl.ControlSrc);
+                        var controlSrcPath = slaveModule.ModuleControl.ControlSrc.Replace(controlFileName, string.Empty);
+                        control.LocalResourceFile =
+                            $"{controlSrcPath}{Localization.LocalResourceDirectory}/{controlFileName}";
+                        break;
+                }
+
+                var title = Localization.LocalizeControlTitle(control);
+
+                strTitle.Append(string.Concat(" > ", this.PortalSettings.ActiveTab.LocalizedTabName));
+                strTitle.Append(string.Concat(" > ", title));
+            }
+            else
+            {
+                strTitle.Append(string.Concat(" > ", this.PortalSettings.ActiveTab.LocalizedTabName));
+            }
+
+            // Set to page
+            this.Title = strTitle.ToString();
+        }
+        else
+        {
+            // If tab is named, use that title, otherwise build it out via breadcrumbs
+            if (!string.IsNullOrEmpty(this.PortalSettings.ActiveTab.Title))
+            {
+                this.Title = this.PortalSettings.ActiveTab.Title;
+            }
+            else
+            {
+                // Elected for SB over true concatenation here due to potential for long nesting depth
+                var strTitle = new StringBuilder(this.PortalSettings.PortalName);
+                foreach (TabInfo tab in this.PortalSettings.ActiveTab.BreadCrumbs)
+                {
+                    strTitle.Append(string.Concat(" > ", tab.TabName));
+                }
+
+                this.Title = strTitle.ToString();
+            }
+        }
+
+        // set the background image if there is one selected. The <body> element belongs to
+        // App.razor, so the style is collected here and applied to the live document after the
+        // first render (the FindControl("Body") != null guard was asking exactly whether the page
+        // had a body element to style, which it always has now).
+        if (!UrlUtils.InPopUp())
+        {
+            if (!string.IsNullOrEmpty(this.PortalSettings.BackgroundFile))
+            {
+                var fileInfo = this.GetBackgroundFileInfo();
+                var url = FileManager.Instance.GetUrl(fileInfo);
+
+                this.bodyStyle = string.Concat("background-image: url('", url, "')");
+            }
+        }
+
+        // META Refresh
+        // Only autorefresh the page if we are in VIEW-mode and if we aren't displaying some module's subcontrol.
+        if (this.PortalSettings.ActiveTab.RefreshInterval > 0 && Personalization.GetUserMode() == PortalSettings.Mode.View && this.QueryValue("ctl") == null)
+        {
+            this.metaRefreshContent = this.PortalSettings.ActiveTab.RefreshInterval.ToString(CultureInfo.InvariantCulture);
+            this.metaRefreshVisible = true;
+        }
+        else
+        {
+            this.metaRefreshVisible = false;
+        }
+
+        // META description
+        if (!string.IsNullOrEmpty(this.PortalSettings.ActiveTab.Description))
+        {
+            this.Description = this.PortalSettings.ActiveTab.Description;
+        }
+        else
+        {
+            this.Description = this.PortalSettings.Description;
+        }
+
+        // META keywords
+        if (!string.IsNullOrEmpty(this.PortalSettings.ActiveTab.KeyWords))
+        {
+            this.KeyWords = this.PortalSettings.ActiveTab.KeyWords;
+        }
+        else
+        {
+            this.KeyWords = this.PortalSettings.KeyWords;
+        }
+
+        // META copyright — assigned for the MetaCopyright control, which the WebForms markup
+        // declared Visible="False" and never showed; the copyright meta tag reaches the head
+        // through IPageService (CDefault.ApplyPageMetadata) instead.
+        if (!string.IsNullOrEmpty(this.PortalSettings.FooterText))
+        {
+            this.Copyright = this.PortalSettings.FooterText.Replace("[year]", DateTime.Now.Year.ToString(CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            this.Copyright = string.Concat("Copyright (c) ", DateTime.Now.Year, " by ", this.PortalSettings.PortalName);
+        }
+
+        this.metaCopyrightVisible = false;
+
+        // META generator
+        this.Generator = string.Empty;
+
+        // META Robots - hide it inside popups and if header tags already contain a robots meta tag
+        if (!UrlUtils.InPopUp() &&
+            !(HeaderTextRegex.IsMatch(tabHeaderTagsValue) ||
+              HeaderTextRegex.IsMatch(portalHeaderTagsValue)))
+        {
+            this.metaRobotsVisible = true;
+            var allowIndex = true;
+            var ctl = this.QueryValue("ctl");
+            if ((this.PortalSettings.ActiveTab.TabSettings.ContainsKey("AllowIndex") &&
+                 bool.TryParse(this.PortalSettings.ActiveTab.TabSettings["AllowIndex"].ToString(), out allowIndex) &&
+                 !allowIndex)
+                ||
+                (ctl != null &&
+                 (ctl == "Login" || ctl == "Register")))
+            {
+                this.metaRobotsContent = "NOINDEX, NOFOLLOW";
+            }
+            else
+            {
+                this.metaRobotsContent = "INDEX, FOLLOW";
+            }
+        }
+
+        // NonProduction Label Injection
+        if (this.NonProductionVersion() && this.HostSettings.DisplayBetaNotice && !UrlUtils.InPopUp())
+        {
+            string versionString = $" ({this.AppInfo.Status} Version: {this.AppInfo.Version})";
+            this.Title += versionString;
+        }
+
+        // register css variables
+        var cssVariablesStyleSheet = this.GetCssVariablesStylesheet();
+        this.ClientResourceController.RegisterStylesheet(cssVariablesStyleSheet, DotNetNuke.Abstractions.ClientResources.FileOrder.Css.DefaultCss);
+
+        // register the custom stylesheet of current page
+        if (this.PortalSettings.ActiveTab.TabSettings.ContainsKey("CustomStylesheet") && !string.IsNullOrEmpty(this.PortalSettings.ActiveTab.TabSettings["CustomStylesheet"].ToString()))
+        {
+            var styleSheet = this.PortalSettings.ActiveTab.TabSettings["CustomStylesheet"].ToString();
+
+            // Try and go through the FolderProvider first
+            var stylesheetFile = this.GetPageStylesheetFileInfo(styleSheet);
+            if (stylesheetFile != null)
+            {
+                this.ClientResourceController.RegisterStylesheet(FileManager.Instance.GetUrl(stylesheetFile));
+            }
+            else
+            {
+                this.ClientResourceController.RegisterStylesheet(styleSheet);
+            }
+        }
+
+        // Cookie Consent
+        if (this.PortalSettings.ShowCookieConsent)
+        {
+            JavaScript.RegisterClientReference(this.httpContext, ClientAPI.ClientNamespaceReferences.dnn);
+            ClientAPI.RegisterClientVariable(this.ClientApiPage, "cc_morelink", this.PortalSettings.CookieMoreLink, true);
+            ClientAPI.RegisterClientVariable(this.ClientApiPage, "cc_message", Localization.GetString("cc_message", Localization.GlobalResourceFile), true);
+            ClientAPI.RegisterClientVariable(this.ClientApiPage, "cc_dismiss", Localization.GetString("cc_dismiss", Localization.GlobalResourceFile), true);
+            ClientAPI.RegisterClientVariable(this.ClientApiPage, "cc_link", Localization.GetString("cc_link", Localization.GlobalResourceFile), true);
+            this.ClientResourceController.RegisterScript("~/resources/Shared/Components/CookieConsent/cookieconsent.min.js", DotNetNuke.Abstractions.ClientResources.FileOrder.Js.DnnControls);
+            this.ClientResourceController.RegisterStylesheet("~/resources/Shared/Components/CookieConsent/cookieconsent.min.css", DotNetNuke.Abstractions.ClientResources.FileOrder.Css.ResourceCss);
+            this.ClientResourceController.RegisterScript("~/js/dnn.cookieconsent.js");
+        }
+    }
+
+    /// <summary>
+    /// Look for skin level doctype configuration file, and inject the value into the top of the page
+    /// when no configuration if found, the doctype for versions prior to 4.4 is used to maintain backwards compatibility with existing skins.
+    /// Adds xmlns and lang parameters when appropriate.
+    /// </summary>
+    /// <remarks>
+    /// Reconciliation with <c>App.razor</c>: the host document already emits
+    /// <c>&lt;!DOCTYPE html&gt;</c> (and there may only ever be one doctype in a document), so the
+    /// skin package's doctype is resolved and remembered but NOT emitted a second time. Its other
+    /// two observable effects are preserved in full: the xml:lang/lang/xmlns/dir attributes it
+    /// implies are applied to the document element, and the <c>rtl</c> body class is applied to the
+    /// body element — both after the first render, because those elements belong to App.razor.
+    /// </remarks>
+    private void SetSkinDoctype()
+    {
+        string strLang = CultureInfo.CurrentCulture.ToString();
+        string strDocType = this.PortalSettings.ActiveTab.SkinDoctype ?? string.Empty;
+        string strDir = CultureInfo.CurrentUICulture.TextInfo.IsRightToLeft ? "rtl" : "ltr";
+        if (strDocType.Contains("XHTML 1.0"))
+        {
+            // XHTML 1.0
+            this.HtmlAttributes.Add("xml:lang", strLang);
+            this.HtmlAttributes.Add("lang", strLang);
+            this.HtmlAttributes.Add("xmlns", "http://www.w3.org/1999/xhtml");
+        }
+        else if (strDocType.Contains("XHTML 1.1"))
+        {
+            // XHTML 1.1
+            this.HtmlAttributes.Add("xml:lang", strLang);
+            this.HtmlAttributes.Add("xmlns", "http://www.w3.org/1999/xhtml");
+        }
+        else
+        {
+            // other
+            this.HtmlAttributes.Add("lang", strLang);
+        }
+
+        // Add "dir" attribute for text direction
+        this.HtmlAttributes.Add("dir", strDir);
+
+        // Was: render the doctype and the attribute list through the skinDocType/attributeList
+        // literals of the .aspx. The doctype is owned by App.razor; the attribute list is applied to
+        // the document element (see ApplyDocumentAttributesAsync).
+        this.SkinDocType = strDocType;
+        this.AttributeListText = this.HtmlAttributeList;
+
+        // Add 'rtl' class to body for right-to-left language support
+        if (CultureInfo.CurrentUICulture.TextInfo.IsRightToLeft)
+        {
+            this.bodyCssClass = (this.bodyCssClass + " rtl").Trim();
+        }
+    }
+
+    /// <summary>
+    /// Applies the <c>&lt;html&gt;</c> attributes and the <c>&lt;body&gt;</c> class/style this page
+    /// computed to the host document.
+    /// </summary>
+    /// <remarks>
+    /// Replaces both the <c>&lt;html &lt;asp:literal id="attributeList"&gt;&gt;</c> markup and
+    /// <c>Render(HtmlTextWriter)</c>, which appended the <c>dnnEditState</c> class to the body's
+    /// class attribute while the page rendered. Those elements are App.razor's, so the attributes
+    /// are applied to the live document through <see cref="IJSRuntime"/> — a component may not emit
+    /// a <c>&lt;script&gt;</c> block.
+    /// </remarks>
+    private async Task ApplyDocumentAttributesAsync()
+    {
+        if (this.documentAttributesApplied || this.JavaScriptRuntime is null)
+        {
+            return;
+        }
+
+        this.documentAttributesApplied = true;
+
+        // Render(): in edit mode the body carries the dnnEditState class in addition to whatever
+        // class it already had.
+        var bodyClass = this.bodyCssClass ?? string.Empty;
+        if (Personalization.GetUserMode() == PortalSettings.Mode.Edit)
+        {
+            const string EditClass = "dnnEditState";
+            bodyClass = string.IsNullOrEmpty(bodyClass)
+                ? EditClass
+                : string.Format(CultureInfo.InvariantCulture, "{0} {1}", bodyClass, EditClass);
+        }
+
+        var script = new StringBuilder("(function(){var h=document.documentElement,b=document.body;if(!h||!b){return;}");
+
+        foreach (string attributeName in this.HtmlAttributes.Keys)
+        {
+            if (string.IsNullOrEmpty(attributeName) || this.HtmlAttributes[attributeName] == null)
+            {
+                continue;
+            }
+
+            script.Append("h.setAttribute(")
+                  .Append(JsString(attributeName))
+                  .Append(',')
+                  .Append(JsString(this.HtmlAttributes[attributeName]))
+                  .Append(");");
+        }
+
+        foreach (var cssClass in bodyClass.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            script.Append("b.classList.add(").Append(JsString(cssClass)).Append(");");
+        }
+
+        if (!string.IsNullOrEmpty(this.bodyStyle))
+        {
+            script.Append("b.setAttribute('style',").Append(JsString(this.bodyStyle)).Append(");");
+        }
+
+        script.Append("})();");
+
+        await this.JavaScriptRuntime.InvokeVoidAsync("eval", script.ToString());
+    }
+
+    /// <summary>Resolves the skin of the request.</summary>
+    /// <remarks>
+    /// Cooperates with <c>Routes.razor</c>, which applies the default theme's layout to any page
+    /// that does not select one: when the configured theme ships as a Blazor layout rather than as a
+    /// <see cref="Skin"/> component, the skinning engine cannot produce a Skin for it and the layout
+    /// already renders the portal chrome — so this returns <see langword="null"/> and the page does
+    /// not render a second set of chrome. A portal/page that does resolve to a Skin component still
+    /// wins, and is rendered in the SkinPlaceHolder position.
+    /// </remarks>
+    private Skin GetSkin()
+    {
+        // We want the popup scripts to be loaded only if popups are enabled.
+        this.LoadPopupScriptsIfNeeded();
+
+        try
+        {
+            // But the popup skin should only be used if we are inside a popup.
+            if (UrlUtils.InPopUp())
+            {
+                return Skin.GetPopUpSkin(this);
+            }
+
+            return Skin.GetSkin(this.HostSettings, this);
+        }
+        catch (Exception exc)
+        {
+            // REVIEW: behavior inferred — the WebForms page had no such guard because every skin was
+            // an .ascx the runtime could compile. A theme that is a layout component cannot be
+            // resolved as a Skin, and taking the whole site down for it would be wrong when the
+            // layout renders the chrome anyway. The failure is still logged.
+            Exceptions.LogException(exc);
+            return null;
+        }
+    }
+
+    private void LoadPopupScriptsIfNeeded()
+    {
+        if (this.PortalSettings.EnablePopUps)
+        {
+            JavaScript.RequestRegistration(this.AppStatus, this.EventLogger, this.PortalSettings, CommonJs.jQueryUI);
+
+            // Was HttpContext.Current.IsDebuggingEnabled (the <compilation debug="true"/> switch of
+            // web.config), whose replacement is the host's debug mode setting.
+            var popupFilePath = this.HostSettings.DebugMode
+                               ? "~/js/Debug/dnn.modalpopup.js"
+                               : "~/js/dnn.modalpopup.js";
+            this.ClientResourceController.RegisterScript(popupFilePath, DotNetNuke.Abstractions.ClientResources.FileOrder.Js.DnnModalPopup);
+        }
+    }
+
+    private void ManageFavicon()
+    {
+        string headerLink = DotNetNuke.UI.Internals.FavIcon.GetHeaderLink(this.HostSettings, this.PortalSettings.PortalId);
+
+        if (!string.IsNullOrEmpty(headerLink))
+        {
+            this.faviconHeaderLink = headerLink;
+        }
+    }
+
+    // I realize the parsing of this is rather primitive.  A better solution would be to use json serialization
+    // unfortunately, I don't have the time to write it.  When we officially adopt MS AJAX, we will get this type of
+    // functionality and this should be changed to utilize it for its plumbing.
+    private Dictionary<string, string> ParsePageCallBackArgs(string strArg)
+    {
+        string[] aryVals = strArg.Split(new[] { ClientAPI.COLUMN_DELIMITER }, StringSplitOptions.None);
+        var objDict = new Dictionary<string, string>();
+        if (aryVals.Length > 0)
+        {
+            objDict.Add("type", aryVals[0]);
+            switch (
+                (DNNClientAPI.PageCallBackType)Enum.Parse(typeof(DNNClientAPI.PageCallBackType), objDict["type"]))
+            {
+                case DNNClientAPI.PageCallBackType.GetPersonalization:
+                    objDict.Add("namingcontainer", aryVals[1]);
+                    objDict.Add("key", aryVals[2]);
+                    break;
+                case DNNClientAPI.PageCallBackType.SetPersonalization:
+                    objDict.Add("namingcontainer", aryVals[1]);
+                    objDict.Add("key", aryVals[2]);
+                    objDict.Add("value", aryVals[3]);
+                    break;
+            }
+        }
+
+        return objDict;
+    }
+
+    private IFileInfo GetBackgroundFileInfo()
+    {
+        string cacheKey = string.Format(DataCache.PortalCacheKey, this.PortalSettings.PortalId, "BackgroundFile");
+        var file = CBO.GetCachedObject<DotNetNuke.Services.FileSystem.FileInfo>(
+            this.HostSettings,
+            new CacheItemArgs(cacheKey, DataCache.PortalCacheTimeOut, DataCache.PortalCachePriority),
+            this.GetBackgroundFileInfoCallBack);
+
+        return file;
+    }
+
+    private IFileInfo GetBackgroundFileInfoCallBack(CacheItemArgs itemArgs)
+    {
+        return FileManager.Instance.GetFile(this.PortalSettings.PortalId, this.PortalSettings.BackgroundFile);
+    }
+
+    private IFileInfo GetPageStylesheetFileInfo(string styleSheet)
+    {
+        string cacheKey = string.Format(DataCache.PortalCacheKey, this.PortalSettings.PortalId, "PageStylesheet" + styleSheet);
+        var file = CBO.GetCachedObject<DotNetNuke.Services.FileSystem.FileInfo>(
+            this.HostSettings,
+            new CacheItemArgs(cacheKey, DataCache.PortalCacheTimeOut, DataCache.PortalCachePriority, styleSheet),
+            this.GetPageStylesheetInfoCallBack);
+
+        return file;
+    }
+
+    private IFileInfo GetPageStylesheetInfoCallBack(CacheItemArgs itemArgs)
+    {
+        var styleSheet = itemArgs.Params[0].ToString();
+        return FileManager.Instance.GetFile(this.PortalSettings.PortalId, styleSheet);
+    }
+
+    private string GetCssVariablesStylesheet()
+    {
+        var cacheKey = string.Format(CultureInfo.InvariantCulture, DataCache.PortalStylesCacheKey, this.PortalSettings.PortalId);
+        var cacheArgs = new CacheItemArgs(
+            cacheKey,
+            DataCache.PortalCacheTimeOut,
+            DataCache.PortalCachePriority,
+            this.PortalSettings.GetStyles());
+        string filePath = CBO.GetCachedObject<string>(this.HostSettings, cacheArgs, this.GetCssVariablesStylesheetCallback);
+        return filePath;
+    }
+
+    private string GetCssVariablesStylesheetCallback(CacheItemArgs args)
+    {
+        var portalStyles = (PortalStyles)args.Params[0];
+
+        var directory = this.PortalSettings.HomeSystemDirectoryMapPath;
+        if (!Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var webPath = $"{this.PortalSettings.HomeSystemDirectory}{portalStyles.FileName}";
+
+        var physicalPath = $"{directory}{portalStyles.FileName}";
+        if (File.Exists(physicalPath))
+        {
+            return webPath;
+        }
+
+        var styles = portalStyles.ToString();
+        File.WriteAllText(physicalPath, styles);
+
+        return webPath;
+    }
+
+    /// <summary>Contributes this portal's configured CSP settings to the policy of the request.</summary>
+    /// <remarks>The policy itself is built by the (already migrated) DotNetNuke.ContentSecurityPolicy service.</remarks>
+    private void AddCspHeaders()
+    {
+        if (!string.IsNullOrEmpty(this.PortalSettings.CspHeader))
+        {
+            this.ContentSecurityPolicy.AddHeader(this.PortalSettings.CspHeader);
+        }
+
+        if (!string.IsNullOrEmpty(this.PortalSettings.CspReportingHeader))
+        {
+            this.ContentSecurityPolicy.AddReportEndpointHeader(this.PortalSettings.CspReportingHeader);
+        }
+
+        this.ContentSecurityPolicy.AddWebformsSupport();
+    }
+
+    /// <summary>Renders the page header provider's registered stylesheets and scripts.</summary>
+    private string RenderHeadResources() =>
+        this.ClientResourceController.RenderDependencies(
+            ResourceType.All,
+            ClientResourceProviders.DnnPageHeaderProvider,
+            Globals.ApplicationPath);
+
+    /// <summary>Renders the body provider's registered resources (the top of the form).</summary>
+    private string RenderBodyResources() =>
+        this.ClientResourceController.RenderDependencies(
+            ResourceType.All,
+            ClientResourceProviders.DnnBodyProvider,
+            Globals.ApplicationPath);
+
+    /// <summary>Renders the form bottom provider's registered resources.</summary>
+    private string RenderFormBottomResources() =>
+        this.ClientResourceController.RenderDependencies(
+            ResourceType.All,
+            ClientResourceProviders.DnnFormBottomProvider,
+            Globals.ApplicationPath);
+
+    /// <summary>Reads a query string value of the request.</summary>
+    /// <remarks>Replaces <c>Request.QueryString[key]</c>, which returned <see langword="null"/> when absent.</remarks>
+    private string QueryValue(string key)
+    {
+        var query = this.Request?.Query;
+        if (query is null || !query.TryGetValue(key, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+
+        return values[values.Count - 1];
+    }
+
+    /// <summary>Encodes a value as a JavaScript string literal.</summary>
+    private static string JsString(string value) =>
+        "'" + (value ?? string.Empty)
+            .Replace("\\", "\\\\")
+            .Replace("'", "\\'")
+            .Replace("\r", string.Empty)
+            .Replace("\n", string.Empty) + "'";
+}

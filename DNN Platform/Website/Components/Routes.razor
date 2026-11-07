@@ -4,7 +4,12 @@
 <Router AppAssembly="@typeof(Program).Assembly"
         AdditionalAssemblies="AdditionalAssemblies">
     <Found Context="routeData">
-        <RouteView RouteData="@routeData" />
+        @* Pages that do not declare their own @layout get the DNN 10 default theme's skin layout
+           (the replacement for Portals/_default/Skins/Aperture/default.ascx), so a routable page
+           never renders without its portal chrome. A page or a portal skin resolution that
+           selects another layout still wins, because @layout and RouteView's own resolution take
+           precedence over this fallback. *@
+        <RouteView RouteData="@routeData" DefaultLayout="typeof(Dnn.Skins.Aperture.ApertureLayout)" />
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
 </Router>

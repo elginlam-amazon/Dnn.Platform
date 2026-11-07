@@ -9,8 +9,6 @@ namespace Dnn.PersonaBar.Themes.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
     using System.Xml;
 
     using Dnn.PersonaBar.Library;
@@ -28,8 +26,11 @@ namespace Dnn.PersonaBar.Themes.Services
     using DotNetNuke.UI.Skins;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = Components.Constants.MenuName)]
     public class ThemesController : PersonaBarApiController
@@ -60,25 +61,25 @@ namespace Dnn.PersonaBar.Themes.Services
         }
 
         [HttpGet]
-        public HttpResponseMessage GetCurrentTheme(string language)
+        public IActionResult GetCurrentTheme(string language)
         {
             try
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, this.GetCurrentThemeObject());
+                return this.Ok(this.GetCurrentThemeObject());
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerGetCurrentThemeException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetThemes(ThemeLevel level)
+        public IActionResult GetThemes(ThemeLevel level)
         {
             try
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Layouts = this.controller.GetLayouts(this.PortalSettings, level),
                     Containers = this.controller.GetContainers(this.PortalSettings, level),
@@ -87,12 +88,12 @@ namespace Dnn.PersonaBar.Themes.Services
             catch (Exception ex)
             {
                 Logger.ThemesControllerGetThemesException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetThemeFiles(string themeName, ThemeType type, ThemeLevel level)
+        public IActionResult GetThemeFiles(string themeName, ThemeType type, ThemeLevel level)
         {
             try
             {
@@ -102,39 +103,39 @@ namespace Dnn.PersonaBar.Themes.Services
 
                 if (theme == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "ThemeNotFound");
+                    return DnnApiResults.Error(HttpStatusCode.NotFound, "ThemeNotFound");
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, this.controller.GetThemeFiles(this.PortalSettings, theme));
+                return this.Ok(this.controller.GetThemeFiles(this.PortalSettings, theme));
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerGetThemeFilesException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.Edit)]
-        public HttpResponseMessage ApplyTheme(ApplyThemeInfo applyTheme, string language)
+        public IActionResult ApplyTheme(ApplyThemeInfo applyTheme, string language)
         {
             try
             {
                 this.controller.ApplyTheme(this.PortalId, applyTheme.ThemeFile, applyTheme.Scope);
-                return this.Request.CreateResponse(HttpStatusCode.OK, this.GetCurrentThemeObject());
+                return this.Ok(this.GetCurrentThemeObject());
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerApplyThemeException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.Edit)]
-        public HttpResponseMessage ApplyDefaultTheme(ApplyDefaultThemeInfo defaultTheme, string language)
+        public IActionResult ApplyDefaultTheme(ApplyDefaultThemeInfo defaultTheme, string language)
         {
             try
             {
@@ -145,54 +146,54 @@ namespace Dnn.PersonaBar.Themes.Services
 
                 if (themeInfo == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "ThemeNotFound");
+                    return DnnApiResults.Error(HttpStatusCode.NotFound, "ThemeNotFound");
                 }
 
                 var themeFiles = this.controller.GetThemeFiles(this.PortalSettings, themeInfo);
                 if (themeFiles.Count == 0)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "NoThemeFile");
+                    return DnnApiResults.Error(HttpStatusCode.NotFound, "NoThemeFile");
                 }
 
                 this.controller.ApplyDefaultTheme(this.PortalSettings, defaultTheme.ThemeName, defaultTheme.Level);
-                return this.Request.CreateResponse(HttpStatusCode.OK, this.GetCurrentThemeObject());
+                return this.Ok(this.GetCurrentThemeObject());
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerApplyDefaultThemeException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.Edit)]
-        public HttpResponseMessage DeleteThemePackage(ThemeInfo theme)
+        public IActionResult DeleteThemePackage(ThemeInfo theme)
         {
             try
             {
                 if (theme.Level == ThemeLevel.Global && !this.UserInfo.IsSuperUser)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "NoPermission");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "NoPermission");
                 }
 
                 this.controller.DeleteThemePackage(this.PortalSettings, theme);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { });
+                return this.Ok(new { });
             }
             catch (InvalidOperationException ex)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerDeleteThemePackageException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetEditableTokens()
+        public IActionResult GetEditableTokens()
         {
             try
             {
@@ -200,28 +201,28 @@ namespace Dnn.PersonaBar.Themes.Services
                     .Where(c => !string.IsNullOrEmpty(c.ControlKey) && !string.IsNullOrEmpty(c.ControlSrc))
                     .Select(c => new ListItemInfo { Text = c.ControlKey, Value = c.ControlSrc });
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, tokens);
+                return this.Ok(tokens);
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerGetEditableTokensException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetEditableSettings(string token)
+        public IActionResult GetEditableSettings(string token)
         {
             try
             {
                 if (!SkinControlController.GetSkinControls().Values.Select(sc => sc.ControlSrc).ToHashSet(StringComparer.OrdinalIgnoreCase).Contains(token))
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest);
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest);
                 }
 
-                var strFile = this.appStatus.ApplicationMapPath + @"\" + token.ToLowerInvariant().Replace("/", @"\").Replace(".ascx", ".xml");
+                var strFile = Path.Combine(this.appStatus.ApplicationMapPath, token.ToLowerInvariant().Replace('/', Path.DirectorySeparatorChar).Replace(".ascx", ".xml").TrimStart(Path.DirectorySeparatorChar));
                 var settings = new List<ListItemInfo>();
-                if (File.Exists(strFile))
+                if (System.IO.File.Exists(strFile))
                 {
                     var xmlDoc = new XmlDocument { XmlResolver = null };
                     using (var xmlReader = XmlReader.Create(strFile, new XmlReaderSettings { XmlResolver = null, }))
@@ -235,28 +236,28 @@ namespace Dnn.PersonaBar.Themes.Services
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, settings);
+                return this.Ok(settings);
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerGetEditableSettingsException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetEditableValues(string token, string setting)
+        public IActionResult GetEditableValues(string token, string setting)
         {
             try
             {
                 if (!SkinControlController.GetSkinControls().Values.Select(sc => sc.ControlSrc).ToHashSet(StringComparer.OrdinalIgnoreCase).Contains(token))
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest);
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest);
                 }
 
-                var strFile = this.appStatus.ApplicationMapPath + @"\" + token.ToLowerInvariant().Replace("/", @"\").Replace(".ascx", ".xml");
+                var strFile = Path.Combine(this.appStatus.ApplicationMapPath, token.ToLowerInvariant().Replace('/', Path.DirectorySeparatorChar).Replace(".ascx", ".xml").TrimStart(Path.DirectorySeparatorChar));
                 var value = string.Empty;
-                if (File.Exists(strFile))
+                if (System.IO.File.Exists(strFile))
                 {
                     var xmlDoc = new XmlDocument { XmlResolver = null };
                     using (var xmlReader = XmlReader.Create(strFile, new XmlReaderSettings { XmlResolver = null, }))
@@ -284,50 +285,50 @@ namespace Dnn.PersonaBar.Themes.Services
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Value = value });
+                return this.Ok(new { Value = value });
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerGetEditableValuesException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.Edit)]
-        public HttpResponseMessage UpdateTheme(UpdateThemeInfo updateTheme)
+        public IActionResult UpdateTheme(UpdateThemeInfo updateTheme)
         {
             try
             {
                 var token = SkinControlController.GetSkinControls().Values.FirstOrDefault(t => t.ControlSrc == updateTheme.Token);
                 if (token == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidParameter");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidParameter");
                 }
 
                 var themeFilePath = updateTheme.Path;
                 if ((!themeFilePath.StartsWith("[g]", StringComparison.OrdinalIgnoreCase) && !themeFilePath.StartsWith("[l]", StringComparison.OrdinalIgnoreCase) && !themeFilePath.StartsWith("[s]", StringComparison.OrdinalIgnoreCase))
                     || (themeFilePath.StartsWith("[g]", StringComparison.OrdinalIgnoreCase) && !this.UserInfo.IsSuperUser))
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidPermission");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidPermission");
                 }
 
                 updateTheme.Token = token.ControlKey;
                 this.controller.UpdateTheme(this.PortalSettings, updateTheme);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { });
+                return this.Ok(new { });
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerUpdateThemeException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage ParseTheme(ParseThemeInfo parseTheme)
+        public IActionResult ParseTheme(ParseThemeInfo parseTheme)
         {
             try
             {
@@ -349,19 +350,19 @@ namespace Dnn.PersonaBar.Themes.Services
                     this.controller.ParseTheme(this.PortalSettings, container, parseTheme.ParseType);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { });
+                return this.Ok(new { });
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerParseThemeException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.Edit)]
-        public HttpResponseMessage RestoreTheme(string language)
+        public IActionResult RestoreTheme(string language)
         {
             try
             {
@@ -371,12 +372,12 @@ namespace Dnn.PersonaBar.Themes.Services
                 SkinController.SetSkin(SkinController.RootContainer, this.PortalId, SkinType.Admin, string.Empty);
                 DataCache.ClearPortalCache(this.PortalId, true);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, this.GetCurrentThemeObject());
+                return this.Ok(this.GetCurrentThemeObject());
             }
             catch (Exception ex)
             {
                 Logger.ThemesControllerRestoreThemeException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 

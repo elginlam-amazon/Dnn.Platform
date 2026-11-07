@@ -1107,7 +1107,7 @@ namespace DotNetNuke.Common.Utilities
             if (!File.Exists(path) || overwrite)
             {
                 // Copy from \Config
-                var pathToDefault = Path.Combine(appStatus.ApplicationMapPath, Globals.glbConfigFolder.TrimStart('\\'), fileName);
+                var pathToDefault = Path.Combine(appStatus.ApplicationMapPath, "Config", fileName);
                 if (File.Exists(pathToDefault))
                 {
                     File.Copy(pathToDefault, path, true);
@@ -1246,7 +1246,7 @@ namespace DotNetNuke.Common.Utilities
         {
             return Path.Combine(
                 appStatus.ApplicationMapPath,
-                Globals.glbConfigFolder.TrimStart('\\'),
+                "Config",
                 $"Backup_{DateTime.Now:yyyyMMddHHmm}",
                 fileName);
         }

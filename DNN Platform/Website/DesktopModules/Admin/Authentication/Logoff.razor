@@ -1,0 +1,159 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Authentication
+@inherits DotNetNuke.Entities.Modules.UserModuleBase
+
+@using System
+@using System.Collections.Generic
+@using System.IO
+@using System.Threading
+@using Microsoft.AspNetCore.Components
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Lists
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Security
+@using DotNetNuke.Services.Authentication
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI
+
+@*
+    Replaces Logoff.ascx — the LogOff module control.
+
+    *** SINGLE SIGN-OUT PATH. *** The preserved Logoff.aspx URL is served by
+    DotNetNuke.Services.Authentication.LogOffEndpoint (registered through MapDnnLogOff inside
+    MapDnnPlatformEndpoints). That endpoint signs the user out and then redirects to this control's
+    page (NavigateURL("LogOff")) — exactly the relationship the legacy LogOffHandler had with this
+    control. This control does NOT introduce a second sign-out implementation: it calls
+    LogOffEndpoint.PerformSignOutAsync(), the one and only place that invalidates the DNN auth
+    cookie. PortalSecurity.SignOut() is no longer called from here.
+
+    LoadControl("~/" + authSystem.LogoffControlSrc) becomes component composition: the provider's
+    logoff control source is resolved to the component type that replaced it and rendered with
+    DynamicComponent. Because the renderer owns the instance, the LogOff and Redirect events are
+    subscribed through AuthenticationLogoffBase's LogOffCallback/RedirectCallback parameters.
+
+    The ThreadAbortException catch existed only because Response.Redirect(…, true) aborted the
+    thread; a forced Blazor navigation does not, so it has no counterpart.
+*@
+
+@if (this.logoffControlType is not null)
+{
+    <DynamicComponent Type="@this.logoffControlType" Parameters="@this.logoffControlParameters" />
+}
+
+@code {
+    /// <summary>Initializes a new instance of the <see cref="Logoff"/> class.</summary>
+    /// <remarks>
+    /// Declared explicitly because the compiler-generated default constructor would chain to the
+    /// obsolete parameterless <c>UserModuleBase()</c>. Passing <see langword="null"/> for both
+    /// services is exactly what that constructor did (<c>: this(null, null)</c>), and the
+    /// non-obsolete overload then resolves <c>ListController</c> and <c>IHostSettings</c> from
+    /// <c>DependencyProvider</c> — so this is a call-site change only, with no behaviour change.
+    /// </remarks>
+    public Logoff()
+        : base(null, null)
+    {
+    }
+
+    private Type logoffControlType;
+    private IDictionary<string, object> logoffControlParameters = new Dictionary<string, object>();
+    private bool loaded;
+
+    /// <summary>Gets or sets the Blazor navigation manager; <c>Response.Redirect</c> becomes a forced navigation.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        try
+        {
+            // Get the Authentication System associated with the current User
+            var authSystem = AuthenticationController.GetAuthenticationType();
+
+            if (authSystem != null && !string.IsNullOrEmpty(authSystem.LogoffControlSrc))
+            {
+                var componentType = ControlUtilities.ResolveControlType("~/" + authSystem.LogoffControlSrc);
+
+                // set the resource file to the control's own folder ( ie. controlname.ascx =
+                // controlname ), which is what the ID/TemplateSourceDirectory dance achieved.
+                var controlPath = "~/" + Path.GetDirectoryName(authSystem.LogoffControlSrc).Replace('\\', '/');
+                var localResourceFile = controlPath + "/" + Localization.LocalResourceDirectory + "/" +
+                                        Path.GetFileNameWithoutExtension(authSystem.LogoffControlSrc);
+
+                this.logoffControlType = componentType;
+                this.logoffControlParameters = ControlUtilities.FilterDeclaredParameters(
+                    componentType,
+                    new Dictionary<string, object>
+                    {
+                        ["AuthenticationType"] = authSystem.AuthenticationType,
+                        ["LocalResourceFile"] = localResourceFile,
+                        ["ModuleConfiguration"] = this.ModuleConfiguration,
+                        ["LogOffCallback"] = EventCallback.Factory.Create(this, this.UserLogOff),
+                        ["RedirectCallback"] = EventCallback.Factory.Create(this, this.UserRedirect),
+                    });
+            }
+            else
+            {
+                // The current auth system has no custom logoff control so LogOff
+                this.DoLogoff();
+                this.Redirect();
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessPageLoadException(exc);
+        }
+    }
+
+    /// <summary>Handles the provider logoff control's <c>LogOff</c> event.</summary>
+    protected void UserLogOff()
+    {
+        this.DoLogoff();
+    }
+
+    /// <summary>Handles the provider logoff control's <c>Redirect</c> event.</summary>
+    protected void UserRedirect()
+    {
+        this.Redirect();
+    }
+
+    private void Redirect()
+    {
+        // Redirect browser back to portal
+        this.Navigation.NavigateTo(AuthenticationController.GetLogoffRedirectURL(this.PortalSettings, this.Request), forceLoad: true);
+    }
+
+    private void DoLogoff()
+    {
+        try
+        {
+            // Remove user from cache
+            if (this.User != null)
+            {
+                DataCache.ClearUserCache(this.PortalSettings.PortalId, HttpContextSource.Current?.User?.Identity?.Name);
+            }
+
+            // The platform's single sign-out implementation; see the note at the top of this file.
+            LogOffEndpoint.PerformSignOutAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessPageLoadException(exc);
+        }
+    }
+}

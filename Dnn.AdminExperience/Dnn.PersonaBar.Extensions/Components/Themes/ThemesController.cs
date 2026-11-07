@@ -8,7 +8,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Web;
+using System.Net;
 using System.Xml;
 
 using Dnn.PersonaBar.Themes.Components.DTO;
@@ -26,7 +26,8 @@ using DotNetNuke.UI.Skins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-using Image = System.Drawing.Image;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
 
 /// <summary>The default <see cref="IThemesController"/> implementation.</summary>
 public class ThemesController : ServiceLocator<IThemesController, ThemesController>, IThemesController
@@ -39,6 +40,11 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
 
     /// <summary>The default container names.</summary>
     internal static readonly IList<string> DefaultContainerNames = ["Title-h2", "NoTitle", "Main", "Default",];
+
+    /// <summary>The <c>portals/_default</c> folder fragment, expressed with the platform directory separator.</summary>
+    private static readonly string DefaultPortalFolder =
+        $"{Path.DirectorySeparatorChar}portals{Path.DirectorySeparatorChar}_default{Path.DirectorySeparatorChar}";
+
     private static readonly ILogger Logger = DnnLoggingController.GetLogger<ThemesController>();
 
     private static readonly object ThreadLocker = new object();
@@ -93,7 +99,7 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
     /// <inheritdoc />
     public IList<ThemeFileInfo> GetThemeFiles(PortalSettings portalSettings, ThemeInfo theme)
     {
-        var themePath = Path.Combine(this.appStatus.ApplicationMapPath, theme.Path);
+        var themePath = this.MapThemePath(theme.Path);
         var themeFiles = new List<ThemeFileInfo>();
 
         if (Directory.Exists(themePath))
@@ -227,22 +233,22 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
         var themePath = SkinController.FormatSkinSrc(themeFile.Path, portalSettings);
         var user = UserController.Instance.GetCurrentUserInfo();
 
-        if (!user.IsSuperUser && themePath.IndexOf("\\portals\\_default\\", StringComparison.OrdinalIgnoreCase) != Null.NullInteger)
+        if (!user.IsSuperUser && NormalizeSeparators(themePath).IndexOf(DefaultPortalFolder, StringComparison.OrdinalIgnoreCase) != Null.NullInteger)
         {
             throw new SecurityException("NoPermission");
         }
 
-        File.Delete(Path.Combine(this.appStatus.ApplicationMapPath, themePath));
+        File.Delete(this.MapThemePath(themePath));
         DataCache.ClearPortalCache(portalSettings.PortalId, true);
     }
 
     /// <inheritdoc />
     public void DeleteThemePackage(PortalSettings portalSettings, ThemeInfo theme)
     {
-        var themePath = Path.Combine(this.appStatus.ApplicationMapPath, theme.Path);
+        var themePath = this.MapThemePath(theme.Path);
         var user = UserController.Instance.GetCurrentUserInfo();
 
-        if (!user.IsSuperUser && themePath.IndexOf(@"\portals\_default\", StringComparison.OrdinalIgnoreCase) != Null.NullInteger)
+        if (!user.IsSuperUser && NormalizeSeparators(themePath).IndexOf(DefaultPortalFolder, StringComparison.OrdinalIgnoreCase) != Null.NullInteger)
         {
             throw new SecurityException("NoPermission");
         }
@@ -260,9 +266,9 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
                 Globals.DeleteFolderRecursive(themePath);
             }
 
-            if (Directory.Exists(themePath.Replace($@"\{SkinController.RootSkin.ToLowerInvariant()}\", $@"\{SkinController.RootContainer}\")))
+            if (Directory.Exists(themePath.Replace($"{Path.DirectorySeparatorChar}{SkinController.RootSkin.ToLowerInvariant()}{Path.DirectorySeparatorChar}", $"{Path.DirectorySeparatorChar}{SkinController.RootContainer}{Path.DirectorySeparatorChar}")))
             {
-                Globals.DeleteFolderRecursive(themePath.Replace($@"\{SkinController.RootSkin.ToLowerInvariant()}\", $@"\{SkinController.RootContainer}\"));
+                Globals.DeleteFolderRecursive(themePath.Replace($"{Path.DirectorySeparatorChar}{SkinController.RootSkin.ToLowerInvariant()}{Path.DirectorySeparatorChar}", $"{Path.DirectorySeparatorChar}{SkinController.RootContainer}{Path.DirectorySeparatorChar}"));
             }
         }
         else if (theme.Type == ThemeType.Container)
@@ -284,7 +290,7 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
     public void UpdateTheme(PortalSettings portalSettings, UpdateThemeInfo updateTheme)
     {
         var themePath = SkinController.FormatSkinSrc(updateTheme.Path + ".ascx", portalSettings);
-        themePath = Path.Combine(this.appStatus.ApplicationMapPath, themePath.TrimStart('/'));
+        themePath = this.MapThemePath(themePath);
 
         var objStreamReader = File.OpenText(themePath);
         var strSkin = objStreamReader.ReadToEnd();
@@ -308,8 +314,8 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
         }
 
         // add attribute
-        strAttribute = HttpUtility.HtmlAttributeEncode(strAttribute);
-        strValue = HttpUtility.HtmlAttributeEncode(strValue);
+        strAttribute = WebUtility.HtmlEncode(strAttribute);
+        strValue = WebUtility.HtmlEncode(strValue);
         strSkin = strSkin.Insert(intOpenTag + strTag.Length, $" {strAttribute}=\"{strValue}\"");
 
         File.SetAttributes(themePath, FileAttributes.Normal);
@@ -335,7 +341,7 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
         var objSkinFiles = new SkinFileProcessor(strRootPath, theme.Type == ThemeType.Container ? SkinController.RootContainer : SkinController.RootSkin, theme.PackageName);
         var arrSkinFiles = new ArrayList();
 
-        var strFolder = Path.Combine(this.appStatus.ApplicationMapPath, theme.Path);
+        var strFolder = this.MapThemePath(theme.Path);
         if (Directory.Exists(strFolder))
         {
             var arrFiles = Directory.GetFiles(strFolder);
@@ -379,7 +385,7 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
     /// <returns>The <see cref="ThemeLevel"/> value.</returns>
     internal static ThemeLevel GetThemeLevel(string themeFilePath)
     {
-        themeFilePath = themeFilePath.Replace(@"\", "/");
+        themeFilePath = themeFilePath.Replace('\\', '/').Replace(Path.DirectorySeparatorChar, '/');
         if (!string.IsNullOrEmpty(Globals.ApplicationPath)
             && !themeFilePath.StartsWith("[", StringComparison.Ordinal)
             && !themeFilePath.StartsWith(Globals.ApplicationPath, StringComparison.InvariantCultureIgnoreCase))
@@ -413,7 +419,7 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
         if (string.IsNullOrEmpty(imageFileName) || imageFileName.StartsWith("thumbnail_", StringComparison.OrdinalIgnoreCase))
         {
             strImage = strImage.Substring(this.appStatus.ApplicationMapPath.Length);
-            strImage = strImage.Replace(@"\", "/");
+            strImage = strImage.Replace(Path.DirectorySeparatorChar, '/');
             return strImage;
         }
 
@@ -428,7 +434,11 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
                     const int intSize = 150; // size of the thumbnail
                     try
                     {
-                        var objImage = Image.FromFile(strImage);
+                        using var objImage = Image.Load(strImage);
+
+                        // keep the source image's encoding so the thumbnail stays the same format
+                        var imageFormat = objImage.Metadata.DecodedImageFormat;
+                        var encoder = SixLabors.ImageSharp.Configuration.Default.ImageFormatsManager.GetEncoder(imageFormat);
 
                         // scale the image to prevent distortion
                         int intHeight;
@@ -450,7 +460,7 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
                         }
 
                         // create the thumbnail image
-                        var objThumbnail = objImage.GetThumbnailImage(intWidth, intHeight, null, IntPtr.Zero);
+                        using var objThumbnail = objImage.Clone(context => context.Resize(intWidth, intHeight));
 
                         // delete the old file ( if it exists )
                         if (File.Exists(strThumbnail))
@@ -459,15 +469,11 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
                         }
 
                         // save the thumbnail image
-                        objThumbnail.Save(strThumbnail, objImage.RawFormat);
+                        objThumbnail.Save(strThumbnail, encoder);
 
                         // set the file attributes
                         File.SetAttributes(strThumbnail, FileAttributes.Normal);
                         File.SetLastWriteTime(strThumbnail, File.GetLastWriteTime(strImage));
-
-                        // tidy up
-                        objImage.Dispose();
-                        objThumbnail.Dispose();
                     }
                     catch (Exception ex)
                     {
@@ -479,7 +485,7 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
         }
 
         strThumbnail = strThumbnail.Substring(this.appStatus.ApplicationMapPath.Length);
-        strThumbnail = strThumbnail.Replace(@"\", "/");
+        strThumbnail = strThumbnail.Replace(Path.DirectorySeparatorChar, '/');
 
         // return thumbnail filename
         return strThumbnail;
@@ -496,6 +502,16 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
         return !File.Exists(thumbnailPath) || File.GetLastWriteTime(thumbnailPath) != File.GetLastWriteTime(imagePath);
     }
 
+    /// <summary>Normalizes both separator flavours in <paramref name="path"/> to the platform directory separator.</summary>
+    /// <param name="path">The path to normalize.</param>
+    /// <returns>The normalized path.</returns>
+    private static string NormalizeSeparators(string path)
+    {
+        return string.IsNullOrEmpty(path)
+            ? path
+            : path.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+    }
+
     private static string FormatThemePath(PortalSettings portalSettings, string themePath, string fileName, ThemeType type)
     {
         var filePath = Path.Combine(themePath, fileName);
@@ -508,9 +524,9 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
             strSkinType = "S";
         }
 
-        var strUrl = lowercasePath.Substring(filePath.IndexOf($@"\{strRootSkin}\", StringComparison.OrdinalIgnoreCase))
+        var strUrl = lowercasePath.Substring(filePath.IndexOf($"{Path.DirectorySeparatorChar}{strRootSkin}{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
             .Replace(".ascx", string.Empty)
-            .Replace(@"\", "/")
+            .Replace(Path.DirectorySeparatorChar, '/')
             .TrimStart('/');
 
         return $"[{strSkinType}]{strUrl}";
@@ -594,10 +610,19 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
         }
     }
 
+    /// <summary>Resolves an application-relative theme path to a physical path.</summary>
+    /// <param name="themePath">The application-relative theme path (either separator flavour, optionally rooted).</param>
+    /// <returns>The physical path.</returns>
+    private string MapThemePath(string themePath)
+    {
+        var relative = NormalizeSeparators(themePath).TrimStart(Path.DirectorySeparatorChar);
+        return Path.Combine(this.appStatus.ApplicationMapPath, relative);
+    }
+
     private string GetDefaultThemeFileName(string themePath, ThemeType type)
     {
         var themeFiles = new List<string>();
-        var folderPath = Path.Combine(this.appStatus.ApplicationMapPath, themePath);
+        var folderPath = this.MapThemePath(themePath);
         themeFiles.AddRange(Directory.GetFiles(folderPath, "*.ascx"));
 
         var defaultFile = themeFiles.FirstOrDefault(i =>
@@ -624,9 +649,9 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
 
         return (
             from strFolder in Directory.GetDirectories(strRoot)
-            let strName = strFolder.Substring(strFolder.LastIndexOf(@"\", StringComparison.Ordinal) + 1)
+            let strName = Path.GetFileName(strFolder.TrimEnd(Path.DirectorySeparatorChar))
             where strName != "_default"
-            let themePath = strFolder.Replace(this.appStatus.ApplicationMapPath, string.Empty).TrimStart('\\').ToLowerInvariant()
+            let themePath = strFolder.Replace(this.appStatus.ApplicationMapPath, string.Empty).TrimStart(Path.DirectorySeparatorChar).ToLowerInvariant()
             let isFallback = type == ThemeType.Skin ? this.IsFallbackSkin(themePath) : this.IsFallbackContainer(themePath)
             let canDelete = !isFallback && SkinController.CanDeleteSkin(this.hostSettings, strFolder, PortalSettings.Current.HomeDirectoryMapPath)
             let defaultThemeFile = this.GetDefaultThemeFileName(themePath, type)
@@ -643,7 +668,7 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
 
     private string GetThumbnail(string themePath, string themeFileName)
     {
-        var folderPath = Path.Combine(this.appStatus.ApplicationMapPath, themePath);
+        var folderPath = this.MapThemePath(themePath);
         var filePath = Path.Combine(folderPath, themeFileName);
         var imagePath = string.Empty;
         foreach (var ext in ImageExtensions)
@@ -661,8 +686,8 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
 
     private bool IsFallbackContainer(string skinPath)
     {
-        var strDefaultContainerPath = (Globals.HostMapPath + SkinController.RootContainer + SkinDefaults.GetSkinDefaults(this.hostSettings, SkinDefaultType.SkinInfo).Folder).Replace("/", @"\");
-        if (strDefaultContainerPath.EndsWith(@"\", StringComparison.Ordinal))
+        var strDefaultContainerPath = (Globals.HostMapPath + SkinController.RootContainer + SkinDefaults.GetSkinDefaults(this.hostSettings, SkinDefaultType.SkinInfo).Folder).Replace('/', Path.DirectorySeparatorChar);
+        if (strDefaultContainerPath.EndsWith(Path.DirectorySeparatorChar))
         {
             strDefaultContainerPath = strDefaultContainerPath.Substring(0, strDefaultContainerPath.Length - 1);
         }
@@ -672,8 +697,8 @@ public class ThemesController : ServiceLocator<IThemesController, ThemesControll
 
     private bool IsFallbackSkin(string skinPath)
     {
-        var strDefaultSkinPath = (Globals.HostMapPath + SkinController.RootSkin + SkinDefaults.GetSkinDefaults(this.hostSettings, SkinDefaultType.SkinInfo).Folder).Replace("/", @"\");
-        if (strDefaultSkinPath.EndsWith(@"\", StringComparison.Ordinal))
+        var strDefaultSkinPath = (Globals.HostMapPath + SkinController.RootSkin + SkinDefaults.GetSkinDefaults(this.hostSettings, SkinDefaultType.SkinInfo).Folder).Replace('/', Path.DirectorySeparatorChar);
+        if (strDefaultSkinPath.EndsWith(Path.DirectorySeparatorChar))
         {
             strDefaultSkinPath = strDefaultSkinPath.Substring(0, strDefaultSkinPath.Length - 1);
         }

@@ -1,0 +1,53 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* Replaces Profile.ascx + Profile.ascx.cs + Profile.ascx.designer.cs.
+
+   NOTE ON THE TYPE NAME: the Razor compiler names the component after the file, so the class is now
+   DesktopModules.Admin.Security.Profile where it used to be DesktopModules.Admin.Security.DNNProfile
+   (the .ascx was already named Profile.ascx, and the code-behind only carried the DNN prefix).
+   ViewProfile, Login, EditUser and ManageUsers declare a `ctlProfile` field of that type and must
+   refer to `Profile` once they are converted.
+
+   The inline <script> block is gone - a .razor file cannot carry one. Its body (dnnSettingDropdown
+   on the setting dropdowns, dnnPanels on the editor's container, and the randomised `autocomplete`
+   attribute on the Country/Region inputs that stops the browser autofilling them) moved verbatim
+   into wwwroot/desktopmodules/Admin/Security/Scripts/dnn.Profile.js as dnn.setUpProfile(), which is
+   registered as a client resource and invoked through IJSRuntime from OnAfterRenderAsync. The
+   original re-ran the same function from PageRequestManager.add_endRequest after every partial
+   postback; OnAfterRenderAsync runs after every render, which is the Blazor equivalent of that.
+
+   <dnn:ProfileEditorControl> keeps all of its original configuration (GroupByMode="Section",
+   enableClientValidation="true"); ViewStateMode="Disabled" is moot because there is no view state.
+   Its User / ShowVisibility / DataSource / EditMode / LabelMode / LocalResourceFile values are
+   passed as parameters bound to the fields the code-behind used to assign, so the per-property
+   visibility rules still decide what is handed to the editor.
+
+   <ul id="actionsRow" runat="server"> was shown/hidden through the ShowUpdate property; the element
+   is now rendered conditionally on the same flag. *@
+
+@namespace DesktopModules.Admin.Security
+@inherits DotNetNuke.Entities.Modules.ProfileUserControlBase
+
+@using DotNetNuke.Entities.Profile
+@using DotNetNuke.UI.WebControls
+
+<div class="dnnForm dnnProfile dnnClear">
+    <ProfileEditorControl @ref="this.ProfileProperties"
+                          GroupByMode="GroupByMode.Section"
+                          EnableClientValidation="true"
+                          EditMode="@this.editorMode"
+                          LabelMode="@this.labelMode"
+                          LocalResourceFile="@this.LocalResourceFile"
+                          User="@this.User"
+                          ShowVisibility="@this.ShowVisibility"
+                          DataSource="@this.profileDataSource" />
+    <div class="dnnClear"></div>
+    @if (this.showUpdate)
+    {
+        <ul id="actionsRow" class="dnnActions dnnClear">
+            <li><a class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.CmdUpdateClick" @onclick:preventDefault="true">@this.LocalizeText("cmdUpdate.Text")</a></li>
+        </ul>
+    }
+</div>

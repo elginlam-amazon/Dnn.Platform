@@ -8,8 +8,6 @@ namespace Dnn.PersonaBar.UI.Services
     using System.Diagnostics.CodeAnalysis;
     using System.IO;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -18,7 +16,8 @@ namespace Dnn.PersonaBar.UI.Services
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Localization;
-
+    using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     /// <summary>A Persona Bar API controller for pages.</summary>
@@ -49,13 +48,13 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="includeDeletedChildren">The value of this parameter affects <see cref="TabInfo.HasChildren"></see> property.</param>
         /// <returns>List of portal tabs.</returns>
         [HttpGet]
-        public HttpResponseMessage GetPortalTabs(int portalId, string cultureCode, bool isMultiLanguage = false, bool excludeAdminTabs = true, string roles = "", bool disabledNotSelectable = false, int sortOrder = 0, int selectedTabId = -1, string validateTab = "", bool includeHostPages = false, bool includeDisabled = false, bool includeDeleted = false, bool includeDeletedChildren = true)
+        public IActionResult GetPortalTabs(int portalId, string cultureCode, bool isMultiLanguage = false, bool excludeAdminTabs = true, string roles = "", bool disabledNotSelectable = false, int sortOrder = 0, int selectedTabId = -1, string validateTab = "", bool includeHostPages = false, bool includeDisabled = false, bool includeDeleted = false, bool includeDeletedChildren = true)
         {
             try
             {
                 if (!this.UserInfo.IsSuperUser && portalId != this.PortalId && portalId > -1)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, Localization.GetString("UnauthorizedRequest", this.LocalResourcesFile));
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, Localization.GetString("UnauthorizedRequest", this.LocalResourcesFile));
                 }
 
                 var response = new
@@ -79,12 +78,12 @@ namespace Dnn.PersonaBar.UI.Services
                             includeDeletedChildren),
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.TabsControllerGetPortalTabsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -100,7 +99,7 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="includeDeleted">Whether to include deleted pages.</param>
         /// <returns>A response with a <see cref="TabDto"/> <c>Results</c> field.</returns>
         [HttpGet]
-        public HttpResponseMessage SearchPortalTabs(string searchText, int portalId, string roles = "", bool disabledNotSelectable = false, int sortOrder = 0, string validateTab = "", bool includeHostPages = false, bool includeDisabled = false, bool includeDeleted = false)
+        public IActionResult SearchPortalTabs(string searchText, int portalId, string roles = "", bool disabledNotSelectable = false, int sortOrder = 0, string validateTab = "", bool includeHostPages = false, bool includeDisabled = false, bool includeDeleted = false)
         {
             try
             {
@@ -111,12 +110,12 @@ namespace Dnn.PersonaBar.UI.Services
                         this.controller.SearchPortalTabs(this.UserInfo, searchText, portalId < 0 ? this.PortalId : portalId, roles, disabledNotSelectable, sortOrder, validateTab, includeHostPages, includeDisabled, includeDeleted),
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.TabsControllerSearchPortalTabsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -127,7 +126,7 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="cultureCode">The culture code.</param>
         /// <returns>List of portal tabs.</returns>
         [HttpGet]
-        public HttpResponseMessage GetPortalTab(int portalId, int tabId, string cultureCode)
+        public IActionResult GetPortalTab(int portalId, int tabId, string cultureCode)
         {
             try
             {
@@ -137,12 +136,12 @@ namespace Dnn.PersonaBar.UI.Services
                     Results = this.controller.GetTabByCulture(tabId, portalId < 0 ? this.PortalId : portalId, cultureCode),
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.TabsControllerGetPortalTabException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -160,7 +159,7 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="includeDeletedChildren">The value of this parameter affects <see cref="TabInfo.HasChildren"></see> property.</param>
         /// <returns>A response with <see cref="TabDto"/> <c>Results</c> collection.</returns>
         [HttpGet]
-        public HttpResponseMessage GetTabsDescendants(int portalId, int parentId, string cultureCode, bool isMultiLanguage = false, string roles = "", bool disabledNotSelectable = false, int sortOrder = 0, string validateTab = "", bool includeHostPages = false, bool includeDisabled = false, bool includeDeletedChildren = true)
+        public IActionResult GetTabsDescendants(int portalId, int parentId, string cultureCode, bool isMultiLanguage = false, string roles = "", bool disabledNotSelectable = false, int sortOrder = 0, string validateTab = "", bool includeHostPages = false, bool includeDisabled = false, bool includeDeletedChildren = true)
         {
             try
             {
@@ -182,12 +181,12 @@ namespace Dnn.PersonaBar.UI.Services
                             includeDeletedChildren),
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.TabsControllerGetTabsDescendantsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
     }

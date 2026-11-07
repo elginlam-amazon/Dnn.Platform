@@ -5,20 +5,22 @@
 namespace Dnn.PersonaBar.Prompt.Common
 {
     using System.Net;
-    using System.Net.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Prompt.Models;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Mvc;
 
     public abstract class ControllerBase : PersonaBarApiController
     {
-        protected HttpResponseMessage OkResponse(string msg, object data = null)
+        protected IActionResult OkResponse(string msg, object data = null)
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new ResponseModel(false, msg, data?.ToString() ?? string.Empty));
+            return DnnApiResults.Response(HttpStatusCode.OK, new ResponseModel(false, msg, data?.ToString() ?? string.Empty));
         }
 
-        protected HttpResponseMessage UnauthorizedResponse(string msg = "", object data = null)
+        protected IActionResult UnauthorizedResponse(string msg = "", object data = null)
         {
             if (string.IsNullOrEmpty(msg))
             {
@@ -29,37 +31,37 @@ namespace Dnn.PersonaBar.Prompt.Common
                 msg += " " + Localization.GetString("Prompt_SessionTimedOut", Components.Constants.LocalResourcesFile, true);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.Unauthorized, new ResponseModel(true, msg, data?.ToString() ?? string.Empty));
+            return DnnApiResults.Response(HttpStatusCode.Unauthorized, new ResponseModel(true, msg, data?.ToString() ?? string.Empty));
         }
 
-        protected HttpResponseMessage BadRequestResponse(string msg = "", object data = null)
+        protected IActionResult BadRequestResponse(string msg = "", object data = null)
         {
             if (string.IsNullOrEmpty(msg))
             {
                 msg = Localization.GetString("Prompt_InvalidData", Components.Constants.LocalResourcesFile, true);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.BadRequest, new ResponseModel(true, msg, data?.ToString() ?? string.Empty));
+            return DnnApiResults.Response(HttpStatusCode.BadRequest, new ResponseModel(true, msg, data?.ToString() ?? string.Empty));
         }
 
-        protected HttpResponseMessage ServerErrorResponse(string msg = "", object data = null)
+        protected IActionResult ServerErrorResponse(string msg = "", object data = null)
         {
             if (string.IsNullOrEmpty(msg))
             {
                 msg = Localization.GetString("Prompt_ServerError", Components.Constants.LocalResourcesFile, true);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.InternalServerError, new ResponseModel(true, msg, data?.ToString() ?? string.Empty));
+            return DnnApiResults.Response(HttpStatusCode.InternalServerError, new ResponseModel(true, msg, data?.ToString() ?? string.Empty));
         }
 
-        protected HttpResponseMessage NotImplementedResponse(string msg = "", object data = null)
+        protected IActionResult NotImplementedResponse(string msg = "", object data = null)
         {
             if (string.IsNullOrEmpty(msg))
             {
                 msg = Localization.GetString("Prompt_NotImplemented", Components.Constants.LocalResourcesFile, true);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.NotImplemented, new ResponseModel(true, msg, data?.ToString() ?? string.Empty));
+            return DnnApiResults.Response(HttpStatusCode.NotImplemented, new ResponseModel(true, msg, data?.ToString() ?? string.Empty));
         }
     }
 }

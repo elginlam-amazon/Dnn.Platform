@@ -272,17 +272,36 @@ namespace DotNetNuke.Application
             return Config.GetSetting("InstallVersion") != null;
         }
 
-        /// <summary>Get the current domain directory.</summary>
-        /// <returns>returns the domain directory.</returns>
+        /// <summary>Get the application's content-root directory.</summary>
+        /// <returns>The physical path of the application content root, without a trailing separator.</returns>
+        /// <remarks>
+        /// The WebForms implementation read <c>AppDomain.CurrentDomain.BaseDirectory</c> and
+        /// normalized every <c>/</c> to <c>\</c>, which was harmless on Windows/IIS (where the
+        /// bin directory's parent WAS the application root and <c>\</c> is the separator) but is
+        /// doubly wrong on modern .NET: the base directory is the build output folder rather than
+        /// the content root, and rewriting <c>/</c> to <c>\</c> turns an absolute POSIX path such
+        /// as <c>/srv/dnn</c> into the relative name <c>\srv\dnn</c>. Every consumer of
+        /// <c>ApplicationMapPath</c> — the <c>Config/*.config</c> files, <c>SiteUrls.config</c>,
+        /// the <c>Install/Config</c> upgrade merge scripts, the portal file system — then resolved
+        /// against a directory that does not exist. Use the registered
+        /// <see cref="Microsoft.Extensions.Hosting.IHostEnvironment.ContentRootPath"/> and let
+        /// <see cref="Path"/> own the separator.
+        /// </remarks>
         private static string GetCurrentDomainDirectory()
         {
-            var dir = AppDomain.CurrentDomain.BaseDirectory.Replace("/", @"\");
-            if (dir.Length > 3 && dir.EndsWith(@"\", StringComparison.Ordinal))
+            string dir;
+            try
             {
-                dir = dir.Substring(0, dir.Length - 1);
+                dir = HttpContextSource.ApplicationPhysicalPath;
+            }
+            catch (InvalidOperationException)
+            {
+                // No IWebHostEnvironment registered yet (unit tests, or a caller that runs before
+                // AddDnnPlatform). The build output directory is the best available answer.
+                dir = AppContext.BaseDirectory;
             }
 
-            return dir;
+            return dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
 
         /// <summary>Check whether the modules directory exists.</summary>

@@ -1,0 +1,49 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* The dnn:COPYRIGHT skin object (was copyright.ascx + Copyright.ascx.cs).
+   Renders the <asp:Label id="lblCopyright" cssclass="SkinObject"> of the original markup. The
+   portal footer text is authored by the portal administrator and was emitted raw by the label
+   (it routinely contains &copy; entities and links), so it stays raw. The fallback caption keeps
+   Localization.GetString: it is customised per portal/host through the Language Editor, which an
+   IStringLocalizer lookup would silently drop. *@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+@using System
+@using System.Globalization
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+
+@if (this.Visible)
+{
+    <span class="@this.CopyrightCssClass">@((MarkupString)(this.text ?? string.Empty))</span>
+}
+
+@code {
+    private const string MyFileName = "Copyright.ascx";
+
+    private string text;
+
+    /// <summary>Gets the CSS class of the text, which defaults to the markup's "SkinObject".</summary>
+    private string CopyrightCssClass => string.IsNullOrEmpty(this.CssClass) ? "SkinObject" : this.CssClass;
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (!string.IsNullOrEmpty(this.PortalSettings.FooterText))
+        {
+            this.text = this.PortalSettings.FooterText.Replace("[year]", DateTime.Now.ToString("yyyy", CultureInfo.CurrentCulture));
+        }
+        else
+        {
+            this.text = string.Format(
+                CultureInfo.CurrentCulture,
+                Localization.GetString("Copyright", Localization.GetResourceFile(this, MyFileName)),
+                DateTime.Now.Year,
+                this.PortalSettings.PortalName);
+        }
+    }
+}

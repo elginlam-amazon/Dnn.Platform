@@ -1,0 +1,175 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Containers
+@inherits DotNetNuke.UI.Containers.ActionBase
+
+@using System
+@using System.Collections.Generic
+@using System.Threading.Tasks
+@using DotNetNuke.Common
+@using DotNetNuke.Entities.Modules.Actions
+@using DotNetNuke.Security
+@using DotNetNuke.Services.Exceptions
+@using Microsoft.AspNetCore.Components.Forms
+
+@*
+    Replaces linkactions.ascx + LinkActions.ascx.cs + LinkActions.ascx.designer.cs.
+
+    The WebForms control had no markup: OnLoad built LiteralControl separators and one LinkButton per
+    permitted action into this.Controls. Those become the @foreach below, and the LinkButtons become
+    the named submit buttons of a static server-side form - which is what a WebForms postback was.
+    The form is static SSR on purpose: the module actions mutate server state (delete, move, clear
+    cache) and need HttpContext, and a skin object cannot opt into @@rendermode InteractiveServer
+    because its ModuleControl is assigned by the skinning engine rather than passed as a serializable
+    parameter.
+
+    *** SECURITY - THE PERMISSION FILTER IS PRESERVED VERBATIM ***
+    Old LinkActions.ascx.cs:53-91 -> ShouldDisplay below. All four conditions are unchanged and in
+    the same order:
+      1. this.ActionRoot.Visible gates the whole list,
+      2. action.Title == "~" (a separator) is skipped - "not supported in this Action object",
+      3. action.Visible must be true,
+      4. (ModuleContext.EditMode && Globals.IsAdminControl() == false)
+         || (action.Secure != SecurityAccessLevel.Anonymous && action.Secure != SecurityAccessLevel.View).
+    Nothing is widened and no action is added: the list the user may act on is exactly the list the
+    WebForms control rendered, and ProcessAction (ActionBase) re-resolves the posted id against
+    ModuleContext.Actions, so an id that is not in this module's action collection is ignored.
+*@
+
+@if (this.Visible)
+{
+    <form method="post" @formname="@this.FormName" @onsubmit="this.HandleSubmitAsync">
+        <AntiforgeryToken />
+
+        @* Was the preSpacer LiteralControl added before the first action. *@
+        @((MarkupString)(this.renderedItemSeparator ?? string.Empty))
+
+        @foreach (var action in this.DisplayedActions)
+        {
+            <button type="submit"
+                    name="@ActionField"
+                    value="@action.ID"
+                    id="@("lnk" + action.ID)"
+                    class="CommandButton">@action.Title</button>
+
+            @* Was the spacer LiteralControl added after each action. *@
+            @((MarkupString)(this.renderedItemSeparator ?? string.Empty))
+        }
+    </form>
+}
+
+@code {
+    /// <summary>Initializes a new instance of the <see cref="LinkActions"/> class.</summary>
+    /// <remarks>
+    /// The generated component would otherwise call the parameterless
+    /// <c>ActionBase()</c>, which is deprecated in favour of the <c>IEventLogger</c>
+    /// overload. That overload resolves the logger from the current service provider when
+    /// it is given <see langword="null"/>, which is exactly what the deprecated constructor
+    /// did, so the resulting EventLogger is the same instance it always was.
+    /// </remarks>
+    public LinkActions()
+        : base((DotNetNuke.Abstractions.Logging.IEventLogger)null)
+    {
+    }
+
+    /// <summary>The name of the form field carrying the clicked action's id.</summary>
+    /// <remarks>Replaces the WebForms <c>__EVENTTARGET</c> of the clicked LinkButton, whose id was
+    /// <c>"lnk" + action.ID</c> and from which the handler took <c>.Substring(3)</c>.</remarks>
+    private const string ActionField = "__dnnLinkAction";
+
+    private string renderedItemSeparator = string.Empty;
+
+    private List<ModuleAction> displayedActions = new List<ModuleAction>();
+
+    /// <summary>Gets or sets the markup rendered between two action links.</summary>
+    [Parameter]
+    public string ItemSeparator { get; set; } = string.Empty;
+
+    /// <summary>Gets the actions that passed the permission filter.</summary>
+    private IReadOnlyList<ModuleAction> DisplayedActions => this.displayedActions;
+
+    /// <summary>Gets the form name, which must be unique per rendered form on the page.</summary>
+    private string FormName => "linkActions" + this.ModuleContext.ModuleId;
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        try
+        {
+            this.displayedActions = new List<ModuleAction>();
+            var rootVisible = this.ActionRoot.Visible;
+
+            if (rootVisible)
+            {
+                // Is Root Menu visible?
+                // The WebForms control cleared and rebuilt this.Controls here; the list below is
+                // that rebuilt collection.
+                // The separator LiteralControls captured the value of ItemSeparator at this point
+                // in the lifecycle, so it is captured here too (the OnPreRender default below ran
+                // after they were created and therefore never changed what they emitted).
+                this.renderedItemSeparator = this.ItemSeparator;
+
+                // Add Menu Items
+                foreach (ModuleAction action in this.ActionRoot.Actions)
+                {
+                    if (action.Title == "~")
+                    {
+                        // not supported in this Action object
+                    }
+                    else
+                    {
+                        if (action.Visible)
+                        {
+                            if ((this.ModuleControl.ModuleContext.EditMode && Globals.IsAdminControl() == false) ||
+                                (action.Secure != SecurityAccessLevel.Anonymous && action.Secure != SecurityAccessLevel.View))
+                            {
+                                this.displayedActions.Add(action);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Need to determine if this action list actually has any items.
+            // The WebForms test was this.Controls.Count > 0; the pre-spacer was added
+            // unconditionally whenever the action root was visible, so that is the same test.
+            this.Visible = rootVisible;
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+        if (string.IsNullOrEmpty(this.ItemSeparator))
+        {
+            this.ItemSeparator = "&nbsp;&nbsp;";
+        }
+    }
+
+    /// <summary>Processes the posted action, replacing the LinkButton's Click handler.</summary>
+    private Task HandleSubmitAsync()
+    {
+        try
+        {
+            var posted = this.Request?.Form[ActionField].ToString();
+            if (!string.IsNullOrEmpty(posted))
+            {
+                this.ProcessAction(posted);
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+
+        return Task.CompletedTask;
+    }
+}

@@ -44,9 +44,25 @@ namespace DotNetNuke.Services.Authentication
             // The legacy handler redirected to the LogOff control, which performed the
             // FormsAuthentication sign-out. Signing out here keeps the cookie removal on the
             // logoff URL itself (and is idempotent with respect to the LogOff page).
-            await PortalSecurity.Instance.SignOutAsync();
+            await PerformSignOutAsync();
 
             context.Response.Redirect(TestableGlobals.Instance.NavigateURL("LogOff"));
+        }
+
+        /// <summary>
+        /// The single sign-out implementation of the platform.
+        /// </summary>
+        /// <returns>A task that completes once the authentication cookie has been expired.</returns>
+        /// <remarks>
+        /// Both entry points into the logoff flow call this and nothing else: this endpoint (the
+        /// preserved <c>Logoff.aspx</c> URL) and the <c>Logoff</c> module control, which is the page
+        /// this endpoint redirects to and which the per-provider logoff controls raise their
+        /// <c>LogOff</c> event on. Keeping it in one method is what makes the flow single-pathed —
+        /// there is exactly one place that invalidates the DNN auth cookie.
+        /// </remarks>
+        public static Task PerformSignOutAsync()
+        {
+            return PortalSecurity.Instance.SignOutAsync();
         }
     }
 }

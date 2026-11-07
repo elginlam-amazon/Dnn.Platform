@@ -7,8 +7,6 @@ namespace Dnn.PersonaBar.Servers.Services
     using System.Globalization;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -23,8 +21,11 @@ namespace Dnn.PersonaBar.Servers.Services
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Client;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Host)]
     public class ServerSettingsPerformanceController : PersonaBarApiController
@@ -60,7 +61,7 @@ namespace Dnn.PersonaBar.Servers.Services
         /// <summary>Gets performance settings.</summary>
         /// <returns>performance settings.</returns>
         [HttpGet]
-        public HttpResponseMessage GetPerformanceSettings()
+        public IActionResult GetPerformanceSettings()
         {
             try
             {
@@ -91,12 +92,12 @@ namespace Dnn.PersonaBar.Servers.Services
                     AuthCacheabilityOptions = this.performanceController.GetCacheabilityOptions(),
                     UnauthCacheabilityOptions = this.performanceController.GetCacheabilityOptions(),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, perfSettings);
+                return this.Ok(perfSettings);
             }
             catch (Exception exc)
             {
                 Logger.ServerSettingsPerformanceControllerGetPerformanceSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -105,19 +106,19 @@ namespace Dnn.PersonaBar.Servers.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage IncrementPortalVersion()
+        public IActionResult IncrementPortalVersion()
         {
             try
             {
                 var portalId = PortalSettings.Current.PortalId;
                 PortalController.IncrementCrmVersion(this.portalController, portalId);
                 DataCache.ClearCache();
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, NewValue = this.GetPortalVersion(portalId), });
+                return this.Ok(new { Success = true, NewValue = this.GetPortalVersion(portalId), });
             }
             catch (Exception exc)
             {
                 Logger.ServerSettingsPerformanceControllerIncrementPortalVersionException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -126,19 +127,19 @@ namespace Dnn.PersonaBar.Servers.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage IncrementHostVersion()
+        public IActionResult IncrementHostVersion()
         {
             try
             {
                 var portalId = PortalSettings.Current.PortalId;
                 this.hostSettingsService.IncrementCrmVersion(false);
                 DataCache.ClearCache();
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, NewValue = this.hostSettings.CrmVersion, });
+                return this.Ok(new { Success = true, NewValue = this.hostSettings.CrmVersion, });
             }
             catch (Exception exc)
             {
                 Logger.ServerSettingsPerformanceControllerIncrementHostVersionException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -148,7 +149,7 @@ namespace Dnn.PersonaBar.Servers.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdatePerformanceSettings(UpdatePerfSettingsRequest request)
+        public IActionResult UpdatePerformanceSettings(UpdatePerfSettingsRequest request)
         {
             try
             {
@@ -178,12 +179,12 @@ namespace Dnn.PersonaBar.Servers.Services
 
                 DataCache.ClearCache();
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.ServerSettingsPerformanceControllerUpdatePerformanceSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 

@@ -7,9 +7,6 @@ namespace Dnn.PersonaBar.Connectors.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
-    using System.Web.Script.Serialization;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -21,7 +18,10 @@ namespace Dnn.PersonaBar.Connectors.Services
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = "Dnn.Connectors")]
     public class ConnectorsController : PersonaBarApiController
@@ -37,7 +37,7 @@ namespace Dnn.PersonaBar.Connectors.Services
         }
 
         [HttpGet]
-        public HttpResponseMessage GetConnections()
+        public IActionResult GetConnections()
         {
             var connections = this.GetConnections(this.PortalId);
             connections.ForEach(x =>
@@ -62,20 +62,17 @@ namespace Dnn.PersonaBar.Connectors.Services
                 })
                 .OrderBy(connection => connection.name)
                 .ToList();
-            return this.Request.CreateResponse(HttpStatusCode.OK, connectionsResponse);
+            return this.Ok(connectionsResponse);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage SaveConnection(object postData)
+        public IActionResult SaveConnection(object postData)
         {
             try
             {
                 var jsonData = DotNetNuke.Common.Utilities.Json.Serialize(postData);
-                var serializer = new JavaScriptSerializer();
-                serializer.RegisterConverters([new DynamicJsonConverter(),]);
-
-                dynamic postObject = serializer.Deserialize<object>(jsonData);
+                dynamic postObject = DynamicJsonConverter.Deserialize(jsonData);
 
                 var name = postObject.name;
                 var displayName = postObject.displayName;
@@ -117,7 +114,7 @@ namespace Dnn.PersonaBar.Connectors.Services
 
                     if (!saved)
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.OK, new
+                        return this.Ok(new
                         {
                             Success = false,
                             Validated = validated,
@@ -128,8 +125,7 @@ namespace Dnn.PersonaBar.Connectors.Services
                     }
                 }
 
-                return this.Request.CreateResponse(
-                    HttpStatusCode.OK,
+                return this.Ok(
                     new
                     {
                         Success = true,
@@ -148,7 +144,7 @@ namespace Dnn.PersonaBar.Connectors.Services
                     Logger.ConnectorsControllerSaveConnectionGeneralException(ex);
                 }
 
-                return this.Request.CreateResponse(
+                return DnnApiResults.Response(
                     HttpStatusCode.InternalServerError,
                     new { Success = false, Message = ex.Message });
             }
@@ -159,14 +155,12 @@ namespace Dnn.PersonaBar.Connectors.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage DeleteConnection(object postData)
+        public IActionResult DeleteConnection(object postData)
         {
             try
             {
                 var jsonData = DotNetNuke.Common.Utilities.Json.Serialize(postData);
-                var serializer = new JavaScriptSerializer();
-                serializer.RegisterConverters([new DynamicJsonConverter(),]);
-                dynamic postObject = serializer.Deserialize<object>(jsonData);
+                dynamic postObject = DynamicJsonConverter.Deserialize(jsonData);
 
                 var name = postObject.name;
                 var id = postObject.id;
@@ -183,16 +177,14 @@ namespace Dnn.PersonaBar.Connectors.Services
                 if (connector != null)
                 {
                     connector.DeleteConnector(this.PortalId);
-                    return this.Request.CreateResponse(
-                        HttpStatusCode.OK,
+                    return this.Ok(
                         new
                         {
                             Success = true,
                         });
                 }
 
-                return this.Request.CreateResponse(
-                    HttpStatusCode.OK,
+                return this.Ok(
                     new
                     {
                         Success = true,
@@ -203,14 +195,14 @@ namespace Dnn.PersonaBar.Connectors.Services
             catch (Exception ex)
             {
                 Logger.ConnectorsControllerDeleteConnectionException(ex);
-                return this.Request.CreateResponse(
+                return DnnApiResults.Response(
                     HttpStatusCode.InternalServerError,
                     new { Success = false, Message = ex.Message });
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetConnectionLocalizedString(string name, string culture)
+        public IActionResult GetConnectionLocalizedString(string name, string culture)
         {
             var connections = this.GetConnections(this.PortalId);
             connections.ForEach(x =>
@@ -222,7 +214,7 @@ namespace Dnn.PersonaBar.Connectors.Services
             var connection = connections.FirstOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
             if (connection == null)
             {
-                return this.Request.CreateResponse(HttpStatusCode.NotFound);
+                return DnnApiResults.Response(HttpStatusCode.NotFound);
             }
 
             var resourceFile = $"{connection.PluginFolder}/App_LocalResources/SharedResources.resx";
@@ -237,7 +229,7 @@ namespace Dnn.PersonaBar.Connectors.Services
                 localizedStrings = new Dictionary<string, string>();
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, localizedStrings);
+            return this.Ok(localizedStrings);
         }
 
         private static Dictionary<string, string> GetConfigAsDictionary(dynamic configurations)

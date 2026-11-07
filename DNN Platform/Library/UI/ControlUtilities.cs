@@ -6,6 +6,7 @@ namespace DotNetNuke.UI
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Reflection;
 
     using DotNetNuke.UI.Utilities;
 
@@ -149,10 +150,57 @@ namespace DotNetNuke.UI
             return typedControl;
         }
 
+        /// <summary>
+        /// Keeps only those entries of <paramref name="candidates"/> that the component type
+        /// <paramref name="componentType"/> actually declares as a Blazor parameter.
+        /// </summary>
+        /// <param name="componentType">The component type that will be rendered.</param>
+        /// <param name="candidates">The values the host would like to supply.</param>
+        /// <returns>A dictionary safe to hand to <c>DynamicComponent.Parameters</c>.</returns>
+        /// <remarks>
+        /// A host that renders a <i>dynamically resolved</i> control (a theme's skin object, an
+        /// authentication provider's login/settings control, a package editor) does not know the
+        /// concrete type at compile time, and supplying a name the type does not declare throws at
+        /// render time. Under WebForms the host assigned whatever properties the control happened
+        /// to have, so filtering here preserves that tolerance while keeping every value that the
+        /// control does understand.
+        /// </remarks>
+        public static IDictionary<string, object> FilterDeclaredParameters(Type componentType, IDictionary<string, object> candidates)
+        {
+            var filtered = new Dictionary<string, object>(StringComparer.Ordinal);
+            if (componentType == null || candidates == null)
+            {
+                return filtered;
+            }
+
+            var declared = componentType
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(property => property.CanWrite
+                                   && (property.IsDefined(typeof(ParameterAttribute), true)
+                                       || property.IsDefined(typeof(CascadingParameterAttribute), true)))
+                .Select(property => property.Name)
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (var candidate in candidates)
+            {
+                if (declared.Contains(candidate.Key))
+                {
+                    filtered[candidate.Key] = candidate.Value;
+                }
+            }
+
+            return filtered;
+        }
+
         /// <summary>Resolves the component type that implements the given control source.</summary>
         /// <param name="controlSrc">The control source (a markup path or a type name).</param>
         /// <returns>The component type.</returns>
-        internal static Type ResolveControlType(string controlSrc)
+        /// <remarks>
+        /// Public because a Blazor host that renders a dynamically resolved control needs the
+        /// <i>type</i> (to render it with <c>DynamicComponent</c>/<c>OpenComponent</c>) rather than
+        /// an instance: the renderer creates the instance, so one created here would be discarded.
+        /// </remarks>
+        public static Type ResolveControlType(string controlSrc)
         {
             var isMarkupPath = controlSrc.EndsWith(".ascx", StringComparison.OrdinalIgnoreCase)
                                || controlSrc.EndsWith(".razor", StringComparison.OrdinalIgnoreCase)

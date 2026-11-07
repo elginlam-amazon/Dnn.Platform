@@ -37,8 +37,8 @@ namespace DotNetNuke.UI.WebControls
             var context = HttpContextSource.Current;
             if (context != null)
             {
-                ClientResourceManager.RegisterScript(context, "~/Resources/Shared/components/ProfileAutoComplete/dnn.ProfileAutoComplete.js");
-                ClientResourceManager.RegisterFeatureStylesheet(context, "~/Resources/Shared/components/ProfileAutoComplete/dnn.AutoComplete.css");
+                ClientResourceManager.RegisterScript(context, "~/resources/Shared/components/ProfileAutoComplete/dnn.ProfileAutoComplete.js");
+                ClientResourceManager.RegisterFeatureStylesheet(context, "~/resources/Shared/components/ProfileAutoComplete/dnn.AutoComplete.css");
             }
 
             JavaScript.RequestRegistration(CommonJs.jQuery);

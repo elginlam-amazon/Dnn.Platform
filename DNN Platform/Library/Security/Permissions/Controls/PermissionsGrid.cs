@@ -639,10 +639,10 @@ namespace DotNetNuke.Security.Permissions.Controls
 
             var context = HttpContextSource.Current;
 
-            ClientResourceManager.RegisterScript(context, "~/Resources/Shared/Components/Tokeninput/jquery.tokeninput.js");
+            ClientResourceManager.RegisterScript(context, "~/resources/Shared/Components/Tokeninput/jquery.tokeninput.js");
             ClientResourceManager.RegisterScript(context, "~/js/dnn.permissiongrid.js");
 
-            ClientResourceManager.RegisterStyleSheet(context, "~/Resources/Shared/Components/Tokeninput/Themes/token-input-facebook.css", FileOrder.Css.ResourceCss);
+            ClientResourceManager.RegisterStyleSheet(context, "~/resources/Shared/Components/Tokeninput/Themes/token-input-facebook.css", FileOrder.Css.ResourceCss);
 
             var script = "var pgm = new dnn.permissionGridManager('" + this.ClientID + "');";
             var page = ClientApiPageAccessor.GetPage(context, nameof(PermissionsGrid));

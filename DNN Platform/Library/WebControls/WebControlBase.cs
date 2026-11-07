@@ -36,7 +36,7 @@ namespace DotNetNuke.UI.WebControls
 
         /// <summary>Gets a url to the web control resources folder.</summary>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
-        public string ResourcesFolderUrl => Globals.ResolveUrl("~/Resources/");
+        public string ResourcesFolderUrl => Globals.ResolveUrl("~/resources/");
 
         /// <summary>Gets a value indicating whether the control is currently in a page visible only to hosts.</summary>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]

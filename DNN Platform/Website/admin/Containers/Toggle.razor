@@ -1,0 +1,102 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Containers.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using DotNetNuke.Common
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using DotNetNuke.UI
+@using DotNetNuke.UI.Utilities
+
+@inject IJavaScriptLibraryHelper JavaScriptLibraries
+
+@*
+    Replaces Toggle.ascx + Toggle.ascx.cs + Toggle.ascx.designer.cs.
+
+    The WebForms control had no markup of its own: [ParseChildren(false)] / [PersistChildren(true)]
+    meant its declared children were kept as controls and emitted by RenderChildren from the
+    Render(HtmlTextWriter) override. That override wrote <h2 id=... class=...><a href="#"
+    class="toggleHandler"> ... </a></h2>, which is the markup below, and RenderChildren becomes
+    @ChildContent.
+
+    NOTE on persistence: this control does NOT persist any state. The WebForms version only
+    registered the jQuery slideToggle handler below; the open/closed state lived in the DOM for the
+    lifetime of the page. There is therefore no personalization/cookie key to preserve here (unlike
+    Visibility.razor, which goes through DNNClientAPI's "_Module{id}_Visible" cookie).
+
+    The toggle script keeps the WebForms shape verbatim (including the <script> tags, which is why
+    it is registered with addScriptTags: false). It is registered through IClientApiPage - a .razor
+    file may not contain a <script> element.
+*@
+
+@if (this.Visible)
+{
+    <h2 id="@this.ClientId" class="@this.Class">
+        <a href="#" class="toggleHandler">@this.ChildContent</a>
+    </h2>
+}
+
+@code {
+
+    /// <summary>Gets or sets the CSS class of the <c>h2</c> element.</summary>
+    [Parameter]
+    public string Class { get; set; }
+
+    /// <summary>Gets or sets the identifier of the sibling control that is toggled.</summary>
+    /// <remarks>
+    /// The getter is unchanged: it resolves the identifier against the parent's control tree and
+    /// returns the resolved client identifier (an empty string when it cannot be resolved), which
+    /// is what the toggle script needs. <c>Control.ClientID</c> is <c>IClientApiControl.ClientId</c>.
+    /// </remarks>
+    [Parameter]
+    public string Target { get; set; }
+
+    /// <summary>Gets the resolved client identifier of the toggled sibling control.</summary>
+    /// <remarks>
+    /// This is the Web Forms getter, unchanged: it resolves the identifier against the parent's
+    /// control tree and returns an empty string when it cannot be resolved, which is what the
+    /// toggle script needs. It lives in its own member because the <see cref="Target"/> parameter
+    /// has to be an auto property (Blazor assigns parameters directly).
+    /// </remarks>
+    private string ResolvedTarget
+    {
+        get
+        {
+            if (this.Parent == null || string.IsNullOrEmpty(this.Target))
+            {
+                return string.Empty;
+            }
+
+            var targetControl = this.Parent.FindControl(this.Target);
+            if (targetControl == null)
+            {
+                return string.Empty;
+            }
+            else
+            {
+                return targetControl.ClientId;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+
+        this.JavaScriptLibraries.RequestRegistration(CommonJs.jQuery);
+        this.JavaScriptLibraries.RequestRegistration(CommonJs.jQueryMigrate);
+
+        var toggleScript = string.Format(
+            "<script type=\"text/javascript\">(function($){{$(\"#{0}\").find(\"a.toggleHandler\").click(function(e){{$(\"#{1}\").slideToggle();$(this).toggleClass('collapsed');e.preventDefault();}});}})(jQuery);</script>",
+            this.ClientId,
+            this.ResolvedTarget);
+
+        // Was Page.ClientScript.RegisterStartupScript(this.GetType(), this.ClientID, toggleScript).
+        // The script already carries its own <script> tags, hence addScriptTags: false.
+        this.Page?.RegisterStartupScript(this.GetType(), this.ClientId, toggleScript, false);
+    }
+}

@@ -1,0 +1,43 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Users
+@inherits DotNetNuke.Entities.Modules.ModuleSettingsBase
+
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using DotNetNuke.UI.UserControls
+
+@*
+    Replaces Settings.ascx (the ViewProfile module's settings), element for element.
+
+    - the two <dnn:label>s become <LabelControl>s with the same ControlName/ResourceKey, pointed at
+      this control's resource file, so IncludeButton.Text/.Help and plTemplate.Text/.Help resolve
+      from the same .resx.
+    - <asp:Checkbox ID="IncludeButton" Checked="True"> is the checkbox below, whose state starts
+      true exactly as the markup declared.
+    - <asp:TextBox ID="txtTemplate" TextMode="MultiLine" Rows="25" Columns="60" Width="300px"> is
+      the textarea below, with the same rows/cols/width.
+    - <asp:LinkButton ID="cmdLoadDefault" resourcekey="LoadDefault"> is the button below. Its
+      ClientAPI.AddButtonConfirm confirmation and its ToolTip (LoadDefault.Confirm /
+      LoadDefault.Help) are preserved: the confirmation is issued by the click handler through JS
+      interop (a Blazor element cannot carry an inline onclick that gates a component handler, so
+      this is how the platform's own migrated controls ask the same question), and the tooltip is
+      the title attribute.
+*@
+
+<div class="dnnForm dnnViewProfileSettings dnnClear">
+	<div class="dnnFormItem">
+		<LabelControl ID="lblIncludeButton" ControlName="IncludeButton" ResourceKey="IncludeButton" LocalResourceFile="@this.LocalResourceFile" />
+		<input type="checkbox" id="IncludeButton" name="IncludeButton" checked="@this.IncludeButtonChecked"
+		       @onchange="@((ChangeEventArgs args) => this.IncludeButtonChecked = Convert.ToBoolean(args.Value))" />
+	</div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plTemplate" ControlName="txtTemplate" LocalResourceFile="@this.LocalResourceFile" />
+        <textarea id="txtTemplate" name="txtTemplate" cols="60" rows="25" style="width:300px"
+                  @onchange="@((ChangeEventArgs args) => this.TemplateText = args.Value?.ToString())">@this.TemplateText</textarea>
+        <button type="button" id="cmdLoadDefault" class="dnnSecondaryAction" title="@this.LoadDefaultToolTip"
+                @onclick="this.LoadDefaultClickAsync">@DotNetNuke.Services.Localization.Localization.GetString("LoadDefault", this.LocalResourceFile)</button>
+    </div>
+</div>

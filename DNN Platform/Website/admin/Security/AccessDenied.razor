@@ -1,0 +1,78 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Security
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using System.IO
+@using System.Net
+@using Microsoft.AspNetCore.Components
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Data
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Skins.Controls
+
+@*
+    Replaces accessdenied.ascx + AccessDenied.ascx.cs + AccessDenied.ascx.designer.cs.
+
+    THIS IS THE SOLUTION-WIDE 403 SURFACE. It is reached through
+    Globals.AccessDeniedURL() / AccessDeniedURL(message), which build
+    NavigateURL(currentTabId, "Access Denied") - i.e. the ctl key is the ModuleControls ControlKey
+    "Access Denied" (with the space), and the stored ControlSrc is `Admin/Security/AccessDenied.ascx`
+    (ModuleControlID 44 / ModuleDefID 52 in the installation scripts).
+    NavigationManager.NavigateURL(string) also special-cases the literal "Access Denied" and routes
+    it back through Globals.AccessDeniedURL(). NEITHER the ctl key NOR the stored ControlSrc is
+    changed by this conversion: the .razor is bound to the unchanged `Admin/Security/AccessDenied.ascx`
+    source by admin/CoreAdminControlRegistrations.cs, so every AccessDenied redirect in the solution
+    (Skin.HandleAccessDenied, Skin's tab/module permission checks, FileServerHandler, and the
+    redirects the other migrated controls kept) still lands here.
+
+    The .ascx carried NO markup at all: the whole output is the module message the code-behind adds
+    through UI.Skins.Skin.AddModuleMessage, which renders into the skin's module-message
+    placeholder. That is reproduced exactly, so the component itself renders nothing.
+
+    The `message` query-string parameter is a GUID handle into the RedirectMessage table, NOT the
+    message itself - a caller cannot inject display text through the URL. Both halves of the
+    original guard are kept verbatim and in the same order:
+    `!string.IsNullOrEmpty(guidText) && Guid.TryParse(guidText, out messageGuid)`. Only when the
+    value parses as a GUID is the stored message looked up, and the looked-up text is still
+    HTML-encoded (System.Net.WebUtility.HtmlEncode replaces System.Web.HttpUtility.HtmlEncode).
+    The fallback remains the localized "AccessDenied" string, and the message type remains
+    YellowWarning.
+
+    The query string is read in OnLoad, which UserControlBase raises from OnParametersSet while the
+    request is still being rendered server-side; the result is kept in a field, because
+    HttpContext (and therefore the query string) is gone once the circuit is interactive.
+*@
+
+@code {
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // `Control.ID` is what pointed LocalResourceFile at App_LocalResources/AccessDenied.ascx;
+        // there is no Control.ID any more, so the destination is set directly.
+        this.LocalResourceFile = Path.Combine(this.ControlPath, Localization.LocalResourceDirectory + "/AccessDenied.ascx");
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        string message = null;
+        Guid messageGuid;
+        var guidText = this.Request?.GetQueryString()["message"];
+        if (!string.IsNullOrEmpty(guidText) && Guid.TryParse(guidText, out messageGuid))
+        {
+            message = WebUtility.HtmlEncode(DataProvider.Instance().GetRedirectMessage(messageGuid));
+        }
+
+        DotNetNuke.UI.Skins.Skin.AddModuleMessage(
+            this,
+            !string.IsNullOrEmpty(message) ? message : Localization.GetString("AccessDenied", this.LocalResourceFile),
+            ModuleMessage.ModuleMessageType.YellowWarning);
+    }
+}

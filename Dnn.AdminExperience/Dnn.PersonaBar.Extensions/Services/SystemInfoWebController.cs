@@ -6,14 +6,14 @@ namespace Dnn.PersonaBar.Servers.Services
 {
     using System;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Servers.Components.WebServer;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     [MenuPermission(Scope = ServiceScope.Host)]
@@ -22,12 +22,12 @@ namespace Dnn.PersonaBar.Servers.Services
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<SystemInfoWebController>();
 
         [HttpGet]
-        public HttpResponseMessage GetWebServerInfo()
+        public IActionResult GetWebServerInfo()
         {
             try
             {
                 var serverInfo = new ServerInfo();
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     osVersion = serverInfo.OSVersion,
                     iisVersion = serverInfo.IISVersion,
@@ -44,7 +44,7 @@ namespace Dnn.PersonaBar.Servers.Services
             catch (Exception exc)
             {
                 Logger.SystemInfoWebControllerGetWebServerInfoException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
     }

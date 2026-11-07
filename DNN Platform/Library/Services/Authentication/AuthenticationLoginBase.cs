@@ -78,13 +78,37 @@ namespace DotNetNuke.Services.Authentication
         }
 
         /// <summary>Gets or sets the Type of Authentication associated with this control.</summary>
+        /// <remarks>
+        /// A Blazor <see cref="Microsoft.AspNetCore.Components.ParameterAttribute"/> for the same
+        /// reason as <c>PortalModuleBase.ModuleConfiguration</c>: the login host resolves the
+        /// provider's component type and renders it by type, so a value assigned on an instance the
+        /// host created would not reach the instance the renderer creates.
+        /// </remarks>
+        [Microsoft.AspNetCore.Components.Parameter]
         public string AuthenticationType { get; set; }
+
+        /// <summary>
+        /// Gets or sets the callback raised when this control has authenticated (or failed to
+        /// authenticate) the user.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The parameter form of <see cref="UserAuthenticated"/>. The event is a CLR event on the
+        /// control <i>instance</i>, which the Blazor renderer does not carry over when it renders a
+        /// dynamically resolved provider component by type (and which cannot be subscribed before
+        /// the component's own lifecycle runs during a static server render). The host therefore
+        /// subscribes through this parameter, and <see cref="OnUserAuthenticated"/> raises both.
+        /// </para>
+        /// </remarks>
+        [Microsoft.AspNetCore.Components.Parameter]
+        public Microsoft.AspNetCore.Components.EventCallback<UserAuthenticatedEventArgs> UserAuthenticatedCallback { get; set; }
 
         /// <summary>Gets or sets the Authentication mode of the control (Login or Register).</summary>
         /// <remarks>This property may be overriden in the inherited class.</remarks>
         public virtual AuthMode Mode { get; set; }
 
         /// <summary>Gets or sets the Redirect Url for this control.</summary>
+        [Microsoft.AspNetCore.Components.Parameter]
         public string RedirectURL { get; set; }
 
         /// <inheritdoc cref="IUserRequestIPAddressController.GetUserRequestIPAddress(Microsoft.AspNetCore.Http.HttpRequest)"/>
@@ -108,6 +132,13 @@ namespace DotNetNuke.Services.Authentication
             if (this.UserAuthenticated != null)
             {
                 this.UserAuthenticated(null, ea);
+            }
+
+            if (this.UserAuthenticatedCallback.HasDelegate)
+            {
+                // Synchronous: the host's handler signs the user in, which has to happen while the
+                // HTTP request that carried the credentials is still in flight.
+                this.UserAuthenticatedCallback.InvokeAsync(ea).GetAwaiter().GetResult();
             }
         }
     }

@@ -44,7 +44,7 @@ namespace DotNetNuke.Services.EventQueue.Config
             var config = (EventQueueConfiguration)DataCache.GetCache("EventQueueConfig");
             if (config == null)
             {
-                string filePath = Globals.HostMapPath + "EventQueue\\EventQueue.config";
+                string filePath = Path.Combine(Globals.HostMapPath, "EventQueue", "EventQueue.config");
                 if (File.Exists(filePath))
                 {
                     config = new EventQueueConfiguration();

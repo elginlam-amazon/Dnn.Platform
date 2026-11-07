@@ -1,0 +1,218 @@
+@* Ported from DnnJsInclude.ascx / DnnJsInclude.ascx.cs / DnnJsInclude.ascx.designer.cs — the
+   dnn:DnnJsInclude skin object.
+
+   The .ascx wrapped <dnn:DnnJsInclude runat="server"> from DotNetNuke.Web.Client and the code-behind
+   was nothing but property forwarding to it. That control is a Tag Helper now
+   (DotNetNuke.Web.Client.ClientResourceManagement.DnnJsIncludeTagHelper) and @addTagHelper is
+   INVALID in a Razor component document (RZ9978 — tag helpers are an MVC/Razor-Pages feature), so
+   this component performs the registration the Tag Helper performs internally, by calling
+   IClientResourceController directly.
+
+   *** ORDERING CONTRACT *** the defaults of the Tag Helper's constructor are reproduced exactly,
+   because they ARE the ordering behaviour:
+     * Priority      = (int)DotNetNuke.Web.Client.FileOrder.Js.DefaultPriority            == 100
+     * ForceProvider = ClientResourceProviders.DefaultJsProvider    == "DnnBodyProvider"
+   and the registration sequence is the skin's markup order (one registration per instance, in
+   OnLoad), so resources sharing a priority keep their relative order. Every other property
+   (PathNameAlias, Name/Version/ForceVersion, CdnUrl, Integrity, CrossOrigin, FetchPriority,
+   ReferrerPolicy, Blocking, Async, Defer, NoModule, HtmlAttributes, HtmlAttributesAsString) is
+   applied through the same IResource fluent calls the Tag Helper uses, in the same order.
+
+   The CDF debug comment the Tag Helper writes (AddTag, or host debug mode) is emitted at this
+   control's position in the markup, which is where the inner WebForms control rendered it.
+*@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.ClientResources
+@using DotNetNuke.Common
+@using DotNetNuke.Web.Client
+@using DotNetNuke.Web.Client.Cdf
+@using DotNetNuke.Web.Client.ResourceManager
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+@using Globals = DotNetNuke.Common.Globals
+
+@inject IClientResourceController ClientResourceController
+
+@if (this.Visible && this.cdfComment.Length > 0)
+{
+    @((MarkupString)this.cdfComment)
+}
+
+@code {
+    private IHostSettings hostSettings;
+    private bool registered;
+    private string cdfComment = string.Empty;
+
+    /// <summary>Gets or sets the file path for the client resource to be included.</summary>
+    [Parameter]
+    public string FilePath { get; set; }
+
+    /// <summary>Gets or sets the path name alias for the client resource.</summary>
+    [Parameter]
+    public string PathNameAlias { get; set; }
+
+    /// <summary>Gets or sets the priority for the client resource. Resources with lower priority values are included before those with higher values.</summary>
+    [Parameter]
+    public int Priority { get; set; } = (int)DotNetNuke.Web.Client.FileOrder.Js.DefaultPriority;
+
+    /// <summary>Gets or sets a value indicating whether to add the HTML tag for this resource to the page output.</summary>
+    [Parameter]
+    public bool AddTag { get; set; }
+
+    /// <summary>Gets or sets the name of the script (e.g. <c>jQuery</c>, <c>Bootstrap</c>, <c>Angular</c>, etc.).</summary>
+    [Parameter]
+    public string Name { get; set; }
+
+    /// <summary>Gets or sets the version of this resource if it is a named resource.</summary>
+    [Parameter]
+    public string Version { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether to force this version to be used.</summary>
+    [Parameter]
+    public bool ForceVersion { get; set; }
+
+    /// <summary>Gets or sets the provider to force for this resource.</summary>
+    [Parameter]
+    public string ForceProvider { get; set; } = ClientResourceProviders.DefaultJsProvider;
+
+    /// <summary>Gets or sets a value indicating whether to force this resource to be bundled. No longer supported.</summary>
+    [Obsolete("Deprecated in DotNetNuke 10.2.0. Bundling is no longer supported, there is no replacement within DNN for this functionality. Scheduled removal in v12.0.0.")]
+    [Parameter]
+    public bool ForceBundle { get; set; }
+
+    /// <summary>Gets or sets the CDN URL of the resource.</summary>
+    [Parameter]
+    public string CdnUrl { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether to render the <c>blocking</c> attribute.</summary>
+    [Parameter]
+    public bool Blocking { get; set; }
+
+    /// <summary>Gets or sets the integrity hash of the resource.</summary>
+    [Parameter]
+    public string Integrity { get; set; }
+
+    /// <summary>Gets or sets the value of the <c>crossorigin</c> attribute.</summary>
+    [Parameter]
+    public CrossOrigin CrossOrigin { get; set; }
+
+    /// <summary>Gets or sets the value of the <c>fetchpriority</c> attribute.</summary>
+    [Parameter]
+    public FetchPriority FetchPriority { get; set; }
+
+    /// <summary>Gets or sets the value of the <c>referrerpolicy</c> attribute.</summary>
+    [Parameter]
+    public ReferrerPolicy ReferrerPolicy { get; set; }
+
+    /// <inheritdoc cref="IScriptResource.Async" />
+    [Parameter]
+    public bool Async { get; set; }
+
+    /// <inheritdoc cref="IScriptResource.Defer" />
+    [Parameter]
+    public bool Defer { get; set; }
+
+    /// <inheritdoc cref="IScriptResource.NoModule" />
+    [Parameter]
+    public bool NoModule { get; set; }
+
+    /// <summary>Gets the additional attributes rendered onto the resource's HTML tag.</summary>
+    [Parameter]
+    public IDictionary<string, string> HtmlAttributes { get; set; } = new Dictionary<string, string>();
+
+    /// <summary>Gets or sets the <see cref="HtmlAttributes"/> for this resource via a string which is parsed.</summary>
+    /// <remarks>The syntax for the string must be: <c>key1:value1,key2:value2</c> etc.</remarks>
+    [Parameter]
+    public string HtmlAttributesAsString { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.hostSettings ??= Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.registered)
+        {
+            return;
+        }
+
+        this.registered = true;
+
+        // Ported from DnnJsIncludeTagHelper.Process (itself the port of the control's OnLoad).
+        var script = this.ClientResourceController.CreateScript(this.FilePath, this.PathNameAlias);
+        if (this.Async)
+        {
+            script = script.SetAsync();
+        }
+
+        if (this.Defer)
+        {
+            script = script.SetDefer();
+        }
+
+        if (this.NoModule)
+        {
+            script = script.SetNoModule();
+        }
+
+        this.RegisterResource(script);
+
+        // Ported from the control's Render.
+        if (this.AddTag || (this.hostSettings is not null && this.hostSettings.DebugMode))
+        {
+            this.cdfComment = string.Format(
+                CultureInfo.InvariantCulture,
+                "<!--CDF(Javascript|{0}|{1}|{2})-->",
+                this.FilePath,
+                this.ForceProvider,
+                this.Priority);
+        }
+        else
+        {
+            this.cdfComment = string.Empty;
+        }
+    }
+
+    /// <summary>Sets the common properties on the resource and registers it.</summary>
+    /// <param name="resource">The resource to register.</param>
+    /// <remarks>Ported from ClientResourceIncludeTagHelper.RegisterResource; the call order is the ordering contract.</remarks>
+    private void RegisterResource(IResource resource)
+    {
+        resource = resource
+            .SetNameAndVersion(this.Name, this.Version, this.ForceVersion)
+            .SetProvider(this.ForceProvider)
+            .SetPriority(this.Priority)
+            .SetCdnUrl(this.CdnUrl)
+            .SetIntegrity(this.Integrity)
+            .SetCrossOrigin(this.CrossOrigin)
+            .SetFetchPriority(this.FetchPriority)
+            .SetReferrerPolicy(this.ReferrerPolicy);
+        if (this.Blocking)
+        {
+            resource = resource.SetBlocking();
+        }
+
+        var attributes = this.HtmlAttributes ?? new Dictionary<string, string>();
+        ClientResourceAttributeParser.ParseInto(this.HtmlAttributesAsString, attributes);
+
+        foreach (var attribute in attributes)
+        {
+            resource.AddAttribute(attribute.Key, attribute.Value);
+        }
+
+        resource.Register();
+    }
+}

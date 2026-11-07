@@ -1,0 +1,415 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Modules
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using System.IO
+@using System.Xml
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Modules
+@using DotNetNuke.Abstractions.Security.Permissions
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Framework
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.FileSystem
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.Web.UI.WebControls
+@using DotNetNuke.Web.UI.WebControls.Internal
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+
+@*
+    Replaces admin/Modules/import.ascx + Import.ascx.cs + Import.ascx.designer.cs, element for
+    element. Renamed to ModuleImport because admin/Tabs also ships an import.ascx.
+
+    Control mapping:
+      - dnn:Label plFolder/plFile -> <LabelControl> with the same ControlName/Suffix and resource keys.
+      - dnn:DnnFolderDropDownList cboFolders (AutoPostBack) -> the migrated DnnFolderDropDownList
+        component; AutoPostBack is a Blazor parameter and the SelectionChanged handler is wired
+        through SelectionChangedCallback, so the same OnFoldersIndexChanged code runs.
+      - dnn:DnnComboBox cboFiles (AutoPostBack) -> the migrated DnnComboBox component, wired the
+        same way through SelectedIndexChangedCallback.
+      - asp:TextBox txtContent (MultiLine, 12 rows, 100 cols, Wrap=False) -> the textarea below.
+      - asp:LinkButton cmdImport -> the anchor whose @@onclick is OnImportClick.
+      - asp:HyperLink cmdCancel -> the anchor whose href is ReturnURL.
+      - the trailing <script> block (jQuery dnnPanels plus the MS AJAX endRequest re-init) is gone:
+        a <script> element rendered from a component is never executed, Blazor re-renders without
+        MS AJAX partial postbacks, and the panel behaviour belongs to the theme's script, which the
+        host document loads. The dnnFormSectionHead markup it decorated is unchanged.
+
+    SECURITY: the ModulePermissionController.HasModuleAccess(SecurityAccessLevel.Edit, "IMPORT", Module)
+    guard and its AccessDeniedURL redirect are preserved verbatim in OnInit, as is the whole
+    validation chain of ImportModule: BusinessControllerClass/IsPortable, the IPortable cast, the
+    XmlResolver-disabled XML parse (NotValidXml), the "type" attribute check against both the
+    module name and the friendly name (NotCorrectType), and the content/module root-node branch.
+    The moduleId sentinel stays -1 ("not set").
+
+    No @@rendermode directive on purpose: the component is a descendant of
+    <Routes @@rendermode="RenderModeForPage"> in Website/Components/App.razor (InteractiveServer).
+*@
+
+<div class="dnnForm" id="importModuleForm">
+    <h2 id="dnnPanel-ImportFile" class="dnnFormSectionHead">
+        <a href="#" class="dnnSectionExpanded">@this.LocalizeText("ImportFile")</a>
+    </h2>
+    <fieldset class="dnnClear">
+        <div class="dnnFormItem">
+            <LabelControl ID="plFolder" ControlName="cboFolders" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+            <DnnFolderDropDownList @ref="this.cboFolders" AutoPostBack="true" SelectionChangedCallback="@this.OnFoldersIndexChanged" />
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="plFile" ControlName="cboFiles" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+            <DnnComboBox @ref="this.cboFiles" AutoPostBack="true" SelectedIndexChangedCallback="@this.OnFilesIndexChanged" />
+        </div>
+    </fieldset>
+    <h2 id="dnnPanel-ModuleContent" class="dnnFormSectionHead">
+        <a href="#" class="">@this.LocalizeText("ModuleContent")</a>
+    </h2>
+    <fieldset>
+        <div class="dnnFormItem">
+            <textarea id="txtContent" rows="12" cols="100" wrap="off" @onchange="@(e => this.Content = e.Value?.ToString() ?? string.Empty)">@this.Content</textarea>
+        </div>
+    </fieldset>
+    <br />
+    <ul class="dnnActions dnnClear">
+        <li><a id="cmdImport" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.OnImportClick" @onclick:preventDefault="true">@this.LocalizeText("cmdImport")</a></li>
+        <li><a id="cmdCancel" class="dnnSecondaryAction" href="@this.cancelUrl">@this.LocalizeText("cmdCancel")</a></li>
+    </ul>
+</div>
+
+@code {
+    private readonly IBusinessControllerProvider businessControllerProvider;
+    private readonly INavigationManager navigationManager;
+    private readonly IPermissionDefinitionService permissionDefinitionService;
+
+    private int moduleId = -1;
+    private ModuleInfo module;
+    private DnnFolderDropDownList cboFolders;
+    private DnnComboBox cboFiles;
+    private string cancelUrl = string.Empty;
+    private bool initialBindDone;
+    private bool redirected;
+
+    /// <summary>Initializes a new instance of the <see cref="ModuleImport"/> class.</summary>
+    /// <remarks>A Blazor component cannot take constructor parameters; the services are resolved
+    /// from the module's dependency provider, which is what the parameterless overload did.</remarks>
+    public ModuleImport()
+    {
+        this.businessControllerProvider = this.DependencyProvider.GetRequiredService<IBusinessControllerProvider>();
+        this.navigationManager = this.DependencyProvider.GetRequiredService<INavigationManager>();
+        this.permissionDefinitionService = this.DependencyProvider.GetRequiredService<IPermissionDefinitionService>();
+    }
+
+    /// <summary>Gets or sets the XML content to import (was <c>txtContent.Text</c>).</summary>
+    protected string Content { get; set; } = string.Empty;
+
+    /// <summary>Gets the navigation manager used for the redirects <c>Response.Redirect</c> issued.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    private ModuleInfo Module
+    {
+        get
+        {
+            return this.module ?? (this.module = ModuleController.Instance.GetModule(this.moduleId, this.TabId, false));
+        }
+    }
+
+    private string ReturnURL
+    {
+        get
+        {
+            return UrlUtils.ValidReturnUrl(this.Request?.GetValue("ReturnURL")) ?? this.navigationManager.NavigateURL();
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // The .resx of this control is still App_LocalResources/Import.ascx.resx.
+        this.LocalResourceFile = "~/admin/Modules/" + Localization.LocalResourceDirectory + "/Import.ascx";
+
+        var moduleIdValue = this.GetQueryValue("moduleid");
+        if (moduleIdValue != null)
+        {
+            int.TryParse(moduleIdValue, out this.moduleId);
+        }
+
+        // Verify that the current user has access to edit this module
+        if (!ModulePermissionController.HasModuleAccess(SecurityAccessLevel.Edit, "IMPORT", this.Module))
+        {
+            this.Navigation.NavigateTo(Globals.AccessDeniedURL(), forceLoad: true);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            // Was the !Page.IsPostBack guard.
+            if (this.initialBindDone)
+            {
+                return;
+            }
+
+            this.cancelUrl = this.ReturnURL;
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>The folder picker only exists once this component has rendered, so the
+    /// UndefinedItem and the ADD permission service parameter the code behind set on the first
+    /// request are applied in the phase that was OnPreRender.</remarks>
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+
+        if (this.initialBindDone)
+        {
+            return;
+        }
+
+        this.initialBindDone = true;
+
+        try
+        {
+            if (this.cboFolders == null)
+            {
+                return;
+            }
+
+            this.cboFolders.UndefinedItem = new DotNetNuke.UI.DnnListItem("<" + Localization.GetString("None_Specified") + ">", string.Empty);
+            this.cboFolders.Services.Parameters.Add("permission", "ADD");
+
+            this.StateHasChanged();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Rebuilds the file list for the selected folder (was <c>cboFolders.SelectionChanged</c>).</summary>
+    /// <param name="e">The event arguments.</param>
+    protected void OnFoldersIndexChanged(EventArgs e)
+    {
+        this.cboFiles.Items.Clear();
+        this.cboFiles.InsertItem(0, "<" + Localization.GetString("None_Specified") + ">", "-");
+        if (this.cboFolders.SelectedItem == null)
+        {
+            return;
+        }
+
+        if (this.Module == null)
+        {
+            return;
+        }
+
+        var folder = FolderManager.Instance.GetFolder(this.cboFolders.SelectedItemValueAsInt);
+        if (folder == null)
+        {
+            return;
+        }
+
+        var files = Globals.GetFileList(this.PortalId, "export", false, folder.FolderPath);
+        files.AddRange(Globals.GetFileList(this.PortalId, "xml", false, folder.FolderPath));
+        foreach (FileItem file in files)
+        {
+            if (file.Text.IndexOf("content." + Globals.CleanName(this.Module.DesktopModule.ModuleName) + ".", System.StringComparison.Ordinal) != -1)
+            {
+                this.cboFiles.AddItem(file.Text.Replace("content." + Globals.CleanName(this.Module.DesktopModule.ModuleName) + ".", string.Empty), file.Value);
+            }
+
+            // legacy support for files which used the FriendlyName
+            if (Globals.CleanName(this.Module.DesktopModule.ModuleName) == Globals.CleanName(this.Module.DesktopModule.FriendlyName))
+            {
+                continue;
+            }
+
+            if (file.Text.IndexOf("content." + Globals.CleanName(this.Module.DesktopModule.FriendlyName) + ".", System.StringComparison.Ordinal) != -1)
+            {
+                this.cboFiles.AddItem(file.Text.Replace("content." + Globals.CleanName(this.Module.DesktopModule.FriendlyName) + ".", string.Empty), file.Value);
+            }
+        }
+    }
+
+    /// <summary>Loads the selected file into the content box (was <c>cboFiles.SelectedIndexChanged</c>).</summary>
+    /// <param name="e">The event arguments.</param>
+    protected void OnFilesIndexChanged(EventArgs e)
+    {
+        if (this.cboFolders.SelectedItem == null)
+        {
+            return;
+        }
+
+        var folder = FolderManager.Instance.GetFolder(this.cboFolders.SelectedItemValueAsInt);
+        if (folder == null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(this.cboFiles.SelectedValue) || this.cboFiles.SelectedValue == "-")
+        {
+            this.Content = string.Empty;
+            return;
+        }
+
+        try
+        {
+            var fileId = Convert.ToInt32(this.cboFiles.SelectedValue);
+            var file = DotNetNuke.Services.FileSystem.FileManager.Instance.GetFile(fileId);
+            using (var streamReader = new StreamReader(DotNetNuke.Services.FileSystem.FileManager.Instance.GetFileContent(file)))
+            {
+                this.Content = streamReader.ReadToEnd();
+            }
+        }
+        catch (Exception)
+        {
+            this.Content = string.Empty;
+        }
+    }
+
+    /// <summary>Imports the module content (was <c>cmdImport.Click</c>).</summary>
+    protected void OnImportClick()
+    {
+        try
+        {
+            if (this.Module != null)
+            {
+                var strMessage = this.ImportModule();
+                if (string.IsNullOrEmpty(strMessage))
+                {
+                    if (!this.redirected)
+                    {
+                        this.Navigation.NavigateTo(this.ReturnURL, forceLoad: true);
+                    }
+                }
+                else
+                {
+                    DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, strMessage, ModuleMessage.ModuleMessageType.RedError);
+                }
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Reads a query string value, from the captured request when there is one and from
+    /// the current URL otherwise (an interactive circuit has no <c>HttpContext</c>).</summary>
+    /// <param name="name">The query string key.</param>
+    /// <returns>The value, or <see langword="null"/> when the key is absent.</returns>
+    private string GetQueryValue(string name)
+    {
+        var request = this.Request;
+        if (request != null && request.Query.ContainsKey(name))
+        {
+            return request.Query[name].ToString();
+        }
+
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(this.Navigation.Uri).Query);
+        return query.TryGetValue(name, out var values) ? values.ToString() : null;
+    }
+
+    private string ImportModule()
+    {
+        if (this.Module == null)
+        {
+            return string.Empty;
+        }
+
+        if (string.IsNullOrEmpty(this.Module.DesktopModule.BusinessControllerClass) || !this.Module.DesktopModule.IsPortable)
+        {
+            return Localization.GetString("ImportNotSupported", this.LocalResourceFile);
+        }
+
+        try
+        {
+            var controller = this.businessControllerProvider.GetInstance<IPortable>(this.Module);
+            if (controller is null)
+            {
+                return Localization.GetString("ImportNotSupported", this.LocalResourceFile);
+            }
+
+            var xmlDoc = new XmlDocument { XmlResolver = null };
+            try
+            {
+                var content = XmlUtils.RemoveInvalidXmlCharacters(this.Content);
+                using var contentReader = XmlReader.Create(new StringReader(content), new XmlReaderSettings { XmlResolver = null, });
+                xmlDoc.Load(contentReader);
+            }
+            catch
+            {
+                return Localization.GetString("NotValidXml", this.LocalResourceFile);
+            }
+
+            var strType = xmlDoc.DocumentElement.GetAttribute("type");
+            if (strType != Globals.CleanName(this.Module.DesktopModule.ModuleName) &&
+                strType != Globals.CleanName(this.Module.DesktopModule.FriendlyName))
+            {
+                return Localization.GetString("NotCorrectType", this.LocalResourceFile);
+            }
+
+            var strVersion = xmlDoc.DocumentElement.GetAttribute("version");
+
+            // DNN26810 if rootnode = "content", import only content(the old way)
+            if (xmlDoc.DocumentElement.Name.ToLowerInvariant() == "content")
+            {
+                controller.ImportModule(
+                    this.moduleId,
+                    xmlDoc.DocumentElement.InnerXml,
+                    strVersion,
+                    this.UserInfo.UserID);
+            }
+
+            // otherwise (="module") import the new way
+            else
+            {
+                ModuleController.DeserializeModule(
+                    this.businessControllerProvider,
+                    this.permissionDefinitionService,
+                    xmlDoc.DocumentElement,
+                    this.Module,
+                    this.PortalId,
+                    this.TabId);
+            }
+
+            // The WebForms control issued Response.Redirect here (to NavigateURL(), not to
+            // ReturnURL); the flag makes that redirect win over the caller's, which is what the
+            // Response.Redirect(..., endResponse: true) did by ending the response.
+            this.redirected = true;
+            this.Navigation.NavigateTo(this.navigationManager.NavigateURL(), forceLoad: true);
+            return string.Empty;
+        }
+        catch (NavigationException)
+        {
+            // The redirect above; during a static server render NavigateTo signals the response by
+            // throwing, which is not an import failure.
+            throw;
+        }
+        catch
+        {
+            return Localization.GetString("Error", this.LocalResourceFile);
+        }
+    }
+}

@@ -355,12 +355,12 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
                     JavaScript.RequestRegistration(this.AppStatus, this.EventLogger, PortalSettings.Current, "Selectize");
 
                     var libraryPath =
-                        $"~/Resources/Libraries/{package.LibraryName}/{Globals.FormatVersion(package.Version, "00", 3, "_")}/";
+                        $"~/resources/Libraries/{package.LibraryName}/{Globals.FormatVersion(package.Version, "00", 3, "_")}/";
 
                     this.ClientResourceController.RegisterScript($"{libraryPath}dnn.combobox.js");
                     this.ClientResourceController.RegisterStylesheet($"{libraryPath}selectize.css");
                     this.ClientResourceController.RegisterStylesheet($"{libraryPath}selectize.default.css");
-                    this.ClientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.ControlsInterop.js");
+                    this.ClientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.ControlsInterop.js");
                 }
             }
         }

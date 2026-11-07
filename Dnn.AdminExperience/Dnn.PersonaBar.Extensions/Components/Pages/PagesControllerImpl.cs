@@ -9,7 +9,6 @@ namespace Dnn.PersonaBar.Pages.Components
     using System.Globalization;
     using System.Linq;
     using System.Text.RegularExpressions;
-    using System.Web;
 
     using Dnn.PersonaBar.Library.Dto;
     using Dnn.PersonaBar.Library.Helper;
@@ -41,6 +40,7 @@ namespace Dnn.PersonaBar.Pages.Components
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Personalization;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     using PermissionsNotMetException = DotNetNuke.Entities.Tabs.PermissionsNotMetException;
@@ -349,11 +349,14 @@ namespace Dnn.PersonaBar.Pages.Components
         public void EditModeForPage(int pageId, int userId)
         {
             var portalSettings = PortalController.Instance.GetCurrentSettings();
-            var newCookie = new HttpCookie("LastPageId", $"{portalSettings.PortalId}:{pageId}")
-            {
-                Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-            };
-            HttpContext.Current.Response.Cookies.Add(newCookie);
+            var httpContext = HttpContextSource.Current;
+            httpContext?.Response.Cookies.Append(
+                "LastPageId",
+                $"{portalSettings.PortalId}:{pageId}",
+                new CookieOptions
+                {
+                    Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
+                });
 
             if (Personalization.GetUserMode() != PortalSettings.Mode.Edit)
             {

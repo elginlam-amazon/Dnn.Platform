@@ -9,7 +9,7 @@ namespace Dnn.PersonaBar.SiteSettings.Components
     using System.Diagnostics.CodeAnalysis;
     using System.IO;
     using System.Linq;
-    using System.Web;
+    using System.Net;
     using System.Xml;
     using System.Xml.XPath;
 
@@ -31,7 +31,7 @@ namespace Dnn.PersonaBar.SiteSettings.Components
         private string manifest = Null.NullString;
 
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
-        protected string BasePath => HttpContext.Current.Server.MapPath("~/Install/Language");
+        protected string BasePath => HttpContextSource.MapPath("~/Install/Language");
 
         public void SaveLocalizedKeys(int portalId, string propertyName, string propertyCategory, string cultureCode, string propertyNameString, string propertyHelpString, string propertyRequiredString, string propertyValidationString, string categoryNameString)
         {
@@ -297,7 +297,7 @@ namespace Dnn.PersonaBar.SiteSettings.Components
                 resourceFilename = resourceFilename + "." + "Host";
             }
 
-            return HttpContext.Current.Server.MapPath(resourceFilename + ".resx");
+            return HttpContextSource.MapPath(resourceFilename + ".resx");
         }
 
         private static bool IsAnalyzerType(Type type)
@@ -324,7 +324,7 @@ namespace Dnn.PersonaBar.SiteSettings.Components
                 node = nodeData.AppendChild(xmlDoc.CreateElement("value")).CreateNavigator();
             }
 
-            node.InnerXml = HttpUtility.HtmlEncode(text);
+            node.InnerXml = WebUtility.HtmlEncode(text);
         }
 
         private bool CreatePackage(string cultureCode, PackageInfo package, int dependentPackageId, string basePath, string fileName, bool createZip)

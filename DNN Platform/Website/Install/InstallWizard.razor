@@ -1,0 +1,2580 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* The legacy URL is preserved: upgrade documentation, the installer's own redirects and
+   Upgrade.DeleteInstallerFiles all name Install/InstallWizard.aspx. *@
+@page "/Install/InstallWizard.aspx"
+
+@namespace DotNetNuke.Services.Install
+@inherits DotNetNuke.Framework.PageBase
+@layout DotNetNuke.Website.Components.StandaloneLayout
+@implements DotNetNuke.UI.Utilities.IClientAPICallbackEventHandler
+@implements IDisposable
+
+@using System
+@using System.Collections
+@using System.Collections.Generic
+@using System.Globalization
+@using System.IO
+@using System.Linq
+@using System.Text
+@using System.Text.RegularExpressions
+@using System.Threading
+@using System.Threading.Tasks
+@using System.Xml
+@using System.Xml.XPath
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.DependencyInjection
+@using Microsoft.Extensions.Logging
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Portals.Templates
+@using DotNetNuke.Application
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Data
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Users.Membership
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Security.Membership
+@using DotNetNuke.Services.Installer.Blocker
+@using DotNetNuke.Services.Installer.Packages
+@using DotNetNuke.Services.Localization.Internal
+@using DotNetNuke.Services.Upgrade
+@using DotNetNuke.Services.Upgrade.InternalController.Steps
+@using DotNetNuke.Services.Upgrade.Internals
+@using DotNetNuke.Services.Upgrade.Internals.InstallConfiguration
+@using DotNetNuke.Services.Upgrade.Internals.Steps
+@using DotNetNuke.Website
+@using DotNetNuke.Web.UI.WebControls
+@using Localization = DotNetNuke.Services.Localization.Localization
+
+@*
+    =====================================================================================
+    The Installation Wizard.
+
+    WHAT REPLACED THE CLIENT SCRIPT, AND WHY
+    InstallWizard.aspx carried ~500 lines of jQuery that existed for one reason: a WebForms page
+    cannot talk to its own server code without a postback, so every step was an
+    `asp:ScriptManager EnablePageMethods` AJAX call (PageMethods.ValidatePassword,
+    ValidatePermissions, VerifyDatabaseConnectionOnLoad, VerifyDatabaseConnection, ValidateInput,
+    IsInstallerRunning, RunInstall, GetInstallationLog) plus jQuery UI for the three wizard tabs
+    and a 500ms `$.get` poll of the install status file for the progress bar.
+
+    On Blazor Server every one of those is a direct server call on an open circuit, so the whole
+    script layer is gone and NOT reimplemented - no <script> is emitted from this component
+    (Blazor does not execute component-rendered script anyway):
+      * jQuery UI tabs          -> the `step` field + @@if blocks below.
+      * PageMethods.X(...)      -> @@onclick/@@onblur handlers calling the SAME static methods,
+                                   which are preserved verbatim with their original signatures
+                                   because they are the page's public API surface.
+      * $.get(installstat...)   -> ReadStatusAsync(), a server-side PeriodicTimer that reads the
+                                   same status file the installer writes and calls StateHasChanged.
+                                   This is strictly better than before: the status file no longer
+                                   has to be web-servable (Install/ is not served content now).
+      * dnn.initializePasswordStrength / dnn.PasswordComparer
+                                -> the server-rendered password rules panel and the
+                                   confirm-password message below, built from the very same
+                                   DnnPaswordStrengthOptions / DnnConfirmPasswordOptions values and
+                                   the same localized strings OnPreRender configured.
+
+    The progress file is still written by CurrentStepActivity: it is what lets the wizard resume
+    reporting after the AppDomain restart an install step can trigger, so it must not be dropped.
+    =====================================================================================
+*@
+
+<PageTitle>@this.LocalizeString("PageTitle")</PageTitle>
+
+<HeadContent>
+    @* The standalone document's stylesheets. Top-level wwwroot directories are lowercase now. *@
+    <link rel="stylesheet" type="text/css" href="~/resources/Shared/stylesheets/dnndefault/10.0.0/default.css" />
+    <link rel="stylesheet" type="text/css" href="~/install/Install.css" />
+    <link rel="stylesheet" type="text/css" href="~/resources/Shared/stylesheets/dnn.PasswordStrength.css" />
+</HeadContent>
+
+<br />
+
+@* Was <div id="languageFlags"> with seven asp:LinkButtons whose OnClientClick set the PageLocale
+   hidden field. The hidden field is now the `culture` state and each flag is a real server
+   handler, so switching language re-localizes the page immediately.
+   Hidden on the installation step, which is what showInstallationTab()'s $("#languageFlags").hide() did. *@
+@if (this.step == WizardStep.AccountInfo && this.SupportLocalization)
+{
+    <div id="languageFlags">
+        @foreach (var flag in LanguageFlags)
+        {
+            @* `culture` is static, exactly as in InstallWizard.aspx.cs, because the static install
+               API (RunInstall/GetInstallationLog) reads it; it must be type-qualified here. *@
+            <a class="flag @(culture == flag.Code ? "selectedFlag" : null)"
+               value="@flag.Code" title="@flag.Title" href="javascript:void(0);"
+               @onclick="() => this.ChangePageLocale(flag.Code)" @onclick:preventDefault="true">
+                <img src="@Globals.ResolveUrl($"~/images/flags/{flag.Code}.gif")" alt="@flag.Code" class="flagimage" />
+            </a>
+        }
+    </div>
+}
+
+<div class="install">
+    <h2 class="dnnForm dnnInstall dnnClear">
+        @this.LocalizeString("InstallTitle")
+        <hr />
+    </h2>
+    @if (!string.IsNullOrEmpty(this.errorText))
+    {
+        <span id="lblError" class="dnnFormMessage dnnFormError" style="display:block">@this.errorText</span>
+    }
+
+    @* Was <div id="permissionCheckMessage"> plus the jQuery dialog ValidatePermissions() opened.
+       The verification now runs server-side during initialization and its message is rendered
+       inline - the dialog was only a way to surface an AJAX result. *@
+    @if (!string.IsNullOrEmpty(this.permissionCheckMessage))
+    {
+        <div id="permissionCheckMessage">
+            <span class="NormalBold promptMessage permissionCheck">@((MarkupString)this.permissionCheckMessage)</span>
+        </div>
+    }
+
+    <div id="tabs" class="dnnWizardTab">
+        <ul>
+            <li id="accountInfo" class="@(this.step == WizardStep.AccountInfo ? "ui-tabs-active ui-state-active" : null)">
+                <div class="dnnWizardStep">
+                    <span class="dnnWizardStepNumber">1</span>
+                    <span class="dnnWizardStepTitle">@this.LocalizeString("AccountInfo")</span>
+                    <span class="dnnWizardStepArrow"></span>
+                </div>
+            </li>
+            <li id="installInfo" class="@(this.step == WizardStep.Installation ? "ui-tabs-active ui-state-active" : null)">
+                <div class="dnnWizardStep">
+                    <span class="dnnWizardStepNumber">2</span>
+                    <span class="dnnWizardStepTitle">@this.LocalizeString("Installation")</span>
+                    <span class="dnnWizardStepArrow"></span>
+                </div>
+            </li>
+            <li id="webInfo" class="@(this.step == WizardStep.ViewWebsite ? "ui-tabs-active ui-state-active" : null)">
+                <div class="dnnWizardStep">
+                    <span><img id="finishImage" src="@Globals.ResolveUrl("~/images/finishflag.png")" alt="" /></span>
+                    <span class="dnnWizardStepTitle">@this.LocalizeString("ViewWebsite")</span>
+                </div>
+            </li>
+        </ul>
+
+        @if (this.step == WizardStep.AccountInfo)
+        {
+            <div class="installAccountInfo dnnClear" id="installAccountInfo">
+                <span id="lblAccountInfoIntro">@this.LocalizeString("AccountInfoIntro")</span>
+                <span id="lblIntroDetail">@this.introDetail</span>
+                <p style="display: block; margin: 10px 0 10px 0;">
+                    @if (!string.IsNullOrEmpty(this.accountInfoError))
+                    {
+                        <span id="lblAccountInfoError" class="dnnFormMessage dnnFormError" style="display:block">@this.accountInfoError</span>
+                    }
+                </p>
+
+                <div id="adminInfo" class="dnnForm">
+                    <DotNetNuke.UI.UserControls.LabelControl ID="lblAdminInfo" CssClass="tabSubTitle" ResourceKey="AdminInfo" LocalResourceFile="@LocalResourceFileName" />
+                    @if (!string.IsNullOrEmpty(this.adminInfoError))
+                    {
+                        <span id="lblAdminInfoError" class="NormalRed">@this.adminInfoError</span>
+                    }
+                    <div class="dnnFormItem dnnFormPassword">
+                        <div class="dnnFormItem">
+                            <DotNetNuke.UI.UserControls.LabelControl ID="lblUsername" ControlName="txtUsername" ResourceKey="UserName" CssClass="dnnFormRequired" LocalResourceFile="@LocalResourceFileName" />
+                            <input id="txtUsername" type="text" value="@this.userName" @onchange="e => this.userName = e.Value?.ToString()" />
+                            @if (this.showValidation && string.IsNullOrEmpty(this.userName))
+                            {
+                                <span id="valUsername" class="dnnFormMessage dnnFormError dnnRequired">@this.LocalizeString("UserName.Required")</span>
+                            }
+                        </div>
+                        <div class="dnnFormItem">
+                            <DotNetNuke.UI.UserControls.LabelControl ID="lblPassword" ControlName="txtPassword" ResourceKey="Password" CssClass="dnnFormRequired" LocalResourceFile="@LocalResourceFileName" />
+                            <div id="passwordContainer" class="password-strength-container">
+                                <input id="txtPassword" class="password-strength" type="password" value="@this.password"
+                                       @onchange="e => this.password = e.Value?.ToString()" @onblur="this.ValidatePasswordAsync" />
+                            </div>
+                            @if (this.showValidation && string.IsNullOrEmpty(this.password))
+                            {
+                                <span id="valPassword" class="dnnFormMessage dnnFormError dnnRequired">@this.LocalizeString("Password.Required")</span>
+                            }
+
+                            @* The server-rendered replacement for dnn.initializePasswordStrength's meter
+                               and rules list. Same head text, same three criteria lines, same colors. *@
+                            <div class="dnnFormHelpContent password-rules">
+                                <span class="password-rules-head">@this.passwordRulesHeadText</span>
+                                <ul>
+                                    <li class="@(this.password?.Length >= this.minPasswordLength ? "criteria-met" : "criteria-unmet")">@this.criteriaAtLeastNCharsText</li>
+                                    <li class="@(NonAlphanumericCount(this.password) >= this.minNonAlphanumericCharacters ? "criteria-met" : "criteria-unmet")">@this.criteriaAtLeastNSpecialCharsText</li>
+                                    @if (!string.IsNullOrEmpty(this.passwordValidationExpression))
+                                    {
+                                        <li class="@(Regex.IsMatch(this.password ?? string.Empty, this.passwordValidationExpression) ? "criteria-met" : "criteria-unmet")">@this.criteriaValidationExpressionText</li>
+                                    }
+                                </ul>
+                                <span class="min-length-text" style="color:@this.PasswordStrengthColor">@this.PasswordStrengthText</span>
+                            </div>
+                        </div>
+                        <div class="dnnFormItem">
+                            <DotNetNuke.UI.UserControls.LabelControl ID="lblConfirmPassword" ControlName="txtConfirmPassword" ResourceKey="Confirm" CssClass="dnnFormRequired" LocalResourceFile="@LocalResourceFileName" />
+                            <input id="txtConfirmPassword" class="password-confirm @this.ConfirmPasswordCssClass" type="password" value="@this.confirmPassword"
+                                   @onchange="e => this.confirmPassword = e.Value?.ToString()" @onblur="this.ValidatePasswordAsync" />
+                            @if (this.showValidation && string.IsNullOrEmpty(this.confirmPassword))
+                            {
+                                <span id="valConfirmPassword" class="dnnFormMessage dnnFormError dnnRequired">@this.LocalizeString("Confirm.Required")</span>
+                            }
+                            @if (!string.IsNullOrEmpty(this.confirmPasswordMessage))
+                            {
+                                <span class="confirm-password-message">@this.confirmPasswordMessage</span>
+                            }
+                        </div>
+                        <div class="dnnFormItem">
+                            <DotNetNuke.UI.UserControls.LabelControl ID="lblEmail" ControlName="txtEmail" ResourceKey="Email" CssClass="dnnFormRequired" LocalResourceFile="@LocalResourceFileName" />
+                            <input id="txtEmail" type="text" value="@this.email" @onchange="e => this.email = e.Value?.ToString()" />
+                            @if (this.showValidation && string.IsNullOrEmpty(this.email))
+                            {
+                                <span id="valEmail" class="dnnFormMessage dnnFormError dnnRequired">@this.LocalizeString("Email.Required")</span>
+                            }
+                            else if (this.showValidation && !Regex.IsMatch(this.email, this.emailValidationExpression))
+                            {
+                                @* Was <asp:RegularExpressionValidator ID="valEmailValid"> whose
+                                   ValidationExpression OnLoad set to Globals.glbEmailRegEx. *@
+                                <span id="valEmailValid" class="dnnFormMessage dnnFormError dnnRequired">@this.LocalizeString("Email.Invalid")</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div id="websiteInfo" class="dnnForm">
+                    <DotNetNuke.UI.UserControls.LabelControl ID="lblWebsiteInfo" CssClass="tabSubTitle" ResourceKey="WebsiteInfo" LocalResourceFile="@LocalResourceFileName" />
+                    <div class="dnnFormItem">
+                        <div class="dnnFormItem">
+                            <DotNetNuke.UI.UserControls.LabelControl ID="lblWebsiteName" ControlName="txtWebsiteName" ResourceKey="WebsiteName" CssClass="dnnFormRequired" LocalResourceFile="@LocalResourceFileName" />
+                            <input id="txtWebsiteName" type="text" value="@this.websiteName" @onchange="e => this.websiteName = e.Value?.ToString()" />
+                            @if (this.showValidation && string.IsNullOrEmpty(this.websiteName))
+                            {
+                                <span id="valWebsiteName" class="dnnFormMessage dnnFormError dnnRequired">@this.LocalizeString("WebsiteName.Required")</span>
+                            }
+                        </div>
+                        <div class="dnnFormItem">
+                            <DotNetNuke.UI.UserControls.LabelControl ID="lblWebsiteSsl" ControlName="chkWebsiteSsl" ResourceKey="WebsiteSsl" LocalResourceFile="@LocalResourceFileName" />
+                            <input id="chkWebsiteSsl" type="checkbox" checked="@this.websiteSsl" @onchange="e => this.websiteSsl = Convert.ToBoolean(e.Value)" />
+                        </div>
+                        <div class="dnnFormItem">
+                            <DotNetNuke.UI.UserControls.LabelControl ID="lblTemplate" ControlName="templateList" ResourceKey="WebsiteTemplate" LocalResourceFile="@LocalResourceFileName" />
+                            @* Was <dnn:DnnComboBox id="templateList">, bound in BindTemplates(). *@
+                            <select id="templateList" @bind="this.template">
+                                @foreach (var item in this.templateList)
+                                {
+                                    <option value="@item.Value">@item.Text</option>
+                                }
+                            </select>
+                        </div>
+                        @if (this.SupportLocalization)
+                        {
+                            @* Was <div id="languagesRow" runat="server">, hidden by OnPreRender when
+                               installConfig.SupportLocalization was false. *@
+                            <div id="languagesRow" class="dnnFormItem">
+                                <DotNetNuke.UI.UserControls.LabelControl ID="lblLanguage" ControlName="languageList" ResourceKey="Language" LocalResourceFile="@LocalResourceFileName" />
+                                <select id="languageList" @onchange="this.LanguageListChanged">
+                                    @foreach (var item in this.languageList)
+                                    {
+                                        <option value="@item.Value" selected="@(item.Value == this.language)">@item.Text</option>
+                                    }
+                                </select>
+                                <br />
+                                @* Replaces LegacyLangaugePack()/ClearLegacyLangaugePack(), which set this
+                                   label from the selected pack's version. *@
+                                <span id="lblLegacyLangaugePack" class="NormalBold">@this.legacyLanguagePackMessage</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div id="databaseInfo" class="dnnForm">
+                    <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabaseInfo" CssClass="tabSubTitle" ResourceKey="DatabaseInfo" LocalResourceFile="@LocalResourceFileName" />
+                    <div>
+                        <span id="lblDatabaseInfoMsg" class="databaseCheck promptMessage NormalBold @(this.databaseCheckFailed ? "promptMessageError" : null)">@this.databaseInfoMessage</span>
+                    </div>
+                    <div class="dnnFormItem">
+                        <div class="dnnFormItem">
+                            <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabaseSetup" ControlName="databaseSetupType" ResourceKey="DatabaseSetup" LocalResourceFile="@LocalResourceFileName" />
+                            <span id="databaseSetupType">
+                                <label>
+                                    <input type="radio" name="databaseSetupType" value="standard" disabled="@this.standardDatabaseDisabled"
+                                           checked="@(this.databaseSetup == "standard")" @onchange="this.SetDatabaseSetupStandard" />
+                                    @this.LocalizeString("DatabaseStandard")
+                                </label>
+                                <label>
+                                    <input type="radio" name="databaseSetupType" value="advanced"
+                                           checked="@(this.databaseSetup == "advanced")" @onchange="this.SetDatabaseSetupAdvanced" />
+                                    @this.LocalizeString("DatabaseAdvanced")
+                                </label>
+                            </span>
+                        </div>
+                        @if (this.showStandardDatabaseMessage)
+                        {
+                            <div id="StandardDatabaseMsg" class="dnnFormItem">
+                                <div class="dnnLabel"></div>
+                                <span id="lblStandardDatabaseMsg" class="dnnFormMessage">@this.LocalizeString("StandardDatabaseMsg")</span>
+                            </div>
+                        }
+                        @if (this.databaseSetup == "advanced")
+                        {
+                            @* Was #advancedDatabase, slid in/out by toggleAdvancedDatabase(). *@
+                            <div id="advancedDatabase" class="dnnFormItem">
+                                <div class="dnnFormItem">
+                                    <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabaseType" ControlName="databaseType" ResourceKey="DatabaseType" LocalResourceFile="@LocalResourceFileName" />
+                                    <span id="databaseType">
+                                        <label>
+                                            <input type="radio" name="databaseType" value="express" checked="@(this.databaseType == "express")" @onchange="this.SetDatabaseTypeExpress" />
+                                            @this.LocalizeString("SqlTypeExpress")
+                                        </label>
+                                        <label>
+                                            <input type="radio" name="databaseType" value="server" checked="@(this.databaseType == "server")" @onchange="this.SetDatabaseTypeServer" />
+                                            @this.LocalizeString("SqlTypeServer")
+                                        </label>
+                                    </span>
+                                </div>
+                                <div class="dnnFormItem">
+                                    <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabaseServerName" ControlName="txtDatabaseServerName" ResourceKey="DatabaseServer" CssClass="dnnFormRequired" LocalResourceFile="@LocalResourceFileName" />
+                                    <input id="txtDatabaseServerName" type="text" value="@this.databaseServerName" @onchange="e => this.databaseServerName = e.Value?.ToString()" />
+                                    @if (this.showValidation && string.IsNullOrEmpty(this.databaseServerName))
+                                    {
+                                        <span id="valDatabaseServerName" class="dnnFormMessage dnnFormError dnnRequired">@this.LocalizeString("DatabaseServer.Required")</span>
+                                    }
+                                </div>
+                                @if (this.databaseType == "express")
+                                {
+                                    @* Was #databaseFilename / #databaseName, toggled by toggleDatabaseType(). *@
+                                    <div class="dnnFormItem" id="databaseFilename">
+                                        <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabaseFilename" ControlName="txtDatabaseFilename" ResourceKey="DatabaseFilename" CssClass="dnnFormRequired" LocalResourceFile="@LocalResourceFileName" />
+                                        <input id="txtDatabaseFilename" type="text" value="@this.databaseFilename" @onchange="e => this.databaseFilename = e.Value?.ToString()" />
+                                        @if (this.showValidation && string.IsNullOrEmpty(this.databaseFilename))
+                                        {
+                                            <span id="valDatabaseFilename" class="dnnFormMessage dnnFormError dnnRequired">@this.LocalizeString("DatabaseFilename.Required")</span>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="dnnFormItem" id="databaseName">
+                                        <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabaseName" ControlName="txtDatabaseName" ResourceKey="DatabaseName" CssClass="dnnFormRequired" LocalResourceFile="@LocalResourceFileName" />
+                                        <input id="txtDatabaseName" type="text" value="@this.databaseName" @onchange="e => this.databaseName = e.Value?.ToString()" />
+                                        @if (this.showValidation && string.IsNullOrEmpty(this.databaseName))
+                                        {
+                                            <span id="valDatabaseName" class="dnnFormMessage dnnFormError dnnRequired">@this.LocalizeString("DatabaseName.Required")</span>
+                                        }
+                                    </div>
+                                }
+
+                                @if (this.databaseType != "express")
+                                {
+                                    @* Was #dbSecurityTypeRow, hidden for SQL Express by toggleDatabaseType(). *@
+                                    <div id="dbSecurityTypeRow" class="dnnFormItem">
+                                        <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabaseSecurity" ControlName="databaseSecurityType" ResourceKey="DatabaseSecurity" LocalResourceFile="@LocalResourceFileName" />
+                                        <span id="databaseSecurityType">
+                                            <label>
+                                                <input type="radio" name="databaseSecurityType" value="integrated" checked="@(this.databaseSecurity == "integrated")" @onchange="this.SetDatabaseSecurityIntegrated" />
+                                                @this.LocalizeString("DbSecurityIntegrated")
+                                            </label>
+                                            <label>
+                                                <input type="radio" name="databaseSecurityType" value="userDefined" checked="@(this.databaseSecurity == "userDefined")" @onchange="this.SetDatabaseSecurityUserDefined" />
+                                                @this.LocalizeString("DbSecurityUserDefined")
+                                            </label>
+                                        </span>
+                                    </div>
+                                }
+                                @if (this.databaseType != "express" && this.databaseSecurity == "userDefined")
+                                {
+                                    <div id="securityUserDefined" class="dnnFormItem" style="padding-top: 5px;">
+                                        <div class="dnnFormItem">
+                                            <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabaseUsername" ControlName="txtDatabaseUsername" ResourceKey="DatabaseUsername" CssClass="dnnFormRequired" LocalResourceFile="@LocalResourceFileName" />
+                                            <input id="txtDatabaseUsername" type="text" value="@this.databaseUsername" @onchange="e => this.databaseUsername = e.Value?.ToString()" />
+                                            @if (this.showValidation && string.IsNullOrEmpty(this.databaseUsername))
+                                            {
+                                                <span id="valDatabaseUsername" class="dnnFormMessage dnnFormError dnnRequired">@this.LocalizeString("DatabaseUsername.Required")</span>
+                                            }
+                                        </div>
+                                        <div class="dnnFormItem">
+                                            <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabasePassword" ControlName="txtDatabasePassword" ResourceKey="DatabasePassword" LocalResourceFile="@LocalResourceFileName" />
+                                            <input id="txtDatabasePassword" type="password" value="@this.databasePassword" @onchange="e => this.databasePassword = e.Value?.ToString()" />
+                                        </div>
+                                    </div>
+                                }
+                                <div class="dnnFormItem">
+                                    <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabaseRunAs" ControlName="databaseRunAs" ResourceKey="DatabaseRunAs" LocalResourceFile="@LocalResourceFileName" />
+                                    @* For SQL Express the original forced this checked and disabled. *@
+                                    <input id="databaseRunAs" type="checkbox" disabled="@(this.databaseType == "express")"
+                                           checked="@(this.databaseType == "express" || this.databaseRunAsOwner)"
+                                           @onchange="e => this.databaseRunAsOwner = Convert.ToBoolean(e.Value)" />
+                                </div>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(this.databaseError))
+                        {
+                            <div id="databaseError" class="dnnFormItem">
+                                <DotNetNuke.UI.UserControls.LabelControl ID="lblDatabaseConnectionError" ResourceKey="DatabaseConnectionError" LocalResourceFile="@LocalResourceFileName" />
+                                <span id="lblDatabaseError" class="NormalRed">@((MarkupString)this.databaseError)</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+                <hr />
+                <ul class="dnnForm dnnActions dnnClear">
+                    <li>
+                        <a id="continueLink" href="javascript:void(0);"
+                           class="dnnPrimaryAction @(this.ContinueEnabled ? null : "dnnDisabledAction")"
+                           @onclick="this.ContinueAsync" @onclick:preventDefault="true">@this.LocalizeString("cmdContinue")</a>
+                    </li>
+                </ul>
+            </div>
+        }
+
+        @if (this.step == WizardStep.Installation || this.step == WizardStep.ViewWebsite)
+        {
+            <div class="installInstallation dnnClear" id="installInstallation">
+                <span id="lblInstallationIntroInfo" class="installIntro">
+                    @(this.installationComplete ? this.LocalizeString("InstallationComplete") : this.LocalizeString("InstallationIntroInfo"))
+                </span>
+                <div id="installInstallationPanel" class="dnnForm ui-tabs-panel">
+                    <div class="dnnFormItem">
+                        <div id="installation-progress">
+                            <span id="timer">@this.ElapsedText</span>&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;<span id="percentage" style="height: auto; max-height: 200px; overflow: auto">@this.progress% @this.progressDetails</span>
+                            <div class="dnnProgressbar">
+                                <progress id="progressbar" class="@(this.installationFailed ? "stoppedProgress" : "inProgress")" value="@this.progress" max="100"></progress>
+                            </div>
+                            <div id="installation-buttons">
+                                <a id="retry" href="javascript:void(0)" class="dnnPrimaryAction @(this.RetryEnabled ? null : "dnnDisabledAction")"
+                                   @onclick="this.RetryAsync" @onclick:preventDefault="true">@this.LocalizeString("Retry")</a>
+                                <a id="seeLogs" href="javascript:void(0)" class="dnnSecondaryAction @(this.SeeLogsEnabled ? null : "dnnDisabledAction")"
+                                   @onclick="this.SeeLogsAsync" @onclick:preventDefault="true">@this.LocalizeString("SeeLogs")</a>
+                                <a id="visitSite" href="javascript:void(0)" class="dnnPrimaryAction visitSiteLink @(this.VisitSiteEnabled ? null : "dnnDisabledAction")"
+                                   @onclick="this.VisitSiteClick" @onclick:preventDefault="true">@this.LocalizeString("VisitWebsite")</a>
+                            </div>
+                            <hr />
+                            @if (this.showInstallationLog)
+                            {
+                                <div id="installation-log-container" class="dnnScroll">
+                                    <div id="installation-log">@((MarkupString)this.installationLog)</div>
+                                </div>
+                            }
+                        </div>
+                        @* Was #installation-steps, whose five <p> classes $.applyCssStyle() set from
+                           the status file's check0..check4 values. Same mapping, server side. *@
+                        <div id="installation-steps">
+                            <p class="@StepCssClass(this.check0)" id="FileAndFolderPermissionCheck"><span class="states-icons"></span>@this.LocalizeString("FileAndFolderPermissionCheck")</p>
+                            <p class="@StepCssClass(this.check1)" id="DatabaseInstallation"><span class="states-icons"></span>@this.LocalizeString("DatabaseInstallation")</p>
+                            <p class="@StepCssClass(this.check2)" id="ExtensionsInstallation"><span class="states-icons"></span>@this.LocalizeString("ExtensionsInstallation")</p>
+                            <p class="@StepCssClass(this.check3)" id="WebsiteCreation"><span class="states-icons"></span>@this.LocalizeString("WebsiteCreation")</p>
+                            <p class="@StepCssClass(this.check4)" id="SuperUserCreation"><span class="states-icons"></span>@this.LocalizeString("SuperUserCreation")</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (this.step == WizardStep.ViewWebsite)
+        {
+            <div class="installViewWebsite" id="installViewWebsite">
+                <div class="dnnForm"></div>
+            </div>
+        }
+    </div>
+</div>
+
+<br /><br /><br />
+
+@* The WebForms page ended with <asp:Label ID="txtErrorMessage" runat="server" />, which no code
+   path on the page or in its client script ever assigned or read - it was a dead placeholder. The
+   live error surface is #lblError (this.errorText) above, which is preserved. Nothing is rendered
+   here, so the label and its backing field are not carried over. *@
+
+@code {
+    /// <summary>The install status file name.</summary>
+    /// <remarks>
+    /// Still written by <see cref="CurrentStepActivity"/> and still named exactly as before: it is
+    /// how progress survives the AppDomain restart an install step can trigger. It is no longer
+    /// FETCHED by the browser (Install/ is not web-served content now) - the component reads it.
+    /// </remarks>
+    protected static readonly string StatusFilename = "installstat.log.resources.txt";
+
+    private const string LocalesFile = "/Install/App_LocalResources/Locales.xml";
+
+    /// <summary>The local resource file of this page, unchanged from the WebForms page.</summary>
+    private const string LocalResourceFileName = "~/Install/App_LocalResources/InstallWizard.aspx.resx";
+
+    // steps shown in UI
+    private static readonly IInstallationStep FilePermissionCheck = new FilePermissionCheckStep();
+    private static readonly IInstallationStep InstallDatabaseStep = new InstallDatabaseStep();
+    private static readonly IInstallationStep InstallExtensionsStep = new InstallExtensionsStep();
+    private static readonly IInstallationStep InstallSiteStep = new InstallSiteStep();
+    private static readonly IInstallationStep InstallSuperUserStep = new InstallSuperUserStep();
+
+    private static readonly ILogger Logger = DnnLoggingController.GetLogger(typeof(InstallWizard));
+
+    // Ordered List of Steps (and weight in percentage) to be executed
+    private static readonly IDictionary<IInstallationStep, int> Steps = new Dictionary<IInstallationStep, int>
+    {
+        { FilePermissionCheck, 10 },
+        { new IISVerificationStep(), 5 },
+        { InstallDatabaseStep, 20 },
+        { InstallExtensionsStep, 25 },
+        { new InitializeHostSettingsStep(), 5 },
+        { new UpdateLanguagePackStep(), 5 },
+        { InstallSiteStep, 20 },
+        { InstallSuperUserStep, 5 },
+        { new AddFcnModeStep(), 2 },
+        { new InstallVersionStep(), 2 },
+        { new InstallSslStep(), 2 },
+    };
+
+    /// <summary>The flags rendered by the language selector, in the order the markup declared them.</summary>
+    private static readonly (string Code, string Title)[] LanguageFlags =
+    [
+        ("en-US", "English (United States)"),
+        ("de-DE", "Deutsch (Deutschland)"),
+        ("es-ES", "Español (España)"),
+        ("fr-FR", "Français (France)"),
+        ("it-IT", "Italiano (Italia)"),
+        ("nl-NL", "Nederlands (Nederland)"),
+        ("tr-TR", "Türkçe (Türkiye)"),
+    ];
+
+    private static string localResourceFile = LocalResourceFileName;
+
+    private static string[] supportedLanguages;
+    private static ConnectionConfig connectionConfig;
+    private static string connectionResult;
+    private static InstallConfig installConfig;
+    private static string culture;
+    private static IInstallationStep currentStep;
+    private static bool installerRunning;
+    private static int installerProgress;
+    private static object @lock = new object();
+
+    private readonly DataProvider dataProvider = DataProvider.Instance();
+
+    private Version dataBaseVersion;
+    private XmlDocument installTemplate;
+
+    // --- UI state (replaces the control tree, the ViewState entries and the hidden fields) ---
+    private WizardStep step = WizardStep.AccountInfo;
+    private string userName = string.Empty;
+    private string password = string.Empty;
+    private string confirmPassword = string.Empty;
+    private string email = string.Empty;
+    private string websiteName = string.Empty;
+    private bool websiteSsl;
+    private string template = "Default Website.template";
+    private string language = "en-US";
+    private string databaseSetup = "standard";
+    private string databaseType = "express";
+    private string databaseServerName = string.Empty;
+    private string databaseFilename = string.Empty;
+    private string databaseName = string.Empty;
+    private string databaseObjectQualifier = string.Empty;
+    private string databaseSecurity = "integrated";
+    private string databaseUsername = string.Empty;
+    private string databasePassword = string.Empty;
+    private bool databaseRunAsOwner;
+
+    private readonly List<ListEntry> templateList = new List<ListEntry>();
+    private readonly List<ListEntry> languageList = new List<ListEntry>();
+    private readonly Dictionary<string, Version> languagePackVersions = new Dictionary<string, Version>();
+
+    private string errorText;
+    private string accountInfoError;
+    private string adminInfoError;
+    private string introDetail;
+    private string permissionCheckMessage;
+    private string databaseInfoMessage;
+    private string databaseError;
+    private string legacyLanguagePackMessage;
+    private string confirmPasswordMessage;
+    private bool confirmPasswordMatched;
+    private bool databaseCheckFailed;
+    private bool showStandardDatabaseMessage;
+    private bool standardDatabaseDisabled;
+    private bool showValidation;
+    private bool permissionsValid = true;
+
+    // Password rules panel (replaces the DnnPaswordStrengthOptions JSON handed to
+    // dnn.initializePasswordStrength and the DnnConfirmPasswordOptions handed to
+    // dnn.initializePasswordComparer).
+    private int minPasswordLength;
+    private int minNonAlphanumericCharacters;
+    private string passwordValidationExpression;
+    private string passwordRulesHeadText;
+    private string criteriaAtLeastNCharsText;
+    private string criteriaAtLeastNSpecialCharsText;
+    private string criteriaValidationExpressionText;
+    private string passwordStrengthMinLengthText;
+    private string passwordStrengthWeakText;
+    private string passwordStrengthFairText;
+    private string passwordStrengthStrongText;
+    private string confirmPasswordUnmatchedText;
+    private string confirmPasswordMatchedText;
+    private string weakColor = "#ed1e24";
+    private string fairColor = "#f6d50a";
+    private string strongColor = "#69bd44";
+
+    private string emailValidationExpression = Globals.glbEmailRegEx;
+
+    // Progress reporting (replaces the 500ms $.get poll of the status file and the JS timer).
+    private int progress;
+    private string progressDetails = string.Empty;
+    private string check0;
+    private string check1;
+    private string check2;
+    private string check3;
+    private string check4;
+    private bool installationComplete;
+    private bool installationFailed;
+    private bool showInstallationLog;
+    private string installationLog = string.Empty;
+    private int installationLogStartLine;
+    private DateTime? progressStartedUtc;
+    private CancellationTokenSource progressCancellation;
+    private bool prerendered;
+
+    /// <summary>Initializes a new instance of the <see cref="InstallWizard"/> class.</summary>
+    /// <remarks>
+    /// Blazor activates the component through its parameterless constructor. This declares it
+    /// explicitly so it chains to the non-obsolete <see cref="DotNetNuke.Framework.PageBase"/> overload rather than the
+    /// deprecated parameterless one; passing nulls is exactly what that deprecated overload did,
+    /// and PageBase resolves each service lazily from the current service provider on first use.
+    /// </remarks>
+    public InstallWizard()
+        : base(null, null, null, null)
+    {
+    }
+
+    /// <summary>The wizard tabs, which jQuery UI used to enable/disable.</summary>
+    private enum WizardStep
+    {
+        /// <summary>The <c>#installAccountInfo</c> tab.</summary>
+        AccountInfo,
+
+        /// <summary>The <c>#installInstallation</c> tab.</summary>
+        Installation,
+
+        /// <summary>The <c>#installViewWebsite</c> tab.</summary>
+        ViewWebsite,
+    }
+
+    /// <summary>Gets or sets the portal template controller, which supplies the template list.</summary>
+    /// <remarks>
+    /// This and <see cref="AppStatusInfo"/> replace the four-overload constructor chain
+    /// (<c>IPortalController</c>, <c>IApplicationStatusInfo</c>, <c>IHostSettings</c>,
+    /// <c>IUserController</c>, <c>IPortalTemplateController</c>) and its
+    /// <c>Globals.GetCurrentServiceProvider().GetRequiredService&lt;T&gt;()</c> fallbacks: Blazor
+    /// activates a component through its parameterless constructor, so the dependencies are
+    /// injected as properties. <see cref="DotNetNuke.Framework.PageBase"/> itself still resolves
+    /// <c>IPortalController</c>/<c>IHostSettings</c>/<c>IUserController</c> through the very same
+    /// lazy mechanism its own constructors used, so nothing about the resolved graph changes.
+    /// </remarks>
+    [Inject]
+    protected IPortalTemplateController PortalTemplateController { get; set; }
+
+    /// <summary>Gets or sets the application status.</summary>
+    [Inject]
+    protected IApplicationStatusInfo AppStatusInfo { get; set; }
+
+    /// <summary>Gets or sets the navigation manager used for the page's redirects.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets the query string of the request that produced this page.</summary>
+    /// <remarks>Replaces the <c>HttpContext.Current.Request.RawUrl</c> suffix tests.</remarks>
+    [SupplyParameterFromQuery(Name = "initiateinstall")]
+    private string InitiateInstall { get; set; }
+
+    /// <summary>Gets a value indicating whether the install should be executed on load.</summary>
+    [SupplyParameterFromQuery(Name = "executeinstall")]
+    private string ExecuteInstall { get; set; }
+
+    /// <summary>Gets the culture requested on the query string.</summary>
+    [SupplyParameterFromQuery(Name = "culture")]
+    private string CultureParameter { get; set; }
+
+    /// <summary>Gets the current application version.</summary>
+    protected Version ApplicationVersion => DotNetNukeContext.Current.Application.Version;
+
+    /// <summary>Gets the database version.</summary>
+    protected Version DatabaseVersion => this.dataBaseVersion ??= DataProvider.Instance().GetVersion();
+
+    /// <summary>Gets the base version from the install template.</summary>
+    protected Version BaseVersion => Upgrade.GetInstallVersion(this.InstallTemplate);
+
+    /// <summary>Gets the install template.</summary>
+    protected XmlDocument InstallTemplate
+    {
+        get
+        {
+            if (this.installTemplate == null)
+            {
+                this.installTemplate = new XmlDocument { XmlResolver = null };
+                Upgrade.GetInstallTemplate(this.installTemplate);
+            }
+
+            return this.installTemplate;
+        }
+    }
+
+    /// <summary>Gets a value indicating whether localization is supported.</summary>
+    protected bool SupportLocalization
+    {
+        get { return installConfig != null && installConfig.SupportLocalization; }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the permissions are valid.</summary>
+    /// <remarks>
+    /// Was <c>ViewState["PermissionsValid"]</c>. A Blazor component instance lives for as long as
+    /// the user's view of the page, which is exactly the scope ViewState provided.
+    /// </remarks>
+    protected bool PermissionsValid
+    {
+        get { return this.permissionsValid; }
+        set { this.permissionsValid = value; }
+    }
+
+    /// <summary>Gets or sets the portal id.</summary>
+    /// <remarks>Was <c>ViewState["PortalId"]</c>.</remarks>
+    protected int PortalId { get; set; } = Null.NullInteger;
+
+    /// <summary>Gets or sets the versions.</summary>
+    /// <remarks>Was <c>ViewState["Versions"]</c>.</remarks>
+    protected string Versions { get; set; } = Null.NullString;
+
+    private static string StatusFile
+    {
+        get
+        {
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Install", StatusFilename);
+        }
+    }
+
+    /// <summary>Gets a value indicating whether the Continue action is enabled.</summary>
+    /// <remarks>
+    /// Replaces the `dnnDisabledAction` class that confirmPasswords()/validateInput() added and
+    /// removed. The rule is the conjunction of the two client checks: every visible required field
+    /// filled in, and the two passwords equal.
+    /// </remarks>
+    private bool ContinueEnabled =>
+        !string.IsNullOrEmpty(this.userName) &&
+        !string.IsNullOrEmpty(this.password) &&
+        !string.IsNullOrEmpty(this.confirmPassword) &&
+        this.password == this.confirmPassword &&
+        !string.IsNullOrEmpty(this.email) &&
+        !string.IsNullOrEmpty(this.websiteName) &&
+        string.IsNullOrEmpty(this.adminInfoError);
+
+    private bool RetryEnabled => this.installationFailed;
+
+    private bool SeeLogsEnabled => this.installationFailed || this.installationComplete;
+
+    /// <summary>Gets a value indicating whether the Visit Website action is enabled.</summary>
+    /// <remarks>
+    /// finishInstall() enabled it on completion, and $.updateProgressbar additionally enabled it on
+    /// error as long as check4 (the super user creation) had completed - preserved here.
+    /// </remarks>
+    private bool VisitSiteEnabled => this.installationComplete || (this.installationFailed && this.check4 == "Done");
+
+    /// <summary>Gets the elapsed time, replacing the JS timer that wrote into <c>#timer</c>.</summary>
+    private string ElapsedText
+    {
+        get
+        {
+            var elapsed = this.progressStartedUtc.HasValue ? DateTime.UtcNow - this.progressStartedUtc.Value : TimeSpan.Zero;
+            return $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00} {this.LocalizeString("TimerMinutes")}";
+        }
+    }
+
+    /// <summary>Gets the strength label, replacing the meter's weak/fair/strong text.</summary>
+    private string PasswordStrengthText
+    {
+        get
+        {
+            var score = this.PasswordStrengthScore;
+            return score switch
+            {
+                0 => this.passwordStrengthMinLengthText,
+                1 => this.passwordStrengthWeakText,
+                2 => this.passwordStrengthFairText,
+                _ => this.passwordStrengthStrongText,
+            };
+        }
+    }
+
+    /// <summary>Gets the strength color, replacing the meter's weakColor/fairColor/strongColor.</summary>
+    private string PasswordStrengthColor =>
+        this.PasswordStrengthScore switch
+        {
+            0 => this.weakColor,
+            1 => this.weakColor,
+            2 => this.fairColor,
+            _ => this.strongColor,
+        };
+
+    /// <summary>Gets the CSS class of the confirm-password box, replacing the comparer's matched/unmatched classes.</summary>
+    private string ConfirmPasswordCssClass
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(this.confirmPassword))
+            {
+                return null;
+            }
+
+            return this.confirmPasswordMatched ? "matched" : "unmatched";
+        }
+    }
+
+    /// <summary>Gets the strength score of the entered password: 0 too short, 1 weak, 2 fair, 3 strong.</summary>
+    private int PasswordStrengthScore
+    {
+        get
+        {
+            var value = this.password ?? string.Empty;
+            if (value.Length < this.minPasswordLength)
+            {
+                return 0;
+            }
+
+            var score = 1;
+            if (NonAlphanumericCount(value) >= this.minNonAlphanumericCharacters)
+            {
+                score++;
+            }
+
+            if (string.IsNullOrEmpty(this.passwordValidationExpression) || Regex.IsMatch(value, this.passwordValidationExpression))
+            {
+                score++;
+            }
+
+            return score;
+        }
+    }
+
+    /// <summary>Runs the installer.</summary>
+    /// <param name="cultureCode">The culture selected by the user in the wizard UI (from the PageLocale field), used as the source of truth for localization since the static culture field does not survive an AppDomain restart.</param>
+    /// <remarks>
+    /// Was a <c>[WebMethod]</c> page method called by <c>PageMethods.RunInstall(...)</c>. It keeps
+    /// its exact signature and body because it IS the page's API surface; what changed is only the
+    /// caller - the component's install button invokes it directly over the circuit.
+    /// </remarks>
+    public static void RunInstall(string cultureCode)
+    {
+        installerRunning = false;
+        LaunchAutoInstall(Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>(), cultureCode);
+    }
+
+    /// <summary>Gets the installation log.</summary>
+    /// <param name="startRow">At which line to start obtaining log lines.</param>
+    /// <param name="cultureCode">The culture selected by the user in the wizard UI (from the PageLocale field), used as the source of truth for localization since the static culture field does not survive an AppDomain restart.</param>
+    /// <returns>Log string from the provided line number forward.</returns>
+    public static object GetInstallationLog(int startRow, string cultureCode)
+    {
+        const int maxLines = 500;
+        var logFile = InstallController.Instance.InstallerLogName;
+        try
+        {
+            var lines = File.ReadAllLines(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Portals", "_default", "logs", logFile));
+            var sb = new StringBuilder();
+            var errorLogged = false;
+            var lineCount = 0;
+
+            // Important to return empty string to stop retries.
+            if (startRow > lines.Count())
+            {
+                return string.Empty;
+            }
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].Contains("[ERROR]"))
+                {
+                    errorLogged = true;
+
+                    // Only append if error is in current lines range.
+                    if (i > startRow && lineCount < maxLines)
+                    {
+                        sb.Append(lines[i]).Append("<br />");
+                        lineCount++;
+
+                        // If we have reached the max lines, break out of loop.
+                        if (lineCount >= maxLines)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!errorLogged)
+            {
+                return Localization.GetString(
+                    "NoErrorsLogged",
+                    "~/Install/App_LocalResources/InstallWizard.aspx.resx",
+                    !string.IsNullOrEmpty(cultureCode) ? cultureCode : culture);
+            }
+
+            return sb.ToString();
+        }
+        catch (Exception)
+        {
+            return string.Empty;
+        }
+    }
+
+    /// <summary>Validates the information provided for the install.</summary>
+    /// <param name="installInfo">The information about the installation.</param>
+    /// <returns>A value indicating if the input is valid and an error message if not.</returns>
+    public static Tuple<bool, string> ValidateInput(Dictionary<string, string> installInfo)
+    {
+        var result = true;
+        var errorMsg = string.Empty;
+
+        // Check Required Fields
+        if (installInfo["username"] == string.Empty || installInfo["password"] == string.Empty || installInfo["confirmPassword"] == string.Empty
+             || installInfo["websiteName"] == string.Empty || installInfo["email"] == string.Empty)
+        {
+            result = false;
+            errorMsg = LocalizeStringStatic("InputErrorMissingRequiredFields");
+        }
+        else if (installInfo["password"] != installInfo["confirmPassword"])
+        {
+            result = false;
+            errorMsg = LocalizeStringStatic("PasswordMismatch");
+        }
+
+        if (result)
+        {
+            UpdateInstallConfig(installInfo);
+            new SynchConnectionStringStep().Execute();
+        }
+
+        return new Tuple<bool, string>(result, errorMsg);
+    }
+
+    /// <summary>Validates file access permissions.</summary>
+    /// <returns>Returns if the permissions are valid or an error message.</returns>
+    /// <remarks>
+    /// SECURITY CONTROL - preserved exactly, rule for rule. The same two verifiers over the same
+    /// two directories with the same retry count (3), the same `Where(v =&gt; !v.VerifyAll())`
+    /// failure test, the same single `permissionsValid = false` consequence and the same error
+    /// message built from every verifier's BasePath. Nothing is relaxed or widened.
+    /// The ONLY change is the path lookup: <c>HttpContext.Current.Server.MapPath("~")</c> and
+    /// <c>HttpContext.Current.Server.MapPath("~/App_Data")</c> become
+    /// <see cref="HttpContextSource.MapPath"/>, which resolves against the content root (TASK 101).
+    /// </remarks>
+    public static Tuple<bool, string> ValidatePermissions()
+    {
+        var permissionsValid = true;
+        var errorMessage = string.Empty;
+
+        var verifiers = new List<FileSystemPermissionVerifier>
+                            {
+                                new FileSystemPermissionVerifier(HttpContextSource.MapPath("~"), 3),
+                                new FileSystemPermissionVerifier(HttpContextSource.MapPath("~/App_Data"), 3),
+                            };
+
+        var failedList = verifiers.Where(v => !v.VerifyAll()).ToArray();
+        if (failedList.Any())
+        {
+            permissionsValid = false;
+        }
+
+        if (!permissionsValid)
+        {
+            errorMessage = string.Format(LocalizeStringStatic("FileAndFolderPermissionCheckFailed"), string.Join("; ", from v in verifiers select v.BasePath));
+        }
+
+        return new Tuple<bool, string>(permissionsValid, errorMessage);
+    }
+
+    /// <summary>Validates the password for password requirements.</summary>
+    /// <param name="password">The entered password.</param>
+    /// <returns>A value indicating whether the password is valid.</returns>
+    /// <remarks>
+    /// SECURITY CONTROL - preserved exactly, rule for rule and in the same order:
+    /// (1) minimum length, (2) the password strength regular expression when one is configured,
+    /// (3) the minimum count of non-alphanumeric characters. Each failing rule sets
+    /// <c>result = false</c> and no rule can re-enable it, which is the original's semantics.
+    /// The three settings are read through <see cref="MembershipProviderConfig"/>, which is the
+    /// one-for-one replacement of <c>System.Web.Security.Membership</c>: DNN's
+    /// <c>AspNetMembershipProvider</c> surfaces <c>MinPasswordLength</c>,
+    /// <c>PasswordStrengthRegularExpression</c> and <c>MinNonAlphanumericCharacters</c> from the
+    /// same membership configuration the static <c>Membership</c> class read
+    /// (<c>MinRequiredPasswordLength</c>, <c>PasswordStrengthRegularExpression</c>,
+    /// <c>MinRequiredNonAlphanumericCharacters</c>). No rule is relaxed, widened or reordered.
+    /// </remarks>
+    public static bool ValidatePassword(string password)
+    {
+        // Check Length
+        var result = !(password.Length < MembershipProviderConfig.MinPasswordLength);
+
+        // Check against regex
+        if (!string.IsNullOrEmpty(MembershipProviderConfig.PasswordStrengthRegularExpression) && !Regex.IsMatch(password, MembershipProviderConfig.PasswordStrengthRegularExpression))
+        {
+            result = false;
+        }
+
+        // Check non-alphaNumeric
+        var nonAlnumCount = password.Where((t, i) => !char.IsLetterOrDigit(password, i)).Count();
+        if (nonAlnumCount < MembershipProviderConfig.MinNonAlphanumericCharacters)
+        {
+            result = false;
+        }
+
+        return result;
+    }
+
+    /// <summary>Checks if the application can connect to the database on load.</summary>
+    /// <returns>A value indicating whether the application can connect to the database.</returns>
+    public static bool VerifyDatabaseConnectionOnLoad()
+    {
+        return CheckDatabaseConnection();
+    }
+
+    /// <summary>Verifies that the application can connect to the database with the provided settings.</summary>
+    /// <param name="installInfo">The install information.</param>
+    /// <returns>Returns if the connection is valid and an error message if not.</returns>
+    public static Tuple<bool, string> VerifyDatabaseConnection(Dictionary<string, string> installInfo)
+    {
+        var connectionConfig = new ConnectionConfig();
+
+        // Database Config
+        if (installInfo["databaseSetup"] == "standard")
+        {
+            connectionConfig = InstallWizard.connectionConfig;
+        }
+        else
+        {
+            connectionConfig.Server = installInfo["databaseServerName"];
+            connectionConfig.Qualifier = installInfo["databaseObjectQualifier"];
+            connectionConfig.Integrated = installInfo["databaseSecurity"] == "integrated";
+            connectionConfig.User = string.IsNullOrEmpty(installInfo["databaseUsername"]) ? null : installInfo["databaseUsername"];
+            connectionConfig.Password = string.IsNullOrEmpty(installInfo["databasePassword"]) ? null : installInfo["databasePassword"];
+            connectionConfig.RunAsDbowner = installInfo["databaseRunAsOwner"] == "on";
+
+            if (installInfo["databaseType"] == "express")
+            {
+                connectionConfig.File = installInfo["databaseFilename"];
+                connectionConfig.Database = string.Empty;
+            }
+            else
+            {
+                connectionConfig.Database = installInfo["databaseName"];
+                connectionConfig.File = string.Empty;
+            }
+        }
+
+        var result = CheckDatabaseConnection(connectionConfig);
+        var validConnection = !result.StartsWith("ERROR:");
+        if (validConnection)
+        {
+            UpdateDatabaseInstallConfig(installInfo);
+            InstallWizard.connectionConfig = connectionConfig;
+            installConfig.Connection = connectionConfig;
+        }
+
+        return new Tuple<bool, string>(validConnection, result);
+    }
+
+    /// <summary>Indicate if the Installer is running.</summary>
+    /// <returns>True or False.</returns>
+    /// <remarks>Checks the local static variable or the existence of status file.</remarks>
+    public static bool IsInstallerRunning()
+    {
+        bool isRunning;
+
+        if (installerRunning || InstallBlocker.Instance.IsInstallInProgress())
+        {
+            isRunning = true;
+        }
+        else if (File.Exists(StatusFile))
+        {
+            var file = new FileInfo(StatusFile);
+            isRunning = file.Length > 0;
+        }
+        else
+        {
+            isRunning = false;
+        }
+
+        return isRunning;
+    }
+
+    /// <summary>Raises a client api callback event.</summary>
+    /// <param name="eventArgument">The event arguments.</param>
+    /// <returns>A string representing the result of the action.</returns>
+    public string RaiseClientAPICallbackEvent(string eventArgument)
+    {
+        return this.ProcessAction(eventArgument);
+    }
+
+    /// <summary>Runs when there is a ClientCallback.</summary>
+    /// <param name="someAction">The action to perform.</param>
+    /// <returns>A string representing the result of the action.</returns>
+    public string ProcessAction(string someAction)
+    {
+        // First check that we are not being targeted by an AJAX HttpPost, so get the current DB version
+        string strProviderPath = this.dataProvider.GetProviderPath();
+        string nextVersion = this.GetNextScriptVersion(strProviderPath, this.DatabaseVersion);
+        if (someAction != nextVersion)
+        {
+            Exceptions.Exceptions.LogException(new Exception("Attempt made to run a Database Script - Possible Attack"));
+            return "Error: Possible Attack";
+        }
+
+        if (someAction == this.GetBaseDatabaseVersion())
+        {
+            string result = this.InstallDatabase();
+            if (result == "Done")
+            {
+                // Complete Installation
+                Upgrade.UpgradeApplication();
+            }
+
+            return result;
+        }
+        else if (someAction.Contains("."))
+        {
+            // Upgrade Database
+            string result = this.InstallVersion(someAction);
+            if (result == "Done")
+            {
+                ArrayList arrVersions = Upgrade.GetUpgradeScripts(strProviderPath, this.BaseVersion);
+                string strErrorMessage = Null.NullString;
+                for (int i = 0; i <= arrVersions.Count - 1; i++)
+                {
+                    string strVersion = Path.GetFileNameWithoutExtension(Convert.ToString(arrVersions[i]));
+                    var version = new Version(strVersion);
+
+                    strErrorMessage += Upgrade.UpgradeApplication(strProviderPath, version, false);
+
+                    // delete files which are no longer used
+                    strErrorMessage += Upgrade.DeleteFiles(strProviderPath, version, false);
+
+                    // execute config file updates
+                    strErrorMessage += Upgrade.UpdateConfig(strProviderPath, version, false);
+                }
+
+                // Complete Installation
+                Upgrade.UpgradeApplication();
+                if (!string.IsNullOrEmpty(strErrorMessage))
+                {
+                    result = "ERROR: " + strErrorMessage;
+                }
+            }
+
+            return result;
+        }
+        else
+        {
+            return "Done";
+        }
+    }
+
+    /// <summary>Releases the progress reporting loop.</summary>
+    public void Dispose()
+    {
+        this.progressCancellation?.Cancel();
+        this.progressCancellation?.Dispose();
+        this.progressCancellation = null;
+    }
+
+    /// <summary>GetBaseDataBaseVersion gets the Base Database Version as a string.</summary>
+    /// <returns>The database version.</returns>
+    protected string GetBaseDatabaseVersion()
+    {
+        return Upgrade.GetStringVersion(this.BaseVersion);
+    }
+
+    /// <summary>LocalizeString is a helper function for localizing strings.</summary>
+    /// <param name="key">The localization key.</param>
+    /// <returns>The localized string.</returns>
+    /// <remarks>
+    /// Deliberately still <see cref="Localization.GetString(string, string, string)"/> and not
+    /// IStringLocalizer: this page's strings are subject to the per-host/per-portal overrides the
+    /// Language Editor writes beside the .resx (InstallWizard.aspx.Host.resx), which an
+    /// IStringLocalizer cannot see, and the culture is the one the user picked with a flag rather
+    /// than the request's.
+    /// </remarks>
+    protected string LocalizeString(string key)
+    {
+        return Localization.GetString(key, localResourceFile, culture);
+    }
+
+    /// <summary>Handles an unhandled error on this page.</summary>
+    /// <param name="exc">The exception.</param>
+    /// <param name="statusCode">The status code the exception maps to.</param>
+    /// <remarks>
+    /// Replaces <c>OnError</c>, which did
+    /// <c>Response.Clear(); Server.Transfer("~/ErrorPage.aspx")</c>. <c>Server.Transfer</c> does not
+    /// exist on ASP.NET Core and the error page is a routed component now, so the browser is sent
+    /// to it. The URL comes from <see cref="DotNetNuke.Common.ErrorPage.Path"/> (the
+    /// <c>CustomErrors:ErrorPagePath</c> key), which keeps it in step with the error page's route.
+    /// </remarks>
+    protected override void HandleError(Exception exc, int statusCode)
+    {
+        this.Navigation.NavigateTo(Globals.ResolveUrl(DotNetNuke.Common.ErrorPage.Path), forceLoad: true);
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // if previous config deleted create new empty one
+        string installConfig = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Install", "DotNetNuke.install.config");
+        if (!File.Exists(installConfig))
+        {
+            File.Copy(installConfig + ".resources", installConfig);
+        }
+
+        GetInstallerLocales(this.AppStatusInfo);
+
+        // Was: if (!this.Page.IsPostBack || installConfig == null). There are no postbacks any
+        // more - the first initialization of the component instance is the former "not a
+        // postback" - so the config is read exactly once per view of the page, which is what the
+        // condition achieved.
+        if (InstallWizard.installConfig == null)
+        {
+            InstallWizard.installConfig = InstallController.Instance.GetInstallConfig();
+            connectionConfig = InstallWizard.installConfig.Connection;
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Ports <c>OnPreRender</c>. The two script registrations it made
+    /// (<c>dnn.initializePasswordStrength</c> and <c>dnn.initializePasswordComparer</c>) are
+    /// replaced by the server-rendered rules panel and confirm-password message: the VALUES are
+    /// still read from <see cref="DnnPaswordStrengthOptions"/>/<see cref="DnnConfirmPasswordOptions"/>
+    /// and overridden with this page's own local resource strings for exactly the reason the
+    /// original gave - the install wizard cannot assume App_GlobalResources/WebControls.resx has
+    /// been translated for the selected culture at install time.
+    /// </remarks>
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+
+        var options = new DnnPaswordStrengthOptions();
+
+        // The Install Wizard cannot assume App_GlobalResources/WebControls.resx
+        // (which DnnPaswordStrengthOptions reads by default) has been translated
+        // for the selected culture at install time. Override with this page's
+        // own local resource file, consistent with every other string on this page.
+        options.MinLengthText = this.LocalizeString("PasswordStrengthMinLength");
+        options.WeakText = this.LocalizeString("PasswordStrengthWeak");
+        options.FairText = this.LocalizeString("PasswordStrengthFair");
+        options.StrongText = this.LocalizeString("PasswordStrengthStrong");
+        options.CriteriaAtLeastNCharsText = this.LocalizeString("CriteriaAtLeastNChars");
+        options.CriteriaAtLeastNSpecialCharsText = this.LocalizeString("CriteriaAtLeastNSpecialChars");
+        options.CriteriaValidationExpressionText = this.LocalizeString("CriteriaValidationExpression");
+        options.PasswordRulesHeadText = this.LocalizeString("PasswordRulesHeadText");
+
+        // Was the [OnSerializing] callback of DnnPaswordStrengthOptions, which ran while
+        // Json.Serialize built the payload for the client script. The same three settings are read
+        // from the same source and the same three criteria texts are formatted with them.
+        // `PortalController` here is PageBase's injected IPortalController property (not the
+        // concrete type), so the current settings come from the instance, not a static Instance.
+        var passwordSettings = new MembershipPasswordSettings(this.PortalController.GetCurrentSettings()?.PortalId ?? -1);
+        this.minPasswordLength = passwordSettings.MinPasswordLength;
+        this.minNonAlphanumericCharacters = passwordSettings.MinNonAlphanumericCharacters;
+        this.passwordValidationExpression = passwordSettings.ValidationExpression;
+
+        this.passwordStrengthMinLengthText = options.MinLengthText;
+        this.passwordStrengthWeakText = options.WeakText;
+        this.passwordStrengthFairText = options.FairText;
+        this.passwordStrengthStrongText = options.StrongText;
+        this.passwordRulesHeadText = options.PasswordRulesHeadText;
+        this.criteriaAtLeastNCharsText = string.Format(CultureInfo.CurrentCulture, options.CriteriaAtLeastNCharsText ?? string.Empty, this.minPasswordLength);
+        this.criteriaAtLeastNSpecialCharsText = string.Format(CultureInfo.CurrentCulture, options.CriteriaAtLeastNSpecialCharsText ?? string.Empty, this.minNonAlphanumericCharacters);
+        this.criteriaValidationExpressionText = string.Format(CultureInfo.CurrentCulture, options.CriteriaValidationExpressionText ?? string.Empty, this.passwordValidationExpression);
+        this.weakColor = options.WeakColor;
+        this.fairColor = options.FairColor;
+        this.strongColor = options.StrongColor;
+
+        var confirmPasswordOptions = new DnnConfirmPasswordOptions()
+        {
+            FirstElementSelector = "#passwordContainer input[type=password]",
+            SecondElementSelector = ".password-confirm",
+            ContainerSelector = ".dnnFormPassword",
+            UnmatchedCssClass = "unmatched",
+            MatchedCssClass = "matched",
+            ConfirmPasswordUnmatchedText = this.LocalizeString("ConfirmPasswordUnmatched"),
+            ConfirmPasswordMatchedText = this.LocalizeString("ConfirmPasswordMatched"),
+        };
+
+        this.confirmPasswordUnmatchedText = confirmPasswordOptions.ConfirmPasswordUnmatchedText;
+        this.confirmPasswordMatchedText = confirmPasswordOptions.ConfirmPasswordMatchedText;
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        if (InstallBlocker.Instance.IsInstallInProgress())
+        {
+            // Preserved guard (was line 445): a running install owns the process, so the wizard
+            // sends the operator to the installer's streamed progress page instead.
+            this.Navigation.NavigateTo(Globals.ResolveUrl("~/Install/install.aspx"), forceLoad: true);
+            return;
+        }
+
+        this.SetBrowserLanguage();
+        this.LocalizePage();
+
+        base.OnLoad(e);
+
+        // Create Status Files
+        if (!File.Exists(StatusFile))
+        {
+            File.CreateText(StatusFile).Close();
+        }
+
+        if (this.initialized)
+        {
+            return;
+        }
+
+        this.initialized = true;
+
+        if (!string.IsNullOrEmpty(this.InitiateInstall))
+        {
+            // Was the "&initiateinstall=1" RawUrl suffix: synchronize the connection strings into
+            // web.config and re-request the URL with "&executeinstall=1" so the application
+            // restarts before the install runs.
+            var synchConnectionString = new SynchConnectionStringStep();
+            synchConnectionString.Execute();
+            this.Navigation.NavigateTo(this.BuildWizardUrl(executeInstall: true), forceLoad: true);
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(this.ExecuteInstall) || installerRunning)
+        {
+            // Was the "&executeinstall=1" branch, and the `installerRunning` branch that put the
+            // page straight onto the installation tab. The install itself is started from
+            // OnAfterRenderAsync, which only runs on the interactive render - so the long
+            // operation never blocks the HTTP response and its progress can actually be streamed
+            // to the circuit. The original had to kick it off inline and rely on the browser
+            // polling a file.
+            this.step = WizardStep.Installation;
+            return;
+        }
+
+        this.SetupDatabaseInfo();
+        this.BindLanguageList();
+        this.BindTemplates();
+
+        if (CheckDatabaseConnection())
+        {
+            this.Initialise();
+
+            // Replaces the PageMethods.VerifyDatabaseConnectionOnLoad(true) branch of
+            // InitializeInstallScreen: hide the advanced panel and the standard-database note.
+            // (The script's `installWizard.ValidDatabaseConnection = true` flag set here was never
+            // read by anything - the observable effects are the two state changes below, which is
+            // why no equivalent flag is kept.)
+            this.showStandardDatabaseMessage = false;
+            this.databaseInfoMessage = string.Empty;
+        }
+        else
+        {
+            // Install but connection string not configured to point at a valid SQL Server
+            UpdateMachineKey(this.AppStatusInfo);
+
+            // Replaces the PageMethods.VerifyDatabaseConnectionOnLoad(false) branch: show the
+            // standard-database note, open the advanced panel, select "advanced" and disable
+            // "standard" - the user cannot proceed with the unusable standard configuration.
+            this.showStandardDatabaseMessage = true;
+            this.databaseSetup = "advanced";
+            this.standardDatabaseDisabled = true;
+            this.databaseInfoMessage = string.Empty;
+        }
+
+        if (!Regex.IsMatch(this.Request.Host.Host, "^([a-zA-Z0-9.-]+)$"))
+        {
+            this.errorText = Localization.GetString("HostWarning", localResourceFile);
+        }
+
+        // ensure web.config is not read-only
+        // TASK 101: was this.Server.MapPath("~/web.config").
+        var configPath = HttpContextSource.MapPath("~/web.config");
+        try
+        {
+            var attributes = File.GetAttributes(configPath);
+
+            // file is read only
+            if ((attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly)
+            {
+                attributes = attributes & ~FileAttributes.ReadOnly;
+                File.SetAttributes(configPath, attributes);
+            }
+        }
+        catch (Exception ex)
+        {
+            this.errorText = ex.ToString();
+            return;
+        }
+
+        // Ensure connection strings are in synch
+        var synchConnectionStrings = new SynchConnectionStringStep();
+        synchConnectionStrings.Execute();
+        if (synchConnectionStrings.Status == StepStatus.AppRestart)
+        {
+            this.Navigation.NavigateTo(this.BuildWizardUrl(), forceLoad: true);
+            return;
+        }
+
+        this.userName = installConfig.SuperUser.UserName;
+        this.email = installConfig.SuperUser.Email;
+        if (installConfig.Portals.Count > 0)
+        {
+            this.websiteName = installConfig.Portals[0].PortalName;
+
+            // TODO Language and Template
+        }
+
+        this.emailValidationExpression = Globals.glbEmailRegEx;
+
+        // Was this.chkWebsiteSsl.Checked = this.Request.IsSecureConnection.
+        this.websiteSsl = this.Request?.IsHttps ?? false;
+
+        // Replaces the PageMethods.ValidatePermissions(...) call InitializeInstallScreen made and
+        // the jQuery dialog it opened with the result. The verification is the same SECURITY
+        // control; only the presentation changed.
+        var permissions = ValidatePermissions();
+        this.PermissionsValid = permissions.Item1;
+        this.permissionCheckMessage = permissions.Item1 ? null : permissions.Item2;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The interactive render is where the long-running install is started and where progress
+    /// reporting lives: <c>OnAfterRenderAsync</c> does not run during static server side
+    /// rendering, so the install can never block the HTTP response, and it runs exactly once per
+    /// circuit, so the install cannot be started twice by prerendering.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender || this.prerendered)
+        {
+            return;
+        }
+
+        this.prerendered = true;
+
+        // Was the $(document).ready() branch: when the URL carries &executeinstall the wizard goes
+        // to the installation tab and installs; otherwise PageMethods.IsInstallerRunning() decided
+        // whether to show the installation tab and attach the progress bar.
+        if (!string.IsNullOrEmpty(this.ExecuteInstall))
+        {
+            await this.InstallAsync();
+        }
+        else if (IsInstallerRunning())
+        {
+            this.step = WizardStep.Installation;
+            this.StartProgressReporting();
+            this.StateHasChanged();
+        }
+    }
+
+    private static int NonAlphanumericCount(string value) =>
+        string.IsNullOrEmpty(value) ? 0 : value.Count(c => !char.IsLetterOrDigit(c));
+
+    /// <summary>Maps a status-file step state to its CSS class. Replaces <c>$.applyCssStyle</c>.</summary>
+    private static string StepCssClass(string state)
+    {
+        if (string.IsNullOrEmpty(state))
+        {
+            state = string.Empty;
+        }
+
+        switch (state.ToLowerInvariant())
+        {
+            case "done":
+                return "step-done";
+            case "running":
+                return "step-running";
+            case "error":
+                return "step-error";
+            default:
+                return "step-notstarted";
+        }
+    }
+
+    private static void LaunchAutoInstall(IApplicationStatusInfo appStatus, string cultureCode = null)
+    {
+        if (appStatus.Status == UpgradeStatus.None)
+        {
+            // Was HttpContext.Current.Response.Redirect("~/"). There is no response to redirect
+            // from a background install, so the caller observes the no-op; the component's
+            // InstallAsync navigates to "~/" for exactly this case.
+            return;
+        }
+
+        // Was: scriptTimeOut = Server.ScriptTimeout; Server.ScriptTimeout = int.MaxValue; ...
+        // restore. ASP.NET Core has no script timeout; the install runs off the request thread
+        // here, so no request timeout applies to it at all.
+
+        // Prefer the culture passed in explicitly (e.g. from the client's PageLocale field) over the
+        // static culture field, which does not survive an AppDomain restart triggered mid-install.
+        var effectiveCulture = !string.IsNullOrEmpty(cultureCode) ? cultureCode : culture;
+        if (effectiveCulture != null)
+        {
+            Thread.CurrentThread.CurrentUICulture = new CultureInfo(effectiveCulture);
+        }
+
+        Install(appStatus);
+    }
+
+    private static void Install(IApplicationStatusInfo appStatus)
+    {
+        // bail out early if we are already running
+        if (installerRunning || InstallBlocker.Instance.IsInstallInProgress() || (appStatus.Status != UpgradeStatus.Install))
+        {
+            return;
+        }
+
+        var percentForEachStep = 100 / Steps.Count;
+        var useGenericPercent = false;
+        var totalPercent = Steps.Sum(step => step.Value);
+        if (totalPercent != 100)
+        {
+            useGenericPercent = true;
+        }
+
+        installerRunning = true;
+        installerProgress = 0;
+        foreach (var step in Steps)
+        {
+            currentStep = step.Key;
+
+            try
+            {
+                currentStep.Activity += CurrentStepActivity;
+                currentStep.Execute();
+            }
+            catch (Exception ex)
+            {
+                Logger.InstallWizardError(ex);
+                CurrentStepActivity("ERROR:" + ex.Message);
+                installerRunning = false;
+                return;
+            }
+
+            switch (currentStep.Status)
+            {
+                case StepStatus.AppRestart:
+                    // Was HttpContext.Current.Response.Redirect(RawUrl, true). The install runs
+                    // off the request thread, so there is no response to redirect; the step status
+                    // is reported through the status file and the component's progress loop sees
+                    // the install stop, which is what the operator observes. The AppDomain restart
+                    // itself still happens, and the wizard resumes from the status file.
+                    installerRunning = false;
+                    break;
+                default:
+                    if (currentStep.Status != StepStatus.Done)
+                    {
+                        CurrentStepActivity(string.Format(
+                            Localization.GetString("ErrorInStep", "~/Install/App_LocalResources/InstallWizard.aspx.resx"),
+                            currentStep.Errors.Count > 0 ? string.Join(",", currentStep.Errors.ToArray()) : currentStep.Details));
+
+                        installerRunning = false;
+                        return;
+                    }
+
+                    break;
+            }
+
+            if (!installerRunning)
+            {
+                return;
+            }
+
+            if (useGenericPercent)
+            {
+                installerProgress += percentForEachStep;
+            }
+            else
+            {
+                installerProgress += step.Value;
+            }
+        }
+
+        currentStep = null;
+
+        installerProgress = 100;
+        CurrentStepActivity(Localization.GetString("InstallationDone", "~/Install/App_LocalResources/InstallWizard.aspx.resx"));
+
+        // indicate we are done
+        installerRunning = false;
+    }
+
+    private static void CurrentStepActivity(string status)
+    {
+        var percentage = (currentStep == null) ? installerProgress : installerProgress + (currentStep.Percentage / Steps.Count);
+        var obj = new
+        {
+            progress = percentage,
+            details = status,
+            check0 = FilePermissionCheck.Status.ToString() + (FilePermissionCheck.Errors.Count == 0 ? string.Empty : " Errors " + FilePermissionCheck.Errors.Count),
+            check1 = InstallDatabaseStep.Status.ToString() + (InstallDatabaseStep.Errors.Count == 0 ? string.Empty : " Errors " + InstallDatabaseStep.Errors.Count),
+            check2 = InstallExtensionsStep.Status.ToString() + (InstallExtensionsStep.Errors.Count == 0 ? string.Empty : " Errors " + InstallExtensionsStep.Errors.Count),
+            check3 = InstallSiteStep.Status.ToString() + (InstallSiteStep.Errors.Count == 0 ? string.Empty : " Errors " + InstallSiteStep.Errors.Count),
+            check4 = InstallSuperUserStep.Status.ToString() + (InstallSuperUserStep.Errors.Count == 0 ? string.Empty : " Errors " + InstallSuperUserStep.Errors.Count),
+        };
+
+        try
+        {
+            lock (@lock)
+            {
+                using (var sw = new StreamWriter(StatusFile, false))
+                {
+                    sw.WriteLine(obj.ToJson());
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // TODO - do something
+        }
+    }
+
+    private static void GetInstallerLocales(IApplicationStatusInfo appStatus)
+    {
+        var filePath = appStatus.ApplicationMapPath + LocalesFile.Replace("/", @"\");
+
+        if (File.Exists(filePath))
+        {
+            var doc = new XPathDocument(filePath);
+            var languages = doc.CreateNavigator().Select("root/language");
+
+            if (languages.Count > 0)
+            {
+                supportedLanguages = new string[languages.Count];
+                var i = 0;
+                foreach (XPathNavigator nav in languages)
+                {
+                    if (nav.NodeType != XPathNodeType.Comment)
+                    {
+                        supportedLanguages.SetValue(nav.GetAttribute("key", string.Empty), i);
+                    }
+
+                    i++;
+                }
+            }
+            else
+            {
+                supportedLanguages = new string[1];
+                supportedLanguages.SetValue("en-US", 0);
+            }
+        }
+        else
+        {
+            supportedLanguages = new string[1];
+            supportedLanguages.SetValue("en-US", 0);
+        }
+    }
+
+    private static string LocalizeStringStatic(string key)
+    {
+        return Localization.GetString(key, localResourceFile, culture);
+    }
+
+    private static bool CheckDatabaseConnection()
+    {
+        var success = false;
+        connectionResult = CheckDatabaseConnection(connectionConfig);
+        if (!connectionResult.StartsWith("ERROR:"))
+        {
+            success = true;
+        }
+
+        return success;
+    }
+
+    private static string CheckDatabaseConnection(ConnectionConfig connectionConfig)
+    {
+        connectionResult = InstallController.Instance.TestDatabaseConnection(connectionConfig);
+        if (connectionResult.StartsWith("ERROR:"))
+        {
+            return connectionResult;
+        }
+
+        var connectionString = connectionResult;
+        var details = Localization.GetString("IsAbleToPerformDatabaseActionsCheck", localResourceFile);
+        if (!InstallController.Instance.IsAbleToPerformDatabaseActions(connectionString))
+        {
+            connectionResult = "ERROR: " + string.Format(CultureInfo.CurrentCulture, Localization.GetString("IsAbleToPerformDatabaseActions", localResourceFile), details);
+        }
+
+        // database actions check-running sql 2008 or higher
+        details = Localization.GetString("IsValidSqlServerVersionCheck", localResourceFile);
+        if (!InstallController.Instance.IsValidSqlServerVersion(connectionString))
+        {
+            connectionResult = "ERROR: " + string.Format(CultureInfo.CurrentCulture, Localization.GetString("IsValidSqlServerVersion", localResourceFile), details);
+        }
+
+        return connectionResult;
+    }
+
+    private static void UpdateMachineKey(IApplicationStatusInfo appStatus)
+    {
+        var installationDate = Config.GetSetting("InstallationDate");
+
+        if (string.IsNullOrEmpty(installationDate))
+        {
+            string strError = Config.UpdateMachineKey(appStatus);
+            if (string.IsNullOrEmpty(strError))
+            {
+                // send a new request to the application to initiate step 2
+                var response = HttpContextSource.Current?.Response;
+                if (response != null)
+                {
+                    response.Redirect(HttpContextSource.Current.Request.PathBase + HttpContextSource.Current.Request.Path + HttpContextSource.Current.Request.QueryString);
+                }
+            }
+            else
+            {
+                // 403-3 Error - Redirect to ErrorPage
+                // Was HttpContext.Current.Server.Transfer("~/ErrorPage.aspx?status=403_3&error=" + strError).
+                // Server.Transfer has no ASP.NET Core counterpart and the error page is a routed
+                // component now, so the browser is redirected to it instead; the URL comes from
+                // the CustomErrors:ErrorPagePath key so it stays in step with that route.
+                var strUrl = $"{DotNetNuke.Common.ErrorPage.Path}?status=403_3&error={System.Net.WebUtility.UrlEncode(strError)}";
+                var response = HttpContextSource.Current?.Response;
+                if (response != null)
+                {
+                    // Was response.Clear(): discard anything already buffered for this response
+                    // before issuing the redirect. ASP.NET Core has no Response.Clear(), and this
+                    // is only legal while the response has not started; the equivalent is to drop
+                    // the headers (and any declared body length) that were set so far.
+                    if (!response.HasStarted)
+                    {
+                        response.Headers.Clear();
+                        response.ContentLength = null;
+                    }
+
+                    response.Redirect(Globals.ResolveUrl(strUrl));
+                }
+            }
+        }
+    }
+
+    /// <summary>Updates and synchronizes DotNetNuke.install.config with Web.config.</summary>
+    /// <param name="installInfo">The information about this installation.</param>
+    private static void UpdateInstallConfig(Dictionary<string, string> installInfo)
+    {
+        installConfig = new InstallConfig
+        {
+            SuperUser = new SuperUserConfig
+            {
+                UserName = installInfo["username"],
+                Password = installInfo["password"],
+                Locale = culture,
+                Email = installInfo["email"],
+                FirstName = "SuperUser",
+                LastName = "Account",
+            },
+            InstallCulture = installInfo["language"],
+        };
+
+        // Website Portal Config
+        var portalConfig = new PortalConfig()
+        {
+            PortalName = installInfo["websiteName"],
+            IsSsl = bool.Parse(installInfo["websiteSsl"]),
+            TemplateFileName = installInfo["template"],
+            IsChild = false,
+        };
+        installConfig.Portals = new List<PortalConfig>() { portalConfig };
+
+        InstallController.Instance.SetInstallConfig(installConfig);
+    }
+
+    private static void UpdateDatabaseInstallConfig(Dictionary<string, string> installInfo)
+    {
+        // Database Config
+        if (installInfo["databaseSetup"] == "advanced")
+        {
+            connectionConfig = new ConnectionConfig()
+            {
+                Server = installInfo["databaseServerName"],
+                Qualifier = installInfo["databaseObjectQualifier"],
+                Integrated = installInfo["databaseSecurity"] == "integrated",
+                User = installInfo["databaseUsername"],
+                Password = installInfo["databasePassword"],
+                RunAsDbowner = installInfo["databaseRunAsOwner"] == "on",
+            };
+
+            if (installInfo["databaseType"] == "express")
+            {
+                connectionConfig.File = installInfo["databaseFilename"];
+                connectionConfig.Database = string.Empty;
+            }
+            else
+            {
+                connectionConfig.Database = installInfo["databaseName"];
+                connectionConfig.File = string.Empty;
+            }
+        }
+
+        installConfig.Connection = connectionConfig;
+        InstallController.Instance.SetInstallConfig(installConfig);
+    }
+
+    /// <summary>Builds the install information dictionary the page methods take.</summary>
+    /// <remarks>
+    /// This is the server-side equivalent of the `installWizard.installInfo = { ... }` object the
+    /// continueLink click handler built from the form fields, including its rule that the database
+    /// keys are only filled in for the "advanced" setup.
+    /// </remarks>
+    private Dictionary<string, string> BuildInstallInfo()
+    {
+        var installInfo = new Dictionary<string, string>
+        {
+            ["username"] = this.userName ?? string.Empty,
+            ["password"] = this.password ?? string.Empty,
+            ["confirmPassword"] = this.confirmPassword ?? string.Empty,
+            ["email"] = this.email ?? string.Empty,
+            ["websiteName"] = this.websiteName ?? string.Empty,
+            ["websiteSsl"] = this.websiteSsl.ToString(),
+            ["template"] = this.template ?? string.Empty,
+            ["language"] = this.language ?? string.Empty,
+            ["databaseSetup"] = this.databaseSetup,
+            ["threadCulture"] = culture ?? string.Empty,
+            ["databaseServerName"] = string.Empty,
+            ["databaseFilename"] = string.Empty,
+            ["databaseType"] = string.Empty,
+            ["databaseName"] = string.Empty,
+            ["databaseObjectQualifier"] = this.databaseObjectQualifier ?? string.Empty,
+            ["databaseSecurity"] = string.Empty,
+            ["databaseUsername"] = string.Empty,
+            ["databasePassword"] = string.Empty,
+            ["databaseRunAsOwner"] = null,
+        };
+
+        if (this.databaseSetup == "advanced")
+        {
+            installInfo["databaseServerName"] = this.databaseServerName ?? string.Empty;
+            installInfo["databaseFilename"] = this.databaseFilename ?? string.Empty;
+            installInfo["databaseType"] = this.databaseType;
+            installInfo["databaseName"] = this.databaseName ?? string.Empty;
+            installInfo["databaseSecurity"] = this.databaseSecurity;
+            installInfo["databaseUsername"] = this.databaseUsername ?? string.Empty;
+            installInfo["databasePassword"] = this.databasePassword ?? string.Empty;
+
+            // The client sent the checkbox's `value` here, which is "on" when checked; for SQL
+            // Express the checkbox was forced checked and disabled.
+            installInfo["databaseRunAsOwner"] = (this.databaseType == "express" || this.databaseRunAsOwner) ? "on" : string.Empty;
+        }
+
+        return installInfo;
+    }
+
+    /// <summary>Replaces the <c>continueLink</c> click handler.</summary>
+    private async Task ContinueAsync()
+    {
+        if (!this.ContinueEnabled)
+        {
+            // Was `installWizard.validateInput()` in the else branch: reveal the required-field
+            // messages and stay on the tab.
+            this.showValidation = true;
+            return;
+        }
+
+        if (!this.ConfirmPasswords())
+        {
+            return;
+        }
+
+        this.accountInfoError = null;
+        var installInfo = this.BuildInstallInfo();
+
+        var result = ValidateInput(installInfo);
+        if (!result.Item1)
+        {
+            this.showValidation = true;
+            this.accountInfoError = result.Item2;
+            return;
+        }
+
+        this.databaseError = null;
+        this.databaseCheckFailed = false;
+        this.databaseInfoMessage = this.LocalizeString("TestingDatabase");
+        this.StateHasChanged();
+
+        var valid = VerifyDatabaseConnection(installInfo);
+        this.databaseInfoMessage = string.Empty;
+        if (!valid.Item1)
+        {
+            this.databaseCheckFailed = true;
+            this.databaseInfoMessage = this.LocalizeString("DatabaseError");
+            this.databaseError = valid.Item2;
+            return;
+        }
+
+        // Restart app to refresh config from web.config.
+        // Preserved verbatim from the client script, which set culture and initiateinstall on the
+        // current URL and replaced the location.
+        this.Navigation.NavigateTo(this.BuildWizardUrl(initiateInstall: true), forceLoad: true);
+    }
+
+    /// <summary>Replaces the <c>retry</c> click handler.</summary>
+    private async Task RetryAsync()
+    {
+        if (!this.RetryEnabled)
+        {
+            return;
+        }
+
+        this.showInstallationLog = false;
+        await this.InstallAsync();
+    }
+
+    /// <summary>Replaces <c>installWizard.install()</c>: starts the install and the progress bar.</summary>
+    private async Task InstallAsync()
+    {
+        this.step = WizardStep.Installation;
+        this.installationComplete = false;
+        this.installationFailed = false;
+        this.progress = 0;
+        this.progressDetails = string.Empty;
+        this.StartProgressReporting();
+        this.StateHasChanged();
+
+        var appStatus = this.AppStatusInfo;
+        if (appStatus.Status == UpgradeStatus.None)
+        {
+            // The LaunchAutoInstall guard: nothing to install, so go to the site.
+            this.Navigation.NavigateTo(Globals.ResolveUrl("~/"), forceLoad: true);
+            return;
+        }
+
+        var cultureCode = culture;
+
+        // Call the page method which triggers the long running operation. It runs off the circuit's
+        // thread so that the UI keeps rendering progress - this is what the AJAX call did.
+        await Task.Run(() =>
+        {
+            try
+            {
+                RunInstall(cultureCode);
+            }
+            catch (Exception ex)
+            {
+                Logger.InstallWizardError(ex);
+                CurrentStepActivity("ERROR:" + ex.Message);
+            }
+        });
+    }
+
+    /// <summary>Replaces the <c>seeLogs</c> click handler and its <c>GetInstallationLog</c> polling.</summary>
+    private async Task SeeLogsAsync()
+    {
+        if (!this.SeeLogsEnabled)
+        {
+            return;
+        }
+
+        this.showInstallationLog = true;
+        this.installationLog = this.LocalizeString("LoadingInstallationLog");
+        this.installationLogStartLine = 0;
+        this.StateHasChanged();
+
+        // Was the recursive getInstallationLog() that appended 500 lines at a time until the
+        // server returned an empty string.
+        var builder = new StringBuilder();
+        while (true)
+        {
+            var chunk = await Task.Run(() => GetInstallationLog(this.installationLogStartLine, culture) as string);
+            if (string.IsNullOrEmpty(chunk))
+            {
+                break;
+            }
+
+            builder.Append(chunk);
+            this.installationLogStartLine += 500;
+            this.installationLog = builder.ToString();
+            this.StateHasChanged();
+        }
+
+        if (builder.Length == 0)
+        {
+            this.installationLog = this.LocalizeString("NoInstallationLog");
+        }
+    }
+
+    /// <summary>Replaces <c>VisitSiteClick</c>.</summary>
+    private void VisitSiteClick()
+    {
+        if (!this.VisitSiteEnabled)
+        {
+            return;
+        }
+
+        // Delete the status file.
+        try
+        {
+            File.Delete(StatusFile);
+        }
+        catch (Exception)
+        {
+            // Do nothing
+        }
+
+        // delete the initial install config -check readonly status first
+        try
+        {
+            string installConfig = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Install", "DotNetNuke.install.config");
+            if (File.Exists(installConfig))
+            {
+                // make sure file is not read-only
+                File.SetAttributes(installConfig, FileAttributes.Normal);
+                File.Delete(installConfig);
+            }
+        }
+        catch (Exception)
+        {
+            // Do nothing
+        }
+
+        Config.Touch(this.AppStatusInfo);
+        this.Navigation.NavigateTo(Globals.ResolveUrl("~/Default.aspx"), forceLoad: true);
+    }
+
+    /// <summary>Replaces <c>installWizard.changePageLocale</c>.</summary>
+    private void ChangePageLocale(string locale)
+    {
+        culture = locale;
+        Thread.CurrentThread.CurrentUICulture = new CultureInfo(locale);
+        this.LocalizePage();
+    }
+
+    /// <summary>Replaces the <c>languageList</c> change handler and <c>LegacyLangaugePack</c>/<c>ClearLegacyLangaugePack</c>.</summary>
+    private void LanguageListChanged(ChangeEventArgs e)
+    {
+        this.language = e.Value?.ToString();
+
+        // The client attached javascript:LegacyLangaugePack('<version>') to every item whose pack
+        // version did not match the application version, and ClearLegacyLangaugePack() to en-US.
+        if (!string.IsNullOrEmpty(this.language) && this.languagePackVersions.TryGetValue(this.language, out var version))
+        {
+            this.legacyLanguagePackMessage = this.LocalizeString("LegacyLangaugePack") + version;
+        }
+        else
+        {
+            this.legacyLanguagePackMessage = string.Empty;
+        }
+    }
+
+    /// <summary>Replaces <c>installWizard.confirmPasswords</c>.</summary>
+    private bool ConfirmPasswords()
+    {
+        if (this.password != this.confirmPassword)
+        {
+            this.adminInfoError = this.LocalizeString("PasswordMismatch");
+            this.confirmPasswordMatched = false;
+            this.confirmPasswordMessage = this.confirmPasswordUnmatchedText;
+            return false;
+        }
+
+        this.adminInfoError = null;
+        this.confirmPasswordMatched = true;
+        this.confirmPasswordMessage = this.confirmPasswordMatchedText;
+        return true;
+    }
+
+    /// <summary>Replaces <c>installWizard.validatePassword</c>, including its PageMethods call.</summary>
+    private Task ValidatePasswordAsync()
+    {
+        var validate = !string.IsNullOrEmpty(this.confirmPassword)
+            ? this.ConfirmPasswords()
+            : !string.IsNullOrEmpty(this.password);
+
+        if (!validate)
+        {
+            return Task.CompletedTask;
+        }
+
+        // The SAME ValidatePassword security control the AJAX call invoked.
+        if (ValidatePassword(this.password ?? string.Empty))
+        {
+            this.adminInfoError = null;
+        }
+        else
+        {
+            this.adminInfoError = this.LocalizeString("InputErrorInvalidPassword");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void SetDatabaseSetupStandard() => this.databaseSetup = "standard";
+
+    private void SetDatabaseSetupAdvanced() => this.databaseSetup = "advanced";
+
+    private void SetDatabaseTypeExpress() => this.databaseType = "express";
+
+    private void SetDatabaseTypeServer() => this.databaseType = "server";
+
+    private void SetDatabaseSecurityIntegrated() => this.databaseSecurity = "integrated";
+
+    private void SetDatabaseSecurityUserDefined() => this.databaseSecurity = "userDefined";
+
+    /// <summary>Rebuilds the wizard URL, replacing the client script's URL manipulation.</summary>
+    private string BuildWizardUrl(bool initiateInstall = false, bool executeInstall = false)
+    {
+        var url = new StringBuilder(Globals.ResolveUrl("~/Install/InstallWizard.aspx"));
+        url.Append("?culture=").Append(System.Net.WebUtility.UrlEncode(culture ?? "en-US"));
+        if (initiateInstall)
+        {
+            url.Append("&initiateinstall=1");
+        }
+
+        if (executeInstall)
+        {
+            url.Append("&executeinstall=1");
+        }
+
+        return url.ToString();
+    }
+
+    /// <summary>Starts the server-side progress loop that replaces the browser's 500ms poll.</summary>
+    private void StartProgressReporting()
+    {
+        if (this.progressCancellation != null)
+        {
+            return;
+        }
+
+        this.progressStartedUtc = DateTime.UtcNow;
+        this.progressCancellation = new CancellationTokenSource();
+        var token = this.progressCancellation.Token;
+
+        _ = Task.Run(async () =>
+        {
+            // 500ms is the interval the client used.
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    await this.InvokeAsync(this.ReadStatus);
+                    if (this.installationComplete || this.installationFailed)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The circuit went away.
+            }
+        });
+    }
+
+    /// <summary>Reads the install status file and applies it. Replaces <c>$.updateProgressbar</c>.</summary>
+    private void ReadStatus()
+    {
+        try
+        {
+            if (!File.Exists(StatusFile))
+            {
+                return;
+            }
+
+            string content;
+            lock (@lock)
+            {
+                using var stream = new FileStream(StatusFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                content = reader.ReadToEnd();
+            }
+
+            var lines = content.Split('\n').Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+            if (lines.Length == 0)
+            {
+                return;
+            }
+
+            var status = Json.Deserialize<InstallStatus>(lines[lines.Length - 1]);
+            if (status == null)
+            {
+                return;
+            }
+
+            // The client ignored a progress value lower than the one already shown.
+            if (status.Progress < this.progress)
+            {
+                return;
+            }
+
+            this.progress = status.Progress;
+            this.progressDetails = status.Details ?? string.Empty;
+            this.check0 = status.Check0;
+            this.check1 = status.Check1;
+            this.check2 = status.Check2;
+            this.check3 = status.Check3;
+            this.check4 = status.Check4;
+
+            var installationError = this.progressDetails.ToUpperInvariant().IndexOf("ERROR", StringComparison.Ordinal) > -1;
+
+            if (this.progress >= 100 || this.progressDetails == this.LocalizeString("InstallationDone"))
+            {
+                // Was installWizard.finishInstall(): stop the bar, mark every step done and move
+                // the wizard onto the "view website" tab.
+                this.installationComplete = true;
+                this.installationFailed = false;
+                this.check0 = this.check1 = this.check2 = this.check3 = this.check4 = "Done";
+                this.step = WizardStep.ViewWebsite;
+            }
+            else if (installationError)
+            {
+                this.installationFailed = true;
+            }
+
+            this.StateHasChanged();
+        }
+        catch (Exception)
+        {
+            // The client swallowed parse failures of a partially written status line; so does this.
+        }
+    }
+
+    private string GetNextScriptVersion(string strProviderPath, Version currentVersion)
+    {
+        var strNextVersion = "Done";
+
+        if (currentVersion == null)
+        {
+            strNextVersion = this.GetBaseDatabaseVersion();
+        }
+        else
+        {
+            var strScriptVersion = Null.NullString;
+            var arrScripts = Upgrade.GetUpgradeScripts(strProviderPath, currentVersion);
+
+            if (arrScripts.Count > 0)
+            {
+                // First Script is next script
+                strScriptVersion = Path.GetFileNameWithoutExtension(Convert.ToString(arrScripts[0]));
+            }
+
+            if (!string.IsNullOrEmpty(strScriptVersion))
+            {
+                strNextVersion = strScriptVersion;
+            }
+        }
+
+        return strNextVersion;
+    }
+
+    private void SetBrowserLanguage()
+    {
+        string cultureCode;
+        if (string.IsNullOrEmpty(culture))
+        {
+            cultureCode = !string.IsNullOrEmpty(this.CultureParameter)
+                ? this.CultureParameter
+                : TestableLocalization.Instance.BestCultureCodeBasedOnBrowserLanguages(supportedLanguages);
+        }
+        else
+        {
+            cultureCode = culture;
+        }
+
+        culture = cultureCode;
+
+        Thread.CurrentThread.CurrentUICulture = new CultureInfo(cultureCode);
+    }
+
+    private void Initialise()
+    {
+        if (this.TestDataBaseInstalled())
+        {
+            // running current version, so redirect to site home page
+            this.Navigation.NavigateTo(Globals.ResolveUrl("~/Default.aspx"), forceLoad: true);
+        }
+        else
+        {
+            if (this.DatabaseVersion > new Version(0, 0, 0))
+            {
+                // Upgrade
+                this.introDetail = string.Format(this.LocalizeString("Upgrade"), Upgrade.GetStringVersion(this.DatabaseVersion));
+            }
+            else
+            {
+                // Install
+                UpdateMachineKey(this.AppStatusInfo);
+            }
+        }
+    }
+
+    private string InstallDatabase()
+    {
+        var strProviderPath = this.dataProvider.GetProviderPath();
+        var strErrorMessage = strProviderPath.StartsWith("ERROR:")
+            ? strProviderPath
+            : Upgrade.InstallDatabase(this.BaseVersion, strProviderPath, this.InstallTemplate, false);
+        if (string.IsNullOrEmpty(strErrorMessage))
+        {
+            // Get Next Version
+            strErrorMessage = this.GetNextScriptVersion(strProviderPath, this.BaseVersion);
+        }
+        else if (!strErrorMessage.StartsWith("ERROR:"))
+        {
+            strErrorMessage = "ERROR: " + string.Format(this.LocalizeString("ScriptError"), Upgrade.GetLogFile(strProviderPath, this.BaseVersion));
+        }
+
+        return strErrorMessage;
+    }
+
+    private string InstallVersion(string strVersion)
+    {
+        var strErrorMessage = Null.NullString;
+        var version = new Version(strVersion);
+        var strScriptFile = Null.NullString;
+        var strProviderPath = this.dataProvider.GetProviderPath();
+        if (!strProviderPath.StartsWith("ERROR:"))
+        {
+            // Install Version
+            strScriptFile = Upgrade.GetScriptFile(strProviderPath, version);
+            strErrorMessage += Upgrade.UpgradeVersion(strScriptFile, false);
+            this.Versions += "," + strVersion;
+        }
+        else
+        {
+            strErrorMessage = strProviderPath;
+        }
+
+        if (string.IsNullOrEmpty(strErrorMessage))
+        {
+            // Get Next Version
+            strErrorMessage = this.GetNextScriptVersion(strProviderPath, version);
+        }
+        else
+        {
+            strErrorMessage = "ERROR: (see " + (Path.GetFileName(strScriptFile) ?? string.Empty)
+                .Replace("." + Upgrade.DefaultProvider, ".log") + " for more information)";
+        }
+
+        return strErrorMessage;
+    }
+
+    private void LocalizePage()
+    {
+        // Was this.Page.Title (now the <PageTitle> above, which reads the same key) and
+        // lblIntroDetail.
+        this.introDetail = this.LocalizeString("IntroDetail");
+    }
+
+    /// <summary>TestDataBaseInstalled checks whether the Database is the current version.</summary>
+    /// <returns>A value indicating whether the database is the current version.</returns>
+    private bool TestDataBaseInstalled()
+    {
+        var success = !(this.DatabaseVersion == null || this.DatabaseVersion.Major != this.ApplicationVersion.Major || this.DatabaseVersion.Minor != this.ApplicationVersion.Minor || this.DatabaseVersion.Build != this.ApplicationVersion.Build);
+        return success;
+    }
+
+    private void SetupDatabaseInfo()
+    {
+        // Try to use connection information in DotNetNuke.Install.Config. If not found use from web.config
+        connectionConfig = installConfig.Connection;
+        if (connectionConfig == null || string.IsNullOrEmpty(connectionConfig.Server))
+        {
+            connectionConfig = InstallController.Instance.GetConnectionFromWebConfig();
+        }
+
+        if (connectionConfig != null)
+        {
+            this.databaseServerName = connectionConfig.Server;
+
+            // SQL Express Or SQL Server
+            if (!string.IsNullOrEmpty(connectionConfig.File))
+            {
+                this.databaseFilename = connectionConfig.File;
+                this.databaseType = "express";
+            }
+            else
+            {
+                this.databaseName = connectionConfig.Database;
+                this.databaseType = "server";
+            }
+
+            // Integrated or Custom
+            if (connectionConfig.Integrated)
+            {
+                this.databaseSecurity = "integrated";
+            }
+            else
+            {
+                this.databaseSecurity = "userDefined";
+                this.databaseUsername = connectionConfig.User;
+                this.databasePassword = connectionConfig.Password;
+            }
+
+            // Owner or Not
+            this.databaseRunAsOwner = connectionConfig.RunAsDbowner;
+        }
+    }
+
+    private void BindLanguageList()
+    {
+        try
+        {
+            var myResponseReader = UpdateService.GetLanguageList();
+
+            // empty language list
+            this.languageList.Clear();
+            this.languagePackVersions.Clear();
+
+            // Loading into XML doc
+            var xmlDoc = new XmlDocument { XmlResolver = null };
+            using (var xmlReader = XmlReader.Create(myResponseReader, new XmlReaderSettings { XmlResolver = null, }))
+            {
+                xmlDoc.Load(xmlReader);
+            }
+
+            var languages = xmlDoc.SelectNodes("available/language");
+            var packages = new List<PackageInfo>();
+
+            if (languages != null)
+            {
+                foreach (XmlNode language in languages)
+                {
+                    string cultureCode = string.Empty;
+                    string version = string.Empty;
+                    foreach (XmlNode child in language.ChildNodes)
+                    {
+                        if (child.Name == "culturecode")
+                        {
+                            cultureCode = child.InnerText;
+                        }
+
+                        if (child.Name == "version")
+                        {
+                            version = child.InnerText;
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(cultureCode) && !string.IsNullOrEmpty(version) && version.Length == 6)
+                    {
+                        var myCIintl = new CultureInfo(cultureCode, true);
+                        version = version.Insert(4, ".").Insert(2, ".");
+                        var package = new PackageInfo { Name = "LanguagePack-" + myCIintl.Name, FriendlyName = myCIintl.NativeName };
+                        package.Name = myCIintl.NativeName;
+                        package.Description = cultureCode;
+                        Version ver;
+                        Version.TryParse(version, out ver);
+                        package.Version = ver;
+
+                        if (packages.Any(p => p.Name == package.Name))
+                        {
+                            var existPackage = packages.First(p => p.Name == package.Name);
+                            if (package.Version > existPackage.Version)
+                            {
+                                packages.Remove(existPackage);
+                                packages.Add(package);
+                            }
+                        }
+                        else
+                        {
+                            packages.Add(package);
+                        }
+                    }
+                }
+            }
+
+            foreach (var package in packages)
+            {
+                this.languageList.Add(new ListEntry(package.Name, package.Description));
+
+                // Was lastItem.Attributes.Add("onclick", "javascript:LegacyLangaugePack('<version>');"),
+                // attached only to packs whose version does not match the application's.
+                if (DotNetNukeContext.Current.Application.Version.Major != package.Version.Major
+                    || DotNetNukeContext.Current.Application.Version.Minor != package.Version.Minor
+                    || DotNetNukeContext.Current.Application.Version.Build != package.Version.Build)
+                {
+                    this.languagePackVersions[package.Description] = package.Version;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // suppress for now - need to decide what to do when webservice is unreachable
+            // throw;
+        }
+        finally
+        {
+            // ensure there is always an en-us
+            if (!this.languageList.Any(i => i.Value == "en-US"))
+            {
+                var myCIintl = new CultureInfo("en-US", true);
+                this.languageList.Add(new ListEntry(myCIintl.NativeName, "en-US"));
+                this.languagePackVersions.Remove("en-US");
+            }
+
+            this.language = this.languageList.Any(i => i.Value == culture) ? culture : "en-US";
+        }
+    }
+
+    private void BindTemplates()
+    {
+        var templates = this.PortalTemplateController.GetPortalTemplates();
+        this.templateList.Clear();
+        foreach (var template in templates)
+        {
+            this.templateList.Add(new ListEntry(template.Name, Path.GetFileName(template.TemplateFilePath)));
+        }
+
+        this.template = this.templateList.Any(i => i.Value == "Default Website.template")
+            ? "Default Website.template"
+            : this.templateList.FirstOrDefault()?.Value;
+    }
+
+    private bool initialized;
+
+    /// <summary>An item of one of the wizard's select lists. Replaces <c>ListItem</c>.</summary>
+    private sealed class ListEntry
+    {
+        public ListEntry(string text, string value)
+        {
+            this.Text = text;
+            this.Value = value;
+        }
+
+        public string Text { get; }
+
+        public string Value { get; }
+    }
+
+    /// <summary>The shape of a line of the install status file written by <see cref="CurrentStepActivity"/>.</summary>
+    private sealed class InstallStatus
+    {
+        [Newtonsoft.Json.JsonProperty("progress")]
+        public int Progress { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("details")]
+        public string Details { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("check0")]
+        public string Check0 { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("check1")]
+        public string Check1 { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("check2")]
+        public string Check2 { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("check3")]
+        public string Check3 { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("check4")]
+        public string Check4 { get; set; }
+    }
+}

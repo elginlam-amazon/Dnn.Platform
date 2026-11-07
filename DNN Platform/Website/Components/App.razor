@@ -12,11 +12,28 @@
 </head>
 <body>
     <Routes @rendermode="RenderModeForPage" />
+
+    @* The keyed client script blocks, start-up scripts, script includes and hidden fields the DNN
+       Client API registered on this request's IClientApiPage. The WebForms page emitted these at
+       the end of its form (ForceProvider="DnnFormBottomProvider"), which is this position. It is
+       rendered after <Routes /> so that everything the page and its modules registered while they
+       rendered is included. *@
+    <ClientApiScripts />
+
+    @* The default theme's script. Blazor does not execute <script> elements rendered from inside a
+       component, so the theme's script tag belongs to this document (end of <body>, which is where
+       the legacy skin put it). *@
+    <script src="@Dnn.Skins.Aperture.ApertureThemeAssets.ScriptHref" defer></script>
+
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>
 
 @code {
+#nullable enable // the project does not enable nullable reference types, and the ?-annotated
+                 // render-mode property below would otherwise be CS8669 (an annotation outside a
+                 // #nullable context). Returning null is what makes [ExcludeFromInteractiveRouting]
+                 // effective, so the annotation is required, not cosmetic.
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
 

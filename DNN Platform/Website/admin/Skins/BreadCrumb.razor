@@ -1,0 +1,23 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@*
+    Replaces breadcrumb.ascx, which was a single <asp:Literal id="lblBreadCrumb"
+    EnableViewState="False" />. A Literal emits no wrapper element and does not encode, so the trail
+    built by BreadCrumb.razor.cs (which already HTML-encodes every page name it renders) is written
+    as markup content and nothing else is added - both the legacy span rendering and the v2
+    nav/ol/li rendering stay byte for byte what the skin objects produced.
+
+    HideWithNoBreadCrumb leaves the trail empty, which renders nothing, exactly as the Literal did.
+*@
+
+@if (!this.Visible)
+{
+    return;
+}
+
+@((MarkupString)(this.BreadCrumbMarkup ?? string.Empty))

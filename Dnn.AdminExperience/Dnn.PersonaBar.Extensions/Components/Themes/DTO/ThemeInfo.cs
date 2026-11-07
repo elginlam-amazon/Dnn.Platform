@@ -8,7 +8,6 @@ namespace Dnn.PersonaBar.Themes.Components.DTO
     using System.Collections.Generic;
     using System.Linq;
     using System.Runtime.Serialization;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;

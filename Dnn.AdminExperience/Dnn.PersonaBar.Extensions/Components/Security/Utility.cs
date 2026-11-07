@@ -174,7 +174,10 @@ namespace Dnn.PersonaBar.Security.Components
 
         public static string GetFileCheckSum(string fileName)
         {
-            using (var cryptographyProvider = SHA256.Create(CryptoConfig.AllowOnlyFipsAlgorithms ? "System.Security.Cryptography.SHA256CryptoServiceProvider" : "System.Security.Cryptography.SHA256Cng"))
+            // On modern .NET there is a single SHA-256 implementation (the named CSP/CNG providers no
+            // longer exist and the algorithm-name factory is obsolete). It is FIPS-validated through the
+            // OS crypto libraries, so the FIPS branch is unnecessary and the computed hash is identical.
+            using (var cryptographyProvider = SHA256.Create())
             {
                 using (var stream = File.OpenRead(fileName))
                 {

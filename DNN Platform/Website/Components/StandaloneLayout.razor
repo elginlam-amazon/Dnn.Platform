@@ -1,0 +1,22 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Website.Components
+@inherits LayoutComponentBase
+
+@*
+    The layout for the handful of pages that are NOT portal pages and therefore must not be
+    wrapped in the portal skin.
+
+    ErrorPage.aspx, Install/install.aspx, Install/InstallWizard.aspx and
+    Install/UpgradeWizard.aspx each declared their own complete <html> document in WebForms
+    precisely because they run when there may be no portal, no database and no skin at all. In
+    the Blazor host the document is owned by Components/App.razor, so what those pages need from
+    a layout is the OPPOSITE of ApertureLayout (which Routes.razor applies by default): nothing
+    but the page body.
+
+    Rendering no chrome is the whole point. A page selecting this layout gets its own stylesheets
+    through <HeadContent> and nothing else, which is exactly what its original standalone
+    document produced.
+*@
+@this.Body

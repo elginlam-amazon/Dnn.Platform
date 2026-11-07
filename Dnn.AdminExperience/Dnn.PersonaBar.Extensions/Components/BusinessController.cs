@@ -10,7 +10,6 @@ namespace Dnn.PersonaBar.Extensions.Components
     using System.IO;
     using System.Linq;
     using System.Text;
-    using System.Web;
 
     using Dnn.PersonaBar.Library.Repository;
     using DotNetNuke.Common;
@@ -83,7 +82,7 @@ namespace Dnn.PersonaBar.Extensions.Components
 
         private static bool TelerikAssemblyExists()
         {
-            return File.Exists(Path.Combine(Globals.ApplicationMapPath, @"bin\Telerik.Web.UI.dll"));
+            return File.Exists(Path.Combine(Globals.ApplicationMapPath, "bin", "Telerik.Web.UI.dll"));
         }
     }
 }

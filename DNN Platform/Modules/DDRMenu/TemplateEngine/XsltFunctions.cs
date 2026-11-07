@@ -33,7 +33,7 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
             {
                 return Localization.GetString(
                     DNNAbstract.IsAuthenticated() ? "Logout" : "Login",
-                    DNNContext.Current.ResolveUrl("~/Admin/Skins/" + Localization.LocalResourceDirectory + "/Login.ascx"));
+                    DNNContext.Current.ResolveUrl("~/admin/Skins/" + Localization.LocalResourceDirectory + "/Login.ascx"));
             }
             catch (Exception)
             {
@@ -60,7 +60,7 @@ namespace DotNetNuke.Web.DDRMenu.TemplateEngine
                     // only served to call Control.ResolveUrl, which IClientApiControl does not
                     // carry. The DNN context performs the identical application-relative
                     // resolution and also works when the host is a module control.
-                    var resourceFileRoot = DNNContext.Current.ResolveUrl($"~/Admin/Skins/{Localization.LocalResourceDirectory}/User.ascx");
+                    var resourceFileRoot = DNNContext.Current.ResolveUrl($"~/admin/Skins/{Localization.LocalResourceDirectory}/User.ascx");
                     return Localization.GetString("Register", resourceFileRoot);
                 }
             }

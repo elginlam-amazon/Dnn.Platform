@@ -1,0 +1,603 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.EditExtension
+@inherits DotNetNuke.UI.Modules.ModuleUserControlBase
+
+@using System
+@using System.Collections.Generic
+@using System.IO
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.DependencyInjection
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Installer
+@using DotNetNuke.Services.Installer.Packages
+@using DotNetNuke.Services.Installer.Writers
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI
+@using DotNetNuke.UI.Modules
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.UI.WebControls
+@using DotNetNuke.Web.UI.WebControls
+
+@*
+    Replaces EditExtension.ascx.
+
+    * The <asp:PlaceHolder ID="phEditor"> that hosted the package type's editor control becomes
+      component composition: ControlUtilities resolves pkgType.EditorControlSrc to the component
+      type that replaced it and DynamicComponent renders it. The renderer owns the instance, so the
+      IPackageEditor calls (PackageID, Initialize(), UpdatePackage()) are made through the
+      DynamicComponent's captured Instance — Initialize() once the editor has rendered, and
+      UpdatePackage() from the Update/Package handlers, which is the order the WebForms code had.
+
+    * <dnn:DnnFormEditor> is the migrated DnnFormEditor component; its Items collection has a
+      private setter and is filled imperatively, so the declared <Items> blocks became
+      BuildFormItems() below — identical IDs, DataFields, ResourceKeys, TextModes, Rows, Required
+      flags and order, for both the editable and the read-only form.
+
+    * The runat="server" <div>/<h2> and the four LinkButtons become plain markup; their Visible /
+      Enabled guards are the same fields the code behind computed. Note that trLanguagePackType is
+      set invisible by BindData and never set visible again, so the radio list it contained is
+      rendered behind that same (false) flag rather than dropped.
+
+    * The inline <script> that called $('#dnnEditExtension').dnnPanels() cannot live in a .razor
+      file; it runs through IJSRuntime after the first render instead. The MS AJAX endRequest
+      re-initialization has no counterpart because there are no partial postbacks.
+
+    * ViewState["ReturnUrl"] becomes a component field: a Blazor component instance lives for the
+      whole circuit, which is the lifetime ViewState gave it.
+*@
+
+<div class="dnnForm dnnEditExtension dnnClear" id="dnnEditExtension">
+    @if (this.extensionSectionVisible)
+    {
+        <div id="extensionSection">
+            @if (this.packageEditorType is not null)
+            {
+                <DynamicComponent @ref="this.packageEditorHost" Type="@this.packageEditorType" Parameters="@this.packageEditorParameters" />
+            }
+        </div>
+    }
+    @if (this.packageSettingsSectionVisible)
+    {
+        <div id="packageSettingsSection">
+            <h2 class="dnnFormSectionHead" id="dnnPanel-ExtensionPackageSettings"><a href="" class="dnnLabelExpanded">@this.LocalizeString("PackageSettings")</a></h2>
+            <fieldset>
+                <span id="lblHelp">@this.helpText</span>
+                @if (this.trLanguagePackTypeVisible)
+                {
+                    <div id="trLanguagePackType" class="dnnFormItem">
+                        <LabelControl ControlName="rbPackageType" ResourceKey="plPackageType" LocalResourceFile="@this.LocalResourceFile" />
+                        <span id="rbPackageType">
+                            <label><input type="radio" name="rbPackageType" value="Core" checked="@(this.packageTypeChoice == "Core")" @onchange="@(() => this.packageTypeChoice = "Core")" /> @this.LocalizeString("Core")</label>
+                            <label><input type="radio" name="rbPackageType" value="Package" checked="@(this.packageTypeChoice == "Package")" @onchange="@(() => this.packageTypeChoice = "Package")" /> @this.LocalizeString("Package")</label>
+                        </span>
+                        @if (string.IsNullOrEmpty(this.packageTypeChoice))
+                        {
+                            <span id="valPackageType" class="dnnFormMessage dnnFormError">@this.LocalizeString("PackageType.Error")</span>
+                        }
+                    </div>
+                }
+                @if (this.packageFormVisible)
+                {
+                    <DnnFormEditor @ref="this.packageForm" FormMode="DnnFormMode.Short" />
+                }
+                @if (this.packageFormReadOnlyVisible)
+                {
+                    <DnnFormEditor @ref="this.packageFormReadOnly" FormMode="DnnFormMode.Short" />
+                }
+            </fieldset>
+        </div>
+    }
+    <ul class="dnnActions dnnClear">
+        @if (this.cmdUpdateVisible)
+        {
+            <li><a id="cmdUpdate" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.OnUpdateClick" @onclick:preventDefault="true">@this.updateText</a></li>
+        }
+        @if (this.cmdDeleteVisible)
+        {
+            <li><a id="cmdDelete" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.OnDeleteClick" @onclick:preventDefault="true">@this.LocalizeString("cmdDelete")</a></li>
+        }
+        @if (this.cmdPackageVisible)
+        {
+            <li><a id="cmdPackage" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.OnPackageClick" @onclick:preventDefault="true">@this.LocalizeString("cmdPackage")</a></li>
+        }
+        @if (this.cmdCancelVisible)
+        {
+            <li><a id="cmdCancel" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.OnCancelClick" @onclick:preventDefault="true">@this.LocalizeString("cmdCancel")</a></li>
+        }
+    </ul>
+</div>
+<ModuleAuditControl Entity="@this.Package" />
+
+@code {
+    private IServiceProvider serviceProvider;
+    private INavigationManager navigationManager;
+    private IApplicationStatusInfo appStatus;
+    private IJavaScriptLibraryHelper javaScript;
+    private IHostSettings hostSettings;
+    private IEventLogger eventLogger;
+
+    private PackageInfo package;
+    private Type packageEditorType;
+    private IDictionary<string, object> packageEditorParameters = new Dictionary<string, object>();
+    private DynamicComponent packageEditorHost;
+    private bool packageEditorInitialized;
+
+    private DnnFormEditor packageForm;
+    private DnnFormEditor packageFormReadOnly;
+
+    private List<DnnFormItemBase> editableItems;
+    private List<DnnFormItemBase> readOnlyItems;
+    private DnnFormTextBoxItem iconFileItem;
+    private DnnFormLiteralItem packageTypeItem;
+    private DnnFormTextBoxItem emailItem;
+
+    private bool loaded;
+    private bool extensionSectionVisible = true;
+    private bool packageSettingsSectionVisible = true;
+    private bool trLanguagePackTypeVisible;
+    private bool packageFormVisible;
+    private bool packageFormReadOnlyVisible;
+    private bool cmdUpdateVisible;
+    private bool cmdDeleteVisible;
+    private bool cmdPackageVisible;
+    private bool cmdCancelVisible = true;
+    private string helpText = string.Empty;
+    private string updateText = string.Empty;
+    private string packageTypeChoice = string.Empty;
+
+    /// <summary>Gets or sets the Blazor navigation manager; <c>Response.Redirect</c> becomes a forced navigation.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets or sets the JS runtime, used for the dnnPanels bootstrap.</summary>
+    [Inject]
+    protected Microsoft.JSInterop.IJSRuntime JsRuntime { get; set; }
+
+    /// <summary>Gets or sets the page service, used for the popup title.</summary>
+    [Inject]
+    protected DotNetNuke.Abstractions.Pages.IPageService PageService { get; set; }
+
+    /// <summary>Gets the extension mode this module instance was configured with.</summary>
+    public string Mode => Convert.ToString(this.ModuleContext.Settings["Extensions_Mode"]);
+
+    /// <summary>Gets the package id being edited, or <see cref="Null.NullInteger"/> (-1) when there is none.</summary>
+    public int PackageID
+    {
+        get
+        {
+            var packageID = Null.NullInteger;
+            var requested = this.Request?.Query["PackageID"].ToString();
+            if (!string.IsNullOrEmpty(requested))
+            {
+                packageID = int.Parse(requested);
+            }
+
+            return packageID;
+        }
+    }
+
+    protected bool IsSuperTab => this.ModuleContext.PortalSettings.ActiveTab.IsSuperTab;
+
+    protected string DisplayMode => (this.Request?.Query["Display"].ToString() ?? string.Empty).ToLowerInvariant();
+
+    protected PackageInfo Package => this.package ??= this.PackageID == Null.NullInteger ? new PackageInfo() : PackageController.Instance.GetExtensionPackage(Null.NullInteger, p => p.PackageID == this.PackageID, true);
+
+    /// <summary>Gets the package type's own editor, once the renderer has created it.</summary>
+    protected IPackageEditor PackageEditor => this.packageEditorHost?.Instance as IPackageEditor;
+
+    protected PropertyEditorMode ViewMode
+    {
+        get
+        {
+            var viewMode = PropertyEditorMode.View;
+
+            // Request.IsLocal: on ASP.NET Core the equivalent is a loopback connection.
+            var isLocal = this.Request?.HttpContext?.Connection?.RemoteIpAddress is { } remote
+                && (System.Net.IPAddress.IsLoopback(remote)
+                    || remote.Equals(this.Request.HttpContext.Connection.LocalIpAddress));
+            if (isLocal && this.IsSuperTab)
+            {
+                viewMode = PropertyEditorMode.Edit;
+            }
+
+            return viewMode;
+        }
+    }
+
+    /// <summary>Gets or sets the URL the Cancel button returns to.</summary>
+    /// <remarks>Was <c>ViewState["ReturnUrl"]</c>; a component field has that same lifetime.</remarks>
+    protected string ReturnUrl { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.serviceProvider ??= Globals.GetCurrentServiceProvider();
+        this.navigationManager ??= this.serviceProvider.GetRequiredService<INavigationManager>();
+        this.appStatus ??= this.serviceProvider.GetRequiredService<IApplicationStatusInfo>();
+        this.javaScript ??= this.serviceProvider.GetRequiredService<IJavaScriptLibraryHelper>();
+        this.hostSettings ??= this.serviceProvider.GetRequiredService<IHostSettings>();
+        this.eventLogger ??= this.serviceProvider.GetRequiredService<IEventLogger>();
+
+        this.javaScript.RequestRegistration(CommonJs.DnnPlugins);
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        this.BindData();
+
+        // The WebForms control did this on the first (non-postback) request only; a Blazor component
+        // instance is created once per circuit, so the first load is that same moment.
+        this.ReturnUrl = this.Request?.Headers.Referer.ToString() is { Length: > 0 } referrer
+            ? referrer
+            : this.navigationManager.NavigateURL();
+        switch (this.DisplayMode)
+        {
+            case "editor":
+                this.packageSettingsSectionVisible = false;
+                break;
+            case "settings":
+                this.extensionSectionVisible = false;
+                break;
+        }
+
+        switch (this.DisplayMode)
+        {
+            case "editor":
+                this.cmdCancelVisible = false;
+                this.cmdUpdateVisible = false;
+                this.cmdPackageVisible = false;
+                this.cmdDeleteVisible = false;
+                break;
+            case "settings":
+                this.cmdCancelVisible = false;
+                break;
+        }
+
+        // Replaces Page.PreRenderComplete: the popup title is set once everything is known.
+        if (UrlUtils.InPopUp())
+        {
+            var title = $"{this.PageService.GetTitle()} > {this.Package.FriendlyName}";
+            this.PageService.SetTitle(title);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnAfterRender(bool firstRender)
+    {
+        base.OnAfterRender(firstRender);
+
+        this.SyncFormItems();
+        this.InitializePackageEditor();
+
+        if (firstRender)
+        {
+            // Replaces the inline script: $('#dnnEditExtension').dnnPanels().
+            _ = this.JsRuntime.InvokeVoidAsync("eval", "if(window.jQuery){jQuery('#dnnEditExtension').dnnPanels();}");
+        }
+    }
+
+    protected void OnCancelClick()
+    {
+        this.Navigation.NavigateTo(this.ReturnUrl, forceLoad: true);
+    }
+
+    protected void OnDeleteClick()
+    {
+        this.Navigation.NavigateTo(Util.UnInstallURL(this.ModuleContext.TabId, this.PackageID), forceLoad: true);
+    }
+
+    protected void OnPackageClick()
+    {
+        try
+        {
+            this.UpdatePackage(false);
+            this.Navigation.NavigateTo(Util.PackageWriterURL(this.ModuleContext, this.PackageID), forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            Exceptions.ProcessModuleLoadException(this, ex);
+        }
+    }
+
+    protected void OnUpdateClick()
+    {
+        try
+        {
+            this.UpdatePackage(true);
+        }
+        catch (Exception ex)
+        {
+            Exceptions.ProcessModuleLoadException(this, ex);
+        }
+    }
+
+    private void BindData()
+    {
+        this.BuildFormItems();
+
+        // BL0005: this.emailItem is one of the DnnFormItemBase MODELS this page constructs in
+        // BuildFormItems() and hands to the DnnFormEditor through its Items collection; it is not a
+        // @ref'd child component (the only @ref captures here are packageForm/packageFormReadOnly/
+        // packageEditorHost). The constructing type therefore owns the instance and these are
+        // owner-writes, which is what the analyzer's rule is there to protect.
+#pragma warning disable BL0005
+        this.emailItem.ValidationExpression = Globals.glbEmailRegEx;
+#pragma warning restore BL0005
+        this.trLanguagePackTypeVisible = false;
+        switch (this.Mode)
+        {
+            case "All":
+                this.helpText = Localization.GetString("EditHelp", this.LocalResourceFile);
+                this.updateText = Localization.GetString("cmdUpdate", this.LocalResourceFile);
+                break;
+            case "LanguagePack":
+                this.helpText = Localization.GetString("EditLanguageHelp", this.LocalResourceFile);
+                this.updateText = Localization.GetString("cmdUpdateLanguage", this.LocalResourceFile);
+                break;
+            case "Module":
+                this.helpText = Localization.GetString("EditModuleHelp", this.LocalResourceFile);
+                this.updateText = Localization.GetString("cmdUpdateModule", this.LocalResourceFile);
+                break;
+            case "Skin":
+                this.helpText = Localization.GetString("EditSkinHelp", this.LocalResourceFile);
+                this.updateText = Localization.GetString("cmdUpdateSkin", this.LocalResourceFile);
+                break;
+        }
+
+        this.cmdPackageVisible = this.IsSuperTab;
+        this.cmdUpdateVisible = this.IsSuperTab;
+        if (this.Package != null)
+        {
+            this.ResolvePackageEditor();
+
+            if (this.packageEditorType == null || this.PackageID == Null.NullInteger)
+            {
+                this.extensionSectionVisible = false;
+            }
+            else
+            {
+                this.Package.IconFile = Util.ParsePackageIconFileName(this.Package);
+            }
+
+            // BL0005: iconFileItem is a model owned and rendered by this page (see BuildFormItems),
+            // not a @ref'd child, so these are owner-writes. The package-type branches below are
+            // unchanged.
+#pragma warning disable BL0005
+            switch (this.Package.PackageType)
+            {
+                case "Auth_System":
+                case "Container":
+                case "Module":
+                case "Skin":
+                    this.iconFileItem.Enabled = true;
+                    this.Package.IconFile = Util.ParsePackageIconFileName(this.Package);
+                    break;
+                default:
+                    this.iconFileItem.Enabled = false;
+                    this.Package.IconFile = "Not Available";
+                    break;
+            }
+#pragma warning restore BL0005
+
+            if (this.Mode != "All")
+            {
+                this.packageTypeItem.Visible = false;
+            }
+
+            // Determine if Package is ready for packaging
+            PackageWriterBase writer = PackageWriterFactory.GetWriter(this.serviceProvider, this.Package);
+            this.cmdPackageVisible = this.IsSuperTab && writer != null && Directory.Exists(Path.Combine(this.appStatus.ApplicationMapPath, writer.BasePath));
+
+            this.cmdDeleteVisible = this.IsSuperTab && (!this.Package.IsSystemPackage) && PackageController.CanDeletePackage(this.hostSettings, this.appStatus, this.Package, this.ModuleContext.PortalSettings);
+
+            this.packageFormVisible = this.IsSuperTab;
+            this.packageFormReadOnlyVisible = !this.IsSuperTab;
+        }
+    }
+
+    /// <summary>Resolves the component type of the package type's own editor control.</summary>
+    private void ResolvePackageEditor()
+    {
+        if (this.packageEditorType != null)
+        {
+            return;
+        }
+
+        var pkgType = PackageController.Instance.GetExtensionPackageType(t => t.PackageType.Equals(this.Package.PackageType, StringComparison.OrdinalIgnoreCase));
+        if ((pkgType != null) && (!string.IsNullOrEmpty(pkgType.EditorControlSrc)))
+        {
+            try
+            {
+                this.packageEditorType = ControlUtilities.ResolveControlType(pkgType.EditorControlSrc);
+                this.packageEditorParameters = ControlUtilities.FilterDeclaredParameters(
+                    this.packageEditorType,
+                    new Dictionary<string, object>
+                    {
+                        ["ModuleConfiguration"] = this.ModuleContext.Configuration,
+                    });
+            }
+            catch (InvalidOperationException ex)
+            {
+                Exceptions.LogException(ex);
+            }
+        }
+    }
+
+    /// <summary>Applies the package editor configuration the WebForms BindData applied to the loaded control.</summary>
+    private void InitializePackageEditor()
+    {
+        if (this.packageEditorInitialized)
+        {
+            return;
+        }
+
+        var editor = this.PackageEditor;
+        if (editor == null)
+        {
+            return;
+        }
+
+        this.packageEditorInitialized = true;
+
+        if (editor is IModuleControl moduleControl)
+        {
+            moduleControl.ModuleContext.Configuration = this.ModuleContext.Configuration;
+        }
+
+        editor.PackageID = this.PackageID;
+        editor.Initialize();
+    }
+
+    private void UpdatePackage(bool displayMessage)
+    {
+        if (this.packageForm != null && this.packageForm.IsValid)
+        {
+            if (this.packageForm.DataSource is PackageInfo packageInfo)
+            {
+                var pkgIconFile = Util.ParsePackageIconFileName(packageInfo);
+                packageInfo.IconFile = (pkgIconFile.Trim().Length > 0) ? Util.ParsePackageIconFile(packageInfo) : null;
+                PackageController.Instance.SaveExtensionPackage(packageInfo);
+            }
+
+            if (displayMessage)
+            {
+                UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("PackageUpdated", this.LocalResourceFile), ModuleMessage.ModuleMessageType.GreenSuccess);
+            }
+        }
+
+        this.PackageEditor?.UpdatePackage();
+    }
+
+    /// <summary>Creates the form items that used to be declared in the <c>&lt;Items&gt;</c> blocks.</summary>
+    /// <remarks>
+    /// <c>DnnFormEditor.Items</c> has a private setter and the editor builds its children from it
+    /// imperatively, so the declarative blocks have to become code. IDs, <c>DataField</c>s,
+    /// <c>ResourceKey</c>s, text modes, row counts, required flags and order are identical.
+    /// </remarks>
+    private void BuildFormItems()
+    {
+        if (this.editableItems is not null)
+        {
+            return;
+        }
+
+        this.packageTypeItem = this.NewLiteralItem("packageType", "PackageType", null);
+        this.iconFileItem = this.NewTextBoxItem("iconFile", "IconFile", null);
+        this.emailItem = this.NewTextBoxItem("email", "Email", null);
+
+        this.editableItems = new List<DnnFormItemBase>
+        {
+            this.NewLiteralItem("moduleName", "Name", null),
+            this.packageTypeItem,
+            this.NewTextBoxItem("packageFriendlyName", "FriendlyName", null, required: true),
+            this.iconFileItem,
+            this.NewTextBoxItem("description", "Description", null, textMode: TextBoxMode.MultiLine, rows: 10),
+            this.NewEditControlItem("version", "Version", "DotNetNuke.UI.WebControls.VersionEditControl, DotNetNuke"),
+            this.NewTextBoxItem("license", "License", null, textMode: TextBoxMode.MultiLine, rows: 10),
+            this.NewTextBoxItem("releaseNotes", "ReleaseNotes", null, textMode: TextBoxMode.MultiLine, rows: 10),
+            this.NewTextBoxItem("owner", "Owner", null),
+            this.NewTextBoxItem("organization", "Organization", null),
+            this.NewTextBoxItem("url", "Url", "URL"),
+            this.emailItem,
+        };
+
+        this.readOnlyItems = new List<DnnFormItemBase>
+        {
+            this.NewLiteralItem("DnnFormLiteralItem1", "Name", null),
+            this.NewLiteralItem("DnnFormLiteralItem2", "PackageType", null),
+            this.NewLiteralItem("DnnFormTextBoxItem1", "FriendlyName", null),
+            this.NewLiteralItem("DnnFormTextBoxItem2", "IconFile", null),
+            this.NewLiteralItem("DnnFormTextBoxItem3", "Description", null),
+            this.NewLiteralItem("DnnFormEditControlItem1", "Version", null),
+            this.NewLiteralItem("DnnFormTextBoxItem4", "License", null),
+            this.NewLiteralItem("DnnFormTextBoxItem5", "ReleaseNotes", null),
+            this.NewLiteralItem("DnnFormTextBoxItem6", "Owner", null),
+            this.NewLiteralItem("DnnFormTextBoxItem7", "Organization", null),
+            this.NewLiteralItem("DnnFormTextBoxItem8", "Url", "URL"),
+            this.NewLiteralItem("DnnFormTextBoxItem9", "Email", null),
+        };
+    }
+
+    // BL0005: the three factories below CONSTRUCT the DnnFormItemBase models that this page owns and
+    // renders (they are added to this.editableItems / this.readOnlyItems and pushed into the
+    // DnnFormEditor's Items collection in SyncFormItems). The constructing type is the owner, so the
+    // object-initializer writes are owner-writes, not an outsider mutating another component's
+    // parameters. This is the accepted idiom for programmatically composed form items.
+#pragma warning disable BL0005
+    private DnnFormLiteralItem NewLiteralItem(string id, string dataField, string resourceKey)
+        => new DnnFormLiteralItem(this.appStatus, this.eventLogger)
+        {
+            ID = id,
+            DataField = dataField,
+            ResourceKey = resourceKey,
+            LocalResourceFile = this.LocalResourceFile,
+        };
+
+    private DnnFormTextBoxItem NewTextBoxItem(string id, string dataField, string resourceKey, bool required = false, TextBoxMode textMode = TextBoxMode.SingleLine, int rows = 0)
+        => new DnnFormTextBoxItem(this.appStatus, this.eventLogger)
+        {
+            ID = id,
+            DataField = dataField,
+            ResourceKey = resourceKey,
+            Required = required,
+            TextMode = textMode,
+            Rows = rows,
+            LocalResourceFile = this.LocalResourceFile,
+        };
+
+    private DnnFormEditControlItem NewEditControlItem(string id, string dataField, string controlType)
+        => new DnnFormEditControlItem(this.appStatus, this.eventLogger, this.serviceProvider)
+        {
+            ID = id,
+            DataField = dataField,
+            ControlType = controlType,
+            LocalResourceFile = this.LocalResourceFile,
+        };
+#pragma warning restore BL0005
+
+    /// <summary>Pushes the item lists and the data source into the editors, in the declared order.</summary>
+    private void SyncFormItems()
+    {
+        this.BuildFormItems();
+
+        if (this.packageForm != null && this.packageForm.Items.Count != this.editableItems.Count)
+        {
+            this.packageForm.Items.Clear();
+            this.packageForm.Items.AddRange(this.editableItems);
+            this.packageForm.DataSource = this.Package;
+            this.packageForm.DataBind();
+        }
+
+        if (this.packageFormReadOnly != null && this.packageFormReadOnly.Items.Count != this.readOnlyItems.Count)
+        {
+            this.packageFormReadOnly.Items.Clear();
+            this.packageFormReadOnly.Items.AddRange(this.readOnlyItems);
+            this.packageFormReadOnly.DataSource = this.Package;
+            this.packageFormReadOnly.DataBind();
+        }
+    }
+}

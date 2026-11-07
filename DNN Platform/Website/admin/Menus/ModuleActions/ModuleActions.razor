@@ -1,0 +1,66 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Admin.Containers
+@inherits DotNetNuke.UI.Containers.ActionBase
+
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using DotNetNuke.Services.Localization
+
+@*
+    Replaces ModuleActions.ascx + ModuleActions.ascx.cs + ModuleActions.ascx.designer.cs (the control
+    the portal setting `DefaultModuleActionMenu` points at,
+    `~/admin/Menus/ModuleActions/ModuleActions.ascx`). The logic is in ModuleActions.razor.cs; see the
+    remarks there for the permission filter, which is the authorization surface for module editing.
+
+    <asp:LinkButton ID="actionButton" aria-label="Actions" /> rendered an anchor whose href was
+    __doPostBack('actionButton',''); clicking it with an empty argument was a no-op, so it is an
+    anchor with href="javascript:void(0);" here. The anchor is what ModuleActions.js attaches the
+    dnnModuleActions plugin to, and the plugin builds every action's Url as
+    __doPostBack('<actionButton>', '<action id>'). That post back is served by the static
+    server-side form below: ModuleActionsSetup.js writes the action id into the hidden field and
+    submits the form, so HandleActionAsync receives exactly the value __EVENTARGUMENT carried.
+    The form is a static SSR form (like admin/Containers/DropDownActions.razor): a module action
+    mutates server state and needs HttpContext, and a container skin object cannot opt into
+    @@rendermode InteractiveServer because its ModuleControl is assigned by the skinning engine
+    rather than passed as a serializable parameter.
+
+    The quick-settings <li> keeps its id (moduleActions-<moduleId>-QuickSettings), its
+    style="display:none" and all three shared resource strings. <asp:Panel id="quickSettings"> was
+    the placeholder the QuickSettings module control was added into; the loaded control is rendered
+    by its own component type through <DynamicComponent>, which is the same mechanism
+    UI/Modules/ModuleHost uses for a dynamically loaded module control.
+
+    The inline <script> block is gone (not legal in a .razor document) - it moved verbatim into
+    wwwroot/admin/Menus/ModuleActions/ModuleActionsSetup.js as dnn.setUpModuleActions(settings) and
+    is invoked through IJSRuntime from OnAfterRenderAsync.
+*@
+
+<form method="post" @formname="@this.FormName" @onsubmit="this.HandleActionAsync">
+    <AntiforgeryToken />
+    <input type="hidden" id="@this.ActionFieldClientId" name="@ActionField" value="" />
+    <a id="@this.ActionButtonClientId" href="javascript:void(0);" aria-label="Actions"></a>
+</form>
+
+@if (this.SupportsQuickSettings)
+{
+    <li id="moduleActions-@this.ModuleContext.Configuration.ModuleID-QuickSettings" style="display:none">
+        <div>
+            <div class="qsHeader">@Localization.GetSafeJSString("QuickSettings", Localization.SharedResourceFile)</div>
+            <div class="qsContainer">
+                <div id="quickSettings">
+                    @if (this.QuickSettingsControlType is not null)
+                    {
+                        <DynamicComponent Type="@this.QuickSettingsControlType" Parameters="@this.QuickSettingsParameters" />
+                    }
+                </div>
+            </div>
+            <div class="qsFooter">
+                <a class="secondarybtn">@Localization.GetSafeJSString("Cancel", Localization.SharedResourceFile)</a>
+                <a class="primarybtn">@Localization.GetSafeJSString("Save", Localization.SharedResourceFile)</a>
+            </div>
+        </div>
+    </li>
+}

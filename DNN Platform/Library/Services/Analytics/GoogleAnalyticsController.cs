@@ -73,7 +73,7 @@ namespace DotNetNuke.Services.Analytics
             string filePath = string.Empty;
             try
             {
-                filePath = $@"{Globals.ApplicationMapPath}\SiteAnalytics.config";
+                filePath = Path.Combine(Globals.ApplicationMapPath, "SiteAnalytics.config");
 
                 if (File.Exists(filePath))
                 {

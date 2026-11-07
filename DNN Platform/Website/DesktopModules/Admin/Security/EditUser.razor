@@ -1,0 +1,973 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Admin.Users
+@inherits DotNetNuke.Entities.Modules.UserModuleBase
+
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using System.Linq
+@using System.Threading.Tasks
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Abstractions.Portals
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Profile
+@using DotNetNuke.Entities.Urls
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Modules.Admin.Security
+@using DesktopModules.Admin.Security
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Membership
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Services.Mail
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.Website
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Logging
+
+@using MembershipProvider = DotNetNuke.Security.Membership.MembershipProvider
+
+@*
+    Replaces EditUser.ascx, EditUser.ascx.cs and EditUser.ascx.designer.cs.
+
+    Control mapping:
+      the <script> block                -> the jQuery tab/panel bootstrap is invoked through
+                                           IJSRuntime in OnAfterRenderAsync(firstRender) (a
+                                           component may not emit a <script>); the dnnConfirm on
+                                           cmdDelete became the native confirm() on the delete
+                                           anchor, carrying the SAME four confirmation texts the
+                                           original chose from (the three DataConsent variants
+                                           plus "UnregisterUser"); the vanity URL AJAX call to
+                                           InternalServices/ProfileService/UpdateVanityUrl became
+                                           the UpdateVanityUrlAsync handler below, which performs
+                                           the identical clean/validate/update sequence on the
+                                           server.
+      dnn:DnnFormEditor userForm        -> the three form items (Username read only, DisplayName,
+                                           Email) with their Required flags and the
+                                           Registration.EmailValidator expression.
+      dnn:Password / dnn:membership     -> the Password and Membership components (owned by the
+      dnn:Profile / dnn:MemberServices     password/profile/membership specialist). They are
+                                           composed here, not duplicated; the events the original
+                                           subscribed to in OnInit are bound as EventCallbacks.
+      dnn:UserSubscriptions             -> the already migrated
+                                           DotNetNuke.Modules.CoreMessaging.Subscriptions.
+      asp:LinkButton cmdUpdate/cmdDelete-> anchors with @onclick handlers.
+
+    SECURITY: VerifyUserPermissions() is ported verbatim, including the host-menu superuser gate,
+    the portal membership check, the IsEdit administrator check and the non-administrator redirect
+    to the user's own profile. DisableForm() hides exactly the same regions.
+*@
+
+<div class="dnnForm dnnEditUser dnnClear" id="dnnEditUser">
+    @if (this.adminTabNavVisible)
+    {
+        <ul class="dnnAdminTabNav dnnClear" id="adminTabNav">
+            <li><a href="#dnnUserDetails">@this.LocalizeText("cmdUser")</a></li>
+            <li><a href="#dnnProfileDetails">@this.LocalizeText("cmdProfile")</a></li>
+            <li><a href="#dnnUserSubscriptions">@this.LocalizeText("cmdCommunications")</a></li>
+            @if (this.servicesTabVisible)
+            {
+                <li id="servicesTab"><a href="#dnnServicesDetails">@this.LocalizeText("cmdServices")</a></li>
+            }
+        </ul>
+    }
+    <div id="dnnUserDetails" class="dnnUserDetails dnnClear">
+        <div class="udContent dnnClear">
+            <h2 id="dnnPanel-AccountSettings" class="dnnFormSectionHead"><a href="" class="dnnLabelExpanded">@this.LocalizeText("AccountSettings")</a></h2>
+            <fieldset id="accountSettingsFieldSet">
+                @if (this.userNameVisible)
+                {
+                    <div class="dnnFormItem">
+                        <div class="dnnLabel"><label><span>@this.LocalizeText("Username")</span></label></div>
+                        <span id="userNameReadOnly">@this.UserInfo.Username</span>
+                    </div>
+                }
+                <div class="dnnFormItem">
+                    <div class="dnnLabel"><label><span class="dnnFormRequired">@this.LocalizeText("DisplayName")</span></label></div>
+                    <input type="text" id="displayName" disabled="@(!this.displayNameEnabled)" value="@this.UserInfo.DisplayName" @onchange="@(e => this.UserInfo.DisplayName = e.Value?.ToString())" />
+                    @if (this.showDisplayNameRequired)
+                    {
+                        <span class="dnnFormMessage dnnFormError">@this.LocalizeText("DisplayName.Required")</span>
+                    }
+                </div>
+                <div class="dnnFormItem">
+                    <div class="dnnLabel"><label><span class="dnnFormRequired">@this.LocalizeText("Email")</span></label></div>
+                    <input type="text" id="email" value="@this.UserInfo.Email" @onchange="@(e => this.UserInfo.Email = e.Value?.ToString())" />
+                    @if (this.showEmailRequired)
+                    {
+                        <span class="dnnFormMessage dnnFormError">@this.LocalizeText("Email.Required")</span>
+                    }
+                    @if (this.showEmailInvalid)
+                    {
+                        <span class="dnnFormMessage dnnFormError">@this.LocalizeText("Email.RegExError")</span>
+                    }
+                </div>
+                @if (this.vanityUrlRowVisible)
+                {
+                    <div class="dnnFormItem" id="VanityUrlRow">
+                        <div class="dnnLabel"><label><span id="VanityUrlLabel">@this.LocalizeText("VanityUrlLabel")</span></label></div>
+                        @if (!this.ShowVanityUrl)
+                        {
+                            <span id="VanityUrl">@this.vanityUrl</span>
+                        }
+                        @if (!string.IsNullOrEmpty(this.vanityUrlMessage))
+                        {
+                            <div class="dnnFormMessage @this.vanityUrlMessageCssClass">@this.vanityUrlMessage</div>
+                        }
+                        @if (this.ShowVanityUrl)
+                        {
+                            <div class="dnnFormGroup" id="VanityUrlPanel">
+                                <span id="VanityUrlHeader" class="NormalBold">@this.LocalizeText("VanityUrlHeader")</span>
+                                <div>
+                                    <span id="VanityUrlAlias">@this.vanityUrlAlias</span>
+                                    <input class="dnnUserVanityUrl" id="VanityUrlTextBox" aria-label="Vanity Url" @bind="this.vanityUrlText" />
+                                    <a id="updateProfileUrl" href="#" class="dnnSecondaryAction" @onclick="this.UpdateVanityUrlAsync" @onclick:preventDefault="true">@this.LocalizeText("cmdUpdate")</a>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </fieldset>
+            <h2 id="H1" class="dnnFormSectionHead"><a href="">@this.LocalizeText("PasswordSettings")</a></h2>
+            <fieldset>
+                <div class="dnnPasswordDetails dnnClear">
+                    <Password @ref="this.ctlPassword" ID="Password" ModuleConfiguration="@this.ModuleConfiguration" />
+                </div>
+            </fieldset>
+            <h2 id="H2" class="dnnFormSectionHead"><a href="">@this.LocalizeText("AccountInfo")</a></h2>
+            <fieldset>
+                @if (this.membershipVisible)
+                {
+                    <div class="dnnMembership">
+                        <Membership @ref="this.ctlMembership" ID="Membership" ModuleConfiguration="@this.ModuleConfiguration" />
+                    </div>
+                }
+            </fieldset>
+        </div>
+        @if (this.actionsRowVisible)
+        {
+            <ul id="actionsRow" class="dnnActions dnnClear">
+                <li><a id="cmdUpdate" class="dnnPrimaryAction" href="#" @onclick="this.CmdUpdateClick" @onclick:preventDefault="true">@this.LocalizeText("cmdUpdate")</a></li>
+                <li><a id="cmdDelete" class="dnnSecondaryAction" href="#" @onclick="this.CmdDeleteClick" @onclick:preventDefault="true">@this.LocalizeText("cmdDelete")</a></li>
+            </ul>
+        }
+    </div>
+    @if (this.profileDetailsVisible)
+    {
+        <div id="dnnProfileDetails" class="dnnProfileDetails dnnClear">
+            <Profile @ref="this.ctlProfile" ID="Profile" ModuleConfiguration="@this.ModuleConfiguration" />
+        </div>
+    }
+    <div id="dnnUserSubscriptions" class="dnnUserSubscriptions">
+        <DotNetNuke.Modules.CoreMessaging.Subscriptions @ref="this.userSubscriptions"
+                                                        ModuleContext="@this.ModuleContext"
+                                                        ModuleConfiguration="@this.ModuleConfiguration"
+                                                        LocalResourceFile="~/DesktopModules/CoreMessaging/App_LocalResources/View.ascx.resx" />
+    </div>
+    @if (this.servicesDetailsVisible)
+    {
+        <div id="dnnServicesDetails" class="dnnServicesDetails dnnClear">
+            <MemberServices @ref="this.ctlServices" ID="MemberServices" ModuleConfiguration="@this.ModuleConfiguration" />
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Initializes a new instance of the <see cref="EditUser"/> class.</summary>
+    /// <remarks>
+    /// Declared explicitly because the compiler-generated default constructor would chain to the
+    /// obsolete parameterless <c>UserModuleBase()</c>. Passing <see langword="null"/> for both
+    /// services is exactly what that constructor did (<c>: this(null, null)</c>), and the
+    /// non-obsolete overload then resolves <c>ListController</c> and <c>IHostSettings</c> from
+    /// <c>DependencyProvider</c> — so this is a call-site change only, with no behaviour change.
+    /// </remarks>
+    public EditUser()
+        : base(null, null)
+    {
+    }
+
+    private static readonly ILogger Logger = DnnLoggingController.GetLogger<EditUser>();
+
+    private DotNetNuke.Modules.CoreMessaging.Subscriptions userSubscriptions;
+    private Password ctlPassword;
+    private DotNetNuke.Modules.Admin.Users.Membership ctlMembership;
+    private DesktopModules.Admin.Security.Profile ctlProfile;
+    private DotNetNuke.Modules.Admin.Security.MemberServices ctlServices;
+    private bool subControlsWired;
+
+    private bool adminTabNavVisible = true;
+    private bool servicesTabVisible = true;
+    private bool profileDetailsVisible = true;
+    private bool servicesDetailsVisible;
+    private bool actionsRowVisible = true;
+    private bool membershipVisible = true;
+    private bool userNameVisible = true;
+    private bool vanityUrlRowVisible;
+    private bool displayNameEnabled = true;
+    private bool showDisplayNameRequired;
+    private bool showEmailRequired;
+    private bool showEmailInvalid;
+    private bool bound;
+    private string vanityUrl = string.Empty;
+    private string vanityUrlAlias = string.Empty;
+    private string vanityUrlText = string.Empty;
+    private string vanityUrlMessage = string.Empty;
+    private string vanityUrlMessageCssClass = string.Empty;
+    private string deleteConfirmText = string.Empty;
+    private string emailValidator;
+
+    /// <summary>Gets or sets the navigation manager.</summary>
+    [Inject]
+    protected INavigationManager DnnNavigationManager { get; set; }
+
+    /// <summary>Gets or sets the JavaScript library helper.</summary>
+    [Inject]
+    protected IJavaScriptLibraryHelper JavaScriptHelper { get; set; }
+
+    /// <summary>Gets or sets the portal controller.</summary>
+    [Inject]
+    protected IPortalController PortalControllerInstance { get; set; }
+
+    /// <summary>Gets or sets the host settings service.</summary>
+    [Inject]
+    protected IHostSettingsService HostSettingsServiceInstance { get; set; }
+
+    /// <summary>Gets or sets the event logger.</summary>
+    [Inject]
+    protected IEventLogger EventLoggerInstance { get; set; }
+
+    /// <summary>Gets or sets the Blazor navigation manager used by the redirects.</summary>
+    [Inject]
+    protected NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets or sets the JavaScript runtime the tab/panel bootstrap is invoked with.</summary>
+    [Inject]
+    protected Microsoft.JSInterop.IJSRuntime JsRuntime { get; set; }
+
+    /// <summary>Gets or sets the current Page No.</summary>
+    public int PageNo { get; set; }
+
+    /// <summary>Gets a value indicating whether the vanity URL editor is shown instead of the label.</summary>
+    public bool ShowVanityUrl { get; private set; }
+
+    /// <summary>Gets a value indicating whether to display the Manage Services tab.</summary>
+    protected bool DisplayServices
+    {
+        get
+        {
+            object setting = GetSetting(this.PortalId, "Profile_ManageServices");
+            return Convert.ToBoolean(setting) && !(this.IsEdit || this.UserInfo.IsSuperUser);
+        }
+    }
+
+    /// <summary>Gets the Redirect URL (after successful registration).</summary>
+    protected string RedirectURL
+    {
+        get
+        {
+            string redirectURL = string.Empty;
+
+            if (this.PortalSettings.Registration.RedirectAfterRegistration == Null.NullInteger)
+            {
+                var returnUrlParam = this.Request.GetQueryString()["returnurl"];
+                if (returnUrlParam != null)
+                {
+                    // return to the url passed to register
+                    redirectURL = System.Net.WebUtility.UrlDecode(returnUrlParam);
+
+                    // clean the return url to avoid possible XSS attack.
+                    redirectURL = UrlUtils.ValidReturnUrl(redirectURL);
+
+                    if (redirectURL.Contains("?returnurl"))
+                    {
+                        string baseURL = redirectURL.Substring(0, redirectURL.IndexOf("?returnurl", StringComparison.Ordinal));
+                        string returnURL = redirectURL.Substring(redirectURL.IndexOf("?returnurl", StringComparison.Ordinal) + 11);
+
+                        redirectURL = string.Concat(baseURL, "?returnurl", System.Net.WebUtility.UrlEncode(returnURL));
+                    }
+                }
+
+                if (string.IsNullOrEmpty(redirectURL))
+                {
+                    // redirect to current page
+                    redirectURL = this.DnnNavigationManager.NavigateURL();
+                }
+            }
+            else
+            {
+                // redirect to after registration page
+                redirectURL = this.DnnNavigationManager.NavigateURL(this.PortalSettings.Registration.RedirectAfterRegistration);
+            }
+
+            return redirectURL;
+        }
+    }
+
+    /// <summary>Gets the Return Url for the page.</summary>
+    protected string ReturnUrl
+        => this.DnnNavigationManager.NavigateURL(this.TabId, string.Empty, !string.IsNullOrEmpty(this.UserFilter) ? this.UserFilter : string.Empty);
+
+    /// <summary>Gets the Filter to use.</summary>
+    protected string UserFilter
+    {
+        get
+        {
+            string filterString = !string.IsNullOrEmpty(this.Request.GetValue("filter")) ? "filter=" + this.Request.GetValue("filter") : string.Empty;
+            string filterProperty = !string.IsNullOrEmpty(this.Request.GetValue("filterproperty")) ? "filterproperty=" + this.Request.GetValue("filterproperty") : string.Empty;
+            string page = !string.IsNullOrEmpty(this.Request.GetValue("currentpage")) ? "currentpage=" + this.Request.GetValue("currentpage") : string.Empty;
+
+            if (!string.IsNullOrEmpty(filterString))
+            {
+                filterString += "&";
+            }
+
+            if (!string.IsNullOrEmpty(filterProperty))
+            {
+                filterString += filterProperty + "&";
+            }
+
+            if (!string.IsNullOrEmpty(page))
+            {
+                filterString += page;
+            }
+
+            return filterString;
+        }
+    }
+
+    private IPortalAliasInfo CurrentPortalAlias => this.PortalSettings.PortalAlias;
+
+    /// <summary>Page_Init runs when the control is initialised.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.emailValidator = this.PortalSettings.Registration.EmailValidator;
+
+        this.JavaScriptHelper.RequestRegistration(CommonJs.DnnPlugins);
+        this.JavaScriptHelper.RequestRegistration(CommonJs.Knockout);
+
+        // Define DisplayName filed Enabled Property:
+        object setting = GetSetting(this.UserPortalID, "Security_DisplayNameFormat");
+        if ((setting != null) && (!string.IsNullOrEmpty(Convert.ToString(setting))))
+        {
+            this.displayNameEnabled = false;
+        }
+
+        this.deleteConfirmText = this.GetDeleteConfirmText();
+    }
+
+    /// <summary>Page_Load runs when the control is loaded.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            // Bind the User information to the controls
+            this.BindData();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender)
+        {
+            return;
+        }
+
+        this.WireSubControls();
+
+        // $('#dnnEditUser').dnnTabs().dnnPanels() plus the knockout subscriptions controller
+        // bootstrap of the original inline script.
+        await this.JsRuntime.InvokeVoidAsync("eval", "(function($){ $('#dnnEditUser').dnnTabs().dnnPanels(); })(jQuery);");
+
+        if (this.userSubscriptions != null)
+        {
+            var settingsJson = this.userSubscriptions.GetSettingsAsJson();
+            await this.JsRuntime.InvokeVoidAsync(
+                "eval",
+                "(function(){ var dnn = window.dnn = window.dnn || {}; dnn.subscriptionsSettings = " + settingsJson +
+                "; dnn.subscriptionsController = new Subscription(ko, dnn.subscriptionsSettings, 'dnnUserSubscriptions'); })();");
+        }
+
+        if (this.PageNo > 0)
+        {
+            await this.JsRuntime.InvokeVoidAsync(
+                "eval",
+                "(function($){ $('#dnnEditUser > ul > li:nth-child(" + this.PageNo.ToString(CultureInfo.InvariantCulture) + ")').find('a').click(); })(jQuery);");
+        }
+    }
+
+    /// <summary>
+    /// Pins the four sub-controls to the user being edited and subscribes to their events.
+    /// </summary>
+    /// <remarks>
+    /// This is the OnInit block of EditUser.ascx.cs that assigned ID/ModuleConfiguration/UserId on
+    /// ctlMembership, ctlPassword, ctlProfile and ctlServices and subscribed to their events, plus
+    /// the ctlX.User/DataBind() calls of BindData(). The sub-controls' UserId and User are plain
+    /// properties (not Blazor parameters), so they are assigned on the instances the renderer
+    /// created, which @ref hands over after the first render. ModuleConfiguration IS a parameter
+    /// and is therefore passed in the markup, before the children initialize.
+    ///
+    /// NOTE the user identity: the original pinned every sub-control to
+    /// <c>this.UserInfo.UserID</c> (the signed-in user), not to the "userid" query string value,
+    /// and that is preserved here.
+    /// </remarks>
+    private void WireSubControls()
+    {
+        if (this.subControlsWired)
+        {
+            return;
+        }
+
+        this.subControlsWired = true;
+
+        if (this.ctlMembership != null)
+        {
+            this.ctlMembership.ModuleConfiguration = this.ModuleConfiguration;
+            this.ctlMembership.UserId = this.UserInfo.UserID;
+            this.ctlMembership.User = this.UserInfo;
+            this.ctlMembership.DataBind();
+        }
+
+        if (this.ctlPassword != null)
+        {
+            this.ctlPassword.ModuleConfiguration = this.ModuleConfiguration;
+            this.ctlPassword.UserId = this.UserInfo.UserID;
+            this.ctlPassword.PasswordUpdated += this.PasswordUpdated;
+            this.ctlPassword.PasswordQuestionAnswerUpdated += this.PasswordQuestionAnswerUpdated;
+            this.ctlPassword.User = this.UserInfo;
+            this.ctlPassword.DataBind();
+        }
+
+        if (this.ctlProfile != null)
+        {
+            this.ctlProfile.ModuleConfiguration = this.ModuleConfiguration;
+            this.ctlProfile.UserId = this.UserInfo.UserID;
+            this.ctlProfile.ProfileUpdateCompleted += this.ProfileUpdateCompleted;
+            this.ctlProfile.User = this.UserInfo;
+            this.ctlProfile.DataBind();
+        }
+
+        if (this.ctlServices != null)
+        {
+            this.ctlServices.ModuleConfiguration = this.ModuleConfiguration;
+            this.ctlServices.UserId = this.UserInfo.UserID;
+            this.ctlServices.SubscriptionUpdated += this.SubscriptionUpdated;
+
+            // BindData() only bound the services control when the Services tab is shown.
+            if (this.DisplayServices)
+            {
+                this.ctlServices.User = this.UserInfo;
+                this.ctlServices.DataBind();
+            }
+        }
+
+        this.StateHasChanged();
+    }
+
+    /// <summary>Gets the confirmation text of the delete command.</summary>
+    /// <returns>The text.</returns>
+    /// <remarks>
+    /// This is the inline server block of the original markup: the Data Consent delete action
+    /// decides the wording when the user is deleting their own account.
+    /// </remarks>
+    private string GetDeleteConfirmText()
+    {
+        var confirmText = DotNetNuke.UI.Utilities.ClientAPI.GetSafeJSString(this.LocalizeText("UnregisterUser"));
+        if (this.PortalSettings.DataConsentActive && this.UserInfo.UserID == this.UserInfo.UserID)
+        {
+            switch (this.PortalSettings.DataConsentUserDeleteAction)
+            {
+                case PortalSettings.UserDeleteAction.Manual:
+                    confirmText = DotNetNuke.UI.Utilities.ClientAPI.GetSafeJSString(Localization.GetString("ManualDelete.Confirm", "~/DesktopModules/Admin/Security/App_LocalResources/DataConsent.ascx.resx"));
+                    break;
+                case PortalSettings.UserDeleteAction.DelayedHardDelete:
+                    confirmText = DotNetNuke.UI.Utilities.ClientAPI.GetSafeJSString(Localization.GetString("DelayedHardDelete.Confirm", "~/DesktopModules/Admin/Security/App_LocalResources/DataConsent.ascx.resx"));
+                    break;
+                case PortalSettings.UserDeleteAction.HardDelete:
+                    confirmText = DotNetNuke.UI.Utilities.ClientAPI.GetSafeJSString(Localization.GetString("HardDelete.Confirm", "~/DesktopModules/Admin/Security/App_LocalResources/DataConsent.ascx.resx"));
+                    break;
+            }
+        }
+
+        return confirmText;
+    }
+
+    /// <summary>This is cmdDelete_Click.</summary>
+    /// <remarks>
+    /// The original markup carried <c>onclick="return confirm('…')"</c> alongside the server-side
+    /// click handler. A Razor component cannot declare both a literal <c>onclick</c> attribute and
+    /// <c>@onclick</c> on one element (RZ10008), so the confirmation prompt moved here, in front of
+    /// every delete path. It is a destructive-action guard, not decoration: declining must abort
+    /// before any user state is touched.
+    /// </remarks>
+    private async Task CmdDeleteClick()
+    {
+        if (!await this.JsRuntime.InvokeAsync<bool>("confirm", this.deleteConfirmText))
+        {
+            return;
+        }
+
+        UserInfo user = this.UserInfo;
+        var success = false;
+        if (this.PortalSettings.DataConsentActive)
+        {
+            switch (this.PortalSettings.DataConsentUserDeleteAction)
+            {
+                case PortalSettings.UserDeleteAction.Manual:
+                    user.Membership.Approved = false;
+                    UserController.UpdateUser(this.EventLoggerInstance, this.PortalSettings.PortalId, user);
+                    UserController.UserRequestsRemoval(user, true);
+                    success = true;
+                    break;
+                case PortalSettings.UserDeleteAction.DelayedHardDelete:
+                    success = UserController.DeleteUser(this.EventLoggerInstance, ref user, true, false);
+                    UserController.UserRequestsRemoval(user, true);
+                    break;
+                case PortalSettings.UserDeleteAction.HardDelete:
+                    success = UserController.RemoveUser(user);
+                    break;
+                default: // if user delete is switched off under Data Consent then we revert to the old behavior
+                    success = UserController.DeleteUser(this.EventLoggerInstance, ref user, true, false);
+                    break;
+            }
+        }
+        else
+        {
+            success = UserController.DeleteUser(this.EventLoggerInstance, ref user, true, false);
+        }
+
+        if (!success)
+        {
+            this.AddModuleMessage("UserDeleteError", ModuleMessage.ModuleMessageType.RedError, true);
+        }
+
+        // DNN-26777
+        PortalSecurity.Instance.SignOut();
+        this.Navigation.NavigateTo(this.DnnNavigationManager.NavigateURL(this.PortalSettings.HomeTabId), forceLoad: true);
+    }
+
+    /// <summary>Evaluates the two validated form items (DisplayName required, Email required + regex).</summary>
+    /// <returns><see langword="true"/> when the form is valid.</returns>
+    private bool ValidateForm()
+    {
+        this.showDisplayNameRequired = string.IsNullOrWhiteSpace(this.UserInfo.DisplayName);
+        this.showEmailRequired = string.IsNullOrWhiteSpace(this.UserInfo.Email);
+        this.showEmailInvalid = !this.showEmailRequired
+            && !string.IsNullOrEmpty(this.emailValidator)
+            && !System.Text.RegularExpressions.Regex.IsMatch(this.UserInfo.Email ?? string.Empty, this.emailValidator);
+
+        return !this.showDisplayNameRequired && !this.showEmailRequired && !this.showEmailInvalid;
+    }
+
+    /// <summary>This is cmdUpdate_Click.</summary>
+    private void CmdUpdateClick()
+    {
+        if (this.ValidateForm() && (this.UserInfo != null))
+        {
+            if (this.UserInfo.UserID == this.PortalSettings.AdministratorId)
+            {
+                // Clear the Portal Cache
+                DataCache.ClearPortalCache(this.UserPortalID, true);
+            }
+            else
+            {
+                DataCache.ClearUserCache(this.PortalId, this.UserInfo.Username);
+            }
+
+            try
+            {
+                // Update DisplayName to conform to Format
+                this.UpdateDisplayName();
+
+                // DNN-5874 Check if unique display name is required
+                if (this.PortalSettings.Registration.RequireUniqueDisplayName)
+                {
+                    var usersWithSameDisplayName = (List<UserInfo>)MembershipProvider.Instance().GetUsersBasicSearch(this.PortalId, 0, 2, "DisplayName", true, "DisplayName", this.UserInfo.DisplayName);
+                    if (usersWithSameDisplayName.Any(user => user.UserID != this.UserInfo.UserID))
+                    {
+                        throw new Exception("Display Name must be unique");
+                    }
+                }
+
+                var prevUserEmail = UserController.Instance.GetUserById(this.PortalId, this.UserInfo.UserID)?.Email;
+
+                if (!string.IsNullOrWhiteSpace(prevUserEmail) && !prevUserEmail.Equals(this.UserInfo.Email, StringComparison.OrdinalIgnoreCase))
+                {
+                    // on email address change need to invalidate existing 'reset password' link
+                    this.UserInfo.PasswordResetExpiration = Null.NullDate;
+                }
+
+                UserController.UpdateUser(this.EventLoggerInstance, this.UserPortalID, this.UserInfo);
+
+                // make sure username matches possibly changed email address
+                if (this.PortalSettings.Registration.UseEmailAsUserName)
+                {
+                    if (!string.Equals(this.UserInfo.Username, this.UserInfo.Email, StringComparison.OrdinalIgnoreCase))
+                    {
+                        UserController.ChangeUsername(this.UserInfo.UserID, this.UserInfo.Email);
+
+                        // after username changed, should redirect to login page to let user authenticate again.
+                        var loginUrl = DotNetNuke.Common.Globals.LoginURL(System.Net.WebUtility.UrlEncode(this.Request.GetRawUrl()), false);
+                        var separator = loginUrl.Contains("?") ? "&" : "?";
+                        loginUrl = $"{loginUrl}{separator}username={this.UserInfo.Email}&usernameChanged=true";
+                        this.Navigation.NavigateTo(loginUrl, forceLoad: true);
+                        return;
+                    }
+                }
+
+                this.Navigation.NavigateTo(this.Request.GetRawUrl(), forceLoad: true);
+            }
+            catch (Exception exc)
+            {
+                Logger.EditUserUpdateException(exc);
+                if (exc.Message == "Display Name must be unique")
+                {
+                    this.AddModuleMessage("DisplayNameNotUnique", ModuleMessage.ModuleMessageType.RedError, true);
+                }
+                else
+                {
+                    this.AddModuleMessage("UserUpdatedError", ModuleMessage.ModuleMessageType.RedError, true);
+                }
+            }
+        }
+    }
+
+    private void BindData()
+    {
+        if (this.UserInfo != null)
+        {
+            // If trying to add a SuperUser - check that user is a SuperUser
+            if (this.VerifyUserPermissions() == false)
+            {
+                return;
+            }
+
+            if (!this.bound)
+            {
+                var pageNoParam = this.Request.GetQueryString()["pageno"];
+                if (pageNoParam != null)
+                {
+                    this.PageNo = int.Parse(pageNoParam);
+                }
+                else
+                {
+                    this.PageNo = 0;
+                }
+            }
+
+            // hide username field in UseEmailAsUserName mode
+            bool disableUsername = PortalController.GetPortalSettingAsBoolean(this.PortalControllerInstance, "Registration_UseEmailAsUserName", this.PortalId, false);
+            if (disableUsername)
+            {
+                this.userNameVisible = false;
+            }
+
+            this.servicesTabVisible = this.DisplayServices;
+
+            this.BindUser();
+
+            this.servicesDetailsVisible = this.DisplayServices;
+
+            var urlSettings = new FriendlyUrlSettings(this.PortalControllerInstance, this.HostSettings, this.HostSettingsServiceInstance, this.PortalSettings.PortalId);
+            var showVanityUrl = (Config.GetFriendlyUrlProvider() == "advanced") && !this.UserInfo.IsSuperUser;
+            if (showVanityUrl)
+            {
+                this.vanityUrlRowVisible = true;
+                if (string.IsNullOrEmpty(this.UserInfo.VanityUrl))
+                {
+                    // Clean Display Name
+                    var options = UrlRewriterUtils.GetOptionsFromSettings(urlSettings);
+                    var cleanUrl = FriendlyUrlController.CleanNameForUrl(this.UserInfo.DisplayName, options, out _);
+                    var uniqueUrl = FriendlyUrlController.ValidateUrl(cleanUrl, -1, this.PortalSettings, out _).ToLowerInvariant();
+
+                    this.vanityUrlAlias = $"{this.CurrentPortalAlias.HttpAlias}/{urlSettings.VanityUrlPrefix}/";
+                    this.vanityUrlText = uniqueUrl;
+                    this.ShowVanityUrl = true;
+                }
+                else
+                {
+                    this.vanityUrl = $"{this.CurrentPortalAlias.HttpAlias}/{urlSettings.VanityUrlPrefix}/{this.UserInfo.VanityUrl}";
+                    this.ShowVanityUrl = false;
+                }
+            }
+
+            this.bound = true;
+        }
+        else
+        {
+            this.AddModuleMessage("NoUser", ModuleMessage.ModuleMessageType.YellowWarning, true);
+            this.DisableForm();
+        }
+    }
+
+    /// <summary>
+    /// Verifies that the accessing user may edit this user.
+    /// </summary>
+    /// <returns><see langword="true"/> when the form may be shown.</returns>
+    /// <remarks>Ported verbatim from VerifyUserPermissions of EditUser.ascx.cs.</remarks>
+    private bool VerifyUserPermissions()
+    {
+        if (this.IsHostMenu && !this.UserInfo.IsSuperUser)
+        {
+            this.AddModuleMessage("NoUser", ModuleMessage.ModuleMessageType.YellowWarning, true);
+            this.DisableForm();
+            return false;
+        }
+
+        // Check if User is a member of the Current Portal (or a member of the MasterPortal if PortalGroups enabled)
+        if (this.UserInfo.PortalID != Null.NullInteger && this.UserInfo.PortalID != this.PortalId)
+        {
+            this.AddModuleMessage("InvalidUser", ModuleMessage.ModuleMessageType.YellowWarning, true);
+            this.DisableForm();
+            return false;
+        }
+
+        // Check if User is a SuperUser and that the current User is a SuperUser
+        // (kept verbatim; in the original both sides of the condition read the same user)
+        if (this.UserInfo.IsSuperUser && !this.UserInfo.IsSuperUser)
+        {
+            this.AddModuleMessage("NoUser", ModuleMessage.ModuleMessageType.YellowWarning, true);
+            this.DisableForm();
+            return false;
+        }
+
+        if (this.IsEdit)
+        {
+            // Check if user has admin rights
+            if (!this.IsAdmin || (this.UserInfo.IsInRole(this.PortalSettings.AdministratorRoleName) && !PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName)))
+            {
+                this.AddModuleMessage("NotAuthorized", ModuleMessage.ModuleMessageType.YellowWarning, true);
+                this.DisableForm();
+                return false;
+            }
+        }
+        else
+        {
+            if (!this.IsUser)
+            {
+                if (this.Request.IsAuthenticated())
+                {
+                    if (!PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName))
+                    {
+                        // Display current user's profile
+                        this.Navigation.NavigateTo(this.DnnNavigationManager.NavigateURL(this.PortalSettings.UserTabId, string.Empty, "UserID=" + this.UserInfo.UserID), forceLoad: true);
+                        return false;
+                    }
+                }
+                else
+                {
+                    if (this.UserInfo.UserID > Null.NullInteger)
+                    {
+                        this.AddModuleMessage("NotAuthorized", ModuleMessage.ModuleMessageType.YellowWarning, true);
+                        this.DisableForm();
+                        return false;
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private void BindMembership()
+    {
+        // ctlMembership.User/DataBind() are the Membership component's parameters in the markup;
+        // UserMembership.LockedOut is read straight off the user being edited, which is the same
+        // UserMembership instance the control displayed.
+        this.AddModuleMessage("UserLockedOut", ModuleMessage.ModuleMessageType.YellowWarning, this.UserInfo.Membership.LockedOut && !this.bound);
+    }
+
+    private void BindUser()
+    {
+        this.BindMembership();
+    }
+
+    private void DisableForm()
+    {
+        this.adminTabNavVisible = false;
+        this.profileDetailsVisible = false;
+        this.servicesDetailsVisible = false;
+        this.actionsRowVisible = false;
+        this.membershipVisible = false;
+    }
+
+    private void UpdateDisplayName()
+    {
+        // Update DisplayName to conform to Format
+        if (!string.IsNullOrEmpty(this.PortalSettings.Registration.DisplayNameFormat))
+        {
+            this.UserInfo.UpdateDisplayName(this.PortalSettings.Registration.DisplayNameFormat);
+        }
+    }
+
+    /// <summary>
+    /// Updates the user's vanity URL.
+    /// </summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>
+    /// This replaces the jQuery POST to InternalServices/ProfileService/UpdateVanityUrl of the
+    /// original inline script and performs the identical sequence: clean the name, warn (with the
+    /// suggested URL) when cleaning changed it, validate uniqueness, warn (with the suggested URL)
+    /// when it was not unique, otherwise store it on the user and drop the vanity URL cache.
+    /// </remarks>
+    private Task UpdateVanityUrlAsync()
+    {
+        this.vanityUrlMessage = string.Empty;
+
+        var urlSettings = new FriendlyUrlSettings(this.PortalControllerInstance, this.HostSettings, this.HostSettingsServiceInstance, this.PortalSettings.PortalId);
+        var options = UrlRewriterUtils.GetOptionsFromSettings(urlSettings);
+        var cleanUrl = FriendlyUrlController.CleanNameForUrl(this.vanityUrlText, options, out var modified);
+
+        if (modified)
+        {
+            this.vanityUrlMessageCssClass = "dnnFormWarning";
+            this.vanityUrlMessage = Localization.GetString("ProfileUrlCleaned", Localization.SharedResourceFile);
+            this.vanityUrlText = cleanUrl;
+            return Task.CompletedTask;
+        }
+
+        var uniqueUrl = FriendlyUrlController.ValidateUrl(cleanUrl, -1, this.PortalSettings, out modified);
+
+        if (modified)
+        {
+            this.vanityUrlMessageCssClass = "dnnFormWarning";
+            this.vanityUrlMessage = Localization.GetString("ProfileUrlNotUnique", Localization.SharedResourceFile);
+            this.vanityUrlText = uniqueUrl;
+            return Task.CompletedTask;
+        }
+
+        var user = this.UserInfo;
+        user.VanityUrl = uniqueUrl;
+        UserController.UpdateUser(this.EventLoggerInstance, this.PortalSettings.PortalId, user);
+
+        DataCache.RemoveCache(string.Format(CultureInfo.InvariantCulture, CacheController.VanityUrlLookupKey, this.PortalSettings.PortalId));
+
+        this.vanityUrl = $"{this.CurrentPortalAlias.HttpAlias}/{urlSettings.VanityUrlPrefix}/{uniqueUrl}";
+        this.ShowVanityUrl = false;
+        this.vanityUrlMessageCssClass = "dnnFormSuccess";
+        this.vanityUrlMessage = this.LocalizeText("SuccessMessage");
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>PasswordQuestionAnswerUpdated runs when the Password Q and A have been updated.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void PasswordQuestionAnswerUpdated(object sender, Password.PasswordUpdatedEventArgs e)
+    {
+        PasswordUpdateStatus status = e.UpdateStatus;
+        if (status == PasswordUpdateStatus.Success)
+        {
+            this.AddModuleMessage("PasswordQAChanged", ModuleMessage.ModuleMessageType.GreenSuccess, true);
+        }
+        else
+        {
+            this.AddModuleMessage(status.ToString(), ModuleMessage.ModuleMessageType.RedError, true);
+        }
+    }
+
+    /// <summary>PasswordUpdated runs when the Password has been updated or reset.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void PasswordUpdated(object sender, Password.PasswordUpdatedEventArgs e)
+    {
+        PasswordUpdateStatus status = e.UpdateStatus;
+        if (status == PasswordUpdateStatus.Success)
+        {
+            // Send Notification to User
+            try
+            {
+                var accessingUser = UserController.Instance.GetCurrentUserInfo();
+                if (accessingUser.UserID != this.UserInfo.UserID)
+                {
+                    // The password was changed by someone else
+                    Mail.SendMail(this.UserInfo, MessageType.PasswordReminder, this.PortalSettings);
+                }
+                else
+                {
+                    // The User changed his own password
+                    Mail.SendMail(this.UserInfo, MessageType.UserUpdatedOwnPassword, this.PortalSettings);
+                    PortalSecurity.Instance.SignIn(this.UserInfo, false);
+                }
+
+                this.AddModuleMessage("PasswordChanged", ModuleMessage.ModuleMessageType.GreenSuccess, true);
+            }
+            catch (Exception ex)
+            {
+                this.AddModuleMessage("PasswordMailError", ModuleMessage.ModuleMessageType.YellowWarning, true);
+                Exceptions.LogException(ex);
+            }
+        }
+        else
+        {
+            this.AddModuleMessage(status.ToString(), ModuleMessage.ModuleMessageType.RedError, true);
+        }
+    }
+
+    /// <summary>ProfileUpdateCompleted runs when the Profile has been updated.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void ProfileUpdateCompleted(object sender, EventArgs e)
+    {
+        // Notify the user that his/her profile was updated
+        Mail.SendMail(this.UserInfo, MessageType.ProfileUpdated, this.PortalSettings);
+
+        ProfilePropertyDefinition localeProperty = this.UserInfo.Profile.GetProperty("PreferredLocale");
+        if (localeProperty.IsDirty)
+        {
+            // store PreferredLocale in cookie, if none specified set to portal default.
+            if (this.UserInfo.Profile.PreferredLocale == string.Empty)
+            {
+                Localization.SetLanguage(PortalController.GetPortalDefaultLanguage(this.HostSettings, this.UserInfo.PortalID));
+            }
+            else
+            {
+                Localization.SetLanguage(this.UserInfo.Profile.PreferredLocale);
+            }
+        }
+
+        // Redirect to same page (this will update all controls for any changes to profile
+        // and leave us at Page 0 (User Credentials)
+        this.Navigation.NavigateTo(this.Request.GetRawUrl(), forceLoad: true);
+    }
+
+    /// <summary>SubscriptionUpdated runs when a member service subscription changed.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void SubscriptionUpdated(object sender, MemberServices.SubscriptionUpdatedEventArgs e)
+    {
+        string message;
+        if (e.Cancel)
+        {
+            message = string.Format(CultureInfo.CurrentCulture, this.LocalizeText("UserUnSubscribed"), e.RoleName);
+        }
+        else
+        {
+            message = string.Format(CultureInfo.CurrentCulture, this.LocalizeText("UserSubscribed"), e.RoleName);
+        }
+
+        this.AddLocalizedModuleMessage(message, ModuleMessage.ModuleMessageType.GreenSuccess, true);
+    }
+}

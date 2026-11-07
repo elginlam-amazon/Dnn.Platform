@@ -138,14 +138,25 @@ namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
         /// The settings user control of this provider is no longer the deployed file
         /// <c>Settings.ascx</c> but the Blazor component <c>Settings</c>
         /// (<c>AzureFolderProvider/Settings.razor</c>), which is compiled into this assembly. There
-        /// is therefore no virtual path to return, and the host renders the component type instead.
-        /// TODO: return the component through a type-based hook once DotNetNuke.Library replaces
-        /// the file-based lookup (FolderProvider.SettingsControlId / GetSettingsControlVirtualPath)
-        /// and DNN Platform/Modules/ResourceManager (EditFolderMapping) is migrated to Blazor.
+        /// is therefore no virtual path to return; the type-based hook
+        /// <see cref="GetSettingsControlType"/> is used instead, and the host renders that
+        /// component type.
         /// </remarks>
         public override string GetSettingsControlVirtualPath()
         {
             return string.Empty;
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// Returns the <c>Settings</c> Blazor component compiled into this assembly, which is what
+        /// replaced this provider's <c>Settings.ascx</c>. This is the hook the host
+        /// (<c>EditFolderMapping</c>) asks for before falling back to
+        /// <see cref="GetSettingsControlVirtualPath"/>.
+        /// </remarks>
+        public override Type GetSettingsControlType()
+        {
+            return typeof(Settings);
         }
 
         /// <inheritdoc />

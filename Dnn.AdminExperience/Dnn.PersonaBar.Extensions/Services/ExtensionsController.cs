@@ -9,15 +9,9 @@ namespace Dnn.PersonaBar.Extensions.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Net.Http.Formatting;
-    using System.Net.Http.Headers;
     using System.Reflection;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using System.Web.Http;
     using System.Xml;
     using System.Xml.XPath;
 
@@ -43,10 +37,16 @@ namespace Dnn.PersonaBar.Extensions.Services
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using Newtonsoft.Json;
 
     using Constants = Dnn.PersonaBar.Extensions.Components.Constants;
     using Util = DotNetNuke.Entities.Content.Common.Util;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Admin)]
     public class ExtensionsController : PersonaBarApiController
@@ -61,7 +61,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         /// <summary>Get installed package types.</summary>
         /// <returns>List of package types.</returns>
         [HttpGet]
-        public HttpResponseMessage GetPackageTypes()
+        public IActionResult GetPackageTypes()
         {
             try
             {
@@ -84,12 +84,12 @@ namespace Dnn.PersonaBar.Extensions.Services
                     Results = packageTypes,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerGetPackageTypesException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
@@ -97,17 +97,17 @@ namespace Dnn.PersonaBar.Extensions.Services
         /// <summary>Get installed packages list except language packs.</summary>
         /// <returns>List of [Id,Name] pairs of all system packages.</returns>
         [HttpGet]
-        public HttpResponseMessage GetAllPackagesListExceptLangPacks()
+        public IActionResult GetAllPackagesListExceptLangPacks()
         {
             try
             {
                 var packages = Utility.GetAllPackagesListExceptLangPacks();
-                return this.Request.CreateResponse(HttpStatusCode.OK, packages);
+                return this.Ok(packages);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerGetAllPackagesListExceptLangPacksException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
@@ -116,7 +116,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         /// <param name="packageType">The package type.</param>
         /// <returns>List of installed packages.</returns>
         [HttpGet]
-        public HttpResponseMessage GetInstalledPackages(string packageType)
+        public IActionResult GetInstalledPackages(string packageType)
         {
             try
             {
@@ -127,12 +127,12 @@ namespace Dnn.PersonaBar.Extensions.Services
                     Results = packages,
                     TotalResults = packages.Count,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerGetInstalledPackagesException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
@@ -142,7 +142,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         /// <returns>List of available packages.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetAvailablePackages(string packageType)
+        public IActionResult GetAvailablePackages(string packageType)
         {
             try
             {
@@ -153,12 +153,12 @@ namespace Dnn.PersonaBar.Extensions.Services
                     Results = packages,
                     TotalResults = packages.Count,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerGetAvailablePackagesException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
@@ -170,7 +170,7 @@ namespace Dnn.PersonaBar.Extensions.Services
         ////        /// <param name="packageId"></param>
         ////        /// <returns>List of tabs using a specific package</returns>
         ////        [HttpGet]
-        ////        public HttpResponseMessage GetPackageUsage(int portalId, int packageId)
+        ////        public IActionResult GetPackageUsage(int portalId, int packageId)
         ////        {
         ////            try
         ////            {
@@ -196,7 +196,7 @@ namespace Dnn.PersonaBar.Extensions.Services
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetSourceFolders(/*int moduleControlId*/)
+        public IActionResult GetSourceFolders(/*int moduleControlId*/)
         {
             var path = Path.Combine(Globals.ApplicationMapPath, "DesktopModules");
             var controlFolders = (
@@ -226,12 +226,12 @@ namespace Dnn.PersonaBar.Extensions.Services
                 }
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, response);
+            return this.Ok(response);
         }
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetSourceFiles(string root)
+        public IActionResult GetSourceFiles(string root)
         {
             var response = new List<KeyValuePair<string, string>>
             {
@@ -251,12 +251,12 @@ namespace Dnn.PersonaBar.Extensions.Services
                 }
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, response);
+            return this.Ok(response);
         }
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage LoadIcons(string controlPath)
+        public IActionResult LoadIcons(string controlPath)
         {
             var response = new List<KeyValuePair<string, string>>
             {
@@ -292,63 +292,63 @@ namespace Dnn.PersonaBar.Extensions.Services
                 }
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, response);
+            return this.Ok(response);
         }
 
         [HttpGet]
-        public HttpResponseMessage GetLanguagesList()
+        public IActionResult GetLanguagesList()
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, Utility.GetAllLanguagesList());
+            return this.Ok(Utility.GetAllLanguagesList());
         }
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetModuleCategories()
+        public IActionResult GetModuleCategories()
         {
             var termController = Util.GetTermController();
             var categories = termController.GetTermsByVocabulary("Module_Categories").OrderBy(t => t.Weight).Select(t => t.Name);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, categories);
+            return this.Ok(categories);
         }
 
         [HttpGet]
-        public HttpResponseMessage GetPackageSettings(int siteId, int packageId)
+        public IActionResult GetPackageSettings(int siteId, int packageId)
         {
             var portalId = siteId;
             if (portalId == Null.NullInteger && !this.UserInfo.IsSuperUser)
             {
-                return this.Request.CreateResponse(HttpStatusCode.Unauthorized);
+                return DnnApiResults.Response(HttpStatusCode.Unauthorized);
             }
 
             var package = PackageController.Instance.GetExtensionPackage(Null.NullInteger, p => p.PackageID == packageId);
             if (package == null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, string.Empty);
+                return DnnApiResults.Error(HttpStatusCode.NotFound, string.Empty);
             }
 
             try
             {
                 var packageEditor = PackageEditorFactory.GetPackageEditor(package.PackageType);
                 var packageDetail = packageEditor?.GetPackageDetail(portalId, package) ?? new PackageInfoDto(portalId, package);
-                return this.Request.CreateResponse(HttpStatusCode.OK, packageDetail);
+                return this.Ok(packageDetail);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerGetPackageSettingsException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage SavePackageSettings(PackageSettingsDto packageSettings)
+        public IActionResult SavePackageSettings(PackageSettingsDto packageSettings)
         {
             try
             {
                 var package = PackageController.Instance.GetExtensionPackage(Null.NullInteger, p => p.PackageID == packageSettings.PackageId);
                 if (package == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.InternalServerError,
                         Localization.GetString("SavePackageSettings.PackageNotFound", Constants.SharedResources));
                 }
@@ -359,7 +359,7 @@ namespace Dnn.PersonaBar.Extensions.Services
                     var isReadOnly = authService != null && authService.AuthenticationType == Constants.DnnAuthTypeName;
                     if (isReadOnly)
                     {
-                        return this.Request.CreateErrorResponse(
+                        return DnnApiResults.Error(
                             HttpStatusCode.BadRequest,
                             Localization.GetString("ReadOnlyPackage.SaveErrorMessage", Constants.SharedResources));
                     }
@@ -397,28 +397,28 @@ namespace Dnn.PersonaBar.Extensions.Services
 
                     if (!string.IsNullOrEmpty(error))
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { Success = false, Error = error });
+                        return DnnApiResults.Response(HttpStatusCode.BadRequest, new { Success = false, Error = error });
                     }
                 }
 
                 var packageDetail = packageEditor?.GetPackageDetail(packageSettings.PortalId, package) ?? new PackageInfoDto(packageSettings.PortalId, package);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, PackageDetail = packageDetail });
+                return this.Ok(new { Success = true, PackageDetail = packageDetail });
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerSavePackageSettingsException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetAvailableControls(int packageId)
+        public IActionResult GetAvailableControls(int packageId)
         {
             var package = PackageController.Instance.GetExtensionPackage(Null.NullInteger, p => p.PackageID == packageId);
             if (package == null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, string.Empty);
+                return DnnApiResults.Error(HttpStatusCode.NotFound, string.Empty);
             }
 
             try
@@ -429,44 +429,44 @@ namespace Dnn.PersonaBar.Extensions.Services
                     .Select(f => f.Replace(Globals.ApplicationMapPath, "~").Replace(@"\", "/"))
                     .ToList();
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, controls);
+                return this.Ok(controls);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerGetAvailableControlsException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage DeletePackage(DeletePackageDto deletePackage)
+        public IActionResult DeletePackage(DeletePackageDto deletePackage)
         {
             try
             {
                 var package = PackageController.Instance.GetExtensionPackage(Null.NullInteger, p => p.PackageID == deletePackage.Id);
                 if (package == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, string.Empty);
+                    return DnnApiResults.Error(HttpStatusCode.NotFound, string.Empty);
                 }
 
                 var installer = new Installer(package, Globals.ApplicationMapPath);
                 installer.UnInstall(deletePackage.DeleteFiles);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerDeletePackageException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [IFrameSupportedValidateAntiForgeryToken]
         [RequireHost]
-        public Task<HttpResponseMessage> InstallPackage([FromUri] string legacySkin = null, [FromUri] bool isPortalPackage = false)
+        public IActionResult InstallPackage(string legacySkin = null, bool isPortalPackage = false)
         {
             try
             {
@@ -477,14 +477,14 @@ namespace Dnn.PersonaBar.Extensions.Services
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerInstallPackageException(ex);
-                return Task.FromResult(this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message));
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [IFrameSupportedValidateAntiForgeryToken]
         [RequireHost]
-        public Task<HttpResponseMessage> ParsePackage()
+        public IActionResult ParsePackage()
         {
             try
             {
@@ -495,43 +495,43 @@ namespace Dnn.PersonaBar.Extensions.Services
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerParsePackageException(ex);
-                return Task.FromResult(this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message));
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage ParsePackageFile(DownloadPackageDto package)
+        public IActionResult ParsePackageFile(DownloadPackageDto package)
         {
             try
             {
                 var installFolder = GetPackageInstallFolder(package.PackageType);
                 if (string.IsNullOrEmpty(installFolder) || string.IsNullOrEmpty(package.FileName))
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidPackage");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidPackage");
                 }
 
                 var packagePath = Path.Combine(Globals.ApplicationMapPath, "Install", installFolder, package.FileName);
-                if (!File.Exists(packagePath))
+                if (!System.IO.File.Exists(packagePath))
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.NotFound);
+                    return DnnApiResults.Response(HttpStatusCode.NotFound);
                 }
 
                 var result = this.ParsePackageFile(packagePath);
-                return this.Request.CreateResponse(result.Success ? HttpStatusCode.OK : HttpStatusCode.BadRequest, result);
+                return DnnApiResults.Response(result.Success ? HttpStatusCode.OK : HttpStatusCode.BadRequest, result);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerParsePackageFileException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage ParseLanguagePackage([FromUri] string cultureCode)
+        public IActionResult ParseLanguagePackage(string cultureCode)
         {
             try
             {
@@ -539,12 +539,12 @@ namespace Dnn.PersonaBar.Extensions.Services
                 const string packageFileName = "installlanguage.resources";
                 var packagePath = Path.Combine(Globals.ApplicationMapPath, "Install/Language/" + packageFileName);
                 var result = this.ParsePackageFile(packagePath);
-                return this.Request.CreateResponse(result.Success ? HttpStatusCode.OK : HttpStatusCode.BadRequest, result);
+                return DnnApiResults.Response(result.Success ? HttpStatusCode.OK : HttpStatusCode.BadRequest, result);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerParseLanguagePackageException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
@@ -554,29 +554,29 @@ namespace Dnn.PersonaBar.Extensions.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage InstallAvailablePackage(DownloadPackageDto package)
+        public IActionResult InstallAvailablePackage(DownloadPackageDto package)
         {
             try
             {
                 var installFolder = GetPackageInstallFolder(package.PackageType);
                 if (string.IsNullOrEmpty(installFolder) || string.IsNullOrEmpty(package.FileName))
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidPackage");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidPackage");
                 }
 
                 var packagePath = Path.Combine(Globals.ApplicationMapPath, "Install", installFolder, package.FileName);
-                if (!File.Exists(packagePath))
+                if (!System.IO.File.Exists(packagePath))
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.NotFound);
+                    return DnnApiResults.Response(HttpStatusCode.NotFound);
                 }
 
                 var installResult = this.InstallPackageFile(packagePath);
-                return this.Request.CreateResponse(installResult.Success ? HttpStatusCode.OK : HttpStatusCode.BadRequest, installResult);
+                return DnnApiResults.Response(installResult.Success ? HttpStatusCode.OK : HttpStatusCode.BadRequest, installResult);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerInstallAvailablePackageException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
@@ -586,20 +586,20 @@ namespace Dnn.PersonaBar.Extensions.Services
         /// <returns>A response that streams the package zip file.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage DownloadPackage(string packageType, string fileName)
+        public IActionResult DownloadPackage(string packageType, string fileName)
         {
             try
             {
                 var installFolder = GetPackageInstallFolder(packageType);
                 if (string.IsNullOrEmpty(installFolder) || string.IsNullOrEmpty(fileName))
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidPackage");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidPackage");
                 }
 
                 var packagePath = Path.Combine(Globals.ApplicationMapPath, "Install", installFolder, fileName);
-                if (!File.Exists(packagePath))
+                if (!System.IO.File.Exists(packagePath))
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.NotFound);
+                    return DnnApiResults.Response(HttpStatusCode.NotFound);
                 }
 
                 if (fileName.EndsWith(".resources", StringComparison.OrdinalIgnoreCase))
@@ -607,24 +607,22 @@ namespace Dnn.PersonaBar.Extensions.Services
                     fileName = fileName.Replace(".resources", ".zip");
                 }
 
-                var response = this.Request.CreateResponse(HttpStatusCode.OK);
                 var stream = new FileStream(packagePath, FileMode.Open);
-                response.Content = new StreamContent(stream);
-                response.Content.Headers.ContentLength = stream.Length;
-                response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-                response.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment") { FileName = fileName };
-                return response;
+
+                // Keeps the legacy headers: Content-Length (from the stream), Content-Type:
+                // application/octet-stream and Content-Disposition: attachment; filename="<fileName>".
+                return new FileStreamResult(stream, "application/octet-stream") { FileDownloadName = fileName, };
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerDownloadPackageException(ex);
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError, new { Error = ex.Message });
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError, new { Error = ex.Message });
             }
         }
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage DownloadLanguagePackage([FromUri] string cultureCode)
+        public IActionResult DownloadLanguagePackage(string cultureCode)
         {
             try
             {
@@ -646,12 +644,12 @@ namespace Dnn.PersonaBar.Extensions.Services
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerDownloadLanguagePackageException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetPackageUsageFilter()
+        public IActionResult GetPackageUsageFilter()
         {
             try
             {
@@ -680,24 +678,24 @@ namespace Dnn.PersonaBar.Extensions.Services
                     TotalResults = availablePortals.Count,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.ExtensionsControllerGetPackageUsageFilterException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetPackageUsage(int portalId, int packageId)
+        public IActionResult GetPackageUsage(int portalId, int packageId)
         {
             try
             {
                 var pid = portalId == -2 ? Null.NullInteger : portalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var tabsWithModule = TabController.Instance.GetTabsByPackageID(pid, packageId, false);
@@ -719,19 +717,19 @@ namespace Dnn.PersonaBar.Extensions.Services
                     TotalResults = tabsInOrder.Count,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.ExtensionsControllerGetPackageUsageException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage CreateExtension(PackageSettingsDto packageSettings)
+        public IActionResult CreateExtension(PackageSettingsDto packageSettings)
         {
             try
             {
@@ -757,7 +755,7 @@ namespace Dnn.PersonaBar.Extensions.Services
                 var tmpPackage = PackageController.Instance.GetExtensionPackage(Null.NullInteger, p => p.Name == package.Name);
                 if (tmpPackage != null)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { Success = false, Error = "DuplicateName" });
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest, new { Success = false, Error = "DuplicateName" });
                 }
 
                 PackageController.Instance.SaveExtensionPackage(package);
@@ -843,22 +841,22 @@ namespace Dnn.PersonaBar.Extensions.Services
 
                     if (!string.IsNullOrEmpty(error))
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { Success = false, Error = error });
+                        return DnnApiResults.Response(HttpStatusCode.BadRequest, new { Success = false, Error = error });
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, PackageId = package.PackageID });
+                return this.Ok(new { Success = true, PackageId = package.PackageID });
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerCreateExtensionException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetOwnerFolders()
+        public IActionResult GetOwnerFolders()
         {
             try
             {
@@ -875,24 +873,24 @@ namespace Dnn.PersonaBar.Extensions.Services
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, folders);
+                return this.Ok(folders);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerGetOwnerFoldersException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetModuleFolders(string ownerFolder)
+        public IActionResult GetModuleFolders(string ownerFolder)
         {
             if (!string.IsNullOrEmpty(ownerFolder) &&
                 (ownerFolder.Replace(@"\", "/").Contains("/", StringComparison.Ordinal)
                  || ownerFolder.StartsWith(".", StringComparison.Ordinal)))
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidFolder");
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidFolder");
             }
 
             try
@@ -904,22 +902,22 @@ namespace Dnn.PersonaBar.Extensions.Services
                     folders.Add(path);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, folders);
+                return this.Ok(folders);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerGetModuleFoldersException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetModuleFiles(string ownerFolder, string moduleFolder, FileType type)
+        public IActionResult GetModuleFiles(string ownerFolder, string moduleFolder, FileType type)
         {
             if ((!string.IsNullOrEmpty(ownerFolder) && (ownerFolder.Replace(@"\", "/").Contains("/", StringComparison.Ordinal) || ownerFolder.StartsWith(".", StringComparison.Ordinal))) || string.IsNullOrEmpty(moduleFolder) || moduleFolder.Replace(@"\", "/").Contains("/", StringComparison.Ordinal) || moduleFolder.StartsWith(".", StringComparison.Ordinal))
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidFolder");
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidFolder");
             }
 
             try
@@ -943,24 +941,24 @@ namespace Dnn.PersonaBar.Extensions.Services
                         break;
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, files);
+                return this.Ok(files);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerGetModuleFilesException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage CreateFolder([FromUri] string ownerFolder, [FromUri] string moduleFolder)
+        public IActionResult CreateFolder(string ownerFolder, string moduleFolder)
         {
             if ((!string.IsNullOrEmpty(ownerFolder) && (ownerFolder.Replace(@"\", "/").Contains("/", StringComparison.Ordinal) || ownerFolder.StartsWith(".", StringComparison.Ordinal)))
                 || (!string.IsNullOrEmpty(moduleFolder) && (moduleFolder.Replace(@"\", "/").Contains("/", StringComparison.Ordinal) || moduleFolder.StartsWith(".", StringComparison.Ordinal))))
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidFolder");
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidFolder");
             }
 
             try
@@ -986,19 +984,19 @@ namespace Dnn.PersonaBar.Extensions.Services
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerCreateFolderException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage CreateModule(CreateModuleDto createModuleDto)
+        public IActionResult CreateModule(CreateModuleDto createModuleDto)
         {
             try
             {
@@ -1018,25 +1016,25 @@ namespace Dnn.PersonaBar.Extensions.Services
                     Error = errorMessage,
                 };
 
-                return this.Request.CreateResponse(result.Success ? HttpStatusCode.OK : HttpStatusCode.BadRequest, result);
+                return DnnApiResults.Response(result.Success ? HttpStatusCode.OK : HttpStatusCode.BadRequest, result);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerCreateModuleException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetPackageManifest(int packageId)
+        public IActionResult GetPackageManifest(int packageId)
         {
             try
             {
                 var package = PackageController.Instance.GetExtensionPackage(Null.NullInteger, p => p.PackageID == packageId);
                 if (package == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "PackageNotFound");
+                    return DnnApiResults.Error(HttpStatusCode.NotFound, "PackageNotFound");
                 }
 
                 switch (package.PackageType.ToLowerInvariant())
@@ -1124,19 +1122,19 @@ namespace Dnn.PersonaBar.Extensions.Services
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, packageManifestDto);
+                return this.Ok(packageManifestDto);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerGetPackageManifestException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage CreateManifest(PackageManifestDto packageManifestDto)
+        public IActionResult CreateManifest(PackageManifestDto packageManifestDto)
         {
             try
             {
@@ -1144,7 +1142,7 @@ namespace Dnn.PersonaBar.Extensions.Services
                     Null.NullInteger, p => p.PackageID == packageManifestDto.PackageId);
                 if (package == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "PackageNotFound");
+                    return DnnApiResults.Error(HttpStatusCode.NotFound, "PackageNotFound");
                 }
 
                 return this.CreateManifestInternal(package, packageManifestDto);
@@ -1152,14 +1150,14 @@ namespace Dnn.PersonaBar.Extensions.Services
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerCreateManifestException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage CreateNewManifest(PackageManifestDto packageManifestDto)
+        public IActionResult CreateNewManifest(PackageManifestDto packageManifestDto)
         {
             try
             {
@@ -1169,21 +1167,21 @@ namespace Dnn.PersonaBar.Extensions.Services
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerCreateNewManifestException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage CreatePackage(PackageManifestDto packageManifestDto)
+        public IActionResult CreatePackage(PackageManifestDto packageManifestDto)
         {
             try
             {
                 var package = PackageController.Instance.GetExtensionPackage(Null.NullInteger, p => p.PackageID == packageManifestDto.PackageId);
                 if (package == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "PackageNotFound");
+                    return DnnApiResults.Error(HttpStatusCode.NotFound, "PackageNotFound");
                 }
 
                 // Save package manifest
@@ -1260,24 +1258,24 @@ namespace Dnn.PersonaBar.Extensions.Services
 
                 var logs = writer.Log.Logs.Select(l => l.ToString()).ToList();
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, Logs = logs });
+                return this.Ok(new { Success = true, Logs = logs });
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerCreatePackageException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage RefreshPackageFiles(PackageFilesQueryDto packageData)
+        public IActionResult RefreshPackageFiles(PackageFilesQueryDto packageData)
         {
             var baseFolder = Path.Combine(Globals.ApplicationMapPath, packageData.PackageFolder.Replace('/', '\\'));
             if (!Directory.Exists(baseFolder))
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidFolder");
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidFolder");
             }
 
             try
@@ -1301,12 +1299,12 @@ namespace Dnn.PersonaBar.Extensions.Services
                 files.AddRange(writer.Files.Values.Where(
                     f => !f.Path.StartsWith(".", StringComparison.Ordinal) && !f.Name.StartsWith(".", StringComparison.Ordinal)).Select(file => file.FullName));
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, files);
+                return this.Ok(files);
             }
             catch (Exception ex)
             {
                 Logger.ExtensionsControllerRefreshPackageFilesException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, ex.Message);
             }
         }
 
@@ -1461,11 +1459,11 @@ namespace Dnn.PersonaBar.Extensions.Services
         private static string GetFileContent(string basePath, string fileName)
         {
             var filename = Path.Combine(Globals.ApplicationMapPath, basePath, fileName);
-            using var objStreamReader = File.OpenText(filename);
+            using var objStreamReader = System.IO.File.OpenText(filename);
             return objStreamReader.ReadToEnd();
         }
 
-        private HttpResponseMessage CreateManifestInternal(PackageInfo package, PackageManifestDto packageManifestDto)
+        private IActionResult CreateManifestInternal(PackageInfo package, PackageManifestDto packageManifestDto)
         {
             var writer = PackageWriterFactory.GetWriter(package);
 
@@ -1498,83 +1496,70 @@ namespace Dnn.PersonaBar.Extensions.Services
                 manifestContent = writer.WriteManifest(false);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Content = manifestContent });
+            return this.Ok(new { Content = manifestContent });
         }
 
-        private Task<HttpResponseMessage> UploadFileAction(Func<PortalSettings, UserInfo, string, Stream, object> action)
+        private IActionResult UploadFileAction(Func<PortalSettings, UserInfo, string, Stream, object> action)
         {
             var request = this.Request;
-            if (!request.Content.IsMimeMultipartContent())
+            if (!request.HasFormContentType ||
+                !Microsoft.Net.Http.Headers.MediaTypeHeaderValue.TryParse(request.ContentType, out var mediaType) ||
+                !mediaType.MediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase))
             {
-                throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
+                return DnnApiResults.Response(HttpStatusCode.UnsupportedMediaType);
             }
 
-            var provider = new MultipartMemoryStreamProvider();
-
-            // local references for use in closure
             var portalSettings = this.PortalSettings;
-            var currentSynchronizationContext = SynchronizationContext.Current;
             var userInfo = this.UserInfo;
 
-            var task = request.Content.ReadAsMultipartAsync(provider)
-                .ContinueWith(o =>
+            object result = null;
+
+            var fileName = string.Empty;
+            Stream stream = null;
+
+            foreach (IFormFile item in request.Form.Files)
+            {
+                var name = item.Name;
+                switch (name.ToUpperInvariant())
                 {
-                    object result = null;
-
-                    var fileName = string.Empty;
-                    Stream stream = null;
-
-                    foreach (var item in provider.Contents)
-                    {
-                        var name = item.Headers.ContentDisposition.Name;
-                        switch (name.ToUpperInvariant())
+                    case "POSTFILE":
+                        fileName = item.FileName.Replace("\"", string.Empty);
+                        if (fileName.IndexOf(@"\", StringComparison.Ordinal) != -1)
                         {
-                            case "\"POSTFILE\"":
-                                fileName = item.Headers.ContentDisposition.FileName.Replace("\"", string.Empty);
-                                if (fileName.IndexOf(@"\", StringComparison.Ordinal) != -1)
-                                {
-                                    fileName = Path.GetFileName(fileName);
-                                }
-
-                                if (!Globals.FileEscapingRegex.IsMatch(fileName))
-                                {
-                                    stream = item.ReadAsStreamAsync().Result;
-                                }
-
-                                break;
+                            fileName = Path.GetFileName(fileName);
                         }
-                    }
 
-                    if (!string.IsNullOrEmpty(fileName) && stream != null)
-                    {
-                        // The SynchronizationContext keeps the main thread context. Send method is synchronous
-                        currentSynchronizationContext.Send(
-                            state =>
-                            {
-                                result = action(portalSettings, userInfo, fileName, stream);
-                            },
-                            null);
-                    }
+                        if (!Globals.FileEscapingRegex.IsMatch(fileName))
+                        {
+                            stream = item.OpenReadStream();
+                        }
 
-                    var mediaTypeFormatter = new JsonMediaTypeFormatter();
-                    mediaTypeFormatter.SupportedMediaTypes.Add(new MediaTypeHeaderValue("text/plain"));
+                        break;
+                }
+            }
 
-                    // Response Content Type cannot be application/json
-                    // because IE9 with iframe-transport manages the response
-                    // as a file download
-                    return this.Request.CreateResponse(
-                        HttpStatusCode.OK,
-                        result,
-                        mediaTypeFormatter,
-                        "text/plain");
-                });
+            if (!string.IsNullOrEmpty(fileName) && stream != null)
+            {
+                using (stream)
+                {
+                    result = action(portalSettings, userInfo, fileName, stream);
+                }
+            }
 
-            return task;
+            // Response Content Type cannot be application/json
+            // because IE9 with iframe-transport manages the response
+            // as a file download
+            return new ContentResult
+            {
+                Content = JsonConvert.SerializeObject(result),
+                ContentType = "text/plain",
+                StatusCode = (int)HttpStatusCode.OK,
+            };
         }
 
         private ParseResultDto ParsePackageFile(string filePath)
         {
-            if (!File.Exists(filePath))
+            if (!System.IO.File.Exists(filePath))
             {
                 return new ParseResultDto() { Success = false, Message = "FileNotFound" };
             }
@@ -1585,7 +1570,7 @@ namespace Dnn.PersonaBar.Extensions.Services
 
         private InstallResultDto InstallPackageFile(string filePath)
         {
-            if (!File.Exists(filePath))
+            if (!System.IO.File.Exists(filePath))
             {
                 return new InstallResultDto() { Success = false, Message = "FileNotFound" };
             }
@@ -1594,21 +1579,19 @@ namespace Dnn.PersonaBar.Extensions.Services
             return InstallController.Instance.InstallPackage(this.PortalSettings, this.UserInfo, null, filePath, stream);
         }
 
-        private HttpResponseMessage DownLoadFile(string packagePath)
+        private IActionResult DownLoadFile(string packagePath)
         {
-            if (!File.Exists(packagePath))
+            if (!System.IO.File.Exists(packagePath))
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "FileNotFound");
+                return DnnApiResults.Error(HttpStatusCode.NotFound, "FileNotFound");
             }
 
             var stream = FileWrapper.Instance.OpenRead(packagePath);
             var fileName = Path.GetFileNameWithoutExtension(packagePath) + ".zip";
 
-            var result = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(stream) };
-            result.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-            result.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment");
-            result.Content.Headers.ContentDisposition.FileName = fileName;
-            return result;
+            // Keeps the legacy headers: Content-Type: application/octet-stream and
+            // Content-Disposition: attachment; filename="<name>.zip".
+            return new FileStreamResult(stream, "application/octet-stream") { FileDownloadName = fileName, };
         }
     }
 }

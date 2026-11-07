@@ -1,0 +1,148 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Services.Install
+@inherits DotNetNuke.Framework.UserControlBase
+
+@using System
+@using System.Text.RegularExpressions
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Security.Membership
+
+@*
+    WizardUser.ascx: the account sub-component of the installation wizards.
+
+    Its public surface is unchanged - the six value properties, the six label properties and
+    Validate() - so any consumer keeps compiling and behaving identically. Note that at the
+    baseline commit neither InstallWizard.aspx nor UpgradeWizard.aspx actually declared this
+    control (both collect the account fields inline), so converting it here leaves no page
+    referencing a deleted control.
+
+    The `label for="<%=txtX.ClientID%>"` pattern becomes a plain `for` pointing at the element id,
+    which in Blazor is the id itself (there is no naming container mangling any more).
+
+    OnLoad's `if (this.IsPostBack)` block and OnPreRender's
+    `txtPassword.Attributes["value"] = txtPassword.Text` both existed for ONE reason: WebForms
+    clears a TextMode="Password" box on every postback, so the value had to be stashed in ViewState
+    and re-emitted. There are no postbacks here and the component's fields are the state, so those
+    two blocks have no counterpart - the passwords simply persist. Per the conversion rules the
+    unreachable postback-only branch is dropped rather than simulated.
+*@
+
+<div class="dnnFormItem">
+    <label for="txtFirstName"><span id="lblFirstName">@this.FirstNameLabel</span></label>
+    <input id="txtFirstName" type="text" value="@this.FirstName" @onchange="e => this.FirstName = e.Value?.ToString()" />
+</div>
+<div class="dnnFormItem">
+    <label for="txtLastName"><span id="lblLastName">@this.LastNameLabel</span></label>
+    <input id="txtLastName" type="text" value="@this.LastName" @onchange="e => this.LastName = e.Value?.ToString()" />
+</div>
+<div class="dnnFormItem">
+    <label for="txtUserName"><span id="lblUserName">@this.UserNameLabel</span></label>
+    <input id="txtUserName" type="text" value="@this.UserName" @onchange="e => this.UserName = e.Value?.ToString()" />
+</div>
+<div class="dnnFormItem">
+    <label for="txtPassword"><span id="lblPassword">@this.PasswordLabel</span></label>
+    <input id="txtPassword" type="password" value="@this.Password" @onchange="e => this.Password = e.Value?.ToString()" />
+</div>
+<div class="dnnFormItem">
+    <label for="txtConfirm"><span id="lblConfirm">@this.ConfirmLabel</span></label>
+    <input id="txtConfirm" type="password" value="@this.Confirm" @onchange="e => this.Confirm = e.Value?.ToString()" />
+</div>
+<div class="dnnFormItem">
+    <label for="txtEmail"><span id="lblEmail">@this.EmailLabel</span></label>
+    <input id="txtEmail" type="text" value="@this.Email" @onchange="e => this.Email = e.Value?.ToString()" />
+</div>
+
+@code {
+    /// <summary>Gets or sets the first name of the initial user.</summary>
+    /// <remarks>Was backed by <c>txtFirstName.Text</c>.</remarks>
+    [Parameter]
+    public string FirstName { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the last name of the initial user.</summary>
+    [Parameter]
+    public string LastName { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the user name of the initial user.</summary>
+    [Parameter]
+    public string UserName { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the password of the initial user.</summary>
+    [Parameter]
+    public string Password { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the password confirmation of the initial user.</summary>
+    [Parameter]
+    public string Confirm { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the email address of the initial user.</summary>
+    [Parameter]
+    public string Email { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the label of the first name field.</summary>
+    /// <remarks>Was backed by <c>lblFirstName.Text</c>.</remarks>
+    [Parameter]
+    public string FirstNameLabel { get; set; }
+
+    /// <summary>Gets or sets the label of the last name field.</summary>
+    [Parameter]
+    public string LastNameLabel { get; set; }
+
+    /// <summary>Gets or sets the label of the user name field.</summary>
+    [Parameter]
+    public string UserNameLabel { get; set; }
+
+    /// <summary>Gets or sets the label of the password field.</summary>
+    [Parameter]
+    public string PasswordLabel { get; set; }
+
+    /// <summary>Gets or sets the label of the password confirmation field.</summary>
+    [Parameter]
+    public string ConfirmLabel { get; set; }
+
+    /// <summary>Gets or sets the label of the email field.</summary>
+    [Parameter]
+    public string EmailLabel { get; set; }
+
+    /// <summary>Validates the collected account information.</summary>
+    /// <returns>The resource key of the first broken rule, or <see cref="Null.NullString"/> when the input is valid.</returns>
+    /// <remarks>
+    /// SECURITY CONTROL - preserved exactly: the same six rules, in the same order, with the same
+    /// short-circuiting <c>else if</c> chain and the same resource keys, so the first broken rule
+    /// is the one reported. Nothing is relaxed, widened or reordered.
+    /// </remarks>
+    public string Validate()
+    {
+        string strErrorMessage = Null.NullString;
+        if (this.UserName.Length < 4)
+        {
+            strErrorMessage = "MinUserNamelength";
+        }
+        else if (string.IsNullOrEmpty(this.Password))
+        {
+            strErrorMessage = "NoPassword";
+        }
+        else if (this.UserName == this.Password)
+        {
+            strErrorMessage = "PasswordUser";
+        }
+        else if (this.Password.Length < MembershipProviderConfig.MinPasswordLength)
+        {
+            strErrorMessage = "PasswordLength";
+        }
+        else if (this.Password != this.Confirm)
+        {
+            strErrorMessage = "ConfirmPassword";
+        }
+        else if (!Globals.EmailValidatorRegex.IsMatch(this.Email))
+        {
+            strErrorMessage = "InValidEmail";
+        }
+
+        return strErrorMessage;
+    }
+}

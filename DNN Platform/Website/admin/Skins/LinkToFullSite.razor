@@ -1,0 +1,68 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* The dnn:LINKTOFULLSITE skin object (was LinkToFullSite.ascx + .cs).
+   Renders the <asp:HyperLink id="lnkPortal" CssClass="SkinObject"> of the original markup. The URL
+   comes from IRedirectionController.GetFullSiteUrl(), which appends "nomo=1" - the counterpart of
+   the "nomo=0" that LinkToMobileSite's URL carries. That query string is what
+   RedirectionController.IsRedirectAllowedForTheSession() turns into the "disablemobileredirect"
+   (session) and "disableredirectpresist" (20 minute) cookies on the NEXT request, which is what
+   suppresses the mobile redirect loop. The cookie write therefore stays where it already is (a
+   request with a live HttpContext), and both links stay symmetric by construction. *@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+@using System
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Services.Mobile
+@using Microsoft.AspNetCore.Components
+@inject IRedirectionController RedirectionController
+
+@if (this.Visible)
+{
+    <a class="@this.LinkCssClass" href="@this.navigateUrl">@((MarkupString)(this.text ?? string.Empty))</a>
+}
+
+@code {
+    private const string MyFileName = "LinkToFullSite.ascx";
+
+    private string localResourcesFile;
+    private string text;
+    private string navigateUrl;
+
+    private string LocalResourcesFile
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(this.localResourcesFile))
+            {
+                this.localResourcesFile = Localization.GetResourceFile(this, MyFileName);
+            }
+
+            return this.localResourcesFile;
+        }
+    }
+
+    /// <summary>Gets the CSS class of the link, as declared by the original markup.</summary>
+    private string LinkCssClass => string.IsNullOrEmpty(this.CssClass) ? "SkinObject" : this.CssClass;
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        var redirectUrl = this.RedirectionController.GetFullSiteUrl();
+        if (!string.IsNullOrEmpty(redirectUrl))
+        {
+            this.navigateUrl = redirectUrl;
+
+            // Localization.GetString is kept (rather than IStringLocalizer) so that the per-portal
+            // and per-host Language Editor customisations of this caption keep working.
+            this.text = Localization.GetString("lnkPortal", this.LocalResourcesFile);
+        }
+        else
+        {
+            this.Visible = false;
+        }
+    }
+}

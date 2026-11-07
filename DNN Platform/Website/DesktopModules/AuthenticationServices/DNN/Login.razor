@@ -1,0 +1,509 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Authentication.DNN
+@inherits DotNetNuke.Services.Authentication.AuthenticationLoginBase
+
+@using System
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Http
+@using Microsoft.Extensions.DependencyInjection
+@using Microsoft.Extensions.Logging
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Portals
+@using DotNetNuke.Abstractions.Security
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Membership
+@using DotNetNuke.Services.Authentication
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.UI.WebControls
+@using DotNetNuke.Website
+@using Globals = DotNetNuke.Common.Globals
+
+@*
+    Replaces DesktopModules/AuthenticationServices/DNN/Login.ascx — the DNN authentication
+    provider's own credential form.
+
+    THE FORM IS A REAL HTTP POST, deliberately. UserController.UserLogin (reached through the host
+    control's UserAuthenticated handler) writes the .DOTNETNUKE authentication cookie, which needs a
+    live HttpContext and a response that has not started. An @@onclick handler on an interactive
+    circuit has neither, so the login button is a submit button in a plain <form method="post">
+    (with <AntiforgeryToken />) — the exact shape a WebForms postback had. OnLoad reads the posted
+    credentials while the request is still in flight and raises UserAuthenticated from there, so the
+    host's sign-in happens on that same request.
+
+    The .ascx also carried an inline <script> that disabled the login link on click and re-enabled it
+    after each MS AJAX partial postback. There are no partial postbacks any more and a .razor file
+    cannot contain <script>, so the equivalent (don't let the user submit twice) is the submit
+    button's own disabled-on-submit behaviour registered through JS interop after the first render.
+*@
+
+<div class="dnnForm dnnLoginService dnnClear">
+    @if (this.renderForm)
+    {
+    <form method="post" id="@this.FormId">
+        <AntiforgeryToken />
+        <input type="hidden" name="@ActionField" value="@LoginAction" />
+        <div class="dnnFormItem">
+            <div class="dnnLabel">
+                <label id="plUsername" for="txtUsername" class="dnnFormLabel">@this.usernameLabel</label>
+            </div>
+            <input type="text" id="txtUsername" name="txtUsername" value="@this.userNameText" autocomplete="off" />
+        </div>
+        <div class="dnnFormItem">
+            <div class="dnnLabel">
+                <label id="plPassword" for="txtPassword" class="dnnFormLabel">@this.LocalizeText("Password")</label>
+            </div>
+            <input type="password" id="txtPassword" name="txtPassword" autocomplete="off" />
+        </div>
+        @if (this.UseCaptcha)
+        {
+            <div class="dnnFormItem" id="divCaptcha1">
+                <label id="plCaptcha" for="@CaptchaFieldName" class="dnnFormLabel">@this.LocalizeText("Captcha")</label>
+            </div>
+            <div class="dnnFormItem dnnCaptcha" id="divCaptcha2">
+                <CaptchaControl ID="@CaptchaFieldName" CaptchaWidth="130" CaptchaHeight="40" />
+            </div>
+        }
+        @if (this.showRememberMe)
+        {
+            <div class="dnnFormItem">
+                <label id="lblLoginRememberMe" class="dnnFormLabel">&nbsp;</label>
+                <span class="dnnLoginRememberMe">
+                    <input type="checkbox" id="chkCookie" name="chkCookie" value="true" />
+                    <label for="chkCookie">@this.LocalizeText("Remember")</label>
+                </span>
+            </div>
+        }
+        <div class="dnnFormItem">
+            @if (string.IsNullOrEmpty(this.loginInstructions))
+            {
+                @* The WebForms control cleared AssociatedControlID when the instructions were empty,
+                   so the label did not point at the login button; a label with no text and no
+                   association is rendered as the same empty cell. *@
+                <span id="lblLogin" class="dnnFormLabel"></span>
+            }
+            else
+            {
+                <label id="lblLogin" for="cmdLogin" class="dnnFormLabel">@this.loginInstructions</label>
+            }
+            <button type="submit" id="cmdLogin" class="dnnPrimaryAction">@this.LocalizeText("cmdLogin")</button>
+            <a id="cancelLink" class="dnnSecondaryAction" href="@this.cancelUrl">@this.LocalizeText("cmdCancel")</a>
+        </div>
+        <div class="dnnFormItem">
+            <span class="dnnFormLabel">&nbsp;</span>
+            <div class="dnnLoginActions">
+                <ul class="dnnActions dnnClear">
+                    @if (this.showRegister)
+                    {
+                        <li id="liRegister">
+                            <a id="registerLink" class="dnnSecondaryAction" href="@this.registerUrl" onclick="@this.registerOnClick">@this.LocalizeText("cmdRegister")</a>
+                        </li>
+                    }
+                    @if (this.showPasswordLink)
+                    {
+                        <li id="liPassword">
+                            <a id="passwordLink" class="dnnSecondaryAction" href="@this.passwordUrl" onclick="@this.passwordOnClick">@this.LocalizeText("cmdPassword")</a>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+    </form>
+    }
+</div>
+
+@code {
+    /// <summary>The hidden field that names the posted action.</summary>
+    private const string ActionField = "__dnnLoginAction";
+
+    private const string LoginAction = "dnnProviderLogin";
+
+    /// <summary>The <c>name</c> the captcha control renders on its answer box.</summary>
+    private const string CaptchaFieldName = "ctlCaptchaDnn";
+
+    private static readonly ILogger Logger = DnnLoggingController.GetLogger<Login>();
+
+    private INavigationManager navigationManager;
+    private IPortalController portalController;
+    private IHostSettings hostSettings;
+    private IPortalGroupController portalGroupController;
+    private IApplicationStatusInfo appStatus;
+    private ICryptographyProvider cryptographyProvider;
+
+    private bool loaded;
+    private string usernameLabel = string.Empty;
+    private string userNameText = string.Empty;
+    private string loginInstructions = string.Empty;
+    private string cancelUrl = string.Empty;
+    private string registerUrl = string.Empty;
+    private string registerOnClick;
+    private string passwordUrl = string.Empty;
+    private string passwordOnClick;
+    private bool showRegister = true;
+    private bool showPasswordLink = true;
+    private bool showRememberMe;
+
+    /// <summary>Gets or sets the Blazor navigation manager; <c>Response.Redirect</c> becomes a forced navigation.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets or sets the JS runtime, used for the double-submit guard.</summary>
+    [Inject]
+    protected Microsoft.JSInterop.IJSRuntime JsRuntime { get; set; }
+
+    /// <summary>Gets a value indicating whether check if the Auth System is Enabled (for the Portal).</summary>
+    public override bool Enabled => AuthenticationConfig.GetConfig(this.PortalId).Enabled;
+
+    /// <summary>Gets a value indicating whether the Captcha control is used to validate the login.</summary>
+    protected bool UseCaptcha => AuthenticationConfig.GetConfig(this.PortalId).UseCaptcha;
+
+    /// <summary>Gets the id of the login form.</summary>
+    /// <remarks>Scoped by module id so two login modules on one page keep distinct form elements.</remarks>
+    protected string FormId => "dnnLoginForm_" + this.ModuleId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private IPortalAliasInfo CurrentPortalAlias => this.PortalSettings.PortalAlias;
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        this.navigationManager ??= this.DependencyProvider.GetRequiredService<INavigationManager>();
+        this.portalController ??= this.DependencyProvider.GetRequiredService<IPortalController>();
+        this.hostSettings ??= this.DependencyProvider.GetRequiredService<IHostSettings>();
+        this.portalGroupController ??= this.DependencyProvider.GetRequiredService<IPortalGroupController>();
+        this.appStatus ??= this.DependencyProvider.GetRequiredService<IApplicationStatusInfo>();
+        this.cryptographyProvider ??= this.DependencyProvider.GetRequiredService<ICryptographyProvider>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        this.cancelUrl = this.GetRedirectUrl(false);
+
+        if (this.PortalSettings.UserRegistration == (int)Globals.PortalRegistrationType.NoRegistration)
+        {
+            this.showRegister = false;
+        }
+
+        this.loginInstructions = Localization.GetSystemMessage(this.PortalSettings, "MESSAGE_LOGIN_INSTRUCTIONS");
+
+        if (this.Request?.Query["usernameChanged"].ToString() == "true")
+        {
+            DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetSystemMessage(this.PortalSettings, "MESSAGE_USERNAME_CHANGED_INSTRUCTIONS"), ModuleMessage.ModuleMessageType.BlueInfo);
+        }
+
+        var returnUrl = this.navigationManager.NavigateURL();
+        string url;
+        if (this.PortalSettings.UserRegistration != (int)Globals.PortalRegistrationType.NoRegistration)
+        {
+            if (!string.IsNullOrEmpty(UrlUtils.ValidReturnUrl(this.Request?.Query["returnurl"].ToString())))
+            {
+                returnUrl = this.Request.Query["returnurl"].ToString();
+            }
+
+            returnUrl = Uri.EscapeDataString(returnUrl);
+
+            url = Globals.RegisterURL(returnUrl, Null.NullString);
+            this.registerUrl = url;
+            if (this.PortalSettings.EnablePopUps && this.PortalSettings.RegisterTabId == Null.NullInteger
+                && !AuthenticationController.HasSocialAuthenticationEnabled(this))
+            {
+                this.registerOnClick = "return " + UrlUtils.PopUpUrl(url, this.PortalSettings, true, false, 600, 950);
+            }
+        }
+        else
+        {
+            this.showRegister = false;
+        }
+
+        // see if the portal supports persistant cookies
+        this.showRememberMe = this.hostSettings.RememberCheckbox;
+
+        // no need to show password link if feature is disabled, let's check this first
+        if (MembershipProviderConfig.PasswordRetrievalEnabled || MembershipProviderConfig.PasswordResetEnabled)
+        {
+            url = this.navigationManager.NavigateURL("SendPassword", $"returnurl={returnUrl}");
+            this.passwordUrl = url;
+            if (this.PortalSettings.EnablePopUps)
+            {
+                this.passwordOnClick = "return " + UrlUtils.PopUpUrl(url, this.PortalSettings, true, false, 300, 650);
+            }
+        }
+        else
+        {
+            this.showPasswordLink = false;
+        }
+
+        if (!this.IsPostBack)
+        {
+            if (!string.IsNullOrEmpty(this.Request?.Query["verificationcode"].ToString()) && this.PortalSettings.UserRegistration == (int)Globals.PortalRegistrationType.VerifiedRegistration)
+            {
+                if (this.Request.IsAuthenticated())
+                {
+                    // Replaces this.Controls.Clear(): an already authenticated user following a
+                    // verification link gets no login form at all, only the redirect below.
+                    this.renderForm = false;
+                }
+
+                var verificationCode = this.Request.Query["verificationcode"].ToString();
+
+                try
+                {
+                    UserController.VerifyUser(this.cryptographyProvider, verificationCode.Replace(".", "+").Replace("-", "/").Replace("_", "="));
+
+                    var redirectTabId = this.PortalSettings.Registration.RedirectAfterRegistration;
+
+                    if (this.Request.IsAuthenticated())
+                    {
+                        this.Navigation.NavigateTo(this.navigationManager.NavigateURL(redirectTabId > 0 ? redirectTabId : this.PortalSettings.HomeTabId, string.Empty, "VerificationSuccess=true"), forceLoad: true);
+                        return;
+                    }
+                    else
+                    {
+                        if (redirectTabId > 0)
+                        {
+                            var redirectUrl = this.navigationManager.NavigateURL(redirectTabId, string.Empty, "VerificationSuccess=true");
+                            redirectUrl = redirectUrl.Replace(Globals.AddHTTP(this.CurrentPortalAlias.HttpAlias), string.Empty);
+                            HttpContextSource.Current?.Response.Cookies.Append(
+                                "returnurl",
+                                redirectUrl,
+                                new CookieOptions { Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/" });
+                        }
+
+                        DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("VerificationSuccess", this.LocalResourceFile), ModuleMessage.ModuleMessageType.GreenSuccess);
+                    }
+                }
+                catch (UserAlreadyVerifiedException)
+                {
+                    DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("UserAlreadyVerified", this.LocalResourceFile), ModuleMessage.ModuleMessageType.YellowWarning);
+                }
+                catch (InvalidVerificationCodeException)
+                {
+                    DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("InvalidVerificationCode", this.LocalResourceFile), ModuleMessage.ModuleMessageType.RedError);
+                }
+                catch (UserDoesNotExistException)
+                {
+                    DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("UserDoesNotExist", this.LocalResourceFile), ModuleMessage.ModuleMessageType.RedError);
+                }
+                catch (Exception)
+                {
+                    DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("InvalidVerificationCode", this.LocalResourceFile), ModuleMessage.ModuleMessageType.RedError);
+                }
+            }
+        }
+
+        if (this.Request?.IsAuthenticated() != true)
+        {
+            if (!this.IsPostBack)
+            {
+                try
+                {
+                    var queryUsername = this.Request?.Query["username"].ToString();
+                    if (!string.IsNullOrEmpty(queryUsername))
+                    {
+#pragma warning disable CS0618 // PortalSecurity.FilterFlag.NoScripting is deprecated
+                        string userName = PortalSecurity.Instance.InputFilter(
+                            queryUsername,
+                            PortalSecurity.FilterFlag.NoScripting | PortalSecurity.FilterFlag.NoAngleBrackets | PortalSecurity.FilterFlag.NoMarkup | PortalSecurity.FilterFlag.NoControlCharacters);
+#pragma warning restore CS0618 // PortalSecurity.FilterFlag.NoScripting is deprecated
+
+                        this.userNameText = userName;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // control not there
+                    Logger.DnnLoginCleanUsernameException(ex);
+                }
+            }
+
+            // Globals.SetFormFocus(...) wrote a WebForms start-up script; the HTML autofocus
+            // attribute is the modern equivalent and is applied below through the focus field.
+            this.focusPassword = !string.IsNullOrEmpty(this.userNameText);
+        }
+
+        var registrationType = this.PortalSettings.Registration.RegistrationFormType;
+        bool useEmailAsUserName;
+        if (registrationType == 0)
+        {
+            useEmailAsUserName = this.PortalSettings.Registration.UseEmailAsUserName;
+        }
+        else
+        {
+            var registrationFields = this.PortalSettings.Registration.RegistrationFields;
+            useEmailAsUserName = !registrationFields.Contains("Username");
+        }
+
+        this.usernameLabel = this.LocalizeText(useEmailAsUserName ? "Email" : "Username");
+
+        // Replaces cmdLogin.Click: the posted form IS the click.
+        if (this.IsPostBack && this.Request.Form[ActionField].ToString() == LoginAction)
+        {
+            this.OnLoginClick();
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (firstRender)
+        {
+            // Replaces the inline script's setUpLogin(): prevent a second submit of the same form
+            // and move the focus to the first empty credential box.
+            await this.JsRuntime.InvokeVoidAsync(
+                "eval",
+                $@"(function(){{var f=document.getElementById('{this.FormId}');if(!f){{return;}}
+                   f.addEventListener('submit',function(){{var b=f.querySelector('#cmdLogin');if(b){{b.classList.add('dnnDisabledAction');b.disabled=true;}}}});
+                   var t=f.querySelector('{(this.focusPassword ? "#txtPassword" : "#txtUsername")}');if(t){{t.focus();}}}})();");
+        }
+    }
+
+    /// <summary>Gets the URL to return to, honouring the portal's redirect-after-login setting.</summary>
+    /// <param name="checkSettings">Whether to honour <c>RedirectAfterLogin</c>.</param>
+    /// <returns>The URL.</returns>
+    /// <remarks>
+    /// Ported verbatim. The <c>returnurl</c> query string is still passed through
+    /// <see cref="UrlUtils.ValidReturnUrl"/> — DNN's open-redirect guard — before it is used.
+    /// </remarks>
+    protected string GetRedirectUrl(bool checkSettings = true)
+    {
+        var redirectUrl = string.Empty;
+        var redirectAfterLogin = this.PortalSettings.Registration.RedirectAfterLogin;
+        if (checkSettings && redirectAfterLogin > 0)
+        {
+            // redirect to after registration page
+            redirectUrl = this.navigationManager.NavigateURL(redirectAfterLogin);
+        }
+        else
+        {
+            var queryReturnUrl = this.Request?.Query["returnurl"].ToString();
+            if (!string.IsNullOrEmpty(queryReturnUrl))
+            {
+                // return to the url passed to register
+                redirectUrl = Uri.UnescapeDataString(queryReturnUrl);
+
+                // clean the return url to avoid possible XSS attack.
+                redirectUrl = UrlUtils.ValidReturnUrl(redirectUrl);
+
+                if (redirectUrl.Contains("?returnurl"))
+                {
+                    string baseURL = redirectUrl.Substring(
+                        0,
+                        redirectUrl.IndexOf("?returnurl", StringComparison.Ordinal));
+                    string returnURL =
+                        redirectUrl.Substring(redirectUrl.IndexOf("?returnurl", StringComparison.Ordinal) + 11);
+
+                    redirectUrl = string.Concat(baseURL, "?returnurl", Uri.EscapeDataString(returnURL));
+                }
+            }
+
+            if (string.IsNullOrEmpty(redirectUrl))
+            {
+                // redirect to current page
+                redirectUrl = this.navigationManager.NavigateURL();
+            }
+        }
+
+        return redirectUrl;
+    }
+
+    /// <summary>Gets a value indicating whether the current request is a form post (the WebForms <c>IsPostBack</c>).</summary>
+    private bool IsPostBack => this.Request?.HasFormContentType == true
+        && HttpMethods.IsPost(this.Request.Method);
+
+    private bool renderForm = true;
+
+    private bool focusPassword;
+
+    /// <summary>Validates the posted credentials and raises <c>UserAuthenticated</c>.</summary>
+    /// <remarks>Ported verbatim from <c>OnLoginClick</c>.</remarks>
+    private void OnLoginClick()
+    {
+        var postedUsername = this.Request.Form["txtUsername"].ToString() ?? string.Empty;
+        var postedPassword = this.Request.Form["txtPassword"].ToString() ?? string.Empty;
+        var rememberMe = this.Request.Form["chkCookie"].ToString() == "true";
+        this.userNameText = postedUsername;
+
+        var captchaIsValid = this.UseCaptcha
+            && new CaptchaControl().Validate(this.Request.Form[CaptchaFieldName].ToString());
+
+        if ((this.UseCaptcha && captchaIsValid) || !this.UseCaptcha)
+        {
+            var loginStatus = UserLoginStatus.LOGIN_FAILURE;
+#pragma warning disable CS0618 // PortalSecurity.FilterFlag.NoScripting is deprecated
+            string userName = PortalSecurity.Instance.InputFilter(
+                postedUsername,
+                PortalSecurity.FilterFlag.NoScripting | PortalSecurity.FilterFlag.NoAngleBrackets | PortalSecurity.FilterFlag.NoMarkup | PortalSecurity.FilterFlag.NoControlCharacters);
+#pragma warning restore CS0618 // PortalSecurity.FilterFlag.NoScripting is deprecated
+
+            // DNN-6093
+            // check if we use email address here rather than username
+            UserInfo userByEmail = null;
+            var emailUsedAsUsername = PortalController.GetPortalSettingAsBoolean(this.portalController, "Registration_UseEmailAsUserName", this.PortalId, false);
+
+            if (emailUsedAsUsername)
+            {
+                // one additional call to db to see if an account with that email actually exists
+                userByEmail = UserController.GetUserByEmail(PortalController.GetEffectivePortalId(this.portalController, this.appStatus, this.portalGroupController, this.PortalId), userName);
+
+                if (userByEmail != null)
+                {
+                    // we need the username of the account in order to authenticate in the next step
+                    userName = userByEmail.Username;
+                }
+            }
+
+            UserInfo objUser = null;
+
+            if (!emailUsedAsUsername || userByEmail != null)
+            {
+                objUser = UserController.ValidateUser(this.PortalId, userName, postedPassword, "DNN", string.Empty, this.PortalSettings.PortalName, this.IPAddress, ref loginStatus);
+            }
+
+            var authenticated = Null.NullBoolean;
+            var message = Null.NullString;
+            if (loginStatus == UserLoginStatus.LOGIN_USERNOTAPPROVED)
+            {
+                message = "UserNotAuthorized";
+            }
+            else
+            {
+                authenticated = loginStatus != UserLoginStatus.LOGIN_FAILURE;
+            }
+
+            // Raise UserAuthenticated Event
+            var eventArgs = new UserAuthenticatedEventArgs(objUser, userName, loginStatus, "DNN")
+            {
+                Authenticated = authenticated,
+                Message = message,
+                RememberMe = rememberMe,
+            };
+            this.OnUserAuthenticated(eventArgs);
+        }
+    }
+}

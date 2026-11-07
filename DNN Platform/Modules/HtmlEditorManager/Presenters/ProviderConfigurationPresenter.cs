@@ -110,7 +110,7 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Presenters
             var context = HttpContextSource.Current;
             if (context != null)
             {
-                ClientResourceManager.RegisterStyleSheet(context, "~/Portals/_default/Skins/_default/WebControlSkin/Default/ComboBox.Default.css");
+                ClientResourceManager.RegisterStyleSheet(context, "~/portals/_default/Skins/_default/WebControlSkin/Default/ComboBox.Default.css");
             }
         }
 

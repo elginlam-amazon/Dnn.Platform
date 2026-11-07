@@ -1,0 +1,192 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Containers
+@inherits DotNetNuke.UI.Containers.ActionBase
+
+@using System
+@using System.Collections.Generic
+@using System.Threading.Tasks
+@using DotNetNuke.Entities.Modules.Actions
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Security
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Personalization
+@using Microsoft.AspNetCore.Components.Forms
+
+@*
+    Replaces printmodule.ascx + PrintModule.ascx.cs + PrintModule.ascx.designer.cs.
+
+    Contains the attributes of an Icon. These are read into the PortalModuleBase collection as
+    attributes for the icons within the module controls.
+
+    The WebForms control had no markup: OnLoad walked the module's action tree and added one
+    ImageButton per permitted print action to this.Controls. Those become the image submit buttons of
+    the static server-side form below - which is what the WebForms postback was. Static SSR is
+    required here: the print action is dispatched through ActionManager, which needs HttpContext, and
+    a skin object cannot opt into @@rendermode InteractiveServer (its ModuleControl is assigned by the
+    skinning engine rather than passed as a serializable parameter).
+
+    *** SECURITY - THE PERMISSION FILTER IS PRESERVED VERBATIM ***
+    Old PrintModule.ascx.cs:68-104 -> CollectActions below. The conditions, their order and their
+    nesting are unchanged:
+      1. action.CommandName == ModuleActionType.PrintModule,
+      2. action.Visible,
+      3. (Personalization.GetUserMode() == PortalSettings.Mode.Edit)
+         || (action.Secure == SecurityAccessLevel.Anonymous || action.Secure == SecurityAccessLevel.View),
+      4. this.ModuleContext.Configuration.DisplayPrint,
+      5. the recursion into action.Actions, which runs for every action regardless of the above.
+    Nothing is widened and no action is added; ProcessAction (ActionBase) still re-resolves the
+    posted id against ModuleContext.Actions.
+
+    Asset casing: the fallback icon path stays "~/images/" (lowercase), which is where the icons live
+    under wwwroot; the PrintIcon path is still derived from the container path, unchanged.
+*@
+
+@if (this.Visible)
+{
+    <form method="post" @formname="@this.FormName" @onsubmit="this.HandleSubmitAsync">
+        <AntiforgeryToken />
+
+        @foreach (var icon in this.printIcons)
+        {
+            <button type="submit"
+                    name="@ActionField"
+                    value="@icon.ActionId"
+                    id="@("ico" + icon.ActionId)"
+                    class="dnnPrintModuleAction"
+                    title="@icon.ToolTip">
+                <img src="@icon.ImageUrl" alt="@icon.ToolTip" />
+            </button>
+        }
+    </form>
+}
+
+@code {
+    /// <summary>Initializes a new instance of the <see cref="PrintModule"/> class.</summary>
+    /// <remarks>
+    /// The generated component would otherwise call the parameterless
+    /// <c>ActionBase()</c>, which is deprecated in favour of the <c>IEventLogger</c>
+    /// overload. That overload resolves the logger from the current service provider when
+    /// it is given <see langword="null"/>, which is exactly what the deprecated constructor
+    /// did, so the resulting EventLogger is the same instance it always was.
+    /// </remarks>
+    public PrintModule()
+        : base((DotNetNuke.Abstractions.Logging.IEventLogger)null)
+    {
+    }
+
+    /// <summary>The name of the form field carrying the clicked action's id.</summary>
+    /// <remarks>Replaces the WebForms <c>__EVENTTARGET</c> of the clicked ImageButton, whose id was
+    /// <c>"ico" + action.ID</c> and from which the handler took <c>.Substring(3)</c>.</remarks>
+    private const string ActionField = "__dnnPrintAction";
+
+    private List<PrintActionIcon> printIcons = new List<PrintActionIcon>();
+
+    /// <summary>Gets or sets the print icon, relative to the container path.</summary>
+    [Parameter]
+    public string PrintIcon { get; set; }
+
+    /// <summary>Gets the form name, which must be unique per rendered form on the page.</summary>
+    private string FormName => "printModule" + this.ModuleContext.ModuleId;
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        try
+        {
+            this.printIcons = new List<PrintActionIcon>();
+            foreach (ModuleAction action in this.Actions)
+            {
+                this.CollectActions(action);
+            }
+
+            // set visibility
+            // Was this.Controls.Count > 0, where the controls were exactly these icons.
+            if (this.printIcons.Count > 0)
+            {
+                this.Visible = true;
+            }
+            else
+            {
+                this.Visible = false;
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    private void CollectActions(ModuleAction action)
+    {
+        if (action.CommandName == ModuleActionType.PrintModule)
+        {
+            if (action.Visible)
+            {
+                if ((Personalization.GetUserMode() == PortalSettings.Mode.Edit) || (action.Secure == SecurityAccessLevel.Anonymous || action.Secure == SecurityAccessLevel.View))
+                {
+                    if (this.ModuleContext.Configuration.DisplayPrint)
+                    {
+                        string imageUrl;
+                        if (!string.IsNullOrEmpty(this.PrintIcon))
+                        {
+                            imageUrl = this.ModuleContext.Configuration.ContainerPath.Substring(0, this.ModuleContext.Configuration.ContainerPath.LastIndexOf("/", StringComparison.Ordinal) + 1) + this.PrintIcon;
+                        }
+                        else
+                        {
+                            imageUrl = "~/images/" + action.Icon;
+                        }
+
+                        // CausesValidation="False" has no equivalent: there are no WebForms
+                        // validators on the page, and this form posts nothing but the action id.
+                        this.printIcons.Add(new PrintActionIcon(action.ID, imageUrl, action.Title));
+                    }
+                }
+            }
+        }
+
+        foreach (ModuleAction subAction in action.Actions)
+        {
+            this.CollectActions(subAction);
+        }
+    }
+
+    /// <summary>Processes the posted action, replacing the ImageButton's Click handler.</summary>
+    private Task HandleSubmitAsync()
+    {
+        try
+        {
+            var posted = this.Request?.Form[ActionField].ToString();
+            if (!string.IsNullOrEmpty(posted))
+            {
+                this.ProcessAction(posted);
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>One rendered print icon, replacing a dynamically created <c>ImageButton</c>.</summary>
+    private sealed class PrintActionIcon
+    {
+        public PrintActionIcon(int actionId, string imageUrl, string toolTip)
+        {
+            this.ActionId = actionId;
+            this.ImageUrl = imageUrl;
+            this.ToolTip = toolTip;
+        }
+
+        public int ActionId { get; }
+
+        public string ImageUrl { get; }
+
+        public string ToolTip { get; }
+    }
+}

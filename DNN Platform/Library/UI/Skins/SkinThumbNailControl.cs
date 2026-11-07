@@ -24,12 +24,27 @@ namespace DotNetNuke.UI.Skins
     ///     as a Radio ButtonList with Thumbnail Images where available.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The base class changed from <c>DotNetNuke.Framework.UserControlBase</c> to
     /// <see cref="DnnComponentBase"/>; <c>HtmlGenericControl</c>/<c>RadioButtonList</c> became
     /// <see cref="DnnGenericControl"/>/<see cref="DnnRadioButtonList"/>, and the view state became
     /// component state. The thumbnails are produced with ImageSharp instead of System.Drawing.
+    /// </para>
+    /// <para>
+    /// The class is concrete and builds its own child tree in the constructor, which is what
+    /// <c>controls/skinthumbnailcontrol.ascx</c> used to declare:
+    /// <c>&lt;div id="ControlContainer"&gt;</c> wrapping
+    /// <c>&lt;asp:radiobuttonlist id="OptSkin" repeatdirection="Horizontal" repeatcolumns="3"
+    /// repeatlayout="Table" Width="100%" CssClass="SkinList" /&gt;</c>. The children are created in
+    /// the constructor rather than in <c>CreateChildControls</c> because the
+    /// <see cref="Border"/>, <see cref="Columns"/>, <see cref="Height"/>, <see cref="Width"/> and
+    /// <see cref="SkinSrc"/> members write through to them, and callers set those before the
+    /// control is first rendered. <c>repeatdirection</c>/<c>repeatlayout</c> have no separate
+    /// member on <see cref="DnnRadioButtonList"/>: it renders <see cref="Columns"/> as a CSS grid
+    /// of that many columns, which is the horizontal 3-column table the markup asked for.
+    /// </para>
     /// </remarks>
-    public abstract class SkinThumbNailControl : DnnComponentBase
+    public class SkinThumbNailControl : DnnComponentBase
     {
         [SuppressMessage("StyleCop.CSharp.NamingRules", "SA1306:FieldNamesMustBeginWithLowerCaseLetter", Justification = "Breaking Change")]
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
@@ -52,6 +67,19 @@ namespace DotNetNuke.UI.Skins
         private string skinControlHeight;
         private string skinRoot;
         private string skinControlWidth;
+
+        /// <summary>Initializes a new instance of the <see cref="SkinThumbNailControl"/> class.</summary>
+        public SkinThumbNailControl()
+        {
+            this.OptSkin = new DnnRadioButtonList { ID = "OptSkin", CssClass = "SkinList", RepeatColumns = 3 };
+            this.OptSkin.Style["width"] = "100%";
+
+            this.ControlContainer = new DnnGenericControl("div") { ID = "ControlContainer" };
+            this.ControlContainer.Controls.Add(this.OptSkin);
+            this.Controls.Add(this.ControlContainer);
+
+            this.skinControlColumns = 3;
+        }
 
         /// <summary>Gets the portal settings of the current portal.</summary>
         /// <remarks>Was inherited from <c>DotNetNuke.Framework.UserControlBase</c>.</remarks>

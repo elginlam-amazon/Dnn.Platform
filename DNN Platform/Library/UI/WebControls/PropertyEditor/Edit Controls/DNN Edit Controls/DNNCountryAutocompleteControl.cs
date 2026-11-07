@@ -200,8 +200,8 @@ namespace DotNetNuke.UI.WebControls
             base.OnInit(e);
 
             this.servicesFramework.RequestAjaxAntiForgerySupport();
-            this.clientResourceController.RegisterScript("~/Resources/Shared/components/CountriesRegions/dnn.CountriesRegions.js");
-            this.clientResourceController.CreateStylesheet("~/Resources/Shared/components/CountriesRegions/dnn.CountriesRegions.css").SetPriority(FileOrder.Css.FeatureCss).Register();
+            this.clientResourceController.RegisterScript("~/resources/Shared/components/CountriesRegions/dnn.CountriesRegions.js");
+            this.clientResourceController.CreateStylesheet("~/resources/Shared/components/CountriesRegions/dnn.CountriesRegions.css").SetPriority(FileOrder.Css.FeatureCss).Register();
             JavaScript.RequestRegistration(this.appStatus, this.eventLogger, this.portalController.GetCurrentSettings(), CommonJs.jQuery);
             JavaScript.RequestRegistration(this.appStatus, this.eventLogger, this.portalController.GetCurrentSettings(), CommonJs.jQueryUI);
         }

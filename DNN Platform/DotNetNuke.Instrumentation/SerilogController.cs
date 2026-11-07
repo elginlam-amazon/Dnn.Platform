@@ -47,10 +47,31 @@ internal static class SerilogController
 
     private static SerilogLoggerProvider CreateSerilogLoggerProvider()
     {
-        // initialize Serilog
-        var applicationMapPath = AppDomain.CurrentDomain.BaseDirectory;
+        // DECISION (config migration): Config/Serilog.default.config IS wired — it is not a
+        // dangling file. It is the seed template that is copied to ~/Serilog.config on first run
+        // and then read as a Serilog JSON configuration source by InitializeSerilog below. It
+        // stays XML-named but is JSON-shaped, which is why AddJsonFile reads it.
+        //
+        // The root is the CONTENT root, not AppDomain.CurrentDomain.BaseDirectory: on modern .NET
+        // the base directory is the build output folder, so seeding and the "BASEDIR" log-path
+        // variable both have to resolve against the content root to land next to Config/ and
+        // Portals/ the way they did under IIS.
+        var applicationMapPath = GetContentRootPath();
         InitializeSerilog(applicationMapPath);
         return new SerilogLoggerProvider(Log.Logger);
+    }
+
+    /// <summary>Gets the application content root, falling back to the build output directory.</summary>
+    /// <returns>The physical content-root path, without a trailing separator.</returns>
+    private static string GetContentRootPath()
+    {
+        // Serilog is initialized very early (the logging provider is created on first use, which
+        // can precede AddDnnPlatform), so the environment may not be registered yet.
+        var contentRoot = Environment.GetEnvironmentVariable("ASPNETCORE_CONTENTROOT")
+                          ?? Environment.GetEnvironmentVariable("DOTNET_CONTENTROOT")
+                          ?? AppContext.BaseDirectory;
+
+        return contentRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     /// <summary>
@@ -83,7 +104,7 @@ internal static class SerilogController
         {
             config = new LoggerConfiguration()
                 .WriteTo.File(
-                    Path.Combine(applicationMapPath, "Portals\\_default\\Logs\\log.resources"),
+                    Path.Combine(applicationMapPath, "Portals", "_default", "Logs", "log.resources"),
                     outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Properties:j}{NewLine}{Exception}",
                     rollingInterval: RollingInterval.Day,
                     formatProvider: CultureInfo.InvariantCulture)

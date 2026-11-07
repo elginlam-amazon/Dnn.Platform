@@ -11,7 +11,6 @@ namespace Dnn.PersonaBar.Users.Components
     using System.Linq;
     using System.Net;
     using System.Threading;
-    using System.Web.Security;
 
     using Dnn.PersonaBar.Users.Components.Contracts;
     using Dnn.PersonaBar.Users.Components.Dto;

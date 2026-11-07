@@ -10,9 +10,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Threading;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -25,8 +23,11 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
     using DotNetNuke.Services.Scheduling;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
     using Microsoft.VisualBasic;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Host)]
     public class TaskSchedulerController : PersonaBarApiController
@@ -39,7 +40,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <summary>Gets list of servers.</summary>
         /// <returns>List of servers.</returns>
         [HttpGet]
-        public HttpResponseMessage GetServers()
+        public IActionResult GetServers()
         {
             try
             {
@@ -64,12 +65,12 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                     TotalResults = servers.Count,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerGetServersException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -78,7 +79,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <param name="serverName">The server name (default <c>""</c>).</param>
         /// <returns>List of schedule items.</returns>
         [HttpGet]
-        public HttpResponseMessage GetScheduleItems(string serverName = "")
+        public IActionResult GetScheduleItems(string serverName = "")
         {
             try
             {
@@ -98,12 +99,12 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                     }),
                     TotalResults = arrSchedule.Length,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerGetScheduleItemsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -111,7 +112,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <summary>Gets scheduler settings.</summary>
         /// <returns>scheduler settings.</returns>
         [HttpGet]
-        public HttpResponseMessage GetSchedulerSettings()
+        public IActionResult GetSchedulerSettings()
         {
             try
             {
@@ -132,12 +133,12 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                     },
                     TotalResults = 1,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerGetSchedulerSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -147,7 +148,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateSchedulerSettings(UpdateSettingsRequest request)
+        public IActionResult UpdateSchedulerSettings(UpdateSettingsRequest request)
         {
             try
             {
@@ -175,12 +176,12 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                 HostController.Instance.Update("SchedulerMode", request.SchedulerMode, false);
                 HostController.Instance.Update("SchedulerdelayAtAppStart", request.SchedulerdelayAtAppStart);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerUpdateSchedulerSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -191,7 +192,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <param name="pageSize">The page size (default 20).</param>
         /// <returns>schedule item history.</returns>
         [HttpGet]
-        public HttpResponseMessage GetScheduleItemHistory(int scheduleId = -1, int pageIndex = 0, int pageSize = 20)
+        public IActionResult GetScheduleItemHistory(int scheduleId = -1, int pageIndex = 0, int pageSize = 20)
         {
             try
             {
@@ -223,12 +224,12 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                     Results = query.Skip(pageIndex * pageSize).Take(pageSize),
                     TotalResults = query.Count(),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerGetScheduleItemHistoryException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -237,7 +238,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <param name="scheduleId">The schedule ID.</param>
         /// <returns>schedule item.</returns>
         [HttpGet]
-        public HttpResponseMessage GetScheduleItem(int scheduleId)
+        public IActionResult GetScheduleItem(int scheduleId)
         {
             try
             {
@@ -269,12 +270,12 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                     },
                     TotalResults = 1,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerGetScheduleItemException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -284,7 +285,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage CreateScheduleItem(ScheduleDto scheduleDto)
+        public IActionResult CreateScheduleItem(ScheduleDto scheduleDto)
         {
             try
             {
@@ -295,7 +296,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
 
                 if (!VerifyValidTimeLapseRetry(scheduleDto.TimeLapse, scheduleDto.TimeLapseMeasurement, scheduleDto.RetryTimeLapse, scheduleDto.RetryTimeLapseMeasurement))
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, Localization.GetString("InvalidFrequencyAndRetry", localResourcesFile));
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, Localization.GetString("InvalidFrequencyAndRetry", localResourcesFile));
                 }
 
                 var scheduleItem = this.controller.CreateScheduleItem(
@@ -314,12 +315,12 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                     scheduleDto.Servers);
                 SchedulingProvider.Instance().AddSchedule(scheduleItem);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerCreateScheduleItemException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -329,7 +330,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateScheduleItem(ScheduleDto scheduleDto)
+        public IActionResult UpdateScheduleItem(ScheduleDto scheduleDto)
         {
             try
             {
@@ -340,7 +341,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
 
                 if (!VerifyValidTimeLapseRetry(scheduleDto.TimeLapse, scheduleDto.TimeLapseMeasurement, scheduleDto.RetryTimeLapse, scheduleDto.RetryTimeLapseMeasurement))
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, Localization.GetString("InvalidFrequencyAndRetry", localResourcesFile));
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, Localization.GetString("InvalidFrequencyAndRetry", localResourcesFile));
                 }
 
                 var existingItem = SchedulingProvider.Instance().GetSchedule(scheduleDto.ScheduleID);
@@ -376,12 +377,12 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                     SchedulingProvider.Instance().UpdateScheduleWithoutExecution(updatedItem);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerUpdateScheduleItemException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -389,7 +390,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <summary>Gets schedule status.</summary>
         /// <returns>schedule status.</returns>
         [HttpGet]
-        public HttpResponseMessage GetScheduleStatus()
+        public IActionResult GetScheduleStatus()
         {
             try
             {
@@ -441,7 +442,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                         },
                         TotalResults = 1,
                     };
-                    return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                    return this.Ok(response);
                 }
                 else
                 {
@@ -460,13 +461,13 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                         },
                         TotalResults = 1,
                     };
-                    return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                    return this.Ok(response);
                 }
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerGetScheduleStatusException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -475,17 +476,17 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage StartSchedule()
+        public IActionResult StartSchedule()
         {
             try
             {
                 SchedulingProvider.Instance().StartAndWaitForResponse();
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerStartScheduleException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -494,17 +495,17 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage StopSchedule()
+        public IActionResult StopSchedule()
         {
             try
             {
                 this.controller.StopSchedule();
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerStopScheduleException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -514,7 +515,7 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage RunSchedule(ScheduleDto scheduleDto)
+        public IActionResult RunSchedule(ScheduleDto scheduleDto)
         {
             try
             {
@@ -540,12 +541,12 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
                     SchedulingProvider.Instance().ReStart("Change made to schedule.");
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerRunScheduleException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -555,18 +556,18 @@ namespace Dnn.PersonaBar.TaskScheduler.Services
         /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage DeleteSchedule(ScheduleDto scheduleDto)
+        public IActionResult DeleteSchedule(ScheduleDto scheduleDto)
         {
             try
             {
                 var objScheduleItem = new ScheduleItem { ScheduleID = scheduleDto.ScheduleID };
                 SchedulingProvider.Instance().DeleteSchedule(objScheduleItem);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.TaskSchedulerControllerDeleteScheduleException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 

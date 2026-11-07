@@ -12,11 +12,8 @@ namespace Dnn.PersonaBar.SiteSettings.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Text.RegularExpressions;
     using System.Threading;
-    using System.Web;
-    using System.Web.Http;
     using System.Xml;
 
     using Dnn.PersonaBar.Library;
@@ -52,11 +49,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.UI.WebControls;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
     using Constants = Dnn.PersonaBar.Library.Constants;
     using FileInfo = System.IO.FileInfo;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>Provides Web API methods for the Site Settings module to use.</summary>
     /// <param name="navigationManager">A manager to provide navigation services.</param>
@@ -140,14 +140,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>Localized site settings.</returns>
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.Constants.MenuName, Permission = Components.Constants.Constants.SiteInfoView)]
-        public HttpResponseMessage GetPortalSettings(int? portalId, string cultureCode)
+        public IActionResult GetPortalSettings(int? portalId, string cultureCode)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 cultureCode = string.IsNullOrEmpty(cultureCode)
@@ -157,7 +157,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 var language = LocaleController.Instance.GetLocale(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
@@ -200,7 +200,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     new DnnFileUploadOptions(this.hostSettings, this.appStatus, this.cryptographyProvider).ValidationCode,
                     IconSet = PortalController.GetPortalSetting(this.portalController, "DefaultIconLocation", pid, "Sigma", cultureCode).Replace("icons/", string.Empty),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Settings = settings,
                     TimeZones = TimeZoneInfo.GetSystemTimeZones().Select(z => new
@@ -214,7 +214,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetPortalSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -224,14 +224,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>Culture List.</returns>
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.Constants.MenuName, Permission = Components.Constants.Constants.SiteInfoView)]
-        public HttpResponseMessage GetCultureList(int? portalId)
+        public IActionResult GetCultureList(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var portal = PortalController.Instance.GetPortal(pid);
@@ -254,12 +254,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     Success = true,
                     Cultures = cultureCodeList,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetCultureListException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -270,14 +270,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.Constants.MenuName, Permission = Components.Constants.Constants.SiteInfoView + "&" + Components.Constants.Constants.SiteInfoEdit)]
-        public HttpResponseMessage UpdatePortalSettings(UpdateSiteSettingsRequest request)
+        public IActionResult UpdatePortalSettings(UpdateSiteSettingsRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var cultureCode = string.IsNullOrEmpty(request.CultureCode) ? LocaleController.Instance.GetCurrentLocale(pid).Code : request.CultureCode;
@@ -285,7 +285,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 var language = LocaleController.Instance.GetLocale(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
@@ -316,12 +316,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
                 PortalController.UpdatePortalSetting(this.portalController, pid, "DefaultIconLocation", "icons/" + request.IconSet, false, cultureCode);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdatePortalSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -332,14 +332,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>default pages settings.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetDefaultPagesSettings(int? portalId, string cultureCode)
+        public IActionResult GetDefaultPagesSettings(int? portalId, string cultureCode)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 cultureCode = string.IsNullOrEmpty(cultureCode)
@@ -349,7 +349,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 var language = LocaleController.Instance.GetLocale(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
@@ -361,7 +361,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 int redirectAfterLogoutTabId = GetLocalizedTabIdSetting(localizedPortalSettings, "Redirect_AfterLogout");
                 int redirectAfterRegistrationTabId = GetLocalizedTabIdSetting(localizedPortalSettings, "Redirect_AfterRegistration");
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Settings = new
                     {
@@ -403,7 +403,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetDefaultPagesSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -414,21 +414,21 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateDefaultPagesSettings(UpdateDefaultPagesSettingsRequest request)
+        public IActionResult UpdateDefaultPagesSettings(UpdateDefaultPagesSettingsRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var cultureCode = string.IsNullOrEmpty(request.CultureCode) ? LocaleController.Instance.GetCurrentLocale(pid).Code : request.CultureCode;
                 var language = LocaleController.Instance.GetLocale(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
@@ -452,12 +452,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 PageHeaderTagInfo.SavePortalItems(pid, request.PageHeaderTags?.Select(item => new PageHeaderTagInfo { Name = item.Name, Content = item.Content }), cultureCode);
                 PortalController.UpdatePortalSetting(this.portalController, pid, "PageHeadText", "false", false, cultureCode);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateDefaultPagesSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -467,20 +467,20 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>messaging settings.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetMessagingSettings(int? portalId)
+        public IActionResult GetMessagingSettings(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var portal = PortalController.Instance.GetPortal(pid);
                 var portalSettings = new PortalSettings(portal);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Settings = new
                     {
@@ -499,7 +499,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetMessagingSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -510,14 +510,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateMessagingSettings(UpdateMessagingSettingsRequest request)
+        public IActionResult UpdateMessagingSettings(UpdateMessagingSettingsRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 PortalController.UpdatePortalSetting(this.portalController, pid, "MessagingThrottlingInterval", request.ThrottlingInterval.ToString("F1", CultureInfo.InvariantCulture), false);
@@ -531,12 +531,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
                 DataCache.ClearPortalCache(pid, false);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateMessagingSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -546,20 +546,20 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>profile settings.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetProfileSettings(int? portalId)
+        public IActionResult GetProfileSettings(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var urlSettings = new FriendlyUrlSettings(this.portalController, this.hostSettings, this.hostSettingsService, pid);
                 var userSettings = UserController.GetUserSettings(pid);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Settings = new
                     {
@@ -580,7 +580,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetProfileSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -591,14 +591,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateProfileSettings(UpdateProfileSettingsRequest request)
+        public IActionResult UpdateProfileSettings(UpdateProfileSettingsRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 if (Config.GetFriendlyUrlProvider() == "advanced")
@@ -612,12 +612,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
                 DataCache.ClearPortalCache(pid, false);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateProfileSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -627,14 +627,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>profile properties.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetProfileProperties(int? portalId)
+        public IActionResult GetProfileProperties(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var profileProperties =
@@ -652,7 +652,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         CanDelete = CanDeleteProperty(v),
                     };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     PortalId = pid,
                     Properties = profileProperties,
@@ -661,7 +661,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetProfilePropertiesException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -672,14 +672,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>profile property.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetProfileProperty(int? propertyId, int? portalId)
+        public IActionResult GetProfileProperty(int? propertyId, int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var profileProperty = ProfileController.GetPropertyDefinition(this.hostSettings, this.portalController, this.appStatus, this.portalGroupController, propertyId ?? -1, pid);
@@ -727,12 +727,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                 : $"~/images/Flags/{c.Value}.gif"),
                     }),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetProfilePropertyException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -745,14 +745,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>Profile property.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetProfilePropertyLocalization(int? portalId, string cultureCode, string propertyName, string propertyCategory)
+        public IActionResult GetProfilePropertyLocalization(int? portalId, string cultureCode, string propertyName, string propertyCategory)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 cultureCode = string.IsNullOrEmpty(cultureCode) ? LocaleController.Instance.GetCurrentLocale(pid).Code : cultureCode;
@@ -760,7 +760,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 var language = LocaleController.Instance.GetLocale(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
@@ -779,12 +779,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         CategoryName = Localization.GetString("ProfileProperties_" + propertyCategory + ".Header", resourceFile, cultureCode) ?? string.Empty,
                     },
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetProfilePropertyLocalizationException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -795,20 +795,20 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateProfilePropertyLocalization(UpdateProfilePropertyLocalizationRequest request)
+        public IActionResult UpdateProfilePropertyLocalization(UpdateProfilePropertyLocalizationRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var language = LocaleController.Instance.GetLocale(pid, request.Language);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), request.Language));
                 }
@@ -825,12 +825,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     request.CategoryNameString);
                 DataCache.ClearCache();
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateProfilePropertyLocalizationException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -841,14 +841,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage AddProfileProperty(UpdateProfilePropertyRequest request)
+        public IActionResult AddProfileProperty(UpdateProfilePropertyRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var property = new ProfilePropertyDefinition(pid)
@@ -871,14 +871,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     var propertyId = ProfileController.AddPropertyDefinition(this.eventLogger, this.portalController, this.appStatus, this.portalGroupController, property);
                     if (propertyId < Null.NullInteger)
                     {
-                        return this.Request.CreateErrorResponse(
+                        return DnnApiResults.Error(
                             HttpStatusCode.BadRequest,
                             Localization.GetString("DuplicateName", Components.Constants.Constants.LocalResourcesFile));
                     }
                     else
                     {
                         DataCache.ClearDefinitionsCache(pid);
-                        return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                        return this.Ok(new { Success = true, });
                     }
                 }
                 else
@@ -889,7 +889,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerAddProfilePropertyException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -900,14 +900,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateProfileProperty(UpdateProfilePropertyRequest request)
+        public IActionResult UpdateProfileProperty(UpdateProfilePropertyRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var definitionId = request.PropertyDefinitionId ?? Null.NullInteger;
@@ -930,13 +930,13 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         DefaultVisibility = (UserVisibilityMode)request.DefaultVisibility,
                     };
 
-                    HttpResponseMessage httpPropertyValidationError;
+                    IActionResult httpPropertyValidationError;
 
                     if (this.ValidateProperty(property, out httpPropertyValidationError))
                     {
                         ProfileController.UpdatePropertyDefinition(this.eventLogger, this.portalController, this.appStatus, this.portalGroupController, property);
                         DataCache.ClearDefinitionsCache(pid);
-                        return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                        return this.Ok(new { Success = true, });
                     }
                     else
                     {
@@ -945,13 +945,13 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 }
                 else
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { Success = false });
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest, new { Success = false });
                 }
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateProfilePropertyException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -962,14 +962,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateProfilePropertyOrders(UpdateProfilePropertyOrdersRequest request)
+        public IActionResult UpdateProfilePropertyOrders(UpdateProfilePropertyOrdersRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 for (int i = 0; i <= request.Properties.Length - 1; i++)
@@ -983,12 +983,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 }
 
                 DataCache.ClearDefinitionsCache(pid);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateProfilePropertyOrdersException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1000,31 +1000,31 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage DeleteProfileProperty(int propertyId, int? portalId)
+        public IActionResult DeleteProfileProperty(int propertyId, int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var propertyDefinition = ProfileController.GetPropertyDefinition(this.hostSettings, this.portalController, this.appStatus, this.portalGroupController, propertyId, pid);
 
                 if (!CanDeleteProperty(propertyDefinition))
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "ForbiddenDelete");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "ForbiddenDelete");
                 }
 
                 ProfileController.DeletePropertyDefinition(this.eventLogger, this.portalController, this.appStatus, this.portalGroupController, propertyDefinition);
                 DataCache.ClearDefinitionsCache(pid);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerDeleteProfilePropertyException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1034,14 +1034,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>Url mapping settings.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetUrlMappingSettings(int? portalId)
+        public IActionResult GetUrlMappingSettings(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 Dictionary<string, string> settings = PortalController.Instance.GetPortalSettings(pid);
@@ -1079,12 +1079,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     },
                     PortalAliasMappingModes = portalAliasMappingModes,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetUrlMappingSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1095,14 +1095,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateUrlMappingSettings(UpdateUrlMappingSettingsRequest request)
+        public IActionResult UpdateUrlMappingSettings(UpdateUrlMappingSettingsRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 PortalController.UpdatePortalSetting(this.portalController, pid, "PortalAliasMapping", request.PortalAliasMapping, false);
@@ -1110,12 +1110,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
                 DataCache.ClearPortalCache(pid, false);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateUrlMappingSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1125,14 +1125,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>site aliases.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetSiteAliases(int? portalId)
+        public IActionResult GetSiteAliases(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var portal = PortalController.Instance.GetPortal(pid);
@@ -1161,12 +1161,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     }),
                     Skins = SkinController.GetSkins(portal, SkinController.RootSkin, SkinScope.All),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetSiteAliasesException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1176,14 +1176,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>site alias.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetSiteAlias(int portalAliasId)
+        public IActionResult GetSiteAlias(int portalAliasId)
         {
             try
             {
                 var alias = this.portalAliasService.GetPortalAliasByPortalAliasId(portalAliasId);
                 if (!this.UserInfo.IsSuperUser && alias.PortalId != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var response = new
@@ -1200,12 +1200,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         alias.CultureCode,
                     },
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetSiteAliasException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1216,14 +1216,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage AddSiteAlias(UpdateSiteAliasRequest request)
+        public IActionResult AddSiteAlias(UpdateSiteAliasRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 string strAlias = request.HTTPAlias;
@@ -1237,7 +1237,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     var aliases = this.portalAliasService.GetPortalAliases();
                     if (aliases.ContainsKey(strAlias))
                     {
-                        return this.Request.CreateErrorResponse(
+                        return DnnApiResults.Error(
                             HttpStatusCode.BadRequest,
                             Localization.GetString("DuplicateAlias", Components.Constants.Constants.LocalResourcesFile));
                     }
@@ -1261,17 +1261,17 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 }
                 else
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         Localization.GetString("InvalidAlias", Components.Constants.Constants.LocalResourcesFile));
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerAddSiteAliasException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1282,14 +1282,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateSiteAlias(UpdateSiteAliasRequest request)
+        public IActionResult UpdateSiteAlias(UpdateSiteAliasRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 string strAlias = request.HTTPAlias;
@@ -1322,24 +1322,24 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     }
                     else
                     {
-                        return this.Request.CreateErrorResponse(
+                        return DnnApiResults.Error(
                             HttpStatusCode.BadRequest,
                             Localization.GetString("InvalidAlias", Components.Constants.Constants.LocalResourcesFile));
                     }
                 }
                 else
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         Localization.GetString("InvalidAlias", Components.Constants.Constants.LocalResourcesFile));
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateSiteAliasException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1350,24 +1350,24 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage DeleteSiteAlias(int portalAliasId)
+        public IActionResult DeleteSiteAlias(int portalAliasId)
         {
             try
             {
                 var portalAlias = this.portalAliasService.GetPortalAliasByPortalAliasId(portalAliasId);
                 if (!this.UserInfo.IsSuperUser && portalAlias.PortalId != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 this.portalAliasService.DeletePortalAlias(portalAlias);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerDeleteSiteAliasException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1378,14 +1378,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage SetPrimarySiteAlias(int portalAliasId)
+        public IActionResult SetPrimarySiteAlias(int portalAliasId)
         {
             try
             {
                 var alias = this.portalAliasService.GetPortalAliasByPortalAliasId(portalAliasId);
                 if (!this.UserInfo.IsSuperUser && alias.PortalId != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 IPortalAliasInfo portalAlias = new PortalAliasInfo { IsPrimary = true, };
@@ -1394,12 +1394,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
                 this.portalAliasService.UpdatePortalAlias(portalAlias);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerSetPrimarySiteAliasException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1410,14 +1410,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>list entries.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetListInfo(string listName, int? portalId)
+        public IActionResult GetListInfo(string listName, int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var entries = this.listController.GetListEntryInfoItems(listName, string.Empty, pid);
@@ -1433,12 +1433,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         t.SortOrder,
                     }),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetListInfoException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1449,14 +1449,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateListEntry(UpdateListEntryRequest request)
+        public IActionResult UpdateListEntry(UpdateListEntryRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var entry = new ListEntryInfo
@@ -1479,12 +1479,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     this.listController.AddListEntry(entry);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateListEntryException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1496,24 +1496,24 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage DeleteListEntry([FromUri] int entryId, [FromUri] int? portalId)
+        public IActionResult DeleteListEntry(int entryId, int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 this.listController.DeleteListEntryByID(entryId, true);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerDeleteListEntryException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1524,14 +1524,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateListEntryOrders(UpdateListEntryOrdersRequest request)
+        public IActionResult UpdateListEntryOrders(UpdateListEntryOrdersRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 for (var i = 0; i <= request.Entries.Length - 1; i++)
@@ -1566,12 +1566,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 }
 
                 DataCache.ClearListsCache(pid);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateListEntryOrdersException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1581,20 +1581,20 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>privacy settings.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetPrivacySettings(int? portalId)
+        public IActionResult GetPrivacySettings(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var portal = PortalController.Instance.GetPortal(pid);
                 var portalSettings = new PortalSettings(portal);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Settings = new
                     {
@@ -1616,7 +1616,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetPrivacySettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1627,14 +1627,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdatePrivacySettings(UpdatePrivacySettingsRequest request)
+        public IActionResult UpdatePrivacySettings(UpdatePrivacySettingsRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 PortalController.UpdatePortalSetting(this.portalController, pid, "ShowCookieConsent", request.ShowCookieConsent.ToString(), false);
@@ -1651,12 +1651,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 PortalController.UpdatePortalSetting(this.portalController, pid, "DataConsentDelayMeasurement", request.DataConsentDelayMeasurement, false);
                 DataCache.ClearCache();
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdatePrivacySettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1667,24 +1667,24 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage ResetTermsAgreement(ResetTermsAgreementRequest request)
+        public IActionResult ResetTermsAgreement(ResetTermsAgreementRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 UserController.ResetTermsAgreement(pid);
                 PortalController.UpdatePortalSetting(this.portalController, pid, "DataConsentTermsLastChange", DateTime.Now.ToString("O", CultureInfo.InvariantCulture), true);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerResetTermsAgreementException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1693,7 +1693,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>basic search settings.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetBasicSearchSettings()
+        public IActionResult GetBasicSearchSettings()
         {
             try
             {
@@ -1725,12 +1725,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     Settings = settings,
                     SearchCustomAnalyzers = this.controller.GetAvailableAnalyzers(),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetBasicSearchSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1741,32 +1741,32 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateBasicSearchSettings(UpdateBasicSearchSettingsRequest request)
+        public IActionResult UpdateBasicSearchSettings(UpdateBasicSearchSettingsRequest request)
         {
             try
             {
                 if (request.MinWordLength == Null.NullInteger || request.MinWordLength == 0)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         Localization.GetString("valIndexWordMinLengthRequired.Error", Components.Constants.Constants.LocalResourcesFile));
                 }
                 else if (request.MaxWordLength == Null.NullInteger || request.MaxWordLength == 0)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         Localization.GetString("valIndexWordMaxLengthRequired.Error", Components.Constants.Constants.LocalResourcesFile));
                 }
                 else if (request.MinWordLength >= request.MaxWordLength)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         Localization.GetString("valIndexWordMaxLengthRequired.Error", Components.Constants.Constants.LocalResourcesFile));
                 }
 
                 if (request.MaxResultPerPage == Null.NullInteger || request.MaxResultPerPage == 0)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         Localization.GetString("valMaxResultPerPageRequired.Error", Components.Constants.Constants.LocalResourcesFile));
                 }
@@ -1806,12 +1806,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     Config.Touch(this.appStatus);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateBasicSearchSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1821,17 +1821,17 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage CompactSearchIndex()
+        public IActionResult CompactSearchIndex()
         {
             try
             {
                 SearchHelper.Instance.SetSearchReindexRequestTime(true);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerCompactSearchIndexException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1841,17 +1841,17 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [RequireHost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage HostSearchReindex()
+        public IActionResult HostSearchReindex()
         {
             try
             {
                 SearchHelper.Instance.SetSearchReindexRequestTime(-1);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerHostSearchReindexException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1862,23 +1862,23 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage PortalSearchReindex(int? portalId)
+        public IActionResult PortalSearchReindex(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 SearchHelper.Instance.SetSearchReindexRequestTime(pid);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerPortalSearchReindexException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1887,7 +1887,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>List of portals.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetPortals()
+        public IActionResult GetPortals()
         {
             try
             {
@@ -1906,12 +1906,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     TotalResults = availablePortals.Count,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetPortalsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1922,20 +1922,20 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>Synonyms Groups.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetSynonymsGroups(int? portalId, string cultureCode)
+        public IActionResult GetSynonymsGroups(int? portalId, string cultureCode)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var language = LocaleController.Instance.GetLocaleOrCurrent(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
@@ -1952,12 +1952,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         g.SynonymsTags,
                     }),
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetSynonymsGroupsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -1968,14 +1968,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage AddSynonymsGroup(UpdateSynonymsGroupRequest request)
+        public IActionResult AddSynonymsGroup(UpdateSynonymsGroupRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 string cultureCode = string.IsNullOrEmpty(request.CultureCode)
@@ -1985,7 +1985,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 var language = LocaleController.Instance.GetLocale(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
@@ -1993,13 +1993,11 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 var synonymsGroupId = SearchHelper.Instance.AddSynonymsGroup(request.SynonymsTags, pid, cultureCode, out var duplicateWord);
                 if (synonymsGroupId > 0)
                 {
-                    return this.Request.CreateResponse(
-                        HttpStatusCode.OK,
-                        new { Success = true, Id = synonymsGroupId });
+                    return this.Ok(new { Success = true, Id = synonymsGroupId });
                 }
                 else
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         $"[{duplicateWord}] {Localization.GetString("SynonymsTagDuplicated", Components.Constants.Constants.LocalResourcesFile)}");
                 }
@@ -2007,7 +2005,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerAddSynonymsGroupException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2018,14 +2016,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateSynonymsGroup(UpdateSynonymsGroupRequest request)
+        public IActionResult UpdateSynonymsGroup(UpdateSynonymsGroupRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var cultureCode = string.IsNullOrEmpty(request.CultureCode)
@@ -2035,7 +2033,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 var language = LocaleController.Instance.GetLocale(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
@@ -2050,24 +2048,24 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         out var duplicateWord);
                     if (synonymsGroupId > 0)
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                        return this.Ok(new { Success = true, });
                     }
                     else
                     {
-                        return this.Request.CreateErrorResponse(
+                        return DnnApiResults.Error(
                             HttpStatusCode.BadRequest,
                             $"[{duplicateWord}] {Localization.GetString("SynonymsTagDuplicated", Components.Constants.Constants.LocalResourcesFile)}");
                     }
                 }
                 else
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { Success = false });
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest, new { Success = false });
                 }
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateSynonymsGroupException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2078,30 +2076,30 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage DeleteSynonymsGroup(UpdateSynonymsGroupRequest request)
+        public IActionResult DeleteSynonymsGroup(UpdateSynonymsGroupRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 if (request.SynonymsGroupID != null)
                 {
                     SearchHelper.Instance.DeleteSynonymsGroup(request.SynonymsGroupID.Value, pid, request.CultureCode);
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                    return this.Ok(new { Success = true, });
                 }
                 else
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { Success = false });
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest, new { Success = false });
                 }
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerDeleteSynonymsGroupException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2112,20 +2110,20 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>ignore words.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetIgnoreWords(int? portalId, string cultureCode)
+        public IActionResult GetIgnoreWords(int? portalId, string cultureCode)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var language = LocaleController.Instance.GetLocaleOrCurrent(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
@@ -2139,12 +2137,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     StopWordsId = words?.StopWordsId ?? Null.NullInteger,
                     words?.StopWords,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetIgnoreWordsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2155,14 +2153,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage AddIgnoreWords(UpdateIgnoreWordsRequest request)
+        public IActionResult AddIgnoreWords(UpdateIgnoreWordsRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 string cultureCode = string.IsNullOrEmpty(request.CultureCode)
@@ -2172,18 +2170,18 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 var language = LocaleController.Instance.GetLocale(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
 
                 var stopWordsId = SearchHelper.Instance.AddSearchStopWords(request.StopWords, pid, cultureCode);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, Id = stopWordsId });
+                return this.Ok(new { Success = true, Id = stopWordsId });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerAddIgnoreWordsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2194,14 +2192,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateIgnoreWords(UpdateIgnoreWordsRequest request)
+        public IActionResult UpdateIgnoreWords(UpdateIgnoreWordsRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 string cultureCode = string.IsNullOrEmpty(request.CultureCode)
@@ -2211,18 +2209,18 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 var language = LocaleController.Instance.GetLocale(pid, cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
 
                 SearchHelper.Instance.UpdateSearchStopWords(request.StopWordsId, request.StopWords, pid, cultureCode);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateIgnoreWordsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2233,26 +2231,26 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage DeleteIgnoreWords(UpdateIgnoreWordsRequest request)
+        public IActionResult DeleteIgnoreWords(UpdateIgnoreWordsRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 string cultureCode = string.IsNullOrEmpty(request.CultureCode)
                     ? LocaleController.Instance.GetCurrentLocale(pid).Code
                     : request.CultureCode;
                 SearchHelper.Instance.DeleteSearchStopWords(request.StopWordsId, pid, cultureCode);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerDeleteIgnoreWordsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2262,14 +2260,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>language settings.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetLanguageSettings(int? portalId)
+        public IActionResult GetLanguageSettings(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.Unauthorized,
                         "Authorization has been denied for this request.");
                 }
@@ -2302,7 +2300,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     AllowContentLocalization = this.hostSettings.EnableContentLocalization,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Settings = settings,
                     Languages = LocaleController.Instance.GetCultures(LocaleController.Instance.GetLocales(Null.NullInteger)).Select(l => new
@@ -2318,7 +2316,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetLanguageSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2329,14 +2327,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateLanguageSettings(UpdateLanguageSettingsRequest request)
+        public IActionResult UpdateLanguageSettings(UpdateLanguageSettingsRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var portal = PortalController.Instance.GetPortal(pid);
@@ -2386,12 +2384,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     DataCache.ClearCache();
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateLanguageSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2401,14 +2399,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>languages.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetLanguages(int? portalId)
+        public IActionResult GetLanguages(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var portal = PortalController.Instance.GetPortal(pid);
@@ -2416,7 +2414,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
                 if (portalSettings.ContentLocalizationEnabled)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new
+                    return this.Ok(new
                     {
                         Languages = LocaleController.Instance.GetLocales(Null.NullInteger).Values.Select(l => new
                         {
@@ -2442,7 +2440,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 }
                 else
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new
+                    return this.Ok(new
                     {
                         Languages = LocaleController.Instance.GetLocales(Null.NullInteger).Values.Select(l => new
                         {
@@ -2463,7 +2461,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetLanguagesException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2474,14 +2472,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>language.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetLanguage(int? portalId, int? languageId)
+        public IActionResult GetLanguage(int? portalId, int? languageId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var lid = languageId ?? Null.NullInteger;
@@ -2519,7 +2517,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     Icon = Globals.ResolveUrl("~/images/Flags/none.gif"),
                 });
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Language = language != null ? new
                     {
@@ -2553,7 +2551,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetLanguageException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2562,7 +2560,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>all languages.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetAllLanguages()
+        public IActionResult GetAllLanguages()
         {
             try
             {
@@ -2579,7 +2577,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     FullLanguageList = cultures.Select(c => new
                     {
@@ -2596,7 +2594,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetAllLanguagesException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2607,14 +2605,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage AddLanguage(UpdateLanguageRequest request)
+        public IActionResult AddLanguage(UpdateLanguageRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var language = LocaleController.Instance.GetLocale(request.Code) ?? new Locale { Code = request.Code };
@@ -2631,12 +2629,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 string roles = $"Administrators;Translator ({language.Code})";
                 PortalController.UpdatePortalSetting(this.portalController, pid, $"DefaultTranslatorRoles-{language.Code}", roles);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerAddLanguageException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2647,24 +2645,24 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateLanguageRoles(UpdateLanguageRequest request)
+        public IActionResult UpdateLanguageRoles(UpdateLanguageRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 PortalController.UpdatePortalSetting(this.portalController, pid, $"DefaultTranslatorRoles-{request.Code}", request.Roles);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                return this.Ok(new { Success = true, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateLanguageRolesException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2675,14 +2673,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage UpdateLanguage(UpdateLanguageRequest request)
+        public IActionResult UpdateLanguage(UpdateLanguageRequest request)
         {
             try
             {
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 if (request.LanguageId != null)
@@ -2754,17 +2752,17 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         }
                     }
 
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, RedirectUrl = pid == this.PortalId ? redirectUrl : string.Empty });
+                    return this.Ok(new { Success = true, RedirectUrl = pid == this.PortalId ? redirectUrl : string.Empty });
                 }
                 else
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { Success = false });
+                    return DnnApiResults.Response(HttpStatusCode.BadRequest, new { Success = false });
                 }
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateLanguageException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2773,13 +2771,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>verification results.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage VerifyLanguageResourceFiles()
+        public IActionResult VerifyLanguageResourceFiles()
         {
             try
             {
                 var files = new SortedList();
                 Dictionary<string, Locale> locales = LocaleController.Instance.GetLocales(Null.NullInteger);
-                GetResourceFiles(files, HttpContext.Current.Server.MapPath("~\\"));
+                var appPath = HttpContextSource.MapPath("~");
+                GetResourceFiles(files, HttpContextSource.MapPath("~\\"));
 
                 var tables = new List<object>();
 
@@ -2794,11 +2793,11 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
                     foreach (DictionaryEntry file in files)
                     {
-                        if (!File.Exists(this.ResourceFile(file.Key.ToString(), locale.Code)))
+                        if (!System.IO.File.Exists(this.ResourceFile(file.Key.ToString(), locale.Code)))
                         {
                             tableMissing.Add(
                                 this.ResourceFile(file.Key.ToString(), locale.Code)
-                                    .Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    .Replace(appPath, string.Empty).Replace(Path.DirectorySeparatorChar, '\\'));
                         }
                         else
                         {
@@ -2812,7 +2811,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                             }
                             catch
                             {
-                                tableError.Add(file.Key.ToString().Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                tableError.Add(file.Key.ToString().Replace(appPath, string.Empty).Replace(Path.DirectorySeparatorChar, '\\'));
                                 dsDef = null;
                             }
 
@@ -2825,7 +2824,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                             {
                                 if (locale.Text != Localization.SystemLocale)
                                 {
-                                    tableError.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    tableError.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(appPath, string.Empty).Replace(Path.DirectorySeparatorChar, '\\'));
                                     dsRes = null;
                                 }
                             }
@@ -2848,7 +2847,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                 }
                                 catch
                                 {
-                                    tableDuplicate.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    tableDuplicate.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(appPath, string.Empty).Replace(Path.DirectorySeparatorChar, '\\'));
                                 }
 
                                 // Check for missing entries in localized file
@@ -2859,7 +2858,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                 }
                                 catch
                                 {
-                                    tableEntries.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    tableEntries.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(appPath, string.Empty).Replace(Path.DirectorySeparatorChar, '\\'));
                                 }
                                 finally
                                 {
@@ -2874,7 +2873,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                 }
                                 catch
                                 {
-                                    tableObsolete.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    tableObsolete.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(appPath, string.Empty).Replace(Path.DirectorySeparatorChar, '\\'));
                                 }
                                 finally
                                 {
@@ -2885,7 +2884,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                 var resFile = new FileInfo(this.ResourceFile(file.Key.ToString(), locale.Code));
                                 if (((FileInfo)file.Value).LastWriteTime > resFile.LastWriteTime)
                                 {
-                                    tableOld.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(HttpContext.Current.Server.MapPath("~"), string.Empty));
+                                    tableOld.Add(this.ResourceFile(file.Key.ToString(), locale.Code).Replace(appPath, string.Empty).Replace(Path.DirectorySeparatorChar, '\\'));
                                 }
                             }
                         }
@@ -2907,7 +2906,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                     });
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Results = tables,
                 });
@@ -2915,7 +2914,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerVerifyLanguageResourceFilesException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2925,7 +2924,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>list of modules.</returns>
         [HttpGet]
         [RequireHost]
-        public HttpResponseMessage GetModuleList(string type)
+        public IActionResult GetModuleList(string type)
         {
             try
             {
@@ -2960,7 +2959,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         break;
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Modules = modules,
                 });
@@ -2968,7 +2967,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetModuleListException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -2979,7 +2978,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequireHost]
-        public HttpResponseMessage CreateLanguagePack(CreateLanguagePackRequest request)
+        public IActionResult CreateLanguagePack(CreateLanguagePackRequest request)
         {
             try
             {
@@ -3021,7 +3020,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
                 if (created)
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new
+                    return this.Ok(new
                     {
                         Success = true,
                         Message = string.Format(
@@ -3032,13 +3031,13 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 }
                 else
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, Localization.GetString("LanguagePackCreateFailure", Components.Constants.Constants.LocalResourcesFile));
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, Localization.GetString("LanguagePackCreateFailure", Components.Constants.Constants.LocalResourcesFile));
                 }
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerCreateLanguagePackException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -3050,20 +3049,20 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>list of translator roles.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetTranslatorRoles(int? portalId, int groupId, string cultureCode)
+        public IActionResult GetTranslatorRoles(int? portalId, int groupId, string cultureCode)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var language = LocaleController.Instance.GetLocale(cultureCode);
                 if (language == null)
                 {
-                    return this.Request.CreateErrorResponse(
+                    return DnnApiResults.Error(
                         HttpStatusCode.BadRequest,
                         string.Format(CultureInfo.CurrentCulture, Localization.GetString("InvalidLocale.ErrorMessage", Components.Constants.Constants.LocalResourcesFile), cultureCode));
                 }
@@ -3081,7 +3080,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                         Selected = selectedRoleNames.Contains(r.RoleName),
                                     });
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Roles = roles,
                 });
@@ -3089,7 +3088,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetTranslatorRolesException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -3099,14 +3098,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>list of translator role groups.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetTranslatorRoleGroups(int? portalId)
+        public IActionResult GetTranslatorRoleGroups(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && pid != this.PortalId)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var groups = RoleController.GetRoleGroups(this.roleProvider, pid)
@@ -3117,7 +3116,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                                     g.RoleGroupName,
                                 });
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Groups = groups,
                 });
@@ -3125,7 +3124,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetTranslatorRoleGroupsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -3135,14 +3134,14 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         /// <returns>other settings.</returns>
         [HttpGet]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
-        public HttpResponseMessage GetOtherSettings(int? portalId)
+        public IActionResult GetOtherSettings(int? portalId)
         {
             try
             {
                 var pid = portalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 var portal = PortalController.Instance.GetPortal(pid);
@@ -3152,7 +3151,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 var hostDefaultAllowList = this.hostSettings.DefaultEndUserExtensionAllowList;
                 var imageAllowList = Components.AllowedExtensionsHelper.GetImageAllowList(Globals.ImageFileTypes, this.hostSettings.AllowedExtensionAllowList);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Settings = new
                     {
@@ -3179,7 +3178,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerGetOtherSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -3190,19 +3189,19 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         [HttpPost]
         [DnnAuthorize(StaticRoles = Constants.AdminsRoleName)]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UpdateOtherSettings(UpdateOtherSettingsRequest request)
+        public IActionResult UpdateOtherSettings(UpdateOtherSettingsRequest request)
         {
             try
             {
                 if (request == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "Invalid request.");
+                    return DnnApiResults.Error(HttpStatusCode.BadRequest, "Invalid request.");
                 }
 
                 var pid = request.PortalId ?? this.PortalId;
                 if (!this.UserInfo.IsSuperUser && this.PortalId != pid)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, AuthFailureMessage);
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, AuthFailureMessage);
                 }
 
                 // Validate the allowed extensions before persisting anything, so an invalid request doesn't partially update the settings.
@@ -3220,7 +3219,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                         if (!effectiveAllowList.AllowedExtensions.Any())
                         {
                             // Storing an empty value deletes the setting, which would silently revert the site to the default list.
-                            return this.Request.CreateErrorResponse(
+                            return DnnApiResults.Error(
                                 HttpStatusCode.BadRequest,
                                 Localization.GetString("AllowedExtensionsWhitelistEmpty.Error", Components.Constants.Constants.LocalResourcesFile));
                         }
@@ -3264,12 +3263,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
                 }
 
                 DataCache.ClearCache();
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, RejectedExtensions = rejectedExtensions, });
+                return this.Ok(new { Success = true, RejectedExtensions = rejectedExtensions, });
             }
             catch (Exception exc)
             {
                 Logger.SiteSettingsControllerUpdateOtherSettingsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -3283,7 +3282,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
                 bool resxFilesDirectory = objFolder.Name.Equals(Localization.LocalResourceDirectory, StringComparison.OrdinalIgnoreCase) ||
                                           objFolder.Name.Equals(Localization.ApplicationResourceDirectory.Replace("~/", string.Empty), StringComparison.OrdinalIgnoreCase) ||
-                                          folder.EndsWith("\\portals\\_default", StringComparison.OrdinalIgnoreCase);
+                                          folder.Replace(Path.DirectorySeparatorChar, '\\').EndsWith("\\portals\\_default", StringComparison.OrdinalIgnoreCase);
 
                 if (resxFilesDirectory)
                 {
@@ -3514,12 +3513,12 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
         private string GetAbsoluteServerPath()
         {
-            if (this.Request.Properties["MS_HttpContext"] is HttpContextWrapper httpContext)
+            if (HttpContextSource.Current != null)
             {
-                var strServerPath = httpContext.Request.MapPath(httpContext.Request.ApplicationPath);
-                if (!strServerPath.EndsWith(@"\", StringComparison.Ordinal))
+                var strServerPath = HttpContextSource.MapPath("~");
+                if (!strServerPath.EndsWith(Path.DirectorySeparatorChar))
                 {
-                    strServerPath += @"\";
+                    strServerPath += Path.DirectorySeparatorChar;
                 }
 
                 return strServerPath;
@@ -3530,7 +3529,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             }
         }
 
-        private bool ValidateProperty(ProfilePropertyDefinition definition, out HttpResponseMessage httpPropertyValidationError)
+        private bool ValidateProperty(ProfilePropertyDefinition definition, out IActionResult httpPropertyValidationError)
         {
             bool isValid = true;
             httpPropertyValidationError = null;
@@ -3539,7 +3538,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
             if (!propertyNameRegex.IsMatch(definition.PropertyName))
             {
                 isValid = false;
-                httpPropertyValidationError = this.Request.CreateErrorResponse(
+                httpPropertyValidationError = DnnApiResults.Error(
                     HttpStatusCode.BadRequest,
                     Localization.GetString("NoSpecialCharacterName.Text", Components.Constants.Constants.LocalResourcesFile));
             }
@@ -3557,7 +3556,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 
             if (!isValid)
             {
-                httpPropertyValidationError = this.Request.CreateErrorResponse(
+                httpPropertyValidationError = DnnApiResults.Error(
                     HttpStatusCode.BadRequest,
                     Localization.GetString("RequiredTextBox", Components.Constants.Constants.LocalResourcesFile));
             }

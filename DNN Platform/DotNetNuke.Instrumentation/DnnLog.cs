@@ -403,8 +403,18 @@ namespace DotNetNuke.Instrumentation
                 {
                     if (!isConfigured)
                     {
-                        var configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ConfigFile);
-                        var originalPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Config", ConfigFile);
+                        // The content root, not the build output directory: Config/ and the
+                        // seeded ~/DotNetNuke.log4net.config live next to the application the way
+                        // they did under IIS. AppContext.BaseDirectory is the fallback for a
+                        // non-web host (tooling, tests) and for the case where logging is first
+                        // touched before the host environment is known.
+                        var root = (Environment.GetEnvironmentVariable("ASPNETCORE_CONTENTROOT")
+                                    ?? Environment.GetEnvironmentVariable("DOTNET_CONTENTROOT")
+                                    ?? AppContext.BaseDirectory)
+                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                        var configPath = Path.Combine(root, ConfigFile);
+                        var originalPath = Path.Combine(root, "Config", ConfigFile);
                         if (!File.Exists(configPath) && File.Exists(originalPath))
                         {
                             File.Copy(originalPath, configPath);

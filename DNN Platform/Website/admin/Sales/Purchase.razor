@@ -1,0 +1,92 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Sales
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using Microsoft.AspNetCore.Components.Forms
+
+@*
+    Replaces purchase.ascx. The WebForms controls map as follows (see Purchase.razor.cs for the
+    designer-field mapping): the asp:Labels become the plain text below, asp:TextBox txtUnits
+    becomes the InputText bound to Model.Units, and the three LinkButtons become the three named
+    submit buttons of the single form - which is what the WebForms postback was.
+
+    The form is a STATIC server-side form (no @@rendermode): the handlers need HttpContext (the
+    RoleID query string, the referrer and the posted button name), and a WebForms postback is a
+    full form POST, so static SSR is both the faithful and the working shape here. ViewState has no
+    equivalent, so the role is re-read on every post (same values, same source) and the stored
+    referrer travels in a hidden field, exactly the two things ViewState carried.
+
+    The three validators (RequiredFieldValidator + the two CompareValidators for Integer and
+    GreaterThan 0) become the data annotations on PurchaseModel, rendered by DataAnnotationsValidator
+    + ValidationMessage. Their text is preserved; the literal "<br>" each ErrorMessage started with
+    is dropped because the message is now a block element in its own right.
+*@
+
+<br>
+<EditForm Model="this.Model" FormName="purchase" OnSubmit="this.HandleSubmitAsync">
+    <DataAnnotationsValidator />
+
+    @* Replaces the ViewState["UrlReferrer"] slot: the referrer captured on the first (GET) render
+       has to survive the post the same way ViewState made it survive the postback. *@
+    <input type="hidden" name="Model.UrlReferrer" value="@this.Model.UrlReferrer" />
+
+    <table cellspacing="0" cellpadding="0" width="750" border="0" summary="Purchase Design Table">
+        <tr valign="top">
+            <td class="SubHead">
+                Service Name:
+            </td>
+            <td><span class="Normal" style="width:249px;">@this.ServiceName</span></td>
+        </tr>
+        <tr valign="top">
+            <td class="SubHead">
+                Description:
+            </td>
+            <td><span class="Normal">@this.Description</span></td>
+        </tr>
+        <tr valign="top">
+            <td colspan="2">&nbsp;</td>
+        </tr>
+        <tr valign="top">
+            <td class="SubHead">
+                Fee:
+            </td>
+            <td><span class="Normal">@this.Fee</span>&nbsp;&nbsp;<span class="NormalBold">@this.FeeCurrency</span></td>
+        </tr>
+        <tr valign="top">
+            <td class="SubHead">
+                Per:
+            </td>
+            <td><span class="Normal" style="width:244px;">@this.Frequency</span></td>
+        </tr>
+        <tr valign="top">
+            <td colspan="2">&nbsp;</td>
+        </tr>
+        <tr valign="top">
+            <td class="SubHead"><label class="SubHead" for="purchaseUnits">Units:</label></td>
+            <td>
+                <InputText id="purchaseUnits" @bind-Value="this.Model.Units" maxlength="10" size="10" class="NormalTextBox" disabled="@(!this.UnitsEnabled)" />
+                <ValidationMessage For="@(() => this.Model.Units)" class="NormalRed" />
+            </td>
+        </tr>
+        <tr valign="top">
+            <td colspan="2">&nbsp;</td>
+        </tr>
+        <tr valign="top">
+            <td class="SubHead">
+                Total Charges:
+            </td>
+            <td><span class="Normal">@this.Total</span>&nbsp;&nbsp;<span class="NormalBold">@this.TotalCurrency</span></td>
+        </tr>
+    </table>
+    <p>
+        @* cmdUpdate: CausesValidation="False" - HandleSubmitAsync does not validate for this action. *@
+        <button class="CommandButton" type="submit" name="@ActionField" value="@UpdateAction" style="border-style:none;">Update</button>&nbsp;
+        @* cmdPurchase: the only validating button. *@
+        <button class="CommandButton" type="submit" name="@ActionField" value="@PurchaseAction" style="border-style:none;">Purchase</button>&nbsp;
+        @* cmdCancel: CausesValidation="False"; its Text was "Cancel" with an empty inner literal. *@
+        <button class="CommandButton" type="submit" name="@ActionField" value="@CancelAction" style="border-style:none;">Cancel</button>
+    </p>
+</EditForm>

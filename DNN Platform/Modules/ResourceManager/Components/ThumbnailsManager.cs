@@ -4,16 +4,17 @@
 namespace Dnn.Modules.ResourceManager.Components
 {
     using System;
-    using System.Drawing;
-    using System.Drawing.Imaging;
     using System.IO;
-    using System.Net.Http;
 
     using Dnn.Modules.ResourceManager.Components.Models;
 
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Framework;
     using DotNetNuke.Services.FileSystem;
+
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.Formats.Png;
+    using SixLabors.ImageSharp.Processing;
 
     /// <summary>Provides services related to thumbnails.</summary>
     public class ThumbnailsManager : ServiceLocator<IThumbnailsManager, ThumbnailsManager>, IThumbnailsManager
@@ -83,8 +84,12 @@ namespace Dnn.Modules.ResourceManager.Components
         /// <inheritdoc />
         public ThumbnailContent GetThumbnailContentFromImageUrl(string imageUrl, int width, int height)
         {
-            Image image = new Bitmap(imageUrl);
-            var result = this.GetThumbnailContentFromImage(image, width, height);
+            ThumbnailContent result;
+            using (var image = Image.Load(imageUrl))
+            {
+                result = this.GetThumbnailContentFromImage(image, width, height);
+            }
+
             var indexOfSlash = imageUrl.LastIndexOf('/');
             var thumbnailName = (indexOfSlash != -1) ? imageUrl.Substring(indexOfSlash + 1) + "." + this.DefaultThumbnailExtension : imageUrl + "." + this.DefaultThumbnailExtension;
             result.ThumbnailName = thumbnailName;
@@ -106,17 +111,24 @@ namespace Dnn.Modules.ResourceManager.Components
                 this.GetThumbnailSize(image, width, height, out thumbnailWidth, out thumbnailHeight);
             }
 
-            // create the actual thumbnail image
-            var thumbnailImage = new Bitmap(image, new Size(thumbnailWidth, thumbnailHeight));
-
+            // Create the actual thumbnail image. Clone rather than Mutate: the original
+            // `new Bitmap(image, size)` produced a NEW bitmap and left the caller's image
+            // untouched, and this method is public interface surface (IThumbnailsManager), so
+            // resizing in place would silently mangle a caller's image and compound across calls.
+            using (var thumbnail = image.Clone(x => x.Resize(new ResizeOptions
+            {
+                Size = new Size(thumbnailWidth, thumbnailHeight),
+                Mode = ResizeMode.Stretch,
+                Sampler = KnownResamplers.Bicubic,
+            })))
             using (var memoryStream = new MemoryStream())
             {
                 // All thumbnails images will be png
-                thumbnailImage.Save(memoryStream, ImageFormat.Png);
+                thumbnail.Save(memoryStream, new PngEncoder());
 
                 return new ThumbnailContent
                 {
-                    Content = new ByteArrayContent(memoryStream.ToArray()),
+                    Content = memoryStream.ToArray(),
                     Width = thumbnailWidth,
                     Height = thumbnailHeight,
                     ContentType = this.DefaultContentType,
@@ -128,8 +140,8 @@ namespace Dnn.Modules.ResourceManager.Components
         public ThumbnailContent GetThumbnailContent(IFileInfo item, int width, int height, bool crop = false)
         {
             using (var content = this.fileManager.GetFileContent(item))
+            using (var image = Image.Load(content))
             {
-                Image image = new Bitmap(content);
                 var result = this.GetThumbnailContentFromImage(image, width, height, crop);
                 result.ThumbnailName = item.FileName + "." + this.DefaultThumbnailExtension;
                 return result;

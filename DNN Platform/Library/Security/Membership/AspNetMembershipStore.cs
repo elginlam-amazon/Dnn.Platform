@@ -1,4 +1,4 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -446,7 +446,7 @@ namespace DotNetNuke.Security.Membership
                     case 1:
                         throw new MembershipStoreException($"The membership store has no user named '{username}'.");
                     case 3:
-                        throw new MembershipStoreException("The supplied password answer is incorrect.");
+                        throw new MembershipPasswordException("The supplied password answer is incorrect.");
                     case 99:
                         throw new MembershipStoreException($"The account '{username}' is locked out.");
                     default:
@@ -503,7 +503,7 @@ namespace DotNetNuke.Security.Membership
                     case 1:
                         throw new MembershipStoreException($"The membership store has no user named '{username}'.");
                     case 3:
-                        throw new MembershipStoreException("The supplied password answer is incorrect.");
+                        throw new MembershipPasswordException("The supplied password answer is incorrect.");
                     case 99:
                         throw new MembershipStoreException($"The account '{username}' is locked out.");
                     default:
