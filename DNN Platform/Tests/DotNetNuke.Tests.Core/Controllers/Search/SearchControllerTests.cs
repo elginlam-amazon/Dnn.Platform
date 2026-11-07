@@ -287,7 +287,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
             // Add second document
             var doc2 = new SearchDocument { Title = docs[1], UniqueKey = Guid.NewGuid().ToString(), SearchTypeId = OtherSearchTypeId, ModifiedTimeUtc = DateTime.UtcNow };
             this.internalSearchController.AddSearchDocument(doc2);
-            this.CreateNewLuceneControllerInstance(); // to force a new reader for the next assertion
+            this.RecreateLuceneControllerKeepingIndex(); // to force a new reader for the next assertion
 
             // second luceneQuery
             var query2 = new SearchQuery { KeyWords = "fox", SearchTypeIds = new List<int> { OtherSearchTypeId } };
@@ -2667,17 +2667,40 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
             if (!reCreate)
             {
+                // Dispose before deleting, not after: disposing commits, and the commit needs the
+                // segment files the delete removes. On Windows the open index files simply could not
+                // be deleted, so the wrong order was invisible; everywhere else unlinking an open
+                // file succeeds and the commit then fails with FileNotFoundException.
+                this.DisposeLuceneController();
                 this.DeleteIndexFolder();
-
-                if (this.luceneController != null)
-                {
-                    LuceneController.ClearInstance();
-                    this.luceneController.Dispose();
-                }
-
-                this.luceneController = new LuceneControllerImpl(this.hostController, new FakeApplicationStatusInfo());
-                LuceneController.SetTestableInstance(this.luceneController);
+                this.CreateLuceneController();
             }
+        }
+
+        /// <summary>
+        /// Replaces the Lucene controller (and therefore its reader) while leaving the index on disk
+        /// intact, for the fixtures that assert a previously written document is still searchable.
+        /// </summary>
+        private void RecreateLuceneControllerKeepingIndex()
+        {
+            this.DisposeLuceneController();
+            this.CreateLuceneController();
+        }
+
+        private void DisposeLuceneController()
+        {
+            if (this.luceneController != null)
+            {
+                LuceneController.ClearInstance();
+                this.luceneController.Dispose();
+                this.luceneController = null;
+            }
+        }
+
+        private void CreateLuceneController()
+        {
+            this.luceneController = new LuceneControllerImpl(this.hostController, new FakeApplicationStatusInfo());
+            LuceneController.SetTestableInstance(this.luceneController);
         }
 
         private void SetupHostController()

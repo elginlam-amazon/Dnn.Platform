@@ -111,7 +111,7 @@ namespace DotNetNuke.Security
         private readonly IPortalController portalController;
         private readonly IApplicationStatusInfo appStatus;
         private readonly IPortalGroupController portalGroupController;
-        private readonly IAuthenticationCookieService authenticationCookieService;
+        private readonly Lazy<IAuthenticationCookieService> authenticationCookieService;
 
         /// <summary>Initializes a new instance of the <see cref="PortalSecurity"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.4. Please use overload with ListController. Scheduled removal in v12.0.0.")]
@@ -141,7 +141,13 @@ namespace DotNetNuke.Security
             this.portalController = portalController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IPortalController>();
             this.appStatus = appStatus ?? Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
             this.portalGroupController = portalGroupController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IPortalGroupController>();
-            this.authenticationCookieService = Globals.GetCurrentServiceProvider().GetRequiredService<IAuthenticationCookieService>();
+            // Resolved lazily, and never during construction: the cookie service is only needed by
+            // the sign-in/sign-out members below, which require an ASP.NET Core request anyway.
+            // PortalSecurity.Instance is a static readonly field, so an eager GetRequiredService here
+            // turned any host that has not registered the authentication services (and every unit
+            // test that merely calls a string-filtering helper) into a TypeInitializationException.
+            this.authenticationCookieService = new Lazy<IAuthenticationCookieService>(
+                () => Globals.GetCurrentServiceProvider().GetRequiredService<IAuthenticationCookieService>());
         }
 
         /// <summary>
@@ -776,7 +782,7 @@ namespace DotNetNuke.Security
                 }
             }
 
-            await this.authenticationCookieService.SignInAsync(context, user.Username, createPersistentCookie, claims, cookieDomain);
+            await this.authenticationCookieService.Value.SignInAsync(context, user.Username, createPersistentCookie, claims, cookieDomain);
 
             if (isPortalGroupMember && !string.IsNullOrEmpty(cookieDomain))
             {
@@ -788,8 +794,8 @@ namespace DotNetNuke.Security
                     {
                         Expires = expiration,
                         Domain = cookieDomain,
-                        Path = this.authenticationCookieService.CookiePath,
-                        Secure = this.authenticationCookieService.RequireSsl,
+                        Path = this.authenticationCookieService.Value.CookiePath,
+                        Secure = this.authenticationCookieService.Value.RequireSsl,
                         HttpOnly = true,
                         SameSite = SameSiteMode.Lax,
                     });
@@ -834,7 +840,7 @@ namespace DotNetNuke.Security
             }
 
             // Log the user off from the cookie authentication system.
-            await this.authenticationCookieService.SignOutAsync(context);
+            await this.authenticationCookieService.Value.SignOutAsync(context);
 
             // When the portal belongs to a portal group the cookies were issued on the shared
             // authentication domain, so they have to be expired on that same domain.
@@ -845,11 +851,11 @@ namespace DotNetNuke.Security
                 {
                     Expires = OldExpiryTime,
                     Domain = domain,
-                    Path = this.authenticationCookieService.CookiePath,
-                    Secure = this.authenticationCookieService.RequireSsl,
+                    Path = this.authenticationCookieService.Value.CookiePath,
+                    Secure = this.authenticationCookieService.Value.RequireSsl,
                 };
 
-                context.Response.Cookies.Delete(this.authenticationCookieService.CookieName, sharedDomainOptions);
+                context.Response.Cookies.Delete(this.authenticationCookieService.Value.CookieName, sharedDomainOptions);
                 context.Response.Cookies.Delete(DnnAuthenticationDefaults.SiteGroupCookieName, sharedDomainOptions);
             }
 

@@ -19,6 +19,7 @@ namespace DotNetNuke.Services.Search.Internals
         /// <summary>Initializes a new instance of the <see cref="SearchQueryAnalyzer"/> class.</summary>
         /// <param name="useStemmingFilter">Whether to use the stemming filter.</param>
         public SearchQueryAnalyzer(bool useStemmingFilter)
+            : base(new NoReuseStrategy())
         {
             this.useStemmingFilter = useStemmingFilter;
         }

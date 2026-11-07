@@ -406,7 +406,11 @@ namespace DotNetNuke.Common
             {
                 if (installMapPath == null)
                 {
-                    installMapPath = Path.Combine(applicationStatusInfo.ApplicationMapPath, "Install")
+                    // The application map path is not always known (callers that run before the
+                    // host environment is wired, and unit tests). System.Web's string concatenation
+                    // tolerated that and produced a relative "\Install\"; Path.Combine throws on a
+                    // null first segment, so the absence is handled explicitly instead.
+                    installMapPath = Path.Combine(applicationStatusInfo.ApplicationMapPath ?? string.Empty, "Install")
                                      + Path.DirectorySeparatorChar;
                 }
 

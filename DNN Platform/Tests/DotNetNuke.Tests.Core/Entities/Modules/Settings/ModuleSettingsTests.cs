@@ -206,7 +206,7 @@ namespace DotNetNuke.Tests.Core.Entities.Modules.Settings
             var moduleSettings = new Hashtable
                                  {
                                      { SettingNamePrefix + "StringProperty", stringValue },
-                                     { SettingNamePrefix + "IntegerProperty", integerValue.ToString() },
+                                     { SettingNamePrefix + "IntegerProperty", integerValue.ToString(CultureInfo.InvariantCulture) },
                                      { SettingNamePrefix + "DoubleProperty", doubleValue.ToString(CultureInfo.InvariantCulture) },
                                      { SettingNamePrefix + "BooleanProperty", booleanValue.ToString() },
                                      { SettingNamePrefix + "DateTimeProperty", datetimeValue.ToString("o", CultureInfo.InvariantCulture) },
@@ -256,7 +256,7 @@ namespace DotNetNuke.Tests.Core.Entities.Modules.Settings
 
             this.MockModuleSettings(moduleInfo, new Hashtable());
             this.MockModuleController.Setup(mc => mc.UpdateModuleSetting(ModuleId, SettingNamePrefix + "StringProperty", stringValue));
-            this.MockModuleController.Setup(mc => mc.UpdateModuleSetting(ModuleId, SettingNamePrefix + "IntegerProperty", integerValue.ToString()));
+            this.MockModuleController.Setup(mc => mc.UpdateModuleSetting(ModuleId, SettingNamePrefix + "IntegerProperty", integerValue.ToString(CultureInfo.InvariantCulture)));
             this.MockModuleController.Setup(mc => mc.UpdateModuleSetting(ModuleId, SettingNamePrefix + "DoubleProperty", doubleValue.ToString(CultureInfo.InvariantCulture)));
             this.MockModuleController.Setup(mc => mc.UpdateModuleSetting(ModuleId, SettingNamePrefix + "BooleanProperty", booleanValue.ToString()));
             this.MockModuleController.Setup(mc => mc.UpdateModuleSetting(ModuleId, SettingNamePrefix + "DateTimeProperty", datetimeValue.ToString("o", CultureInfo.InvariantCulture)));

@@ -24,7 +24,7 @@ namespace DotNetNuke.Tests.Core.Services
         }
 
         [Test]
-        [Timeout(2000)]
+        [CancelAfter(2000)]
         public void DNN_12430_IsHtml_RegExTimeout()
         {
             var result =
@@ -35,7 +35,7 @@ namespace DotNetNuke.Tests.Core.Services
         }
 
         [Test]
-        [Timeout(2000)]
+        [CancelAfter(2000)]
         public void DNN_12926_IsHtml_Detection()
         {
             var result = HtmlUtils.IsHtml("this is a test of dnnmail: <a href='https://www.dnnsoftware.com'>DotNetNuke</a>");

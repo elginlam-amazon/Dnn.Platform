@@ -61,6 +61,43 @@ namespace DotNetNuke.Services.Search.Controllers
             return new SearchResults { TotalHits = results.Item1, Results = results.Item2 };
         }
 
+        /// <summary>
+        /// Escapes the forward slashes in a search phrase so the query parser reads them as
+        /// ordinary characters.
+        /// </summary>
+        /// <param name="keywords">The rephrased search text.</param>
+        /// <returns>The same text with every unescaped <c>/</c> escaped.</returns>
+        /// <remarks>
+        /// Lucene 4 introduced a regular-expression query syntax delimited by <c>/</c>, making the
+        /// character reserved. Lucene 3 read it as an ordinary one, and the platform's own keyword
+        /// values rely on that: a folder scope such as <c>kw-folderName:Images/DNN/*</c> is a path.
+        /// Without escaping, the parser throws and the caller falls back to a bag of optional term
+        /// queries — which, next to the mandatory search-type filter, quietly returns every indexed
+        /// document instead of the scoped subset. Only the slash is escaped, so quotes, wildcards,
+        /// field qualifiers and the boolean operators keep working.
+        /// </remarks>
+        private static string EscapeRegexDelimiters(string keywords)
+        {
+            if (string.IsNullOrEmpty(keywords) || !keywords.Contains('/'))
+            {
+                return keywords;
+            }
+
+            var builder = new StringBuilder(keywords.Length + 8);
+            for (var i = 0; i < keywords.Length; i++)
+            {
+                var character = keywords[i];
+                if (character == '/' && (i == 0 || keywords[i - 1] != '\\'))
+                {
+                    builder.Append('\\');
+                }
+
+                builder.Append(character);
+            }
+
+            return builder.ToString();
+        }
+
         private static void FillTagsValues(Document doc, SearchResult result)
         {
             foreach (var field in doc.Fields)
@@ -299,7 +336,8 @@ namespace DotNetNuke.Services.Search.Controllers
                 try
                 {
                     var allowLeadingWildcard = HostController.Instance.GetString("Search_AllowLeadingWildcard", "N") == "Y" || searchQuery.AllowLeadingWildcard;
-                    var keywords = SearchHelper.Instance.RephraseSearchText(searchQuery.KeyWords, searchQuery.WildCardSearch, allowLeadingWildcard);
+                    var keywords = EscapeRegexDelimiters(
+                        SearchHelper.Instance.RephraseSearchText(searchQuery.KeyWords, searchQuery.WildCardSearch, allowLeadingWildcard));
 
                     // don't use stemming analyzer for exact matches or non-analyzed fields (e.g. Tags)
                     var analyzer = LuceneController.Instance.GetCustomAnalyzer() ?? new SearchQueryAnalyzer(true);

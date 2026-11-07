@@ -7,6 +7,7 @@ namespace DotNetNuke.Tests.Utilities
 {
     using System.IO;
     using System.IO.Compression;
+    using System.Text.RegularExpressions;
 
     using DotNetNuke.Entities.Content.Taxonomy;
     using DotNetNuke.Services.Cache;
@@ -269,30 +270,17 @@ namespace DotNetNuke.Tests.Utilities
         public const int FOLDER_ValidFolderMappingID = 5;
         public const string FOLDER_ValidFileName = "file.txt";
         public const string FOLDER_ValidSvgFileName = "file.svg";
-        public const string FOLDER_ValidFilePath = "C:\\folder\\file.txt";
         public const string FOLDER_ValidFolderName = "folder";
-        public const string FOLDER_ValidFolderPath = "C:\\folder";
         public const string FOLDER_ValidFolderRelativePath = "folder/";
         public const string FOLDER_ValidFolderProviderType = "ValidFolderProvider";
-        public const string FOLDER_ValidHostPath = "C:\\inetpub\\wwwroot\\dotnetnuke\\portals\\_default";
-        public const string FOLDER_ValidRootFolderMapPath = "C:\\inetpub\\wwwroot\\dotnetnuke\\portals\\20";
-        public const string FOLDER_ValidSecureFilePath = "C:\\folder\\file.txt.resources";
         public const string FOLDER_ValidSubFolderName = "subfolder";
-        public const string FOLDER_ValidSubFolderPath = "C:\\folder\\subfolder";
         public const string FOLDER_ValidSubFolderRelativePath = "folder/subfolder/";
         public const string FOLDER_InvalidSubFolderRelativePath = "folder/subfolder/../";
-        public const string FOLDER_ValidUNCFolderPath = @"\\SERVER\folder";
-        public const string FOLDER_ValidUNCSubFolderPath = @"\\SERVER\folder\subfolder";
         public const string FOLDER_ValidZipFileName = "file.zip";
-        public const string FOLDER_ValidZipFilePath = "C:\\folder\\file.zip";
         public const string FOLDER_OtherValidFileName = "otherfile.txt";
         public const string FOLDER_OtherInvalidFileNameExtension = "otherfile.asp";
-        public const string FOLDER_OtherValidFilePath = "C:\\folder\\otherfile.txt";
         public const string FOLDER_OtherValidFolderName = "otherfolder";
-        public const string FOLDER_OtherValidFolderPath = "C:\\otherfolder";
         public const string FOLDER_OtherValidFolderRelativePath = "otherfolder/";
-        public const string FOLDER_OtherValidSecureFilePath = "C:\\folder\\otherfile.txt.resources";
-        public const string FOLDER_OtherValidSubFolderPath = "C:\\folder\\othersubfolder";
         public const string FOLDER_OtherValidSubFolderRelativePath = "folder/othersubfolder/";
         public const string FOLDER_ModifiedFileHash = "0123456789X";
         public const string FOLDER_UnmodifiedFileHash = "0123456789";
@@ -416,6 +404,22 @@ namespace DotNetNuke.Tests.Utilities
         public const int MODULE_ValidId = 100;
         public const int MODULE_InValidId = -1;
 
+        // Physical-path fixtures. Not const: they are adapted to the host the tests run on,
+        // see NativePhysicalPath below.
+        public static readonly string FOLDER_ValidFilePath = NativePhysicalPath("C:\\folder\\file.txt");
+        public static readonly string FOLDER_ValidFolderPath = NativePhysicalPath("C:\\folder");
+        public static readonly string FOLDER_ValidHostPath = NativePhysicalPath("C:\\inetpub\\wwwroot\\dotnetnuke\\portals\\_default");
+        public static readonly string FOLDER_ValidRootFolderMapPath = NativePhysicalPath("C:\\inetpub\\wwwroot\\dotnetnuke\\portals\\20");
+        public static readonly string FOLDER_ValidSecureFilePath = NativePhysicalPath("C:\\folder\\file.txt.resources");
+        public static readonly string FOLDER_ValidSubFolderPath = NativePhysicalPath("C:\\folder\\subfolder");
+        public static readonly string FOLDER_ValidUNCFolderPath = NativePhysicalPath(@"\\SERVER\folder");
+        public static readonly string FOLDER_ValidUNCSubFolderPath = NativePhysicalPath(@"\\SERVER\folder\subfolder");
+        public static readonly string FOLDER_ValidZipFilePath = NativePhysicalPath("C:\\folder\\file.zip");
+        public static readonly string FOLDER_OtherValidFilePath = NativePhysicalPath("C:\\folder\\otherfile.txt");
+        public static readonly string FOLDER_OtherValidFolderPath = NativePhysicalPath("C:\\otherfolder");
+        public static readonly string FOLDER_OtherValidSecureFilePath = NativePhysicalPath("C:\\folder\\otherfile.txt.resources");
+        public static readonly string FOLDER_OtherValidSubFolderPath = NativePhysicalPath("C:\\folder\\othersubfolder");
+
         public static Stream ValidZipFileContent
         {
             get
@@ -434,6 +438,35 @@ namespace DotNetNuke.Tests.Utilities
                 }
                 return stream;
             }
+        }
+
+        /// <summary>
+        /// Converts a Windows-style physical path fixture value to the equivalent physical path on
+        /// the host running the tests.
+        /// </summary>
+        /// <param name="windowsPath">The Windows physical path the fixtures were originally written against.</param>
+        /// <returns>The same path expressed with the running host's root and directory separator.</returns>
+        /// <remarks>
+        /// These values stand in for paths produced by the web server (a folder's
+        /// <c>PhysicalPath</c>), which always use the host's own root and separator. The code under
+        /// test combines and splits them with the <see cref="Path"/> APIs, so on a non-Windows host a
+        /// drive-letter literal is neither rooted nor separated the way those APIs expect. On Windows
+        /// the value is returned unchanged, so the original expectations are preserved exactly.
+        /// </remarks>
+        public static string NativePhysicalPath(string windowsPath)
+        {
+            if (string.IsNullOrEmpty(windowsPath) || Path.DirectorySeparatorChar == '\\')
+            {
+                return windowsPath;
+            }
+
+            var path = windowsPath.Replace('\\', '/');
+
+            // Drop the drive specifier ("C:/folder") and collapse the UNC prefix ("//SERVER/folder"),
+            // leaving a single leading separator in both cases.
+            path = Regex.Replace(path, "^[A-Za-z]:", string.Empty);
+
+            return "/" + path.TrimStart('/');
         }
     }
 }

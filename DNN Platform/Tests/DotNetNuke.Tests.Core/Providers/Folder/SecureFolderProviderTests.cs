@@ -270,7 +270,7 @@ namespace DotNetNuke.Tests.Core.Providers.Folder
         {
             this._folderInfo.Setup(fi => fi.PhysicalPath).Returns(Constants.FOLDER_ValidFolderPath);
 
-            var filesReturned = new string[] { "C:\\folder\\file1.txt.resources", "C:\\folder\\file2.txt.resources", "C:\\folder\\file3.txt.resources" };
+            var filesReturned = new[] { Path.Combine(Constants.FOLDER_ValidFolderPath, "file1.txt.resources"), Path.Combine(Constants.FOLDER_ValidFolderPath, "file2.txt.resources"), Path.Combine(Constants.FOLDER_ValidFolderPath, "file3.txt.resources") };
 
             this._directoryWrapper.Setup(dw => dw.GetFiles(Constants.FOLDER_ValidFolderPath)).Returns(filesReturned);
 
@@ -284,7 +284,7 @@ namespace DotNetNuke.Tests.Core.Providers.Folder
         {
             this._folderInfo.Setup(fi => fi.PhysicalPath).Returns(Constants.FOLDER_ValidFolderPath);
 
-            var filesReturned = new string[] { "C:\\folder\\file1.txt.resources", "C:\\folder\\file2.txt.resources", "C:\\folder\\file3.txt.resources" };
+            var filesReturned = new[] { Path.Combine(Constants.FOLDER_ValidFolderPath, "file1.txt.resources"), Path.Combine(Constants.FOLDER_ValidFolderPath, "file2.txt.resources"), Path.Combine(Constants.FOLDER_ValidFolderPath, "file3.txt.resources") };
             var expectedValues = new string[] { "file1.txt", "file2.txt", "file3.txt" };
 
             this._directoryWrapper.Setup(dw => dw.GetFiles(Constants.FOLDER_ValidFolderPath)).Returns(filesReturned);

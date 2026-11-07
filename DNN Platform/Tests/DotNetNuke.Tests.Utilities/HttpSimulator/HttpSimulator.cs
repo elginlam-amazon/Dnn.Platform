@@ -184,8 +184,12 @@ namespace DotNetNuke.Tests.Instance.Utilities.HttpSimulator
             {
                 this.physicalApplicationPath = value ?? WebsitePhysicalAppPath;
 
-                // strip trailing backslashes.
-                this.physicalApplicationPath = StripTrailingBackSlashes(this.physicalApplicationPath) + @"\";
+                // Strip the trailing separator and re-append the host's own separator: the
+                // simulated application path stands in for Request.PhysicalApplicationPath, which
+                // always uses the running host's separator, and the code under test combines and
+                // trims it with the Path APIs.
+                this.physicalApplicationPath =
+                    StripTrailingBackSlashes(this.physicalApplicationPath) + Path.DirectorySeparatorChar;
             }
         }
 
@@ -416,7 +420,9 @@ namespace DotNetNuke.Tests.Instance.Utilities.HttpSimulator
         /// <returns>The stripped string.</returns>
         protected static string StripTrailingBackSlashes(string s)
         {
-            return string.IsNullOrEmpty(s) ? string.Empty : Regex.Replace(s, @"(.*)\\*$", "$1", RegexOptions.RightToLeft);
+            // Both separators, not just the Windows one: on a non-Windows host the incoming
+            // path ends with '/'.
+            return string.IsNullOrEmpty(s) ? string.Empty : s.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, '\\');
         }
 
         /// <summary>Sets up the HttpContext objects to simulate a request.</summary>
@@ -556,7 +562,7 @@ namespace DotNetNuke.Tests.Instance.Utilities.HttpSimulator
             this.Port = url.Port;
             this.LocalPath = url.LocalPath;
             this.Page = StripPrecedingSlashes(RightAfter(url.LocalPath, this.ApplicationPath));
-            this.physicalPath = Path.Combine(this.physicalApplicationPath, this.Page.Replace("/", @"\"));
+            this.physicalPath = Path.Combine(this.physicalApplicationPath, this.Page.Replace('/', Path.DirectorySeparatorChar));
         }
 
         private void SetHostingEnvironment()

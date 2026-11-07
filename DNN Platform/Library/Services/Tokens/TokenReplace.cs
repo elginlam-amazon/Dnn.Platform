@@ -271,7 +271,14 @@ namespace DotNetNuke.Services.Tokens
         private void DetermineUser(UserInfo user)
         {
             var context = HttpContextSource.Current;
-            this.AccessingUser = context != null ? (UserInfo)context.Items["UserInfo"] : new UserInfo();
+
+            // ASP.NET Core's HttpContext.Items is an IDictionary<object, object> whose indexer
+            // throws KeyNotFoundException for an absent key, where System.Web's HttpContext.Items
+            // indexer returned null. Preserve the original "absent means no accessing user"
+            // semantics rather than letting the lookup escape as an exception.
+            this.AccessingUser = context != null
+                ? (context.Items.TryGetValue("UserInfo", out var accessingUser) ? accessingUser as UserInfo : null)
+                : new UserInfo();
             this.User = user ?? this.AccessingUser;
         }
 

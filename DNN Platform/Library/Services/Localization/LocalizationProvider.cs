@@ -425,7 +425,13 @@ namespace DotNetNuke.Services.Localization
         private static string GetResourceFileName(string resourceFileRoot, string language)
         {
             string resourceFile;
-            language = language.ToLowerInvariant();
+
+            // A missing language is equivalent to the system locale, which the branches below
+            // already handle through string.IsNullOrEmpty. The callers derive the language from
+            // the current UI culture and the portal default, either of which can legitimately be
+            // absent (CultureInfo.InvariantCulture.ToString() is the empty string, and a portal
+            // may have no default language configured), so null must not dereference here.
+            language = language is null ? string.Empty : language.ToLowerInvariant();
             if (resourceFileRoot != null)
             {
                 if (language.Equals(Localization.SystemLocale, StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(language))

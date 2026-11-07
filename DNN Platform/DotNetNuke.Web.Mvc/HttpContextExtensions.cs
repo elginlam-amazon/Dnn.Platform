@@ -13,12 +13,14 @@ namespace DotNetNuke.Web.Mvc.Routing
 
         public static ModuleRequestResult GetModuleRequestResult(this HttpContext context)
         {
-            return context.Items[ModuleRequestResultKey] as ModuleRequestResult;
+            return context.Items.TryGetValue(ModuleRequestResultKey, out var value)
+                ? value as ModuleRequestResult
+                : null;
         }
 
         public static bool HasModuleRequestResult(this HttpContext context)
         {
-            return (context.Items[ModuleRequestResultKey] as ModuleRequestResult) != null;
+            return context.GetModuleRequestResult() != null;
         }
 
         public static void SetModuleRequestResult(this HttpContext context, ModuleRequestResult moduleRequestResult)

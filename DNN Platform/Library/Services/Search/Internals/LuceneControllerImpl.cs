@@ -116,6 +116,19 @@ namespace DotNetNuke.Services.Search.Internals
                             {
                                 writer = CreateWriter(this.IndexFolder, this.GetCustomAnalyzer() ?? new SynonymAnalyzer());
                             }
+                            catch (LockObtainFailedException e)
+                            {
+                                // The index is locked by another writer. On Windows the open lock
+                                // file could not be deleted above, so the IOException handler already
+                                // reported this; on every other platform unlinking an open file
+                                // succeeds, and the contention only surfaces here. Report it the same
+                                // way, because callers are documented to see a SearchException.
+                                throw new SearchException(
+                                    Localization.GetExceptionMessage(
+                                        "UnableToCreateLuceneWriter",
+                                        "Unable to create Lucene writer (lock file is in use). Please recycle AppPool in IIS to release lock."),
+                                    e);
+                            }
                             catch (Exception ex) when (IsUnreadableIndexException(ex))
                             {
                                 this.ResetIncompatibleIndex(ex);
@@ -149,9 +162,9 @@ namespace DotNetNuke.Services.Search.Internals
             {
                 if (this.fastHighlighter == null)
                 {
-                    IFragListBuilder fragListBuilder = new SimpleFragListBuilder();
+                    IFragListBuilder fragListBuilder = new MatchCentredFragListBuilder();
                     IFragmentsBuilder fragmentBuilder = new ScoreOrderFragmentsBuilder(
-                        new[] { HighlightPreTag }, new[] { HighlightPostTag });
+                        new[] { HighlightPreTag }, new[] { HighlightPostTag }, new ExactOffsetBoundaryScanner());
                     this.fastHighlighter = new FastVectorHighlighter(true, true, fragListBuilder, fragmentBuilder);
                 }
 

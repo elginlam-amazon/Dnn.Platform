@@ -7,6 +7,7 @@ namespace DotNetNuke.Tests.Web.Mvc
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Reflection;
 
     using DotNetNuke.Tests.Utilities;
     using DotNetNuke.Web.Mvc.Framework.Modules;
@@ -14,6 +15,7 @@ namespace DotNetNuke.Tests.Web.Mvc
     using Microsoft.AspNetCore.Http;
     using Microsoft.AspNetCore.Mvc;
     using Microsoft.AspNetCore.Mvc.Abstractions;
+    using Microsoft.AspNetCore.Mvc.Controllers;
     using Microsoft.AspNetCore.Mvc.ModelBinding;
     using Microsoft.AspNetCore.Mvc.Rendering;
     using Microsoft.AspNetCore.Mvc.ViewEngines;
@@ -152,6 +154,11 @@ namespace DotNetNuke.Tests.Web.Mvc
         /// helpers and filters resolve it through
         /// <see cref="ModuleApplication.GetCurrentDnnController(HttpContext)"/>, which reads
         /// <c>HttpContext.Items</c>.
+        /// <para>
+        /// <see cref="ControllerContext"/> requires the action descriptor to be a
+        /// <see cref="ControllerActionDescriptor"/> (MVC reads controller/action metadata off it), so one is
+        /// built here and seeded from the route values when they carry <c>controller</c>/<c>action</c>.
+        /// </para>
         /// </remarks>
         public static ControllerContext CreateMockControllerContext(HttpContext httpContext, RouteData routeData, object controller)
         {
@@ -161,7 +168,30 @@ namespace DotNetNuke.Tests.Web.Mvc
                 httpContext.Items[ModuleApplication.CurrentControllerItemKey] = controller;
             }
 
-            return new ControllerContext(new ActionContext(httpContext, routeData ?? new RouteData(), new ActionDescriptor()));
+            routeData ??= new RouteData();
+
+            var actionDescriptor = new ControllerActionDescriptor
+            {
+                ControllerName = routeData.Values.TryGetValue("controller", out var controllerName)
+                    ? Convert.ToString(controllerName)
+                    : controller?.GetType().Name.Replace("Controller", string.Empty) ?? string.Empty,
+                ActionName = routeData.Values.TryGetValue("action", out var actionName)
+                    ? Convert.ToString(actionName)
+                    : string.Empty,
+                RouteValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            };
+
+            if (controller is not null)
+            {
+                actionDescriptor.ControllerTypeInfo = controller.GetType().GetTypeInfo();
+            }
+
+            foreach (var pair in routeData.Values)
+            {
+                actionDescriptor.RouteValues[pair.Key] = Convert.ToString(pair.Value);
+            }
+
+            return new ControllerContext(new ActionContext(httpContext, routeData, actionDescriptor));
         }
 
         /// <summary>Creates a real <see cref="ViewContext"/> for the given request URL.</summary>

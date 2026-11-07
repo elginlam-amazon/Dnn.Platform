@@ -13,7 +13,9 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
     using DotNetNuke.Web.Mvc.Framework.ActionResults;
 
     using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.ModelBinding;
     using Microsoft.AspNetCore.Mvc.ViewEngines;
+    using Microsoft.AspNetCore.Mvc.ViewFeatures;
     using Microsoft.AspNetCore.Routing;
 
     using Microsoft.Extensions.DependencyInjection;
@@ -31,9 +33,16 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         {
             // The view lookup goes through ViewEngineCollectionExt, which caches through
             // CBO.GetCachedObject(IHostSettings, ...), and the renderer resolves the view data and temp
-            // data services from DI.
+            // data services from DI. ViewDataDictionary builds a ModelExplorer from
+            // IModelMetadataProvider, so a real provider is registered (an auto-mocked one returns null
+            // metadata and the dictionary cannot be constructed).
             this.serviceProvider = FakeServiceProvider.Setup(
-                services => services.AddSingleton(Mock.Of<IHostSettings>()));
+                services =>
+                {
+                    services.AddSingleton(Mock.Of<IHostSettings>());
+                    services.AddSingleton<IModelMetadataProvider>(new EmptyModelMetadataProvider());
+                    services.AddSingleton(Mock.Of<ITempDataProvider>());
+                });
         }
 
         [TearDown]

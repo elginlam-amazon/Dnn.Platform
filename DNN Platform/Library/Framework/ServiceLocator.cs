@@ -65,12 +65,22 @@ namespace DotNetNuke.Framework
         }
 
         /// <summary>Clears the current instance, a new instance will be initialized when next requested.</summary>
-        /// <remarks>Intended for unit testing purposes, not thread safe.</remarks>
+        /// <remarks>
+        /// <para>Intended for unit testing purposes, not thread safe.</para>
+        /// <para>
+        /// The cached <see cref="Factory"/> is cleared along with the instance. The factories returned
+        /// by <see cref="GetFactory"/> close over the ambient <see cref="IServiceProvider"/> at the
+        /// moment they are created (typically <c>Globals.DependencyProvider.GetRequiredService</c>),
+        /// so keeping the factory while discarding the instance left the next resolution bound to a
+        /// service provider that the previous owner may already have disposed.
+        /// </para>
+        /// </remarks>
         [SuppressMessage("Microsoft.Design", "CA1000:DoNotDeclareStaticMembersOnGenericTypes", Justification = "Breaking change")]
         public static void ClearInstance()
         {
             useTestable = false;
             testableInstance = default(TContract);
+            Factory = null;
             instance = new Lazy<TContract>(InitInstance, true);
         }
 

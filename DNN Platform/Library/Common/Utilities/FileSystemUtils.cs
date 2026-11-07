@@ -387,17 +387,21 @@ namespace DotNetNuke.Common.Utilities
                     strPath = strPath.Substring(0, pos);
                 }
 
-                strPath = FixPath(strPath).TrimStart('\\');
+                // Both the leading separator and the containment check below use the host's own
+                // separator. Hard-coding the Windows one made every manifest path look rooted
+                // outside the application on a non-Windows host, so no folder could ever be
+                // removed and the "stay inside the application root" guard never actually ran.
+                strPath = FixPath(strPath).TrimStart(Path.DirectorySeparatorChar);
                 if (string.IsNullOrEmpty(strPath))
                 {
                     continue;
                 }
 
                 strPath = Path.Combine(appStatus.ApplicationMapPath, strPath);
-                if (strPath.EndsWith(@"\", StringComparison.Ordinal) && Directory.Exists(strPath))
+                if (strPath.EndsWith(Path.DirectorySeparatorChar) && Directory.Exists(strPath))
                 {
                     var directoryInfo = new System.IO.DirectoryInfo(strPath);
-                    var applicationPath = $@"{appStatus.ApplicationMapPath}\";
+                    var applicationPath = appStatus.ApplicationMapPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
                     if (!directoryInfo.FullName.StartsWith(applicationPath, StringComparison.OrdinalIgnoreCase) ||
                         directoryInfo.FullName.Equals(applicationPath, StringComparison.OrdinalIgnoreCase))
                     {
@@ -455,17 +459,21 @@ namespace DotNetNuke.Common.Utilities
                     strPath = strPath.Substring(0, pos);
                 }
 
-                strPath = FixPath(strPath).TrimStart('\\');
+                // Both the leading separator and the containment check below use the host's own
+                // separator. Hard-coding the Windows one made every manifest path look rooted
+                // outside the application on a non-Windows host, so no folder could ever be
+                // removed and the "stay inside the application root" guard never actually ran.
+                strPath = FixPath(strPath).TrimStart(Path.DirectorySeparatorChar);
                 if (string.IsNullOrEmpty(strPath))
                 {
                     continue;
                 }
 
                 strPath = Path.Combine(appStatus.ApplicationMapPath, strPath);
-                if (strPath.EndsWith(@"\", StringComparison.Ordinal) && await Task.Run(() => Directory.Exists(strPath)))
+                if (strPath.EndsWith(Path.DirectorySeparatorChar) && await Task.Run(() => Directory.Exists(strPath)))
                 {
                     var directoryInfo = new System.IO.DirectoryInfo(strPath);
-                    var applicationPath = $@"{appStatus.ApplicationMapPath}\";
+                    var applicationPath = appStatus.ApplicationMapPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
                     if (!directoryInfo.FullName.StartsWith(applicationPath, StringComparison.OrdinalIgnoreCase) ||
                         directoryInfo.FullName.Equals(applicationPath, StringComparison.OrdinalIgnoreCase))
                     {
@@ -745,10 +753,19 @@ namespace DotNetNuke.Common.Utilities
 
         /// <summary>Fixes the path in case the path separator is not windows style.</summary>
         /// <param name="input">The path to fix.</param>
-        /// <returns>A valid Windows path.</returns>
+        /// <returns>The path with every separator normalized to the host's directory separator.</returns>
         public static string FixPath(string input)
         {
-            return string.IsNullOrEmpty(input) ? input : input.Trim().Replace("/", @"\");
+            // Normalize to the host's separator rather than unconditionally to the Windows one:
+            // on System.Web this helper only ever ran on Windows, where '/' had to become '\\';
+            // on a non-Windows host the same substitution turned a perfectly good path into a
+            // single file name containing backslashes, so every File.Exists/Delete silently
+            // no-opped.
+            return string.IsNullOrEmpty(input)
+                ? input
+                : input.Trim()
+                       .Replace('/', Path.DirectorySeparatorChar)
+                       .Replace('\\', Path.DirectorySeparatorChar);
         }
 
         /// <summary>Adds a file to a zip.</summary>

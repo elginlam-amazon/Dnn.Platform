@@ -6,6 +6,7 @@ namespace DotNetNuke.Tests.Core.Services.Installer
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common.Internal;
@@ -18,7 +19,18 @@ namespace DotNetNuke.Tests.Core.Services.Installer
     [TestFixture]
     public class CleanupInstallerTests
     {
-        private const string wwwroot = "D:/inetpub/wwwroot";
+        /// <summary>
+        /// The absolute physical path the fixture pretends the website is installed at.
+        /// </summary>
+        /// <remarks>
+        /// The net48 fixture hard-coded the Windows path <c>D:/inetpub/wwwroot</c>. It has to be an
+        /// absolute path <em>on the host running the tests</em>, because the code under test feeds it
+        /// to <see cref="Path.GetFullPath(string)"/>; a drive-letter path is relative on a non-Windows
+        /// host, which silently turned every expectation below into a path under the test binaries.
+        /// Every test case and assertion is unchanged — only the platform's notion of "absolute" is.
+        /// </remarks>
+        private static readonly string Wwwroot =
+            OperatingSystem.IsWindows() ? "D:/inetpub/wwwroot" : "/inetpub/wwwroot";
 
         [Test]
         [TestCaseSource(nameof(InvalidPathsTestCaseSource))]
@@ -122,8 +134,8 @@ namespace DotNetNuke.Tests.Core.Services.Installer
             var absoluteSlashedPaths = new[]
             {
                 "C:",
-                wwwroot,
-                wwwroot + "../wwwroot/dir",
+                Wwwroot,
+                Wwwroot + "../wwwroot/dir",
                 "//",
                 "//fileshare",
                 "file://C:/Windows",
@@ -141,7 +153,7 @@ namespace DotNetNuke.Tests.Core.Services.Installer
 
         private static IEnumerable<IEnumerable<string>> ValidPathsTestCaseSource()
         {
-            var expectedPath = Alternate(wwwroot + "/dir");
+            var expectedPath = Path.Combine(Path.GetFullPath(Wwwroot), "dir");
 
             yield return new[] { "dir", expectedPath };
             yield return new[] { AddTrailingSlash("dir"), expectedPath };
@@ -163,7 +175,7 @@ namespace DotNetNuke.Tests.Core.Services.Installer
 
         private static string MakeAbsolute(string relative)
         {
-            return string.Concat(wwwroot, "/", relative);
+            return string.Concat(Wwwroot, "/", relative);
         }
 
         private static string Alternate(string path)
@@ -181,7 +193,7 @@ namespace DotNetNuke.Tests.Core.Services.Installer
             var mock = new Mock<IApplicationStatusInfo>();
 
             mock.SetupGet(x => x.ApplicationMapPath)
-                .Returns(wwwroot);
+                .Returns(Wwwroot);
 
             return mock;
         }

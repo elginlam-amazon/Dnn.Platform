@@ -324,7 +324,7 @@ namespace DotNetNuke.Tests.Core.Providers.Folder
         {
             this.folderInfo.Setup(fi => fi.PhysicalPath).Returns(Constants.FOLDER_ValidFolderPath);
 
-            var filesReturned = new[] { "C:\\folder\\file1.txt", "C:\\folder\\file2.txt", "C:\\folder\\file3.txt" };
+            var filesReturned = new[] { Path.Combine(Constants.FOLDER_ValidFolderPath, "file1.txt"), Path.Combine(Constants.FOLDER_ValidFolderPath, "file2.txt"), Path.Combine(Constants.FOLDER_ValidFolderPath, "file3.txt") };
             var expectedValues = new[] { "file1.txt", "file2.txt", "file3.txt" };
 
             this.directoryWrapper.Setup(dw => dw.GetFiles(Constants.FOLDER_ValidFolderPath)).Returns(filesReturned);

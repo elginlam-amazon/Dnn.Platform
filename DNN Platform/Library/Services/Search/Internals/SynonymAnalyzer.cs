@@ -20,6 +20,12 @@ namespace DotNetNuke.Services.Search.Internals
     /// <summary>This is responsible for the filters chain that analyzes search documents/queries.</summary>
     internal class SynonymAnalyzer : Analyzer
     {
+        /// <summary>Initializes a new instance of the <see cref="SynonymAnalyzer"/> class.</summary>
+        public SynonymAnalyzer()
+            : base(new NoReuseStrategy())
+        {
+        }
+
         /// <inheritdoc />
         protected override TokenStreamComponents CreateComponents(string fieldName, TextReader reader)
         {
