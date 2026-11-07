@@ -309,7 +309,7 @@ namespace DotNetNuke.Application
         /// <returns><see langword="true"/> if the module directory exist, otherwise, <see langword="false"/>.</returns>
         private bool ModuleDirectoryExists(string moduleName)
         {
-            string dir = $@"{this.ApplicationMapPath}\desktopmodules\{moduleName}";
+            string dir = Path.Combine(this.ApplicationMapPath, "desktopmodules", moduleName);
             return Directory.Exists(dir);
         }
 
@@ -317,7 +317,7 @@ namespace DotNetNuke.Application
         /// <returns><see langword="true"/> if has portal directory except default portal directory in portal path; otherwise, <see langword="false"/>.</returns>
         private bool HasNonDefaultPortalDirectory()
         {
-            string dir = $@"{this.ApplicationMapPath}\portals";
+            string dir = Path.Combine(this.ApplicationMapPath, "portals");
             if (Directory.Exists(dir))
             {
                 return Directory.GetDirectories(dir).Length > 1;
