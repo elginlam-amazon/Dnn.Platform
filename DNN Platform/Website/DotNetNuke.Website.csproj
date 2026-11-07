@@ -391,7 +391,9 @@
        engine resolves them by path (and writes per-portal overrides beside them). -->
   <ItemGroup>
     <Content Include="App_GlobalResources/**/*" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="**/App_LocalResources/**/*.resx" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Explicit globs do not apply DefaultItemExcludes; without it this matches the bin/ output
+         and every build re-copies it one level deeper (bin/bin/...), breaking clean builds. -->
+    <Content Include="**/App_LocalResources/**/*.resx" Exclude="$(DefaultItemExcludes)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>
