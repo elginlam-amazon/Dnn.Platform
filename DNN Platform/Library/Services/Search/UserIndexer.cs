@@ -379,7 +379,12 @@ namespace DotNetNuke.Services.Search
             var parserContent = new QueryParser(
                 Constants.LuceneVersion,
                 Constants.UniqueKeyTag,
-                new SearchQueryAnalyzer(true));
+                new SearchQueryAnalyzer(true))
+            {
+                // Match the 3.0.3 parser: a key the analyzer splits into several tokens is a
+                // phrase, so deleting a user only removes documents whose key is that exact key.
+                AutoGeneratePhraseQueries = true,
+            };
             var parsedQueryContent = parserContent.Parse(keyword.ToLowerInvariant());
             query.Add(parsedQueryContent, Occur.MUST);
 

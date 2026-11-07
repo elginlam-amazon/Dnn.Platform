@@ -347,6 +347,14 @@ namespace DotNetNuke.Services.Search.Controllers
                     {
                         var parserContent = new QueryParser(Constants.LuceneVersion, fieldToSearch, fieldToSearch == Constants.Tag ? nonStemmerAnalyzer : analyzer);
                         parserContent.AllowLeadingWildcard = allowLeadingWildcard;
+
+                        // Lucene 3.0.3's query parser always turned a single search word that the
+                        // analyzer splits into several tokens into a phrase query, so a CJK keyword
+                        // such as "中文" matched those characters next to each other. Lucene 4.8
+                        // defaults this off for LUCENE_31 and above, which turns the same keyword
+                        // into an OR of its characters and matches documents that merely contain
+                        // them anywhere, separately. Keep the shipped matching semantics.
+                        parserContent.AutoGeneratePhraseQueries = true;
                         var parsedQueryContent = parserContent.Parse(keywords);
                         keywordQuery.Add(parsedQueryContent, Occur.SHOULD);
                     }

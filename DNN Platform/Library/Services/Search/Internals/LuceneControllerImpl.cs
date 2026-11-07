@@ -25,6 +25,7 @@ namespace DotNetNuke.Services.Search.Internals
     using Lucene.Net.Documents;
     using Lucene.Net.Index;
     using Lucene.Net.Search;
+    using Lucene.Net.Search.Similarities;
     using Lucene.Net.Search.VectorHighlight;
     using Lucene.Net.Store;
     using Microsoft.Extensions.Logging;
@@ -42,6 +43,24 @@ namespace DotNetNuke.Services.Search.Internals
 
         private const string HtmlPreTag = "<b>";
         private const string HtmlPostTag = "</b>";
+
+        /// <summary>
+        /// The default minimum similarity Lucene 3.0.3's <c>FuzzyQuery</c> applied when the caller
+        /// did not specify one (<c>FuzzyQuery.defaultMinSimilarity</c>).
+        /// </summary>
+        private const float DefaultFuzzyMinSimilarity = 0.5f;
+
+        /// <summary>
+        /// The scoring model DNN has always shipped. Lucene 3.0.3 scored with the classic TF-IDF
+        /// similarity and <em>counted</em> overlapping tokens (those indexed with a position
+        /// increment of zero - i.e. the synonyms injected by <see cref="SynonymFilter"/>) when
+        /// computing a field's length norm. Lucene 4.8's <see cref="DefaultSimilarity"/> discounts
+        /// overlapping tokens by default, which shortens the effective length of every field that
+        /// has synonyms and therefore silently re-ranks result sets (and so changes which document
+        /// a given page of results contains). Pin the similarity explicitly - at index time for the
+        /// norms and at query time for the scorer - so relevance ordering stays the shipped one.
+        /// </summary>
+        private static readonly Similarity ClassicSimilarity = new DefaultSimilarity { DiscountOverlaps = false };
 
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<LuceneControllerImpl>();
         private static readonly TimeSpan DefaultRereadTimeSpan = TimeSpan.FromSeconds(30);
@@ -189,7 +208,10 @@ namespace DotNetNuke.Services.Search.Internals
             }
 
             var highlighter = this.FastHighlighter;
-            var fieldQuery = highlighter.GetFieldQuery(searchContext.LuceneQuery.Query);
+
+            // Keep the fuzzy tolerance the product shipped with before the Lucene 4.8 upgrade.
+            var query = NormalizeFuzzyTolerance(searchContext.LuceneQuery.Query);
+            var fieldQuery = highlighter.GetFieldQuery(query);
 
             var maxResults = searchContext.LuceneQuery.PageIndex * searchContext.LuceneQuery.PageSize;
             var minResults = maxResults - searchContext.LuceneQuery.PageSize + 1;
@@ -206,12 +228,12 @@ namespace DotNetNuke.Services.Search.Internals
                         LuceneQuery = searchContext.LuceneQuery,
                         SearchQuery = searchContext.SearchQuery,
                     });
-                    searcher.Search(searchContext.LuceneQuery.Query, null, searchSecurityTrimmer);
+                    searcher.Search(query, null, searchSecurityTrimmer);
                     luceneResults.TotalHits = searchSecurityTrimmer.TotalHits;
 
                     if (Logger.IsEnabled(LogLevel.Trace))
                     {
-                        Logger.LuceneControllerSearchResultExplanation(searchContext.LuceneQuery.Query, GetSearchResultExplanation(searchContext.LuceneQuery, searchSecurityTrimmer.ScoreDocs, searcher));
+                        Logger.LuceneControllerSearchResultExplanation(query, GetSearchResultExplanation(query, searchSecurityTrimmer.ScoreDocs, searcher));
                     }
 
                     // Page doesn't exist
@@ -441,12 +463,89 @@ namespace DotNetNuke.Services.Search.Internals
             return this.reader.GetSearcher();
         }
 
-        private static string GetSearchResultExplanation(LuceneQuery luceneQuery, IEnumerable<ScoreDoc> scoreDocs, IndexSearcher searcher)
+        /// <summary>
+        /// Restores the fuzzy tolerance Lucene 3.0.3 applied.
+        /// </summary>
+        /// <remarks>
+        /// Lucene 3.0.3's <c>FuzzyQuery</c> was parameterised by a float <c>minSimilarity</c>
+        /// (0..1) and derived the allowed edit distance from the length of the term being matched:
+        /// a candidate was accepted only while <c>1 - distance / length &gt; minSimilarity</c>, so a
+        /// short term tolerated fewer edits than a long one. Lucene 4.8 replaced that with an
+        /// integer <c>maxEdits</c> whose default is the maximum the Levenshtein automaton supports
+        /// (<c>FuzzyQuery.DefaultMaxEdits</c> == 2), which makes every default fuzzy query looser
+        /// than the same query was before the upgrade - short keywords start matching words they
+        /// never used to, widening every fuzzy search in the product.
+        /// <para>
+        /// For a query that asked for the default tolerance, derive <c>maxEdits</c> from the term
+        /// length and the 3.x default minimum similarity so the effective tolerance matches the
+        /// shipped behaviour. A query that explicitly chose a <c>maxEdits</c> is left untouched.
+        /// </para>
+        /// </remarks>
+        /// <param name="query">The query as supplied by the caller.</param>
+        /// <returns>An equivalent query with 3.x fuzzy tolerance, or <paramref name="query"/> itself when nothing needed changing.</returns>
+        private static Query NormalizeFuzzyTolerance(Query query)
+        {
+            switch (query)
+            {
+                case FuzzyQuery fuzzy when fuzzy.MaxEdits == FuzzyQuery.DefaultMaxEdits:
+                    // transpositions: false - 3.x measured plain Levenshtein distance, where a
+                    // transposition counted as two edits rather than one.
+                    return new FuzzyQuery(
+                        fuzzy.Term,
+                        GetEquivalentMaxEdits(fuzzy.Term, fuzzy.PrefixLength),
+                        fuzzy.PrefixLength,
+                        FuzzyQuery.DefaultMaxExpansions,
+                        false)
+                    {
+                        Boost = fuzzy.Boost,
+                        MultiTermRewriteMethod = fuzzy.MultiTermRewriteMethod,
+                    };
+
+                case BooleanQuery boolean:
+                    var rewritten = new BooleanQuery(boolean.CoordDisabled)
+                    {
+                        Boost = boolean.Boost,
+                        MinimumNumberShouldMatch = boolean.MinimumNumberShouldMatch,
+                    };
+                    var changed = false;
+                    foreach (var clause in boolean.Clauses)
+                    {
+                        var normalized = NormalizeFuzzyTolerance(clause.Query);
+                        changed |= !ReferenceEquals(normalized, clause.Query);
+                        rewritten.Add(normalized, clause.Occur);
+                    }
+
+                    return changed ? rewritten : boolean;
+
+                default:
+                    return query;
+            }
+        }
+
+        /// <summary>Computes the largest edit distance Lucene 3.0.3 would have accepted for a term.</summary>
+        /// <param name="term">The term being matched fuzzily.</param>
+        /// <param name="prefixLength">The number of leading characters that must match exactly, which 3.x excluded from the comparison.</param>
+        /// <returns>A <c>maxEdits</c> value within the range the Levenshtein automaton supports.</returns>
+        private static int GetEquivalentMaxEdits(Term term, int prefixLength)
+        {
+            var length = Math.Max(0, (term?.Text?.Length ?? 0) - prefixLength);
+
+            // 3.x accepted a candidate while its edit distance was strictly less than this.
+            var tolerance = length * (1f - DefaultFuzzyMinSimilarity);
+
+            // The largest integer strictly below `tolerance`.
+            var maxEdits = (int)Math.Ceiling(tolerance) - 1;
+
+            return Math.Max(0, Math.Min(FuzzyQuery.DefaultMaxEdits, maxEdits));
+        }
+
+        private static string GetSearchResultExplanation(Query query, IEnumerable<ScoreDoc> scoreDocs, IndexSearcher searcher)
         {
             var sb = new StringBuilder();
             foreach (var match in scoreDocs)
             {
-                var explanation = searcher.Explain(luceneQuery.Query, match.Doc);
+                var explanation = searcher.Explain(query, match.Doc);
+
                 sb.AppendLine("-------------------");
                 var doc = searcher.Doc(match.Doc);
                 sb.AppendLine(doc.Get(Constants.TitleTag));
@@ -489,6 +588,7 @@ namespace DotNetNuke.Services.Search.Internals
             var config = new IndexWriterConfig(Constants.LuceneVersion, analyzer)
             {
                 OpenMode = OpenMode.CREATE_OR_APPEND,
+                Similarity = ClassicSimilarity,
             };
 
             return new IndexWriter(FSDirectory.Open(indexFolder), config);
@@ -572,6 +672,9 @@ namespace DotNetNuke.Services.Search.Internals
                         "Search indexing directory is either empty or does not exist"));
                 }
             }
+
+            // Query-time scoring must use the same similarity the norms were written with.
+            searcher.Similarity = ClassicSimilarity;
 
             var reader = new CachedReader(searcher);
             var cutoffTime = DateTime.Now - TimeSpan.FromSeconds(this.readerTimeSpan.TotalSeconds * 10);
