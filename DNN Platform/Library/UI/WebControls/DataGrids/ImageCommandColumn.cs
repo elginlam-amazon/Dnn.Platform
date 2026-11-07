@@ -1,11 +1,8 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.UI.WebControls
 {
-    using System.Web;
-    using System.Web.UI.WebControls;
-
     using DotNetNuke.Entities.Icons;
 
     /// <summary>
@@ -105,10 +102,10 @@ namespace DotNetNuke.UI.WebControls
             this.EditItemTemplate = this.CreateTemplate(ListItemType.EditItem);
             this.HeaderTemplate = this.CreateTemplate(ListItemType.Header);
 
-            if (HttpContext.Current == null)
+            if (this.DesignMode)
             {
                 this.HeaderStyle.Font.Names = new[] { "Tahoma, Verdana, Arial" };
-                this.HeaderStyle.Font.Size = new FontUnit("10pt");
+                this.HeaderStyle.Font.Size = "10pt";
                 this.HeaderStyle.Font.Bold = true;
             }
 
@@ -120,7 +117,7 @@ namespace DotNetNuke.UI.WebControls
         /// <returns>A ImageCommandColumnTemplate.</returns>
         private ImageCommandColumnTemplate CreateTemplate(ListItemType type)
         {
-            bool isDesignMode = HttpContext.Current == null;
+            var isDesignMode = this.DesignMode;
             var template = new ImageCommandColumnTemplate(type);
             if (type != ListItemType.Header)
             {

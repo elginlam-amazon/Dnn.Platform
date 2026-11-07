@@ -4,48 +4,75 @@
 namespace DotNetNuke.UI.WebControls
 {
     using System;
+    using System.Collections.Generic;
     using System.ComponentModel;
-    using System.Data;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
-    using System.IO;
     using System.Text;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Common.Internal;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI.Utilities;
 
-    [ToolboxData("<{0}:PagingControl runat=server></{0}:PagingControl>")]
-    public class PagingControl : WebControl, IPostBackEventHandler
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
+
+    /// <summary>A pager that renders first/previous/page-number/next/last links.</summary>
+    /// <remarks>
+    /// Was a <c>WebControl</c> implementing <c>IPostBackEventHandler</c> that built a
+    /// <c>Table</c> with a <c>Repeater</c> of page links in <c>CreateChildControls</c> and rendered
+    /// it onto an <c>HtmlTextWriter</c>. It is now a <see cref="DnnComponentBase"/> that renders the
+    /// same table through the render tree. In <see cref="PagingControlMode.PostBack"/> mode the page
+    /// links call <see cref="RaisePostBackEvent"/> directly instead of going through
+    /// <c>__doPostBack</c>.
+    /// </remarks>
+    public class PagingControl : DnnComponentBase
     {
+        /// <summary>The page numbers that are rendered as links.</summary>
+        /// <remarks>
+        /// Replaces the <c>Repeater PageNumbers</c> field: it is the data that used to be bound to
+        /// that repeater, which is all a derived control could usefully reach through it.
+        /// </remarks>
         [SuppressMessage("StyleCop.CSharp.NamingRules", "SA1306:FieldNamesMustBeginWithLowerCaseLetter", Justification = "Breaking Change")]
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
 
         // ReSharper disable once InconsistentNaming
-        protected Repeater PageNumbers;
+        protected IList<int> PageNumbers;
 
+        /// <summary>The markup of the paging links cell.</summary>
+        /// <remarks>Replaces the <c>TableCell cellDisplayLinks</c> field.</remarks>
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
-        protected TableCell cellDisplayLinks;
+        protected string cellDisplayLinks;
+
+        /// <summary>The text of the paging status cell.</summary>
+        /// <remarks>Replaces the <c>TableCell cellDisplayStatus</c> field.</remarks>
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
-        protected TableCell cellDisplayStatus;
+        protected string cellDisplayStatus;
+
+        /// <summary>The CSS class of the paging table.</summary>
+        /// <remarks>Replaces the <c>Table tablePageNumbers</c> field.</remarks>
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
-        protected Table tablePageNumbers;
+        protected string tablePageNumbers;
+
         private int totalPages = -1;
         private string cssClassLinkActive;
         private string cssClassLinkInactive;
         private string cssClassPagingStatus;
         private PagingControlMode mode = PagingControlMode.URL;
 
+        /// <summary>Occurs when the user navigates to another page.</summary>
         public event EventHandler PageChanged;
 
+        /// <summary>Gets or sets the CSS class of an active (clickable) link.</summary>
         [Bindable(true)]
         [Category("Behavior")]
         [DefaultValue("")]
+        [Parameter]
         public string CSSClassLinkActive
         {
             get
@@ -59,9 +86,11 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
+        /// <summary>Gets or sets the CSS class of an inactive link.</summary>
         [Bindable(true)]
         [Category("Behavior")]
         [DefaultValue("")]
+        [Parameter]
         public string CSSClassLinkInactive
         {
             get
@@ -75,9 +104,11 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
+        /// <summary>Gets or sets the CSS class of the paging status text.</summary>
         [Bindable(true)]
         [Category("Behavior")]
         [DefaultValue("")]
+        [Parameter]
         public string CSSClassPagingStatus
         {
             get
@@ -91,11 +122,15 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
+        /// <summary>Gets or sets the page the user is on, which is one based.</summary>
         [Bindable(true)]
         [Category("Behavior")]
         [DefaultValue("1")]
+        [Parameter]
         public int CurrentPage { get; set; }
 
+        /// <summary>Gets or sets the way the pager navigates.</summary>
+        [Parameter]
         public PagingControlMode Mode
         {
             get
@@ -109,96 +144,193 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
+        /// <summary>Gets or sets the number of records on one page.</summary>
         [Bindable(true)]
         [Category("Behavior")]
         [DefaultValue("10")]
+        [Parameter]
         public int PageSize { get; set; }
 
+        /// <summary>Gets or sets the query string parameters the paging links carry over.</summary>
         [Bindable(true)]
         [Category("Behavior")]
         [DefaultValue("")]
+        [Parameter]
         public string QuerystringParams { get; set; }
 
+        /// <summary>Gets or sets the tab the paging links navigate to.</summary>
         [Bindable(true)]
         [Category("Behavior")]
         [DefaultValue("-1")]
+        [Parameter]
         public int TabID { get; set; }
 
+        /// <summary>Gets or sets the total number of records being paged.</summary>
         [Bindable(true)]
         [Category("Behavior")]
         [DefaultValue("0")]
+        [Parameter]
         public int TotalRecords { get; set; }
 
+        /// <summary>Gets or sets the callback raised when the user navigates to another page.</summary>
+        /// <remarks>The Blazor equivalent of the <see cref="PageChanged"/> event, for markup consumers.</remarks>
+        [Parameter]
+        public EventCallback<EventArgs> OnPageChangedCallback { get; set; }
+
         /// <inheritdoc />
+        protected override string TagName => null;
+
+        /// <summary>Navigates to the page named by the argument and raises <see cref="PageChanged"/>.</summary>
+        /// <param name="eventArgument">The page, in the form <c>Page_3</c>.</param>
+        /// <remarks>Replaces <c>IPostBackEventHandler.RaisePostBackEvent</c>.</remarks>
         public void RaisePostBackEvent(string eventArgument)
         {
+            ArgumentNullException.ThrowIfNull(eventArgument);
+
             this.CurrentPage = int.Parse(eventArgument.Replace("Page_", string.Empty), CultureInfo.InvariantCulture);
             this.OnPageChanged(EventArgs.Empty);
         }
 
-        /// <inheritdoc />
+        /// <summary>Builds the paging state this control renders.</summary>
+        /// <remarks>Replaces <c>CreateChildControls</c>.</remarks>
         protected override void CreateChildControls()
         {
-            this.tablePageNumbers = new Table();
-            this.cellDisplayStatus = new TableCell();
-            this.cellDisplayLinks = new TableCell();
-
-            ////cellDisplayStatus.CssClass = "Normal";
-            ////cellDisplayLinks.CssClass = "Normal";
-            this.tablePageNumbers.CssClass = string.IsNullOrEmpty(this.CssClass) ? "PagingTable" : this.CssClass;
-            var intRowIndex = this.tablePageNumbers.Rows.Add(new TableRow());
-            this.PageNumbers = new Repeater();
-            var i = new PageNumberLinkTemplate(this);
-            this.PageNumbers.ItemTemplate = i;
+            this.tablePageNumbers = string.IsNullOrEmpty(this.CssClass) ? "PagingTable" : this.CssClass;
             this.BindPageNumbers(this.TotalRecords, this.PageSize);
-            this.cellDisplayStatus.HorizontalAlign = HorizontalAlign.Left;
 
-            ////cellDisplayStatus.Width = new Unit("50%");
-            this.cellDisplayLinks.HorizontalAlign = HorizontalAlign.Right;
-
-            ////cellDisplayLinks.Width = new Unit("50%");
             var intTotalPages = this.totalPages;
             if (intTotalPages == 0)
             {
                 intTotalPages = 1;
             }
 
-            var str = string.Format(CultureInfo.CurrentCulture, Localization.GetString("Pages"), this.CurrentPage, intTotalPages);
-            var lit = new LiteralControl(str);
-            this.cellDisplayStatus.Controls.Add(lit);
-            this.tablePageNumbers.Rows[intRowIndex].Cells.Add(this.cellDisplayStatus);
-            this.tablePageNumbers.Rows[intRowIndex].Cells.Add(this.cellDisplayLinks);
+            this.cellDisplayStatus = string.Format(CultureInfo.CurrentCulture, Localization.GetString("Pages"), this.CurrentPage, intTotalPages);
+
+            var str = new StringBuilder();
+            str.Append(this.GetFirstLink() + "&nbsp;&nbsp;&nbsp;");
+            str.Append(this.GetPreviousLink() + "&nbsp;&nbsp;&nbsp;");
+            var template = new PageNumberLinkTemplate(this);
+            foreach (var pageNumber in this.PageNumbers)
+            {
+                str.Append(template.GetLinkMarkup(pageNumber));
+            }
+
+            str.Append(this.GetNextLink() + "&nbsp;&nbsp;&nbsp;");
+            str.Append(this.GetLastLink() + "&nbsp;&nbsp;&nbsp;");
+            this.cellDisplayLinks = str.ToString();
         }
 
+        /// <summary>Raises the <see cref="PageChanged"/> event.</summary>
+        /// <param name="e">The event arguments.</param>
         protected void OnPageChanged(EventArgs e)
         {
             this.PageChanged?.Invoke(this, e);
+            if (this.OnPageChangedCallback.HasDelegate)
+            {
+                this.OnPageChangedCallback.InvokeAsync(e);
+            }
         }
 
         /// <inheritdoc />
-        [SuppressMessage("Microsoft.Naming", "CA1725:ParameterNamesShouldMatchBaseDeclaration", Justification = "Breaking change")]
-        protected override void Render(HtmlTextWriter output)
+        protected override void OnLoad(EventArgs e)
         {
+            base.OnLoad(e);
+            this.CreateChildControls();
+        }
+
+        /// <inheritdoc />
+        protected override void RenderContents(RenderTreeBuilder builder, ref int sequence)
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+
             if (this.PageNumbers == null)
             {
                 this.CreateChildControls();
             }
 
-            var str = new StringBuilder();
-            str.Append(this.GetFirstLink() + "&nbsp;&nbsp;&nbsp;");
-            str.Append(this.GetPreviousLink() + "&nbsp;&nbsp;&nbsp;");
-            var result = new StringBuilder(1024);
-            this.PageNumbers.RenderControl(new HtmlTextWriter(new StringWriter(result)));
-            str.Append(result.ToString());
-            str.Append(this.GetNextLink() + "&nbsp;&nbsp;&nbsp;");
-            str.Append(this.GetLastLink() + "&nbsp;&nbsp;&nbsp;");
-            this.cellDisplayLinks.Controls.Add(new LiteralControl(str.ToString()));
-            this.tablePageNumbers.RenderControl(output);
+            builder.OpenElement(sequence++, "table");
+            builder.AddAttribute(sequence++, "class", this.tablePageNumbers);
+            builder.OpenElement(sequence++, "tr");
+
+            builder.OpenElement(sequence++, "td");
+            builder.AddAttribute(sequence++, "align", "left");
+            if (!string.IsNullOrEmpty(this.CSSClassPagingStatus))
+            {
+                builder.AddAttribute(sequence++, "class", this.CSSClassPagingStatus);
+            }
+
+            builder.AddMarkupContent(sequence++, this.cellDisplayStatus);
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "td");
+            builder.AddAttribute(sequence++, "align", "right");
+            if (this.Mode == PagingControlMode.PostBack)
+            {
+                // the page links are server side handlers in post back mode
+                this.RenderPostBackLinks(builder, ref sequence);
+            }
+            else
+            {
+                builder.AddMarkupContent(sequence++, this.cellDisplayLinks);
+            }
+
+            builder.CloseElement();
+
+            builder.CloseElement();
+            builder.CloseElement();
+
+            base.RenderContents(builder, ref sequence);
+        }
+
+        private void RenderPostBackLinks(RenderTreeBuilder builder, ref int sequence)
+        {
+            this.RenderPostBackLink(builder, ref sequence, Localization.GetString("First", Localization.SharedResourceFile), 1, this.CurrentPage > 1 && this.totalPages > 0);
+            this.RenderPostBackLink(builder, ref sequence, Localization.GetString("Previous", Localization.SharedResourceFile), this.CurrentPage - 1, this.CurrentPage > 1 && this.totalPages > 0);
+            foreach (var pageNumber in this.PageNumbers)
+            {
+                this.RenderPostBackLink(builder, ref sequence, pageNumber.ToString(CultureInfo.InvariantCulture), pageNumber, pageNumber != this.CurrentPage);
+            }
+
+            this.RenderPostBackLink(builder, ref sequence, Localization.GetString("Next", Localization.SharedResourceFile), this.CurrentPage + 1, this.CurrentPage != this.totalPages && this.totalPages > 0);
+            this.RenderPostBackLink(builder, ref sequence, Localization.GetString("Last", Localization.SharedResourceFile), this.totalPages, this.CurrentPage != this.totalPages && this.totalPages > 0);
+        }
+
+        private void RenderPostBackLink(RenderTreeBuilder builder, ref int sequence, string text, int pageNumber, bool isActive)
+        {
+            if (isActive)
+            {
+                builder.OpenElement(sequence++, "a");
+                builder.AddAttribute(sequence++, "href", "javascript:void(0);");
+                if (this.CSSClassLinkActive.Trim().Length > 0)
+                {
+                    builder.AddAttribute(sequence++, "class", this.CSSClassLinkActive);
+                }
+
+                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create<MouseEventArgs>(
+                    this,
+                    () => this.RaisePostBackEvent("Page_" + pageNumber.ToString(CultureInfo.InvariantCulture))));
+                builder.AddContent(sequence++, text);
+                builder.CloseElement();
+            }
+            else
+            {
+                builder.OpenElement(sequence++, "span");
+                if (this.CSSClassLinkInactive.Trim().Length > 0)
+                {
+                    builder.AddAttribute(sequence++, "class", this.CSSClassLinkInactive);
+                }
+
+                builder.AddContent(sequence++, text);
+                builder.CloseElement();
+            }
+
+            builder.AddMarkupContent(sequence++, "&nbsp;&nbsp;&nbsp;");
         }
 
         private void BindPageNumbers(int totalRecords, int recordsPerPage)
         {
-            const int pageLinksPerPage = 10;
+            const int PageLinksPerPage = 10;
+            this.PageNumbers = new List<int>();
             if (totalRecords < 1 || recordsPerPage < 1)
             {
                 this.totalPages = 1;
@@ -208,38 +340,35 @@ namespace DotNetNuke.UI.WebControls
             this.totalPages = totalRecords / recordsPerPage >= 1 ? Convert.ToInt32(Math.Ceiling(Convert.ToDouble(totalRecords) / recordsPerPage)) : 0;
             if (this.totalPages > 0)
             {
-                var ht = new DataTable();
-                ht.Columns.Add("PageNum");
-                DataRow tmpRow;
                 var lowNum = 1;
                 var highNum = Convert.ToInt32(this.totalPages);
                 double tmpNum;
-                tmpNum = this.CurrentPage - (pageLinksPerPage / 2);
+                tmpNum = this.CurrentPage - (PageLinksPerPage / 2);
                 if (tmpNum < 1)
                 {
                     tmpNum = 1;
                 }
 
-                if (this.CurrentPage > (pageLinksPerPage / 2))
+                if (this.CurrentPage > (PageLinksPerPage / 2))
                 {
                     lowNum = Convert.ToInt32(Math.Floor(tmpNum));
                 }
 
-                if (Convert.ToInt32(this.totalPages) <= pageLinksPerPage)
+                if (Convert.ToInt32(this.totalPages) <= PageLinksPerPage)
                 {
                     highNum = Convert.ToInt32(this.totalPages);
                 }
                 else
                 {
-                    highNum = lowNum + pageLinksPerPage - 1;
+                    highNum = lowNum + PageLinksPerPage - 1;
                 }
 
                 if (highNum > Convert.ToInt32(this.totalPages))
                 {
                     highNum = Convert.ToInt32(this.totalPages);
-                    if (highNum - lowNum < pageLinksPerPage)
+                    if (highNum - lowNum < PageLinksPerPage)
                     {
-                        lowNum = highNum - pageLinksPerPage + 1;
+                        lowNum = highNum - PageLinksPerPage + 1;
                     }
                 }
 
@@ -256,13 +385,8 @@ namespace DotNetNuke.UI.WebControls
                 int i;
                 for (i = lowNum; i <= highNum; i++)
                 {
-                    tmpRow = ht.NewRow();
-                    tmpRow["PageNum"] = i;
-                    ht.Rows.Add(tmpRow);
+                    this.PageNumbers.Add(i);
                 }
-
-                this.PageNumbers.DataSource = ht;
-                this.PageNumbers.DataBind();
             }
         }
 
@@ -275,7 +399,7 @@ namespace DotNetNuke.UI.WebControls
                                ? (!string.IsNullOrEmpty(currentPage) ? TestableGlobals.Instance.NavigateURL(this.TabID, string.Empty, this.QuerystringParams, "currentpage=" + currentPage) : TestableGlobals.Instance.NavigateURL(this.TabID, string.Empty, this.QuerystringParams))
                                : (!string.IsNullOrEmpty(currentPage) ? TestableGlobals.Instance.NavigateURL(this.TabID, string.Empty, "currentpage=" + currentPage) : TestableGlobals.Instance.NavigateURL(this.TabID));
                 default:
-                    return this.Page.ClientScript.GetPostBackClientHyperlink(this, "Page_" + currentPage, false);
+                    return ClientAPI.GetPostBackClientHyperlink(this, "Page_" + currentPage);
             }
         }
 
@@ -357,7 +481,13 @@ namespace DotNetNuke.UI.WebControls
                        : $"<span>{lastText}</span>";
         }
 
-        public class PageNumberLinkTemplate : ITemplate
+        /// <summary>Renders one page number link of a <see cref="PagingControl"/>.</summary>
+        /// <remarks>
+        /// Was the <c>ITemplate</c> of the page-number <c>Repeater</c>, which instantiated a
+        /// <c>Literal</c> and filled it on <c>DataBinding</c>. It now implements
+        /// <see cref="IGridTemplate"/> and returns that very same markup.
+        /// </remarks>
+        public class PageNumberLinkTemplate : IGridTemplate
         {
             private readonly PagingControl pagingControl;
 
@@ -369,19 +499,20 @@ namespace DotNetNuke.UI.WebControls
             }
 
             /// <inheritdoc />
-            void ITemplate.InstantiateIn(Control container)
+            public RenderFragment Render(DataGridCell cell)
             {
-                var l = new Literal();
-                l.DataBinding += this.BindData;
-                container.Controls.Add(l);
+                ArgumentNullException.ThrowIfNull(cell);
+
+                var pageNumber = Convert.ToInt32(GridDataBinder.Eval(cell.Item.DataItem, "PageNum"), CultureInfo.InvariantCulture);
+                var markup = this.GetLinkMarkup(pageNumber);
+                return builder => builder.AddMarkupContent(0, markup);
             }
 
-            private void BindData(object sender, EventArgs e)
-            {
-                var lc = (Literal)sender;
-                var container = (RepeaterItem)lc.NamingContainer;
-                lc.Text = this.pagingControl.GetLink(Convert.ToInt32(DataBinder.Eval(container.DataItem, "PageNum"), CultureInfo.InvariantCulture)) + "&nbsp;&nbsp;";
-            }
+            /// <summary>Gets the markup of the link to the given page.</summary>
+            /// <param name="pageNumber">The page to link to.</param>
+            /// <returns>The link, followed by the two non-breaking spaces the template appended.</returns>
+            public string GetLinkMarkup(int pageNumber) =>
+                this.pagingControl.GetLink(pageNumber) + "&nbsp;&nbsp;";
         }
     }
 }

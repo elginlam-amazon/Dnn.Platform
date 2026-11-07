@@ -7,13 +7,10 @@ namespace Dnn.PersonaBar.SqlConsole.Services
     using System;
     using System.Collections.Generic;
     using System.Data;
-    using System.Data.SqlClient;
     using System.Globalization;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Text.RegularExpressions;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -24,6 +21,11 @@ namespace Dnn.PersonaBar.SqlConsole.Services
     using DotNetNuke.Data;
     using DotNetNuke.Services.Log.EventLog;
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.Data.SqlClient;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Host)]
     public class SqlConsoleController : PersonaBarApiController
@@ -38,9 +40,9 @@ namespace Dnn.PersonaBar.SqlConsole.Services
 
         ////private const int MaxOutputRecords = 500;
         [HttpGet]
-        public HttpResponseMessage GetSavedQueries()
+        public IActionResult GetSavedQueries()
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new
+            return this.Ok(new
             {
                 queries = this.controller.GetQueries(),
                 connections = this.controller.GetConnections(),
@@ -48,14 +50,14 @@ namespace Dnn.PersonaBar.SqlConsole.Services
         }
 
         [HttpGet]
-        public HttpResponseMessage GetSavedQuery(int id)
+        public IActionResult GetSavedQuery(int id)
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, this.controller.GetQuery(id));
+            return this.Ok(this.controller.GetQuery(id));
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage SaveQuery(SqlQuery query)
+        public IActionResult SaveQuery(SqlQuery query)
         {
             query.CreatedOnDate = DateTime.Now;
             query.CreatedByUserId = this.UserInfo.UserID;
@@ -81,27 +83,27 @@ namespace Dnn.PersonaBar.SqlConsole.Services
                 this.controller.AddQuery(query);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, query);
+            return this.Ok(query);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage DeleteQuery(SqlQuery query)
+        public IActionResult DeleteQuery(SqlQuery query)
         {
             var savedQuery = this.controller.GetQuery(query.QueryId);
             if (savedQuery != null)
             {
                 this.controller.DeleteQuery(savedQuery);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { });
+                return this.Ok(new { });
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.NoContent);
+            return DnnApiResults.Response(HttpStatusCode.NoContent);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage RunQuery(AdhocSqlQuery query)
+        public IActionResult RunQuery(AdhocSqlQuery query)
         {
             var connectionstring = Config.GetConnectionString(query.ConnectionStringName);
 
@@ -138,7 +140,7 @@ namespace Dnn.PersonaBar.SqlConsole.Services
             this.RecordAuditEventLog(query.Query);
 
             var statusCode = string.IsNullOrEmpty(errorMessage) ? HttpStatusCode.OK : HttpStatusCode.BadRequest;
-            return this.Request.CreateResponse(statusCode, new { Data = runAsQuery ? null : outputTables, Error = errorMessage });
+            return DnnApiResults.Response(statusCode, new { Data = runAsQuery ? null : outputTables, Error = errorMessage });
         }
 
         private static bool RunAsScript(string query)

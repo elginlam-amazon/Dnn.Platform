@@ -1,0 +1,266 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@*
+    ROUTE CONTRACT. appsettings.json's CustomErrors:ErrorPagePath is "~/ErrorPage", which
+    DotNetNuke.Common.ErrorPage.Path returns and DotNetNuke.Common.ErrorPage.BuildUrl appends
+    "?status=&error=&error2=" to; the six former "~/ErrorPage.aspx" literals in the platform all
+    resolve through that one key. The first route below is therefore MANDATORY and must stay in
+    lock-step with that setting.
+
+    The second route is the literal legacy URL. ErrorPage.DefaultPath is still "~/ErrorPage.aspx"
+    (the value used when the configuration source is not yet registered - which is exactly the
+    situation during install), and external bookmarks/monitors use it, so both URLs resolve to
+    this component.
+*@
+@page "/ErrorPage"
+@page "/ErrorPage.aspx"
+
+@namespace DotNetNuke.Services.Exceptions
+@inherits DotNetNuke.UI.DnnComponentBase
+@layout DotNetNuke.Website.Components.StandaloneLayout
+@attribute [ExcludeFromInteractiveRouting]
+
+@using System
+@using System.Net
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Rendering
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Diagnostics
+@using Microsoft.AspNetCore.Http
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Services.FileSystem
+@using DotNetNuke.UI
+@using Localization = DotNetNuke.Services.Localization.Localization
+
+@*
+    STATIC SERVER SIDE RENDERING. This page is a request handler as much as it is UI: it reads the
+    status/error/error2 query parameters, the last unhandled exception and SETS THE RESPONSE STATUS
+    CODE (500, or the numeric status passed in). In an interactive circuit HttpContext is null and
+    the response has already been sent, so the status code could never be written. Hence
+    [ExcludeFromInteractiveRouting]; the host's App.razor honours it by rendering with no render
+    mode. There is no @@onclick anywhere on this page - the only interaction is a hyperlink.
+*@
+
+<PageTitle>@this.title</PageTitle>
+
+<HeadContent>
+    <meta name="revisit-after" content="1 days" />
+    <meta name="robots" content="noindex,nofollow" />
+    @* Was the two <link runat="server"> elements whose href OnInit re-resolved. *@
+    <link id="DefaultStylesheet" rel="stylesheet" type="text/css" href="@this.defaultStylesheetHref" />
+    <link id="InstallStylesheet" rel="stylesheet" type="text/css" href="@this.installStylesheetHref" />
+</HeadContent>
+
+@*
+    The table layout of ErrorPage.aspx, preserved - the Error stylesheet class and the 650px
+    content column are what install.css/default.css style.
+*@
+<table cellspacing="5" cellpadding="5" border="0" class="Error">
+    <tr>
+        <td>
+            @* Was <asp:Image ID="headerImage" BorderStyle="None" AlternateText="DotNetNuke" />,
+               whose Visible was driven by whether an ImageUrl was resolved. *@
+            @if (!string.IsNullOrEmpty(this.headerImageUrl))
+            {
+                <img id="headerImage" src="@this.headerImageUrl" alt="DotNetNuke" style="border-style:none" />
+            }
+        </td>
+    </tr>
+    <tr style="height:100%;">
+        <td valign="top" style="width:650px;">
+            <h2>Application Error</h2>
+            <hr />
+            @* Was <asp:PlaceHolder ID="ErrorPlaceHolder" />. The ported code below adds exactly the
+               same controls to it (a DnnLiteralControl, or the ModuleMessage that
+               ErrorContainer builds), and they are rendered here through the DnnComponentBase
+               child-control renderer. *@
+            <p>@this.ErrorPlaceHolderContent</p>
+        </td>
+    </tr>
+    <tr>
+        <td align="right">
+            @* Was <asp:Hyperlink ID="hypReturn" NavigateUrl="~/Default.aspx" cssClass="dnnPrimaryAction" />,
+               whose Text OnLoad set from the "Return.Text" global resource. *@
+            <a id="hypReturn" href="@Globals.ResolveUrl("~/Default.aspx")" class="dnnPrimaryAction">@this.returnText</a>
+        </td>
+    </tr>
+    <tr><td height="10px"></td></tr>
+</table>
+
+@code {
+    /// <summary>The placeholder the error markup is added to, replacing <c>ErrorPlaceHolder</c>.</summary>
+    private readonly DnnPlaceHolder errorPlaceHolder = new DnnPlaceHolder { ID = "ErrorPlaceHolder" };
+
+    private string title = "Error";
+    private string defaultStylesheetHref;
+    private string installStylesheetHref;
+    private string headerImageUrl;
+    private string returnText;
+
+    /// <summary>Gets or sets the context of the request that produced this error page.</summary>
+    /// <remarks>
+    /// Replaces the page's <c>Request</c>/<c>Response</c>/<c>Server</c>. The Blazor endpoint only
+    /// cascades this to statically rendered components, which is why this page opts out of
+    /// interactive routing.
+    /// </remarks>
+    [CascadingParameter]
+    public HttpContext HttpContext { get; set; }
+
+    /// <summary>Gets or sets the application status, which supplies the configured custom error mode.</summary>
+    /// <remarks>
+    /// Replaces the <c>ErrorPage(IApplicationStatusInfo)</c> constructor and its
+    /// <c>Globals.GetCurrentServiceProvider().GetRequiredService&lt;IApplicationStatusInfo&gt;()</c>
+    /// fallback: Blazor activates components through the parameterless constructor, so the
+    /// dependency is injected as a property instead. The behaviour - a non-null
+    /// <see cref="IApplicationStatusInfo"/> for <see cref="ManageError"/> - is identical.
+    /// </remarks>
+    [Inject]
+    protected IApplicationStatusInfo AppStatus { get; set; }
+
+    /// <summary>Gets the content of the error placeholder.</summary>
+    private RenderFragment ErrorPlaceHolderContent => builder =>
+        RenderControl(builder, 0, this.errorPlaceHolder);
+
+    /// <summary>Replaces <c>OnInit</c>: resolves the two stylesheet URLs.</summary>
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        // Was this.DefaultStylesheet.Attributes["href"] = this.ResolveUrl(...) and the same for
+        // InstallStylesheet. Page.ResolveUrl becomes Globals.ResolveUrl, which resolves "~/"
+        // against the application root the same way. The directory casing is the post-migration
+        // wwwroot casing (top-level directories are lowercase).
+        this.defaultStylesheetHref = Globals.ResolveUrl("~/portals/_default/default.css");
+        this.installStylesheetHref = Globals.ResolveUrl("~/install/install.css");
+    }
+
+    /// <summary>Replaces <c>OnLoad</c>: builds the error display and sets the response status.</summary>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        var request = this.HttpContext?.Request;
+        var response = this.HttpContext?.Response;
+
+        var portalSettings = PortalController.Instance.GetCurrentSettings();
+        if (portalSettings != null && !string.IsNullOrEmpty(portalSettings.LogoFile))
+        {
+            IFileInfo fileInfo = FileManager.Instance.GetFile(portalSettings.PortalId, portalSettings.LogoFile);
+            if (fileInfo != null)
+            {
+                this.headerImageUrl = FileManager.Instance.GetUrl(fileInfo);
+            }
+        }
+
+        // Was this.headerImage.Visible = !string.IsNullOrEmpty(this.headerImage.ImageUrl); the
+        // markup above renders the <img> only when a URL was resolved, which is the same rule.
+        string localizedMessage;
+        var status = request?.Query["status"].ToString();
+        if (!string.IsNullOrEmpty(status))
+        {
+            this.ManageError(status);
+        }
+        else
+        {
+            // get the last server error
+            // Was this.Server.GetLastError(). On ASP.NET Core the unhandled exception is published
+            // on IExceptionHandlerFeature. Note that UseDnnExceptionHandler REDIRECTS here (as
+            // <customErrors defaultRedirect> did), so on that path this is null and the catch
+            // below produces the "UnhandledError.Text" message - exactly the original behaviour.
+            var exc = this.HttpContext?.Features.Get<IExceptionHandlerFeature>()?.Error;
+            try
+            {
+                if ((request?.Path.Value ?? string.Empty).ToLowerInvariant().EndsWith("installwizard.aspx"))
+                {
+                    this.errorPlaceHolder.Controls.Add(new DnnLiteralControl(WebUtility.HtmlEncode(exc.ToString())));
+                }
+                else
+                {
+                    var lex = new PageLoadException(exc.Message, exc);
+                    Exceptions.LogException(lex);
+                    localizedMessage = Localization.GetString("Error.Text", Localization.GlobalResourceFile);
+                    this.errorPlaceHolder.Controls.Add(new ErrorContainer(localizedMessage, lex).Container);
+                }
+            }
+            catch
+            {
+                // No exception was found...you shouldn't end up here
+                // unless you go to this aspx page URL directly
+                localizedMessage = Localization.GetString("UnhandledError.Text", Localization.GlobalResourceFile);
+                this.errorPlaceHolder.Controls.Add(new DnnLiteralControl(localizedMessage));
+            }
+
+            if (response != null)
+            {
+                response.StatusCode = 500;
+            }
+        }
+
+        localizedMessage = Localization.GetString("Return.Text", Localization.GlobalResourceFile);
+
+        this.returnText = localizedMessage;
+    }
+
+    /// <summary>Renders the error identified by a status token, and applies it to the response status code.</summary>
+    /// <param name="status">The status token, e.g. <c>403_3</c> or <c>404</c>.</param>
+    /// <remarks>Ported branch for branch from <c>ErrorPage.ManageError(string)</c>.</remarks>
+    private void ManageError(string status)
+    {
+        string errorMode = Config.GetCustomErrorMode(this.AppStatus);
+
+        var request = this.HttpContext?.Request;
+
+        string errorMessage = WebUtility.HtmlEncode(request?.Query["error"].ToString());
+        string errorMessage2 = WebUtility.HtmlEncode(request?.Query["error2"].ToString());
+        string localizedMessage = Localization.GetString(status + ".Error", Localization.GlobalResourceFile);
+        if (localizedMessage != null)
+        {
+            localizedMessage = localizedMessage.Replace("src=\"images/403-3.gif\"", "src=\"" + Globals.ResolveUrl("~/images/403-3.gif") + "\"");
+
+            if (!string.IsNullOrEmpty(errorMessage2) && ((errorMode == "Off") || ((errorMode == "RemoteOnly") && this.IsLocalRequest())))
+            {
+                this.errorPlaceHolder.Controls.Add(new DnnLiteralControl(string.Format(localizedMessage, errorMessage2)));
+            }
+            else
+            {
+                this.errorPlaceHolder.Controls.Add(new DnnLiteralControl(string.Format(localizedMessage, errorMessage)));
+            }
+        }
+
+        int statusCode;
+        int.TryParse(status, out statusCode);
+
+        // The original condition is `statusCode > -1`, which is true even when the token does not
+        // parse (e.g. "403_3", where TryParse leaves 0). On ASP.NET Core a status code of 0 is not
+        // a valid response status, so the write is additionally guarded by the HTTP status range;
+        // every status token that actually parsed (404, 500, ...) is applied exactly as before.
+        if (statusCode > -1 && this.HttpContext != null && statusCode >= 100 && statusCode <= 599)
+        {
+            this.HttpContext.Response.StatusCode = statusCode;
+        }
+    }
+
+    /// <summary>Replaces <c>HttpRequest.IsLocal</c>, which does not exist on ASP.NET Core.</summary>
+    /// <returns><see langword="true"/> when the request came from the machine serving it.</returns>
+    private bool IsLocalRequest()
+    {
+        var connection = this.HttpContext?.Connection;
+        if (connection?.RemoteIpAddress == null)
+        {
+            // No remote address means an in-process request, which the old IsLocal also treated as local.
+            return true;
+        }
+
+        if (System.Net.IPAddress.IsLoopback(connection.RemoteIpAddress))
+        {
+            return true;
+        }
+
+        return connection.LocalIpAddress != null && connection.RemoteIpAddress.Equals(connection.LocalIpAddress);
+    }
+}

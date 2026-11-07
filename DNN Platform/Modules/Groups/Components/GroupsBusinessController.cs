@@ -57,7 +57,7 @@ namespace DotNetNuke.Modules.Groups.Components
 
                 var actions = NotificationsController.Instance.GetNotificationTypeActions(nt.NotificationTypeId).ToList();
 
-                if (actions.Any())
+                if (actions.Count > 0)
                 {
                     foreach (var action in actions)
                     {

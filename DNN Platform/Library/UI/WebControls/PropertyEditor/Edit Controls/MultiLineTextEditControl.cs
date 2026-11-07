@@ -5,26 +5,32 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
 
     /// <summary>
     /// The MultiLineTextEditControl control provides a standard UI component for editing
     /// string/text properties.
     /// </summary>
-    [ToolboxData("<{0}:MultiLineTextEditControl runat=server></{0}:MultiLineTextEditControl>")]
     public class MultiLineTextEditControl : TextEditControl
     {
         /// <inheritdoc />
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
             string propValue = Convert.ToString(this.Value, CultureInfo.InvariantCulture);
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Id, this.ClientID);
-            writer.AddAttribute("aria-label", "editor");
-            writer.RenderBeginTag(HtmlTextWriterTag.Textarea);
-            writer.Write(propValue);
-            writer.RenderEndTag();
+
+            builder.OpenElement(0, "textarea");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddAttribute(5, "name", this.UniqueID);
+            builder.AddAttribute(6, "id", this.ClientID);
+            builder.AddAttribute(7, "aria-label", "editor");
+            builder.AddAttribute(8, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnInputChanged));
+            builder.AddContent(9, propValue);
+            builder.CloseElement();
         }
     }
 }

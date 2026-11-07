@@ -45,8 +45,8 @@ namespace DotNetNuke.Security
             this.RedirectAfterRegistration = settings.GetValueOrDefault("Redirect_AfterRegistration", this.RedirectAfterRegistration);
             this.RedirectAfterLogout = settings.GetValueOrDefault("Redirect_AfterLogout", this.RedirectAfterLogout);
             this.RedirectAfterLogin = settings.GetValueOrDefault("Redirect_AfterLogin", this.RedirectAfterLogin);
-            this.RegistrationFields = settings.GetValueOrDefault("Registration_RegistrationFields", this.RegistrationFields);
-            this.ExcludeTerms = settings.GetValueOrDefault("Registration_ExcludeTerms", this.ExcludeTerms);
+            this.RegistrationFields = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault<string>(settings, "Registration_RegistrationFields", this.RegistrationFields);
+            this.ExcludeTerms = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault<string>(settings, "Registration_ExcludeTerms", this.ExcludeTerms);
             this.RegistrationFormType = settings.GetValueOrDefault("Registration_RegistrationFormType", this.RegistrationFormType);
             this.RequirePasswordConfirm = settings.GetValueOrDefault("Registration_RequireConfirmPassword", this.RequirePasswordConfirm);
             this.RequireUniqueDisplayName = settings.GetValueOrDefault("Registration_RequireUniqueDisplayName", this.RequireUniqueDisplayName);
@@ -56,9 +56,9 @@ namespace DotNetNuke.Security
             this.RequireValidProfile = settings.GetValueOrDefault("Security_RequireValidProfile", this.RequireValidProfile);
             this.RequireValidProfileAtLogin = settings.GetValueOrDefault("Security_RequireValidProfileAtLogin", this.RequireValidProfileAtLogin);
             this.UseCaptcha = settings.GetValueOrDefault("Security_CaptchaRegister", this.UseCaptcha);
-            this.UserNameValidator = settings.GetValueOrDefault("Security_UserNameValidation", this.UserNameValidator);
-            this.DisplayNameFormat = settings.GetValueOrDefault("Security_DisplayNameFormat", this.DisplayNameFormat);
-            this.EmailValidator = settings.GetValueOrDefault("Security_EmailValidation", this.EmailValidator);
+            this.UserNameValidator = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault<string>(settings, "Security_UserNameValidation", this.UserNameValidator);
+            this.DisplayNameFormat = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault<string>(settings, "Security_DisplayNameFormat", this.DisplayNameFormat);
+            this.EmailValidator = DotNetNuke.Collections.CollectionExtensions.GetValueOrDefault<string>(settings, "Security_EmailValidation", this.EmailValidator);
 
             this.ExcludeTermsRegex = "^(?:(?!" + this.ExcludeTerms.Replace(" ", string.Empty).Replace(",", "|") + ").)*$\\r?\\n?";
         }

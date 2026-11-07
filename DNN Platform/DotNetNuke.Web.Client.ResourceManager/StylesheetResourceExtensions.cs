@@ -23,10 +23,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetPriority<T>(this T input, FileOrder.Css priority)
             where T : IStylesheetResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Priority = (int)priority;
             return input;
@@ -39,10 +36,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         /// <returns>The stylesheet resource with the disabled attribute set.</returns>
         public static IStylesheetResource SetDisabled(this IStylesheetResource input)
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Disabled = true;
             return input;

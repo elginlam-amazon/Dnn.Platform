@@ -1,238 +1,120 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
   <PropertyGroup>
-    <Deterministic>true</Deterministic>
-  </PropertyGroup>
-  <PropertyGroup>
-    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
-    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
-    <SccProjectName>
-    </SccProjectName>
-    <SccLocalPath>
-    </SccLocalPath>
-    <SccAuxPath>
-    </SccAuxPath>
-    <SccProvider>
-    </SccProvider>
-    <UseGlobalApplicationHostFile />
-    <Use64BitIISExpress />
-  </PropertyGroup>
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{A86EBC44-2BC8-4C4A-997B-2708E4AAC345}</ProjectGuid>
-    <ProjectTypeGuids>{349c5851-65df-11da-9384-00065b846f21};{fae04ec0-301f-11d3-bf4b-00c04f79efbc}</ProjectTypeGuids>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <!-- Module.build's CopyBin copies from bin\ directly, so no TFM subfolder. -->
+    <OutputPath>bin</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>DotNetNuke.Web.DDRMenu</RootNamespace>
     <AssemblyName>DotNetNuke.Web.DDRMenu</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <TargetFrameworkProfile />
-    <FileAlignment>512</FileAlignment>
-    <UseIISExpress>false</UseIISExpress>
-    <IISExpressSSLPort />
-    <IISExpressAnonymousAuthentication />
-    <IISExpressWindowsAuthentication />
-    <IISExpressUseClassicPipelineMode />
-    <FileUpgradeFlags>
-    </FileUpgradeFlags>
-    <OldToolsVersion>4.0</OldToolsVersion>
-    <UpgradeBackupLocation />
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Retargeting net48 -> net10.0 newly enables net10-era analyzer diagnostics that the
+         net48 build never saw. SA1600 was already suppressed on net48 and is kept. Any CA id
+         added here must be reported in PRE-EXISTING code this migration did not author, and
+         must be justified in a comment, matching the convention set by the migrated
+         DotNetNuke.Library, DotNetNuke.WebControls and DotNetNuke.Providers.FolderProviders.
+         Compiler diagnostics (CS*) deliberately remain errors. -->
+    <!-- SA1600: pre-existing undocumented members (net48 value, kept).
+         The remaining ids are reported by the net10 analyzers in code this migration did not
+         author - the module's 2009-era template engine, menu node model, settings/controller and
+         XSLT extension functions - and keeping them as errors would require rewriting that logic,
+         which is exactly what must not change. The same ids are listed for the same reason by the
+         already migrated DotNetNuke.Library (which this project mirrors) and
+         DotNetNuke.Providers.FolderProviders:
+         ASP0006/BL0005 (the DNN component tree builds its render tree with a running sequence and
+           assigns ID on control instances, like DnnControls.cs and the Library's own components),
+         CA1001/CA1304/CA1305/CA1309/CA1310/CA1725/CA1822/CA1825/CA1834/CA1847/CA1859/CA1862/
+         CA1864/CA1865/CA1866/CA1514/CA2201/CA2249/CA5369 and SA1201/SA1515/SA1604.
+         Compiler diagnostics (CS*) deliberately remain errors. -->
+    <WarningsNotAsErrors>SA1600,ASP0006,BL0005,CA1001,CA1304,CA1305,CA1309,CA1310,CA1514,CA1725,CA1822,CA1825,CA1834,CA1847,CA1859,CA1862,CA1864,CA1865,CA1866,CA2201,CA2249,CA5369,SA1201,SA1515,SA1604</WarningsNotAsErrors>
+    <!-- Replaces the two per-configuration <DocumentationFile>bin\DotNetNuke.Web.DDRMenu.XML</DocumentationFile>
+         entries; emits bin/DotNetNuke.Web.DDRMenu.xml, which Module.build's CopyBin copies. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- SolutionInfo.cs (linked below) carries the assembly attributes, as it did on net48. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- This is a Blazor component library, not an MVC view assembly. -->
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
   </PropertyGroup>
+
+  <!-- The two original configurations are preserved. -->
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <DefineConstants>TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <!-- DNN packaging properties consumed by Module.build / Package.targets. -->
   <PropertyGroup>
     <Extension>zip</Extension>
     <DNNFileName>DDRMenu</DNNFileName>
     <PackageName>DDRMenu</PackageName>
     <BuildScriptsPath>$(MSBuildProjectDirectory)\..\..\..\Build\BuildScripts</BuildScriptsPath>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <PackageAsSingleFile>false</PackageAsSingleFile>
-    <DesktopBuildPackageLocation />
-    <DeployIisAppPath />
-    <PublishDatabases>false</PublishDatabases>
-    <DocumentationFile>bin\DotNetNuke.Web.DDRMenu.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\DotNetNuke.Web.DDRMenu.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
-  </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="DotNetNuke.WebControls">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\Controls\DotNetNuke.WebControls\bin\DotNetNuke.WebControls.dll</HintPath>
-    </Reference>
-    <Reference Include="System" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Web.ApplicationServices" />
-    <Reference Include="System.Web.DynamicData" />
-    <Reference Include="System.Web.Entity" />
-    <Reference Include="System.Web.Extensions" />
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Xml" />
-    <Reference Include="System.Xml.Linq" />
+    <!-- The components need Microsoft.AspNetCore.Components and Microsoft.AspNetCore.Http types. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
   <ItemGroup>
-    <Compile Include="..\..\..\SolutionInfo.cs">
-      <Link>SolutionInfo.cs</Link>
-    </Compile>
-    <Compile Include="Actions.cs">
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="App_Start\Startup.cs" />
-    <Compile Include="Common\DNNContext.cs" />
-    <Compile Include="Common\PathResolver.cs" />
-    <Compile Include="Common\Utilities.cs" />
-    <Compile Include="Controller.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="DDRMenuControl.cs" />
-    <Compile Include="DDRMenuNavigationProvider.cs">
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="INodeManipulator.cs" />
-    <Compile Include="Localisation\Generic.cs" />
-    <Compile Include="Localisation\ILocalisation.cs" />
-    <Compile Include="Localisation\ILocaliser.cs" />
-    <Compile Include="Localisation\Localiser.cs" />
-    <Compile Include="MenuBase.cs" />
-    <Compile Include="MenuNode.cs" />
-    <Compile Include="MenuSettings.ascx.cs">
-      <DependentUpon>MenuSettings.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="MenuSettings.ascx.designer.cs">
-      <DependentUpon>MenuSettings.ascx</DependentUpon>
-    </Compile>
-    <Compile Include="MenuView.ascx.cs">
-      <DependentUpon>MenuView.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="MenuView.ascx.designer.cs">
-      <DependentUpon>MenuView.ascx</DependentUpon>
-    </Compile>
-    <Compile Include="MenuXml.cs" />
-    <Compile Include="ModuleBase.cs">
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Settings.cs" />
-    <Compile Include="SkinObject.cs">
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="TemplateEngine\ClientBoolean.cs" />
-    <Compile Include="TemplateEngine\ClientNumber.cs" />
-    <Compile Include="TemplateEngine\ClientOption.cs" />
-    <Compile Include="TemplateEngine\ClientString.cs" />
-    <Compile Include="TemplateEngine\ITemplateProcessor.cs" />
-    <Compile Include="TemplateEngine\RazorTemplateProcessor.cs">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="TemplateEngine\TemplateArgument.cs" />
-    <Compile Include="TemplateEngine\TemplateDefinition.cs" />
-    <Compile Include="TemplateEngine\TokenTemplateProcessor.cs" />
-    <Compile Include="TemplateEngine\XsltFunctions.cs" />
-    <Compile Include="TemplateEngine\XsltTemplateProcessor.cs" />
-    <Compile Include="DNNAbstract.cs" />
+    <ProjectReference Include="..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.DependencyInjection\DotNetNuke.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Web.Razor\DotNetNuke.Web.Razor.csproj" />
+    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj" />
+    <!-- Was a bare <Reference> with a HintPath into the sibling's bin folder; it is a project in
+         this solution and is now an SDK-style Razor Class Library. -->
+    <ProjectReference Include="..\..\Controls\DotNetNuke.WebControls\DotNetNuke.WebControls.csproj" />
   </ItemGroup>
+
   <ItemGroup>
-    <Content Include="Actions.ascx" />
+    <AdditionalFiles Include="..\..\..\stylecop.json" Link="stylecop.json" />
+    <Compile Include="..\..\..\SolutionInfo.cs" Link="SolutionInfo.cs" />
+  </ItemGroup>
+
+  <!-- Resources/MenuView.resx and Resources/MenuSettings.resx are the migrated
+       App_LocalResources files. Module.build packages them into the extension's
+       App_LocalResources folder as MenuView.resx / MenuSettings.resx, which is the name
+       PortalModuleBase.LocalResourceFile now derives from the component type name, so the
+       components' LocalizeText calls resolve the same keys as the WebForms LocalizeString
+       calls did - including portal-level and language-pack overrides, which only the deployed
+       files provide. The SDK's default EmbeddedResource glob also compiles them into the
+       assembly (logical names DotNetNuke.Web.DDRMenu.Resources.MenuView /
+       .Resources.MenuSettings, which is what IStringLocalizer<T> probes for given the
+       ResourcesPath "Resources" that DotNetNuke.Library's Startup registers with
+       AddLocalization), which makes the shipped English text self-contained. -->
+
+  <ItemGroup>
+    <!-- DNN extension package content (see Module.build's GetFiles). The four .ascx files are
+         gone: the view, settings, skin-object and action controls are now Blazor components
+         compiled into the assembly. -->
+    <Content Include="02.00.03.txt" />
     <Content Include="DefaultTemplate.xslt" />
+    <Content Include="License.txt" />
+    <Content Include="ReleaseNotes.txt" />
     <Content Include="js\DDRMenu.js" />
     <Content Include="js\jquery.effects.js" />
-    <Content Include="License.txt" />
-    <Content Include="Menu.ascx" />
-    <Content Include="MenuSettings.ascx" />
-    <Content Include="MenuView.ascx" />
-    <Content Include="ReleaseNotes.txt" />
     <Content Include="DNNMenu\DNNMenu-menudef.xml" />
     <Content Include="DNNMenu\DNNMenu.js" />
     <Content Include="DumpXML\DumpXML-menudef.xml" />
     <Content Include="DumpXML\DumpXML.xslt" />
-    <Content Include="02.00.03.txt" />
-  </ItemGroup>
-  <ItemGroup>
-    <AdditionalFiles Include="..\..\..\stylecop.json">
-      <Link>stylecop.json</Link>
-    </AdditionalFiles>
-    <None Include="DDRMenu.dnn">
-      <SubType>Designer</SubType>
-    </None>
     <Content Include="Module.build" />
+    <None Include="DDRMenu.dnn" />
   </ItemGroup>
-  <ItemGroup>
-    <Folder Include="BuildScripts\" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer">
-      <Project>{5FE5D021-9C8D-47A6-BD34-F328BA3E709C}</Project>
-      <Name>DotNetNuke.Internal.SourceGenerators</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj">
-      <Project>{6928A9B1-F88A-4581-A132-D3EB38669BB0}</Project>
-      <Name>DotNetNuke.Abstractions</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.DependencyInjection\DotNetNuke.DependencyInjection.csproj">
-      <Project>{0FCA217A-5F9A-4F5B-A31B-86D64AE65198}</Project>
-      <Name>DotNetNuke.DependencyInjection</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj">
-      <Project>{03e3afa5-ddc9-48fb-a839-ad4282ce237e}</Project>
-      <Name>DotNetNuke.Web.Client</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Web.Razor\DotNetNuke.Web.Razor.csproj">
-      <Project>{9806c125-8ca9-48cc-940a-ccd0442c5993}</Project>
-      <Name>DotNetNuke.Web.Razor</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj">
-      <Project>{6b29aded-7b56-4484-bea5-c0e09079535b}</Project>
-      <Name>DotNetNuke.Library</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="App_LocalResources\MenuSettings.ascx.resx" />
-    <Content Include="App_LocalResources\MenuView.ascx.resx" />
-  </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <Import Project="$(VSToolsPath)\WebApplications\Microsoft.WebApplication.targets" Condition="'$(VSToolsPath)' != ''" />
-  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v10.0\WebApplications\Microsoft.WebApplication.targets" Condition="false" />
-  <ProjectExtensions>
-    <VisualStudio>
-      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
-        <WebProjectProperties>
-          <UseIIS>False</UseIIS>
-          <AutoAssignPort>True</AutoAssignPort>
-          <DevelopmentServerPort>44700</DevelopmentServerPort>
-          <DevelopmentServerVPath>/</DevelopmentServerVPath>
-          <IISUrl>
-          </IISUrl>
-          <NTLMAuthentication>False</NTLMAuthentication>
-          <UseCustomServer>True</UseCustomServer>
-          <CustomServerUrl>http://dnndev.me</CustomServerUrl>
-          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
-        </WebProjectProperties>
-      </FlavorProperties>
-    </VisualStudio>
-  </ProjectExtensions>
+
   <Import Project="Module.build" />
 </Project>

@@ -5,10 +5,13 @@
 namespace DotNetNuke.Web.InternalServices;
 
 using System;
-using System.Runtime.Serialization;
 
 /// <summary>An exception thrown when attempting to share a module that does not support sharing.</summary>
-[Serializable]
+/// <remarks>
+/// The <c>[Serializable]</c> attribute and the <c>SerializationInfo</c> constructor were dropped: they only
+/// served <c>BinaryFormatter</c>-based serialization, which is removed in modern .NET (SYSLIB0051). Nothing
+/// serializes this exception; it is thrown and caught in-process.
+/// </remarks>
 public class SharingUnsupportedException : Exception
 {
     /// <inheritdoc />
@@ -25,12 +28,6 @@ public class SharingUnsupportedException : Exception
     /// <inheritdoc />
     public SharingUnsupportedException(string message, Exception innerException)
         : base(message, innerException)
-    {
-    }
-
-    /// <inheritdoc />
-    protected SharingUnsupportedException(SerializationInfo info, StreamingContext context)
-        : base(info, context)
     {
     }
 }

@@ -4,36 +4,72 @@
 
 namespace DotNetNuke.Web.UI.WebControls.Internal
 {
-    using System.IO;
-    using System.Text;
-    using System.Web.UI;
+    using System;
+    using System.Threading.Tasks;
 
-    using DotNetNuke.Framework;
+    using DotNetNuke.UI;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.JSInterop;
 
     /// <summary>This control is only for internal use, please don't reference it in any other place as it may be removed in the future.</summary>
-    public class DnnScriptBlock : Control
+    /// <remarks>
+    /// This was a <c>Control</c> that rendered its children — an inline <c>script</c> block — either
+    /// straight into the page or, during an MS AJAX partial postback, through
+    /// <c>ScriptManager.RegisterClientScriptBlock</c> so that the script still ran after the update
+    /// panel refreshed. Neither the script manager nor an inline <c>script</c> element is allowed on
+    /// a Blazor page (the browser never executes markup a component adds to the DOM), so the script
+    /// text is registered and evaluated once per key through JS interop — which covers both of the
+    /// original cases with the same single code path.
+    /// </remarks>
+    public class DnnScriptBlock : DnnComponentBase
     {
+        private bool registered;
+
+        /// <summary>Gets or sets the script to run.</summary>
+        /// <remarks>
+        /// Replaces the inline content of the control; it was declared as the control's children in
+        /// markup and is assigned as text here.
+        /// </remarks>
+        [Parameter]
+        public string Script { get; set; }
+
+        /// <summary>Gets or sets the JavaScript runtime the script is registered with.</summary>
+        [Inject]
+        protected IJSRuntime JsRuntime { get; set; }
+
+        /// <summary>Gets the key the script is registered under.</summary>
+        /// <remarks>Replaces the <c>UniqueID</c> the script manager registration used as its key.</remarks>
+        protected string RegistrationKey =>
+            string.IsNullOrEmpty(this.UniqueId) ? this.GetType().FullName : this.UniqueId;
+
         /// <inheritdoc />
-        protected override void Render(HtmlTextWriter writer)
+        protected override async Task OnAfterRenderAsync(bool firstRender)
         {
-            if (!this.DesignMode)
+            await base.OnAfterRenderAsync(firstRender);
+
+            if (this.registered || this.JsRuntime == null || string.IsNullOrWhiteSpace(this.Script))
             {
-                ScriptManager scriptManager = AJAX.GetScriptManager(this.Page);
-                if (scriptManager.IsInAsyncPostBack)
-                {
-                    StringBuilder scriBuilder = new StringBuilder();
-                    base.Render(new HtmlTextWriter(new StringWriter(scriBuilder)));
-                    ScriptManager.RegisterClientScriptBlock(this.Page, typeof(Page), this.UniqueID, scriBuilder.ToString(), false);
-                }
-                else
-                {
-                    base.Render(writer);
-                }
+                return;
             }
-            else
+
+            this.registered = true;
+            await this.JsRuntime.InvokeVoidAsync("dnn.registerScriptBlock", this.RegistrationKey, this.Script);
+        }
+
+        /// <inheritdoc />
+        protected override void BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+        {
+            // the script is handed to the browser through JS interop, so nothing is rendered; any
+            // declared child content is still rendered so that the control can wrap markup.
+            ArgumentNullException.ThrowIfNull(builder);
+
+            if (!this.Visible || this.ChildContent == null)
             {
-                base.Render(writer);
+                return;
             }
+
+            builder.AddContent(0, this.ChildContent);
         }
     }
 }

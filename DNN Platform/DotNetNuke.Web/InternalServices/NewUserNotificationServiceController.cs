@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -6,8 +6,6 @@ namespace DotNetNuke.Web.InternalServices;
 
 using System;
 using System.Net;
-using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Logging;
@@ -22,8 +20,14 @@ using DotNetNuke.Services.Localization;
 using DotNetNuke.Services.Mail;
 using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
-
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+
+// Disambiguates the DNN services framework anti-forgery filter from the same-named
+// Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+// bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+// bypass list fed by the authentication handlers and the iframe relaxation the upload flow needs.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API controller for new user notifications.</summary>
 /// <param name="roleProvider">The role provider.</param>
@@ -70,7 +74,7 @@ public partial class NewUserNotificationServiceController(RoleProvider roleProvi
     /// <returns>A response indicating success.</returns>
     [NonAction]
     [DnnDeprecated(10, 3, 3, "Use overload taking NotificationRequest")]
-    public partial HttpResponseMessage Authorize(NotificationDTO postData)
+    public partial IActionResult Authorize(NotificationDTO postData)
         => this.Authorize(postData?.ToNotificationRequest());
 
     /// <summary>Authorizes a new user.</summary>
@@ -78,18 +82,18 @@ public partial class NewUserNotificationServiceController(RoleProvider roleProvi
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage Authorize(NotificationRequest requestBody)
+    public IActionResult Authorize(NotificationRequest requestBody)
     {
         if (!PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName))
         {
-            return this.Request.CreateResponse(HttpStatusCode.Unauthorized);
+            return DnnApiResults.Response(HttpStatusCode.Unauthorized);
         }
 
         var user = this.GetUser(requestBody);
         if (user == null)
         {
             NotificationsController.Instance.DeleteNotification(requestBody.NotificationId);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "User not found");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "User not found");
         }
 
         user.Membership.Approved = true;
@@ -103,7 +107,7 @@ public partial class NewUserNotificationServiceController(RoleProvider roleProvi
 
         Mail.SendMail(user, MessageType.UserAuthorized, this.PortalSettings);
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
     }
 
     /// <summary>Rejects a new user.</summary>
@@ -111,7 +115,7 @@ public partial class NewUserNotificationServiceController(RoleProvider roleProvi
     /// <returns>A response indicating success.</returns>
     [NonAction]
     [DnnDeprecated(10, 3, 3, "Use overload taking NotificationRequest")]
-    public partial HttpResponseMessage Reject(NotificationDTO postData)
+    public partial IActionResult Reject(NotificationDTO postData)
         => this.Reject(postData?.ToNotificationRequest());
 
     /// <summary>Rejects a new user.</summary>
@@ -119,23 +123,23 @@ public partial class NewUserNotificationServiceController(RoleProvider roleProvi
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage Reject(NotificationRequest requestBody)
+    public IActionResult Reject(NotificationRequest requestBody)
     {
         if (!PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName))
         {
-            return this.Request.CreateResponse(HttpStatusCode.Unauthorized);
+            return DnnApiResults.Response(HttpStatusCode.Unauthorized);
         }
 
         var user = this.GetUser(requestBody);
         if (user == null)
         {
             NotificationsController.Instance.DeleteNotification(requestBody.NotificationId);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "User not found");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "User not found");
         }
 
         UserController.RemoveUser(user);
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
     }
 
     /// <summary>Sends a verification email to the current user.</summary>
@@ -145,7 +149,7 @@ public partial class NewUserNotificationServiceController(RoleProvider roleProvi
     /// <exception cref="InvalidVerificationCodeException">The user is not unverified.</exception>
     [NonAction]
     [DnnDeprecated(10, 3, 3, "Use overload taking NotificationRequest")]
-    public partial HttpResponseMessage SendVerificationMail(NotificationDTO postData)
+    public partial IActionResult SendVerificationMail(NotificationDTO postData)
         => this.SendVerificationMail(postData?.ToNotificationRequest());
 
     /// <summary>Sends a verification email to the current user.</summary>
@@ -156,7 +160,7 @@ public partial class NewUserNotificationServiceController(RoleProvider roleProvi
     [HttpPost]
     [DnnAuthorize]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage SendVerificationMail(NotificationRequest requestBody)
+    public IActionResult SendVerificationMail(NotificationRequest requestBody)
     {
         if (this.UserInfo.Membership.Approved)
         {
@@ -171,10 +175,10 @@ public partial class NewUserNotificationServiceController(RoleProvider roleProvi
         var message = Mail.SendMail(this.UserInfo, MessageType.UserRegistrationVerified, this.PortalSettings);
         if (!string.IsNullOrEmpty(message))
         {
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, message);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, message);
         }
 
-        return this.Request.CreateResponse(
+        return DnnApiResults.Response(
             HttpStatusCode.OK,
             new
             {

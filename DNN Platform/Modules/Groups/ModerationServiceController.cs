@@ -7,8 +7,6 @@ namespace DotNetNuke.Modules.Groups
     using System;
     using System.Collections.Generic;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
@@ -28,8 +26,16 @@ namespace DotNetNuke.Modules.Groups
     using DotNetNuke.Services.Social.Notifications;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    // Disambiguates the DNN services framework anti-forgery filter from the same-named
+    // Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespace now
+    // brings into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+    // bypass list fed by the authentication handlers, which is what the module's jQuery
+    // ServicesFramework calls rely on.
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for moderation in the Groups module.</summary>
     /// <param name="navigationManager">The navigation manager.</param>
@@ -40,6 +46,17 @@ namespace DotNetNuke.Modules.Groups
     /// <param name="userController">The user controller.</param>
     /// <param name="eventLogger">The event logger.</param>
     /// <param name="hostSettings">The host settings.</param>
+    /// <remarks>
+    /// Was a Web API 2 controller returning <c>HttpResponseMessage</c>. The actions now return
+    /// <see cref="IActionResult"/> through <see cref="DnnApiResults"/>, which keeps both the status codes
+    /// and the response payload shapes the module's client script reads (notably <c>URL</c> from
+    /// <see cref="JoinGroup"/>). The route is unchanged: the module's
+    /// <see cref="ServiceRouteMapper"/> still maps <c>SocialGroups</c> /
+    /// <c>{controller}/{action}</c>, so the service root <c>.../SocialGroups/ModerationService/&lt;action&gt;</c>
+    /// still resolves. Every request-context value (<c>tabId</c>, <c>moduleId</c>, <c>roleId</c>,
+    /// <c>memberId</c>, <c>roleInfo</c>) is resolved from the posted notification context and the
+    /// controller's own <see cref="DnnApiController.PortalSettings"/>, never from <c>HttpContext.Current</c>.
+    /// </remarks>
     [DnnAuthorize]
     public class ModerationServiceController(INavigationManager navigationManager, RoleProvider roleProvider, IRoleController roleController, IEventManager eventManager, IPortalController portalController, IUserController userController, IEventLogger eventLogger, IHostSettings hostSettings)
         : DnnApiController
@@ -83,28 +100,31 @@ namespace DotNetNuke.Modules.Groups
         /// <summary>Gets the navigation manager.</summary>
         protected INavigationManager NavigationManager { get; } = navigationManager ?? Globals.GetCurrentServiceProvider().GetRequiredService<INavigationManager>();
 
+        /// <summary>Approves a pending group.</summary>
+        /// <param name="postData">The notification to act on.</param>
+        /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage ApproveGroup(NotificationDTO postData)
+        public IActionResult ApproveGroup(NotificationDTO postData)
         {
             try
             {
                 var recipient = InternalMessagingController.Instance.GetMessageRecipient(postData.NotificationId, this.UserInfo.UserID);
                 if (recipient == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unable to locate recipient");
+                    return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unable to locate recipient");
                 }
 
                 var notification = NotificationsController.Instance.GetNotification(postData.NotificationId);
                 this.ParseKey(notification.Context);
                 if (this.roleInfo == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unable to locate role");
+                    return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unable to locate role");
                 }
 
                 if (!this.IsMod())
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, "Not Authorized!");
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, "Not Authorized!");
                 }
 
                 this.roleInfo.Status = RoleStatus.Approved;
@@ -120,37 +140,40 @@ namespace DotNetNuke.Modules.Groups
                 notifications.AddGroupNotification(Constants.GroupApprovedNotification, this.tabId, this.moduleId, this.roleInfo, siteAdmin, new List<RoleInfo> { this.roleInfo });
                 NotificationsController.Instance.DeleteAllNotificationRecipients(postData.NotificationId);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
             }
             catch (Exception exc)
             {
                 Logger.ModerationServiceControllerApproveGroupException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
+        /// <summary>Rejects a pending group.</summary>
+        /// <param name="postData">The notification to act on.</param>
+        /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage RejectGroup(NotificationDTO postData)
+        public IActionResult RejectGroup(NotificationDTO postData)
         {
             try
             {
                 var recipient = InternalMessagingController.Instance.GetMessageRecipient(postData.NotificationId, this.UserInfo.UserID);
                 if (recipient == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unable to locate recipient");
+                    return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unable to locate recipient");
                 }
 
                 var notification = NotificationsController.Instance.GetNotification(postData.NotificationId);
                 this.ParseKey(notification.Context);
                 if (this.roleInfo == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unable to locate role");
+                    return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unable to locate role");
                 }
 
                 if (!this.IsMod())
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, "Not Authorized!");
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, "Not Authorized!");
                 }
 
                 var notifications = new Notifications(this.hostSettings);
@@ -161,20 +184,23 @@ namespace DotNetNuke.Modules.Groups
                 var role = RoleController.Instance.GetRole(this.PortalSettings.PortalId, r => r.RoleID == this.roleId);
                 RoleController.Instance.DeleteRole(role);
                 NotificationsController.Instance.DeleteAllNotificationRecipients(postData.NotificationId);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
             }
             catch (Exception exc)
             {
                 Logger.ModerationServiceControllerRejectGroupException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
+        /// <summary>Joins the current user to a group.</summary>
+        /// <param name="postData">The group to join and the tab ID of the group view page.</param>
+        /// <returns>A response indicating success, including the <c>URL</c> the client redirects to.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.View)]
         [SupportedModules("Social Groups")]
-        public HttpResponseMessage JoinGroup(RoleDTO postData)
+        public IActionResult JoinGroup(RoleDTO postData)
         {
             try
             {
@@ -185,9 +211,9 @@ namespace DotNetNuke.Modules.Groups
                     {
                         var requireApproval = false;
 
-                        if (this.roleInfo.Settings.ContainsKey("ReviewMembers"))
+                        if (this.roleInfo.Settings.TryGetValue("ReviewMembers", out var reviewMembers))
                         {
-                            requireApproval = Convert.ToBoolean(this.roleInfo.Settings["ReviewMembers"]);
+                            requireApproval = Convert.ToBoolean(reviewMembers);
                         }
 
                         if ((this.roleInfo.IsPublic || this.UserInfo.IsInRole(this.PortalSettings.AdministratorRoleName)) && !requireApproval)
@@ -196,7 +222,7 @@ namespace DotNetNuke.Modules.Groups
                             RoleController.Instance.UpdateRole(this.roleInfo);
 
                             var url = this.NavigationManager.NavigateURL(postData.GroupViewTabId, string.Empty, new[] { "groupid=" + this.roleInfo.RoleID });
-                            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", URL = url });
+                            return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", URL = url });
                         }
 
                         if (this.roleInfo.IsPublic && requireApproval)
@@ -204,7 +230,7 @@ namespace DotNetNuke.Modules.Groups
                             RoleController.Instance.AddUserRole(this.PortalSettings.PortalId, this.UserInfo.UserID, this.roleInfo.RoleID, RoleStatus.Pending, false, Null.NullDate, Null.NullDate);
                             var notifications = new Notifications(this.hostSettings);
                             notifications.AddGroupOwnerNotification(Constants.MemberPendingNotification, this.tabId, this.moduleId, this.roleInfo, this.UserInfo);
-                            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", URL = string.Empty });
+                            return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", URL = string.Empty });
                         }
                     }
                 }
@@ -212,17 +238,20 @@ namespace DotNetNuke.Modules.Groups
             catch (Exception exc)
             {
                 Logger.ModerationServiceControllerJoinGroupException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
 
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unknown Error");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unknown Error");
         }
 
+        /// <summary>Removes the current user from a group.</summary>
+        /// <param name="postData">The group to leave.</param>
+        /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.View)]
         [SupportedModules("Social Groups")]
-        public HttpResponseMessage LeaveGroup(RoleDTO postData)
+        public IActionResult LeaveGroup(RoleDTO postData)
         {
             var success = false;
 
@@ -246,39 +275,42 @@ namespace DotNetNuke.Modules.Groups
             catch (Exception exc)
             {
                 Logger.ModerationServiceControllerLeaveGroupException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
 
             if (success)
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success" });
+                return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success" });
             }
 
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unknown Error");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unknown Error");
         }
 
+        /// <summary>Approves a pending group member.</summary>
+        /// <param name="postData">The notification to act on.</param>
+        /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage ApproveMember(NotificationDTO postData)
+        public IActionResult ApproveMember(NotificationDTO postData)
         {
             try
             {
                 var recipient = InternalMessagingController.Instance.GetMessageRecipient(postData.NotificationId, this.UserInfo.UserID);
                 if (recipient == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unable to locate recipient");
+                    return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unable to locate recipient");
                 }
 
                 var notification = NotificationsController.Instance.GetNotification(postData.NotificationId);
                 this.ParseKey(notification.Context);
                 if (this.memberId <= 0)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unable to locate Member");
+                    return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unable to locate Member");
                 }
 
                 if (this.roleInfo == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unable to locate Role");
+                    return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unable to locate Role");
                 }
 
                 var member = UserController.GetUserById(this.hostSettings, this.PortalSettings.PortalId, this.memberId);
@@ -294,40 +326,43 @@ namespace DotNetNuke.Modules.Groups
                     notifications.AddMemberNotification(Constants.MemberApprovedNotification, this.tabId, this.moduleId, this.roleInfo, groupOwner, member);
                     NotificationsController.Instance.DeleteAllNotificationRecipients(postData.NotificationId);
 
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                    return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
                 }
             }
             catch (Exception exc)
             {
                 Logger.ModerationServiceControllerApproveMemberException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
 
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unknown Error");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unknown Error");
         }
 
+        /// <summary>Rejects a pending group member.</summary>
+        /// <param name="postData">The notification to act on.</param>
+        /// <returns>A response indicating success.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage RejectMember(NotificationDTO postData)
+        public IActionResult RejectMember(NotificationDTO postData)
         {
             try
             {
                 var recipient = InternalMessagingController.Instance.GetMessageRecipient(postData.NotificationId, this.UserInfo.UserID);
                 if (recipient == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unable to locate recipient");
+                    return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unable to locate recipient");
                 }
 
                 var notification = NotificationsController.Instance.GetNotification(postData.NotificationId);
                 this.ParseKey(notification.Context);
                 if (this.memberId <= 0)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unable to locate Member");
+                    return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unable to locate Member");
                 }
 
                 if (this.roleInfo == null)
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unable to locate Role");
+                    return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unable to locate Role");
                 }
 
                 var member = UserController.GetUserById(this.hostSettings, this.PortalSettings.PortalId, this.memberId);
@@ -340,16 +375,16 @@ namespace DotNetNuke.Modules.Groups
                     notifications.AddMemberNotification(Constants.MemberRejectedNotification, this.tabId, this.moduleId, this.roleInfo, groupOwner, member);
                     NotificationsController.Instance.DeleteAllNotificationRecipients(postData.NotificationId);
 
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                    return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
                 }
             }
             catch (Exception exc)
             {
                 Logger.ModerationServiceControllerRejectMemberException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
 
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Unknown Error");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Unknown Error");
         }
 
         private void ParseKey(string key)
@@ -383,15 +418,20 @@ namespace DotNetNuke.Modules.Groups
             return ModulePermissionController.HasModulePermission(objModulePermissions, "MODGROUP");
         }
 
+        /// <summary>A notification identifier posted by the moderation client script.</summary>
         public class NotificationDTO
         {
+            /// <summary>Gets or sets the notification ID.</summary>
             public int NotificationId { get; set; }
         }
 
+        /// <summary>A group (role) identifier posted by the join/leave client script.</summary>
         public class RoleDTO
         {
+            /// <summary>Gets or sets the role ID of the group.</summary>
             public int RoleId { get; set; }
 
+            /// <summary>Gets or sets the tab ID of the group view page.</summary>
             public int GroupViewTabId { get; set; }
         }
     }

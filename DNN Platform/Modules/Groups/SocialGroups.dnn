@@ -30,7 +30,7 @@
                 <moduleControls>
                   <moduleControl>
                     <controlKey/>
-                    <controlSrc>DesktopModules/SocialGroups/Loader.ascx</controlSrc>
+                    <controlSrc>DesktopModules/SocialGroups/Loader.razor</controlSrc>
                     <supportsPartialRendering>False</supportsPartialRendering>
                     <controlTitle/>
                     <controlType>View</controlType>
@@ -41,7 +41,7 @@
                   </moduleControl>
                   <moduleControl>
                     <controlKey>Create</controlKey>
-                    <controlSrc>DesktopModules/SocialGroups/Create.ascx</controlSrc>
+                    <controlSrc>DesktopModules/SocialGroups/Create.razor</controlSrc>
                     <supportsPartialRendering>False</supportsPartialRendering>
                     <controlTitle>Create A Group</controlTitle>
                     <controlType>View</controlType>
@@ -52,7 +52,7 @@
                   </moduleControl>
                   <moduleControl>
                     <controlKey>Edit</controlKey>
-                    <controlSrc>DesktopModules/SocialGroups/GroupEdit.ascx</controlSrc>
+                    <controlSrc>DesktopModules/SocialGroups/GroupEdit.razor</controlSrc>
                     <supportsPartialRendering>False</supportsPartialRendering>
                     <controlTitle>Edit Group</controlTitle>
                     <controlType>View</controlType>
@@ -63,7 +63,7 @@
                   </moduleControl>
                   <moduleControl>
                     <controlKey>Settings</controlKey>
-                    <controlSrc>DesktopModules/SocialGroups/ListSettings.ascx</controlSrc>
+                    <controlSrc>DesktopModules/SocialGroups/ListSettings.razor</controlSrc>
                     <supportsPartialRendering>False</supportsPartialRendering>
                     <controlTitle>Social Groups List Settings</controlTitle>
                     <controlType>Edit</controlType>

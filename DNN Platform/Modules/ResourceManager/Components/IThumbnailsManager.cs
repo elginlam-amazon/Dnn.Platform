@@ -3,8 +3,6 @@
 // See the LICENSE file in the project root for more information
 namespace Dnn.Modules.ResourceManager.Components
 {
-    using System.Drawing;
-
     using Dnn.Modules.ResourceManager.Components.Models;
 
     using DotNetNuke.Services.FileSystem;
@@ -56,7 +54,7 @@ namespace Dnn.Modules.ResourceManager.Components
         /// <param name="height">Height of the thumbnail to generate.</param>
         /// <param name="crop">If true, will crop the thumbnail image.</param>
         /// <returns>The thumbnail of the image, <see cref="ThumbnailContent"/>.</returns>
-        ThumbnailContent GetThumbnailContentFromImage(Image image, int width, int height, bool crop = false);
+        ThumbnailContent GetThumbnailContentFromImage(SixLabors.ImageSharp.Image image, int width, int height, bool crop = false);
 
         /// <summary>Get the thumbnail from a file.</summary>
         /// <param name="item">The file from which to get a thumbnail.</param>

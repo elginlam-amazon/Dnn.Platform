@@ -10,8 +10,6 @@ using System.Threading.Tasks;
 
 using DotNetNuke.ComponentModel;
 
-using SchwabenCode.QuickIO;
-
 /// <summary>The default <see cref="IDirectory"/> implementation.</summary>
 public class DirectoryWrapper : ComponentBase<IDirectory, DirectoryWrapper>, IDirectory
 {
@@ -29,7 +27,7 @@ public class DirectoryWrapper : ComponentBase<IDirectory, DirectoryWrapper>, IDi
     {
         if (await this.ExistsAsync(path))
         {
-            await QuickIODirectory.DeleteAsync(path, recursive);
+            await Task.Run(() => Directory.Delete(path, recursive));
         }
     }
 
@@ -42,7 +40,7 @@ public class DirectoryWrapper : ComponentBase<IDirectory, DirectoryWrapper>, IDi
     /// <inheritdoc />
     public async Task<bool> ExistsAsync(string path)
     {
-        return await QuickIODirectory.ExistsAsync(path);
+        return await Task.Run(() => Directory.Exists(path));
     }
 
     /// <inheritdoc />
@@ -54,7 +52,7 @@ public class DirectoryWrapper : ComponentBase<IDirectory, DirectoryWrapper>, IDi
     /// <inheritdoc />
     public async Task<IEnumerable<string>> GetDirectoriesAsync(string path)
     {
-        return await QuickIODirectory.EnumerateDirectoryPathsAsync(path);
+        return await Task.Run<IEnumerable<string>>(() => Directory.GetDirectories(path));
     }
 
     /// <inheritdoc />
@@ -66,7 +64,7 @@ public class DirectoryWrapper : ComponentBase<IDirectory, DirectoryWrapper>, IDi
     /// <inheritdoc />
     public async Task<IEnumerable<string>> GetFilesAsync(string path)
     {
-        return await QuickIODirectory.EnumerateFilePathsAsync(path);
+        return await Task.Run<IEnumerable<string>>(() => Directory.GetFiles(path));
     }
 
     /// <inheritdoc />
@@ -78,7 +76,7 @@ public class DirectoryWrapper : ComponentBase<IDirectory, DirectoryWrapper>, IDi
     /// <inheritdoc />
     public async Task<IEnumerable<string>> GetFilesAsync(string path, string searchPattern, SearchOption searchOption)
     {
-        return await QuickIODirectory.EnumerateFilePathsAsync(path, searchPattern, searchOption);
+        return await Task.Run<IEnumerable<string>>(() => Directory.GetFiles(path, searchPattern, searchOption));
     }
 
     /// <inheritdoc />
@@ -90,7 +88,7 @@ public class DirectoryWrapper : ComponentBase<IDirectory, DirectoryWrapper>, IDi
     /// <inheritdoc />
     public async Task MoveAsync(string sourceDirName, string destDirName)
     {
-        await QuickIODirectory.MoveAsync(sourceDirName, destDirName);
+        await Task.Run(() => Directory.Move(sourceDirName, destDirName));
     }
 
     /// <inheritdoc />
@@ -102,18 +100,30 @@ public class DirectoryWrapper : ComponentBase<IDirectory, DirectoryWrapper>, IDi
     /// <inheritdoc />
     public async Task CreateDirectoryAsync(string path)
     {
-        await QuickIODirectory.CreateAsync(path);
+        await Task.Run(() => Directory.CreateDirectory(path));
     }
 
     /// <inheritdoc />
     public void CreateDirectory(string path, bool recursive)
     {
-        QuickIODirectory.Create(path, recursive);
+        // Directory.CreateDirectory always creates missing parent directories, which is the
+        // recursive behavior. When recursive is false the original QuickIODirectory.Create
+        // required the parent to already exist, so that condition is enforced explicitly.
+        if (!recursive)
+        {
+            var parent = Path.GetDirectoryName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
+            {
+                throw new DirectoryNotFoundException($"Could not find a part of the path '{path}'.");
+            }
+        }
+
+        Directory.CreateDirectory(path);
     }
 
     /// <inheritdoc />
     public async Task CreateDirectoryAsync(string path, bool recursive)
     {
-        await QuickIODirectory.CreateAsync(path, recursive);
+        await Task.Run(() => this.CreateDirectory(path, recursive));
     }
 }

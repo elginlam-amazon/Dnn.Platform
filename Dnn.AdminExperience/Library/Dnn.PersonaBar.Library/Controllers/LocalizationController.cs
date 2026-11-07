@@ -10,7 +10,6 @@ namespace Dnn.PersonaBar.Library.Controllers
     using System.IO;
     using System.Linq;
     using System.Threading;
-    using System.Web.Caching;
     using System.Xml;
     using System.Xml.XPath;
 
@@ -126,7 +125,7 @@ namespace Dnn.PersonaBar.Library.Controllers
         private static IEnumerable<KeyValuePair<string, string>> GetLocalizationValues(string fullPath, string culture)
         {
             var document = new XmlDocument { XmlResolver = null };
-            using (var stream = new FileStream(System.Web.HttpContext.Current.Server.MapPath(fullPath), FileMode.Open, FileAccess.Read))
+            using (var stream = new FileStream(HttpContextSource.MapPath(fullPath), FileMode.Open, FileAccess.Read))
             using (var xmlReader = XmlReader.Create(stream, new XmlReaderSettings { XmlResolver = null, }))
             {
                 document.Load(xmlReader);
@@ -193,7 +192,7 @@ namespace Dnn.PersonaBar.Library.Controllers
 
         private static DateTime GetLastModifiedTimeInternal(string resourceFile, string culture)
         {
-            var cultureSpecificFile = System.Web.HttpContext.Current.Server.MapPath($"{resourceFile.Replace(".resx", string.Empty)}.{culture}.resx");
+            var cultureSpecificFile = HttpContextSource.MapPath($"{resourceFile.Replace(".resx", string.Empty)}.{culture}.resx");
             var lastModifiedDate = DateTime.MinValue;
 
             if (File.Exists(cultureSpecificFile))
@@ -202,7 +201,7 @@ namespace Dnn.PersonaBar.Library.Controllers
             }
             else
             {
-                var cultureNeutralFile = System.Web.HttpContext.Current.Server.MapPath(resourceFile);
+                var cultureNeutralFile = HttpContextSource.MapPath(resourceFile);
                 if (File.Exists(cultureNeutralFile))
                 {
                     lastModifiedDate = File.GetLastWriteTime(cultureNeutralFile);

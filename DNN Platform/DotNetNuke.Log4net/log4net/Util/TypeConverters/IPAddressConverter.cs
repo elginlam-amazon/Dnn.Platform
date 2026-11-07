@@ -53,7 +53,7 @@ namespace log4net.Util.TypeConverters
         /// <returns>the IPAddress</returns>
         /// <remarks>
         /// <para>
-        /// Uses the <see cref="IPAddress.Parse"/> method to convert the
+        /// Uses the <see cref="IPAddress.Parse(string)"/> method to convert the
         /// <see cref="String"/> argument to an <see cref="IPAddress"/>.
         /// If that fails then the string is resolved as a DNS hostname.
         /// </para>
@@ -70,58 +70,23 @@ namespace log4net.Util.TypeConverters
             {
                 try
                 {
-#if NET_2_0 || NETCF_2_0
-
-#if !NETCF_2_0
                     // Try an explicit parse of string representation of an IPAddress (v4 or v6)
                     IPAddress result;
                     if (IPAddress.TryParse(str, out result))
                     {
                         return result;
                     }
-#endif
-
-                    // Try to resolve via DNS. This is a blocking call. 
-                    // GetHostEntry works with either an IPAddress string or a host name
-                    IPHostEntry host = Dns.GetHostEntry(str);
-                    if (host != null && 
-                        host.AddressList != null && 
-                        host.AddressList.Length > 0 &&
-                        host.AddressList[0] != null)
-                    {
-                        return host.AddressList[0];
-                    }
-#else
-                    // Before .NET 2 we need to try to parse the IPAddress from the string first
-
-                    // Check if the string only contains IP address valid chars
-                    if (str.Trim(validIpAddressChars).Length == 0)
-                    {
-                        try
-                        {
-                            // try to parse the string as an IP address
-                            return IPAddress.Parse(str);
-                        }
-                        catch(FormatException)
-                        {
-                            // Ignore a FormatException, try to resolve via DNS
-                        }
-                    }
 
                     // Try to resolve via DNS. This is a blocking call.
-#if NETSTANDARD
-                    IPHostEntry host = Dns.GetHostEntryAsync(str).GetAwaiter().GetResult();
-#else
-                    IPHostEntry host = Dns.GetHostByName(str);
-#endif
-                    if (host != null && 
-                        host.AddressList != null && 
-                        host.AddressList.Length > 0 &&
-                        host.AddressList[0] != null)
+                    // Dns.Resolve/Dns.GetHostByName were removed from modern .NET;
+                    // Dns.GetHostAddresses works with either an IP address string or a host name.
+                    IPAddress[] addresses = Dns.GetHostAddresses(str);
+                    if (addresses != null &&
+                        addresses.Length > 0 &&
+                        addresses[0] != null)
                     {
-                        return host.AddressList[0];
+                        return addresses[0];
                     }
-#endif
                 }
                 catch(Exception ex)
                 {
@@ -130,8 +95,5 @@ namespace log4net.Util.TypeConverters
             }
             throw ConversionNotSupportedException.Create(typeof(IPAddress), source);
         }
-
-        /// <summary>Valid characters in an IPv4 or IPv6 address string. (Does not support subnets)</summary>
-        private static readonly char[] validIpAddressChars = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'A', 'B', 'C', 'D', 'E', 'F', 'x', 'X', '.', ':', '%' };
     }
 }

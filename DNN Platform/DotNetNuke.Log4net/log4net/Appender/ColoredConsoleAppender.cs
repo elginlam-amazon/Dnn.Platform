@@ -18,21 +18,10 @@
 // limitations under the License.
 // 
 
-// MONO 1.0 Beta mcs does not like #if !A && !B && !C syntax
-
-#if !NETSTANDARD1_3 // netstandard doesn't support System.Security.Permissions
-// .NET Compact Framework 1.0 has no support for Win32 Console API's
-#if !NETCF 
-// .Mono 1.0 has no support for Win32 Console API's
-#if !MONO 
-// SSCLI 1.0 has no support for Win32 Console API's
-#if !SSCLI
-// We don't want framework or platform specific code in the CLI version of log4net
-#if !CLI_1_0
-
 using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 using log4net.Layout;
 using log4net.Util;
@@ -90,6 +79,11 @@ namespace log4net.Appender
     /// <item><term>Cyan</term><description></description></item>
     /// <item><term>HighIntensity</term><description></description></item>
     /// </list>
+    /// </para>
+    /// <para>
+    /// The colorization uses Win32 console APIs which only exist on Windows. On other
+    /// platforms this appender degrades to writing the rendered message to the console
+    /// uncolored, so no logging output is lost.
     /// </para>
     /// </remarks>
     /// <author>Rick Hobbs</author>
@@ -253,13 +247,21 @@ namespace log4net.Appender
         /// The format of the output will depend on the appender's layout.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecuritySafeCritical]
-#endif
-        [System.Security.Permissions.SecurityPermission(System.Security.Permissions.SecurityAction.Demand, UnmanagedCode = true)]
         protected override void Append(Core.LoggingEvent loggingEvent) 
         {
-            if (this.m_consoleOutputWriter != null)
+            if (this.m_consoleOutputWriter == null)
+            {
+                return;
+            }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                // The Win32 console color APIs do not exist on this platform. Degrade to a
+                // plain, uncolored console write so the event is still emitted.
+                this.m_consoleOutputWriter.Write(this.RenderLoggingEvent(loggingEvent));
+                return;
+            }
+
             {
                 IntPtr consoleHandle = IntPtr.Zero;
                 if (this.m_writeToErrorStream)
@@ -422,10 +424,6 @@ namespace log4net.Appender
         /// Initialize the level to color mappings set on this appender.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecuritySafeCritical]
-#endif
-        [System.Security.Permissions.SecurityPermission(System.Security.Permissions.SecurityAction.Demand, UnmanagedCode = true)]
         public override void ActivateOptions()
         {
             base.ActivateOptions();
@@ -446,7 +444,16 @@ namespace log4net.Appender
             }
 
             // Lookup the codepage encoding for the console
-            System.Text.Encoding consoleEncoding = System.Text.Encoding.GetEncoding(GetConsoleOutputCP());
+            System.Text.Encoding consoleEncoding;
+            if (OperatingSystem.IsWindows())
+            {
+                consoleEncoding = System.Text.Encoding.GetEncoding(GetConsoleOutputCP());
+            }
+            else
+            {
+                // GetConsoleOutputCP is a Win32 API; elsewhere use the console's own encoding.
+                consoleEncoding = Console.OutputEncoding;
+            }
 
             // Create a writer around the console stream
             this.m_consoleOutputWriter = new System.IO.StreamWriter(consoleOutputStream, consoleEncoding, 0x100);
@@ -504,14 +511,17 @@ namespace log4net.Appender
         /// </remarks>
         private System.IO.StreamWriter m_consoleOutputWriter = null;
 
+        [SupportedOSPlatform("windows")]
         [DllImport("Kernel32.dll", SetLastError=true, CharSet=CharSet.Auto)]
         private static extern int GetConsoleOutputCP();
 
+        [SupportedOSPlatform("windows")]
         [DllImport("Kernel32.dll", SetLastError=true, CharSet=CharSet.Auto)]
         private static extern bool SetConsoleTextAttribute(
             IntPtr consoleHandle,
             ushort attributes);
 
+        [SupportedOSPlatform("windows")]
         [DllImport("Kernel32.dll", SetLastError=true, CharSet=CharSet.Auto)]
         private static extern bool GetConsoleScreenBufferInfo(
             IntPtr consoleHandle,
@@ -529,6 +539,7 @@ namespace log4net.Appender
         private const UInt32 STD_OUTPUT_HANDLE = unchecked((UInt32)(-11));
         private const UInt32 STD_ERROR_HANDLE = unchecked((UInt32)(-12));
 
+        [SupportedOSPlatform("windows")]
         [DllImport("Kernel32.dll", SetLastError=true, CharSet=CharSet.Auto)]
         private static extern IntPtr GetStdHandle(
             UInt32 type);
@@ -629,9 +640,3 @@ namespace log4net.Appender
         }
     }
 }
-
-#endif // !CLI_1_0
-#endif // !SSCLI
-#endif // !MONO
-#endif // !NETCF
-#endif // !NETSTANDARD1_3

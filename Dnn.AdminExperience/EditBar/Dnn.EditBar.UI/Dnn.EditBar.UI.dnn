@@ -32,10 +32,13 @@
                         <install>
                             <configuration>
                                 <nodes>
+                                    <!-- EditBarModule is no longer an IHttpModule: on ASP.NET Core it is an
+                                         IHostedService registered from this package's own Startup.cs
+                                         (IDnnStartup), so there is no system.webServer/modules 'add' node any
+                                         more. The 'remove' node is deliberately KEPT here (and in uninstall
+                                         below) so that upgrading a site installed on .NET Framework 4.8 cleans
+                                         the stale modules entry, which would otherwise fail to load. -->
                                     <node path="/configuration/system.webServer/modules/add[@name='EditBarModule']" action="remove" />
-                                    <node path="/configuration/system.webServer/modules" action="update" key="name" collision="overwrite">
-                                        <add name="EditBarModule" type="Dnn.EditBar.UI.HttpModules.EditBarModule, Dnn.EditBar.UI" preCondition="managedHandler" />
-                                    </node>
                                 </nodes>
                             </configuration>
                         </install>

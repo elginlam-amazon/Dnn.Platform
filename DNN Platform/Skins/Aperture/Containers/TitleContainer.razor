@@ -1,0 +1,30 @@
+@* Declared in the root namespace so the root _Imports.razor resolves this component by tag
+   name: a namespace created only by generated Razor components is not visible during the Razor
+   declaration pass. *@
+@namespace Dnn.Skins.Aperture
+@* Ported from containers/title.ascx (Inherits=DotNetNuke.UI.Containers.Container).
+
+   The original registered and rendered the dnn:TITLE skin object
+   (~/Admin/Containers/Title.ascx), whose only job is to emit the title of the module being framed.
+   A Blazor container receives that title from the module render pipeline instead of reaching back
+   into the page lifecycle, so it is a parameter. Markup, the aperture-title-wrapper class, the <h5>
+   and the ContentPane module injection point are unchanged. *@
+
+<div class="aperture-title-wrapper">
+    <h5>@this.Title</h5>
+    <div id="ContentPane">
+        @this.ChildContent
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the title of the module being framed by this container.</summary>
+    /// <remarks>Replaces the <c>dnn:TITLE</c> skin object that rendered the module title.</remarks>
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the module content rendered inside the container.</summary>
+    /// <remarks>Replaces <c>&lt;div id="ContentPane" runat="server"&gt;&lt;/div&gt;</c>.</remarks>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

@@ -7,7 +7,6 @@ namespace DotNetNuke.Security.Roles
     using System.Collections.Generic;
     using System.Data;
     using System.Globalization;
-    using System.Web;
     using System.Xml;
     using System.Xml.Schema;
     using System.Xml.Serialization;
@@ -564,10 +563,11 @@ namespace DotNetNuke.Security.Roles
 
         private static string FormatUrl(string url)
         {
-            if (url.StartsWith("/", StringComparison.Ordinal) && HttpContext.Current != null)
+            var httpContext = HttpContextSource.Current;
+            if (url.StartsWith("/", StringComparison.Ordinal) && httpContext != null)
             {
                 // server absolute path
-                return Globals.AddHTTP(HttpContext.Current.Request.Url.Host) + url;
+                return Globals.AddHTTP(httpContext.Request.Host.Host) + url;
             }
 
             return url;

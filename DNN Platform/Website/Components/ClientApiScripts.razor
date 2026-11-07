@@ -1,0 +1,52 @@
+@* Emits the client scripts, script includes and hidden fields the DNN Client API registered on
+   the request's IClientApiPage. This is what the WebForms page did while it rendered: the keyed
+   script blocks and the start-up scripts were written at the end of the form (the position the
+   legacy ForceProvider="DnnFormBottomProvider" used), and RegisterHiddenField wrote an <input
+   type="hidden"> inside the form.
+
+   Rendered from App.razor AFTER <Routes />, so every component that registered a script while it
+   rendered is accounted for. *@
+@using DotNetNuke.UI.Utilities
+@using DotNetNuke.Website.Components
+@inject IClientApiPage ClientApiPage
+
+@if (this.Page is not null)
+{
+    @foreach (var field in this.Page.HiddenFields)
+    {
+        <input type="hidden" name="@field.Key" id="@field.Key" value="@field.Value" />
+    }
+
+    @foreach (var url in this.Page.ScriptIncludes)
+    {
+        <script src="@url"></script>
+    }
+
+    @foreach (var block in this.Page.ScriptBlocks)
+    {
+        @* The script was registered as complete markup (that is what RegisterClientScriptBlock
+           took), so it is emitted verbatim, exactly as the WebForms script manager did. *@
+        @((MarkupString)block.Script)
+    }
+
+    @foreach (var startup in this.Page.StartupScripts)
+    {
+        if (startup.AddScriptTags)
+        {
+            <script>@((MarkupString)startup.Script)</script>
+        }
+        else
+        {
+            @((MarkupString)startup.Script)
+        }
+    }
+}
+
+@code {
+    /// <summary>
+    /// Gets the host's page implementation, or <see langword="null"/> when the registered
+    /// <see cref="IClientApiPage"/> is a different implementation (a module supplied page, for
+    /// instance), in which case that implementation owns its own rendering.
+    /// </summary>
+    private HttpContextClientApiPage Page => this.ClientApiPage as HttpContextClientApiPage;
+}

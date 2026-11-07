@@ -7,8 +7,10 @@ namespace DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider
     using System.Diagnostics.CodeAnalysis;
     using System.Linq;
     using System.Net;
+    using System.Net.Http;
     using System.Security.Cryptography;
     using System.Threading;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Application;
@@ -17,20 +19,27 @@ namespace DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider
     using DotNetNuke.Entities.Controllers;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Entities.Portals;
+    using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Cryptography;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Log.EventLog;
 
+    using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
-    using HttpWebRequest = System.Net.HttpWebRequest;
     using ICryptographyProvider = DotNetNuke.Abstractions.Security.ICryptographyProvider;
 
     /// <inheritdoc />
     public class SimpleWebFarmCachingProvider : CachingProvider
     {
+        /// <summary>
+        /// The name of the <see cref="HttpClient"/> registration (see <see cref="IHttpClientFactory"/>)
+        /// used to notify the other web-farm servers. It is registered by <see cref="Startup"/>.
+        /// </summary>
+        public const string SyncHttpClientName = "DnnSimpleWebFarmCacheSync";
+
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<SimpleWebFarmCachingProvider>();
         private readonly IHostSettingsService hostSettingsService;
         private readonly ICryptographyProvider cryptographyProvider;
@@ -127,16 +136,10 @@ namespace DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider
             }
         }
 
-        private static void HandleNotificationTimeout(object state, bool timedOut)
+        private static void LogNotificationFailure(string url, HttpStatusCode statusCode)
         {
-            if (!timedOut)
-            {
-                return;
-            }
-
-            // Abort if possible
-            var request = (HttpWebRequest)state;
-            request?.Abort();
+            Exceptions.LogException(new SyncException(
+                $"Error sending cache server notification.  Url: {url} with a status code {statusCode}"));
         }
 
         private void NotifyOtherServers(string command, string detail)
@@ -163,6 +166,16 @@ namespace DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider
                 return;
             }
 
+            // The named client carries the default credentials and the cookie container that the
+            // HttpWebRequest used to set per request (see Startup).
+            var httpClientFactory = ServiceLocator.ServiceProvider?.GetService<IHttpClientFactory>();
+            if (httpClientFactory is null)
+            {
+                // No container yet (the application is still starting): there is nothing to notify with.
+                Logger.DependencyInjectionNotInitialized();
+                return;
+            }
+
             // Otherwise notify each server
             foreach (var server in additionalServers)
             {
@@ -173,48 +186,41 @@ namespace DotNetNuke.Providers.Caching.SimpleWebFarmCachingProvider
                 var notificationUrl =
                     $"{protocol}{server.Url}/SimpleWebFarmSync.axd?command={commandParameter}&detail={detailParameter}";
 
-                // Build a webrequest
-                var notificationRequest = WebRequest.CreateHttp(notificationUrl);
-
-                // Create a cookie container so we can get cookies and use default credentials
-                notificationRequest.CookieContainer = new CookieContainer();
-                notificationRequest.UseDefaultCredentials = true;
-
-                // Start the asynchronous request
-                var result = notificationRequest.BeginGetResponse(this.OnServerNotificationCompleteCallback, notificationRequest);
-
-                // Register timeout
-                // TODO: Review possible use of async/await C# 7 implementation
-                ThreadPool.RegisterWaitForSingleObject(result.AsyncWaitHandle, HandleNotificationTimeout, notificationRequest, this.executionTimeout, true);
+                // Start the request without waiting for it: cache operations must not block on the
+                // other servers (this is what BeginGetResponse did). Every failure is logged inside
+                // SendNotificationAsync, so nothing is thrown back to the caller.
+                _ = this.SendNotificationAsync(httpClientFactory, notificationUrl);
             }
         }
 
-        private void OnServerNotificationCompleteCallback(IAsyncResult asynchronousResult)
+        private async Task SendNotificationAsync(IHttpClientFactory httpClientFactory, string url)
         {
-            // Get the request from the state object
-            var request = (HttpWebRequest)asynchronousResult.AsyncState;
+            // Replaces ThreadPool.RegisterWaitForSingleObject + HttpWebRequest.Abort: the same
+            // 5 second budget, enforced by cancellation.
+            using var timeout = new CancellationTokenSource(this.executionTimeout);
             try
             {
-                // Get the response
-                using (var response = (HttpWebResponse)request.EndGetResponse(asynchronousResult))
-                {
-                    // If status code is ok do nothing
-                    if (response.StatusCode == HttpStatusCode.OK)
-                    {
-                        return;
-                    }
+                var client = httpClientFactory.CreateClient(SyncHttpClientName);
+                using var response = await client.GetAsync(url, timeout.Token).ConfigureAwait(false);
 
-                    // Otherwise log the failure
-                    Exceptions.LogException(new SyncException(
-                        $"Error sending cache server notification.  Url: {request.RequestUri.AbsoluteUri} with a status code {response.StatusCode}"));
-                }
-            }
-            catch (WebException e)
-            {
-                if (e.Status != WebExceptionStatus.RequestCanceled)
+                // If status code is ok do nothing
+                if (response.StatusCode == HttpStatusCode.OK)
                 {
-                    Exceptions.LogException(new SyncException("Synchronization Error in Request: " + request.RequestUri.AbsoluteUri, e));
+                    return;
                 }
+
+                // Otherwise log the failure
+                LogNotificationFailure(url, response.StatusCode);
+            }
+            catch (OperationCanceledException)
+            {
+                // The request was cancelled (timed out). This is the WebExceptionStatus.RequestCanceled
+                // case, which was deliberately not logged.
+                Logger.CacheServerNotificationTimedOut(url);
+            }
+            catch (HttpRequestException e)
+            {
+                Exceptions.LogException(new SyncException("Synchronization Error in Request: " + url, e));
             }
         }
     }

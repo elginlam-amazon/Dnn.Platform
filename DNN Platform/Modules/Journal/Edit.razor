@@ -1,0 +1,15 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Journal
+@inherits DotNetNuke.Modules.Journal.JournalModuleBase
+
+@*
+    Replaces Edit.ascx, whose entire content was the single <%@ Control %> directive - it declared
+    no markup at all. This component therefore renders nothing, exactly as the original control
+    did, and exists for the same reason: Journal.dnn registers an "Edit" module control and the
+    class must stay available for it.
+
+    The lifecycle body (the Page_Load try / Exceptions.ProcessModuleLoadException shape with its
+    intentionally empty edit body) is preserved in Edit.razor.cs.
+*@

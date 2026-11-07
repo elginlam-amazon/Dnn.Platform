@@ -8,8 +8,6 @@ namespace DotNetNuke.UI.WebControls
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Web;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -19,12 +17,20 @@ namespace DotNetNuke.UI.WebControls
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
     /// <summary>The DNNListEditControl control provides a standard UI component for selecting from Lists.</summary>
-    [ToolboxData("<{0}:DNNListEditControl runat=server></{0}:DNNListEditControl>")]
-    public class DNNListEditControl : EditControl, IPostBackEventHandler
+    /// <remarks>
+    /// The control implemented <c>IPostBackEventHandler</c> so that <c>AutoPostBack</c> could raise
+    /// <see cref="ItemChanged"/>. <see cref="RaisePostBackEvent"/> is preserved — it is now invoked
+    /// directly from the <c>select</c>'s change handler instead of through a
+    /// <c>__doPostBack</c> round trip.
+    /// </remarks>
+    public class DNNListEditControl : EditControl
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<DNNListEditControl>();
         private readonly ListController listController;
@@ -59,7 +65,12 @@ namespace DotNetNuke.UI.WebControls
             this.SortAlphabetically = false;
         }
 
+        /// <summary>Occurs when the selected list item has changed and <see cref="AutoPostBack"/> is set.</summary>
         public event PropertyChangedEventHandler ItemChanged;
+
+        /// <summary>Gets or sets a callback raised in addition to the <see cref="ItemChanged"/> event.</summary>
+        [Parameter]
+        public EventCallback<PropertyEditorEventArgs> ItemChangedCallback { get; set; }
 
         /// <summary>Gets integerValue returns the Integer representation of the Value.</summary>
         /// <value>An integer representing the Value.</value>
@@ -133,6 +144,7 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
+        /// <summary>Gets the effective portal id the list entries are read for.</summary>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         protected int PortalId => PortalController.GetEffectivePortalId(this.portalController, this.appStatus, this.portalGroupController, PortalSettings.Current.PortalId);
 
@@ -198,7 +210,10 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
-        /// <inheritdoc />
+        /// <summary>Raises <see cref="ItemChanged"/> when <see cref="AutoPostBack"/> is set.</summary>
+        /// <param name="eventArgument">The event argument (the control identifier).</param>
+        /// <remarks>Replaces <c>IPostBackEventHandler.RaisePostBackEvent</c>; it is now called from
+        /// the <c>select</c>'s change handler.</remarks>
         public void RaisePostBackEvent(string eventArgument)
         {
             if (this.AutoPostBack)
@@ -239,16 +254,19 @@ namespace DotNetNuke.UI.WebControls
         /// <param name="e">The event arguments.</param>
         protected virtual void OnItemChanged(PropertyEditorEventArgs e)
         {
-            if (this.ItemChanged != null)
+            this.ItemChanged?.Invoke(this, e);
+            if (this.ItemChangedCallback.HasDelegate)
             {
-                this.ItemChanged(this, e);
+                this.ItemChangedCallback.InvokeAsync(e);
             }
         }
 
         /// <summary>RenderViewMode renders the View (readonly) mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderViewMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderViewMode(RenderTreeBuilder builder)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
             ListEntryInfo entry = null;
             string entryText = Null.NullString;
             switch (this.ValueField)
@@ -264,72 +282,62 @@ namespace DotNetNuke.UI.WebControls
                     break;
             }
 
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.RenderBeginTag(HtmlTextWriterTag.Span);
+            builder.OpenElement(0, "span");
+            this.AddStyleAttributes(builder, 1);
             if (entry != null)
             {
                 switch (this.TextField)
                 {
                     case ListBoundField.Id:
-                        writer.Write(entry.EntryID.ToString(CultureInfo.InvariantCulture));
+                        builder.AddContent(5, entry.EntryID.ToString(CultureInfo.InvariantCulture));
                         break;
                     case ListBoundField.Text:
-                        writer.Write(entry.Text);
+                        builder.AddContent(6, entry.Text);
                         break;
                     case ListBoundField.Value:
-                        writer.Write(entry.Value);
+                        builder.AddContent(7, entry.Value);
                         break;
                 }
             }
             else
             {
-                writer.Write(entryText);
+                builder.AddContent(8, entryText);
             }
 
-            // Close Select Tag
-            writer.RenderEndTag();
+            builder.CloseElement();
         }
 
         /// <summary>RenderEditMode renders the Edit mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            // Render the Select Tag
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Id, this.ClientID);
-            writer.AddAttribute("data-name", this.Name);
-            writer.AddAttribute("data-list", this.ListName);
-            writer.AddAttribute("data-category", this.Category);
-            writer.AddAttribute("data-editor", "DNNListEditControl");
-            if (this.AutoPostBack)
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Onchange, this.Page.ClientScript.GetPostBackEventReference(this, this.ID));
-            }
+            ArgumentNullException.ThrowIfNull(builder);
 
-            writer.RenderBeginTag(HtmlTextWriterTag.Select);
+            // Render the Select Tag
+            builder.OpenElement(0, "select");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddAttribute(5, "name", this.UniqueID);
+            builder.AddAttribute(6, "id", this.ClientID);
+            builder.AddAttribute(7, "data-name", this.Name);
+            builder.AddAttribute(8, "data-list", this.ListName);
+            builder.AddAttribute(9, "data-category", this.Category);
+            builder.AddAttribute(10, "data-editor", "DNNListEditControl");
+            builder.AddAttribute(11, "aria-label", this.Name);
+            builder.AddAttribute(12, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnSelectionChanged));
 
             // Add the Not Specified Option
-            if (this.ValueField == ListBoundField.Text)
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Value, Null.NullString);
-            }
-            else
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Value, Null.NullString);
-            }
-
+            builder.OpenElement(13, "option");
+            builder.AddAttribute(14, "value", Null.NullString);
             if (this.StringValue == Null.NullString)
             {
                 // Add the Selected Attribute
-                writer.AddAttribute(HtmlTextWriterAttribute.Selected, "selected");
+                builder.AddAttribute(15, "selected", "selected");
             }
 
-            var defaultText = HttpUtility.HtmlEncode("<" + Localization.GetString("Not_Specified", Localization.SharedResourceFile) + ">");
-            writer.RenderBeginTag(HtmlTextWriterTag.Option);
-            writer.Write(defaultText);
-            writer.RenderEndTag();
+            builder.AddContent(16, "<" + Localization.GetString("Not_Specified", Localization.SharedResourceFile) + ">");
+            builder.CloseElement();
 
+            builder.OpenRegion(20);
             foreach (ListEntryInfo item in this.ListEntries)
             {
                 string itemValue = Null.NullString;
@@ -348,33 +356,42 @@ namespace DotNetNuke.UI.WebControls
                         break;
                 }
 
-                writer.AddAttribute(HtmlTextWriterAttribute.Value, itemValue);
+                builder.OpenElement(0, "option");
+                builder.AddAttribute(1, "value", itemValue);
                 if (this.StringValue == itemValue)
                 {
                     // Add the Selected Attribute
-                    writer.AddAttribute(HtmlTextWriterAttribute.Selected, "selected");
+                    builder.AddAttribute(2, "selected", "selected");
                 }
 
-                // Render Option Tag
-                writer.RenderBeginTag(HtmlTextWriterTag.Option);
                 switch (this.TextField)
                 {
                     case ListBoundField.Id:
-                        writer.Write(item.EntryID.ToString(CultureInfo.InvariantCulture));
+                        builder.AddContent(3, item.EntryID.ToString(CultureInfo.InvariantCulture));
                         break;
                     case ListBoundField.Text:
-                        writer.Write(item.Text);
+                        builder.AddContent(4, item.Text);
                         break;
                     case ListBoundField.Value:
-                        writer.Write(item.Value.Trim());
+                        builder.AddContent(5, item.Value.Trim());
                         break;
                 }
 
-                writer.RenderEndTag();
+                builder.CloseElement();
             }
 
+            builder.CloseRegion();
+
             // Close Select Tag
-            writer.RenderEndTag();
+            builder.CloseElement();
+        }
+
+        private void OnSelectionChanged(ChangeEventArgs args)
+        {
+            // This is the Blazor equivalent of the AutoPostBack round trip: the framework used to
+            // call LoadPostData/RaisePostDataChangedEvent and then RaisePostBackEvent.
+            this.OnInputChanged(args);
+            this.RaisePostBackEvent(this.ID);
         }
 
         private PropertyEditorEventArgs GetEventArgs()

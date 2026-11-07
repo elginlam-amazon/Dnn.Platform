@@ -4,12 +4,13 @@
 namespace DotNetNuke.Tests.Web.DependencyInjection
 {
     using System;
-    using System.Web.Http.Filters;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.DependencyInjection.Extensions;
     using DotNetNuke.Tests.Utilities.Mocks;
+
+    using Microsoft.AspNetCore.Mvc.Filters;
 
     using Moq;
 
@@ -49,7 +50,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
             var container = default(IServiceProvider);
 
             // This should invoke without exceptions
-            container.BuildUp(Mock.Of<IFilter>());
+            container.BuildUp(Mock.Of<IFilterMetadata>());
         }
 
         [Test]
@@ -126,6 +127,38 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
             Assert.Throws<NullReferenceException>(() => filter.OnActionExecuted(null));
 
             this.VerifyEventLoggerInvoked(Times.Never());
+        }
+
+        [Test]
+        public void CreateFilter_Generic_BuildsAndInjects_Test()
+        {
+            // The modern replacement for BuildUp on framework-created filters: full constructor injection.
+            var filter = this.container.CreateFilter<ConstructorFilterAttribute>();
+
+            Assert.That(filter, Is.Not.Null);
+            Assert.That(filter.EventLogger, Is.SameAs(this.eventLogger));
+
+            filter.OnActionExecuted(null);
+
+            this.VerifyEventLoggerInvoked();
+        }
+
+        [Test]
+        public void CreateFilter_WithConstructorParameters_Test()
+        {
+            var filter = this.container.CreateFilter(typeof(ParameterizedFilterAttribute), "Message");
+
+            Assert.That(filter, Is.Not.Null);
+            Assert.That(filter, Is.InstanceOf<ParameterizedFilterAttribute>());
+
+            var parameterizedFilter = (ParameterizedFilterAttribute)filter;
+
+            Assert.That(parameterizedFilter.EventLogger, Is.SameAs(this.eventLogger));
+            Assert.That(parameterizedFilter.LogTypeName, Is.EqualTo("Message"));
+
+            parameterizedFilter.OnActionExecuted(null);
+
+            this.VerifyEventLoggerInvoked();
         }
 
         private void VerifyEventLoggerInvoked() => this.VerifyEventLoggerInvoked(Times.Once());

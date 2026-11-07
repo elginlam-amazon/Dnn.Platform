@@ -6,8 +6,6 @@ namespace DotNetNuke.Services.GeneratedImage.StartTransform
     using System;
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
     using System.Globalization;
     using System.IO;
 
@@ -15,6 +13,9 @@ namespace DotNetNuke.Services.GeneratedImage.StartTransform
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.FileSystem;
+
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
 
     /// <summary>User Profile Picture ImageTransform class.</summary>
     public class UserProfilePicTransform : ImageTransform
@@ -57,11 +58,15 @@ namespace DotNetNuke.Services.GeneratedImage.StartTransform
             return this.GetNoAvatarImage();
         }
 
-        /// <summary>Get the Bitmap of the No Avatar Image.</summary>
-        /// <returns>A <see cref="Bitmap"/> of the No Avatar image.</returns>
-        public Bitmap GetNoAvatarImage()
+        /// <summary>Get the image of the No Avatar Image.</summary>
+        /// <returns>An <see cref="Image{Rgba32}"/> of the No Avatar image.</returns>
+        /// <remarks>
+        /// Returns an ImageSharp <see cref="Image{Rgba32}"/> where it used to return a
+        /// <c>System.Drawing.Bitmap</c>, which is Windows-only and unavailable on modern .NET.
+        /// </remarks>
+        public Image<Rgba32> GetNoAvatarImage()
         {
-            var avatarAbsolutePath = $@"{Globals.ApplicationMapPath}\images\no_avatar.gif";
+            var avatarAbsolutePath = Path.Combine(Globals.ApplicationMapPath, "images", "no_avatar.gif");
             using (var content = File.OpenRead(avatarAbsolutePath))
             {
                 return this.CopyImage(content);

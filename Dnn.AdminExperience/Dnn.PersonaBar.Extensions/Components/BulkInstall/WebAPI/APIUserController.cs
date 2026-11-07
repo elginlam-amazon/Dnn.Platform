@@ -7,8 +7,6 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using System;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Extensions.Components.BulkInstall;
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.DataAccess.Models;
@@ -17,6 +15,9 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using Dnn.PersonaBar.Library.Attributes;
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Auth.ApiTokens;
+    using Microsoft.AspNetCore.Mvc;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for <see cref="APIUser"/>.</summary>
     /// <param name="apiUserManager">The API user manager.</param>
@@ -31,9 +32,9 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
         private readonly ApiTokenSettingsRepository apiTokenSettingsRepository = apiTokenSettingsRepository;
 
         /// <summary>Gets all <see cref="APIUser"/> instances.</summary>
-        /// <returns>A response with a list of <see cref="APIUser"/>.</returns>
+        /// <returns>A result with a list of <see cref="APIUser"/>.</returns>
         [HttpGet]
-        public HttpResponseMessage GetAll()
+        public IActionResult GetAll()
         {
             var settings = ApiTokenSettings.GetSettings(this.apiTokenSettingsRepository, this.PortalSettings.PortalId);
             var apiUsers = this.apiUserManager.GetAll().ToList();
@@ -45,27 +46,27 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
                 apiUser.Salt = null;
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Users = apiUsers, Enabled = settings.ApiTokensEnabled, });
+            return this.Ok(new { Users = apiUsers, Enabled = settings.ApiTokensEnabled, });
         }
 
         /// <summary>Creates a new <see cref="APIUser"/>.</summary>
         /// <param name="name">The label.</param>
         /// <param name="bypass">Whether the user can bypass the IP address allow list.</param>
         /// <param name="expiresOn">The date/time on which the API user's token expires.</param>
-        /// <returns>A response with the new <see cref="APIUser"/>.</returns>
+        /// <returns>A result with the new <see cref="APIUser"/>.</returns>
         [HttpPost]
-        public HttpResponseMessage Create(string name, bool bypass = false, DateTime? expiresOn = null)
+        public IActionResult Create(string name, bool bypass = false, DateTime? expiresOn = null)
         {
             // Check we have a name.
             if (string.IsNullOrEmpty(name))
             {
-                return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { Message = "name is required", });
+                return DnnApiResults.Response(HttpStatusCode.BadRequest, new { Message = "name is required", });
             }
 
             var settings = ApiTokenSettings.GetSettings(this.apiTokenSettingsRepository, this.PortalSettings.PortalId);
             if (!settings.ApiTokensEnabled)
             {
-                return this.Request.CreateResponse(HttpStatusCode.BadRequest, new { Message = "API tokens are disabled", });
+                return DnnApiResults.Response(HttpStatusCode.BadRequest, new { Message = "API tokens are disabled", });
             }
 
             // Create user.
@@ -74,20 +75,20 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
             apiUser.EncryptedEncryptionKey = null;
             apiUser.Salt = null;
 
-            return this.Request.CreateResponse(HttpStatusCode.Created, new { User = apiUser, });
+            return DnnApiResults.Response(HttpStatusCode.Created, new { User = apiUser, });
         }
 
         /// <summary>Deletes an <see cref="APIUser"/>.</summary>
         /// <param name="id">The API user ID.</param>
-        /// <returns>A response indicating success.</returns>
+        /// <returns>A result indicating success.</returns>
         [HttpDelete]
-        public HttpResponseMessage Delete(int id)
+        public IActionResult Delete(int id)
         {
             var apiUser = this.apiUserManager.GetById(id);
 
             if (apiUser == null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, "API user not found.");
+                return DnnApiResults.Error(HttpStatusCode.NotFound, "API user not found.");
             }
 
             try
@@ -96,10 +97,10 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
             }
             catch (Exception)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "Failed to delete API user.");
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, "Failed to delete API user.");
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.NoContent);
+            return DnnApiResults.Response(HttpStatusCode.NoContent);
         }
     }
 }

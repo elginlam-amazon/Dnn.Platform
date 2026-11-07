@@ -1,0 +1,514 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Admin.Users
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+@implements DotNetNuke.Entities.Modules.IActionable
+
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using System.Linq
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Lists
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Modules.Actions
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Profile
+@using DotNetNuke.Security
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+@*
+    Replaces ProfileDefinitions.ascx, ProfileDefinitions.ascx.cs and
+    ProfileDefinitions.ascx.designer.cs.
+
+    Control mapping:
+      asp:DataGrid grdProfileProperties -> the @foreach over this.ProfileProperties below. The
+                                           DNN ImageCommandColumns (Edit/Delete/MoveDown/MoveUp)
+                                           become the per-row links/buttons; the DNN
+                                           CheckBoxColumns (Required/Visible) become checkboxes
+                                           with the same "check all" header behaviour the
+                                           dnn.util.checkallChecked client script provided.
+      dnn:textcolumn                    -> the plain <td> values.
+      lblDataType / lbDefaultVisibility -> DisplayDataType / DisplayDefaultVisibility, unchanged.
+      asp:HyperLink cmdAdd              -> an anchor to EditUrl("EditProfileProperty").
+      asp:LinkButton cmdRefresh         -> the Refresh @onclick handler (RefreshGrid).
+
+    The grid was not view-state bound (the collection travelled in view state and was persisted by
+    Update()); a Blazor component keeps the collection in the this.profileProperties field across
+    interactions, which is the same lifetime.
+*@
+
+<div class="dnnForm dnnProfileProperties">
+    <table width="96%" cellpadding="4" class="dnnGrid">
+        <thead>
+            <tr class="dnnGridHeader">
+                <th class="dnnGridHeaderTD-NoBorder" style="width: 18px;"></th>
+                <th class="dnnGridHeaderTD-NoBorder" style="width: 18px;"></th>
+                <th class="dnnGridHeaderTD-NoBorder" style="width: 18px;"></th>
+                <th style="width: 18px;"></th>
+                <th style="width: 100px;">@this.LocalizeText("Name.Header")</th>
+                <th style="width: 80px;">@this.LocalizeText("Category.Header")</th>
+                <th style="width: 60px;">@this.LocalizeText("DataType.Header")</th>
+                <th style="width: 50px;">@this.LocalizeText("Length.Header")</th>
+                <th style="width: 80px;">@this.LocalizeText("DefaultValue.Header")</th>
+                <th style="width: 100px;">@this.LocalizeText("ValidationExpression.Header")</th>
+                <th style="width: 100px;">@this.LocalizeText("DefaultVisibility.Header")</th>
+                @if (this.ShowRequiredColumn)
+                {
+                    <th>
+                        @this.LocalizeText("Required.Header")
+                        <input type="checkbox" checked="@this.allRequired" @onchange="@(e => this.CheckAllChanged("Required", (bool)e.Value))" />
+                    </th>
+                }
+                <th>
+                    @this.LocalizeText("Visible.Header")
+                    <input type="checkbox" checked="@this.allVisible" @onchange="@(e => this.CheckAllChanged("Visible", (bool)e.Value))" />
+                </th>
+            </tr>
+        </thead>
+        <tbody>
+            @for (var rowIndex = 0; rowIndex < this.ProfileProperties.Count; rowIndex++)
+            {
+                var index = rowIndex;
+                var definition = this.ProfileProperties[index];
+                <tr class="@(index % 2 == 0 ? "dnnGridItem" : "dnnGridAltItem")">
+                    <td>
+                        <a href="@this.GetEditUrl(definition)" title="@this.LocalizeText("Edit")">
+                            <img src="@DotNetNuke.Entities.Icons.IconController.IconURL("Edit")" alt="@this.LocalizeText("Edit")" />
+                        </a>
+                    </td>
+                    <td>
+                        @* The Delete ImageCommandColumn was hidden for the four properties
+                           grdProfileProperties_ItemDataBound hid it for. *@
+                        @if (this.IsDeletable(definition))
+                        {
+                            <a href="#" title="@this.LocalizeText("Delete")" @onclick="@(() => this.DeleteProperty(index))" @onclick:preventDefault="true">
+                                <img src="@DotNetNuke.Entities.Icons.IconController.IconURL("Delete")" alt="@this.LocalizeText("Delete")" />
+                            </a>
+                        }
+                    </td>
+                    <td>
+                        @if (index < this.ProfileProperties.Count - 1)
+                        {
+                            <a href="#" title="@this.LocalizeText("MoveDown")" @onclick="@(() => this.MovePropertyDown(index))" @onclick:preventDefault="true">
+                                <img src="@DotNetNuke.Entities.Icons.IconController.IconURL("Dn")" alt="@this.LocalizeText("MoveDown")" />
+                            </a>
+                        }
+                    </td>
+                    <td>
+                        @if (index > 0)
+                        {
+                            <a href="#" title="@this.LocalizeText("MoveUp")" @onclick="@(() => this.MovePropertyUp(index))" @onclick:preventDefault="true">
+                                <img src="@DotNetNuke.Entities.Icons.IconController.IconURL("Up")" alt="@this.LocalizeText("MoveUp")" />
+                            </a>
+                        }
+                    </td>
+                    <td>@definition.PropertyName</td>
+                    <td>@definition.PropertyCategory</td>
+                    <td><span id="lblDataType">@this.DisplayDataType(definition)</span></td>
+                    <td>@definition.Length</td>
+                    <td>@definition.DefaultValue</td>
+                    <td>@definition.ValidationExpression</td>
+                    <td><span id="lbDefaultVisibility">@this.DisplayDefaultVisibility(definition)</span></td>
+                    @if (this.ShowRequiredColumn)
+                    {
+                        <td>
+                            <input type="checkbox" checked="@definition.Required" @onchange="@(e => this.ItemCheckedChanged("Required", index, (bool)e.Value))" />
+                        </td>
+                    }
+                    <td>
+                        <input type="checkbox" checked="@definition.Visible" @onchange="@(e => this.ItemCheckedChanged("Visible", index, (bool)e.Value))" />
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <ul id="actionsRow" class="dnnActions dnnClear">
+        <li><a id="cmdAdd" class="dnnSecondaryAction" href="@this.EditUrl("EditProfileProperty")">@this.LocalizeText("AddContent.Action")</a></li>
+        <li><a id="cmdRefresh" class="dnnSecondaryAction" href="#" @onclick="this.RefreshGrid" @onclick:preventDefault="true">@this.LocalizeText("cmdRefresh")</a></li>
+    </ul>
+</div>
+
+@code {
+    private ProfilePropertyDefinitionCollection profileProperties;
+    private bool allRequired;
+    private bool allVisible;
+
+    /// <summary>Gets or sets the navigation manager the return URL is composed with.</summary>
+    [Inject]
+    protected INavigationManager DnnNavigationManager { get; set; }
+
+    /// <summary>Gets or sets the host settings the property definitions are read with.</summary>
+    [Inject]
+    protected IHostSettings HostSettingsInstance { get; set; }
+
+    /// <summary>Gets or sets the event logger the property definition updates are logged through.</summary>
+    [Inject]
+    protected IEventLogger EventLoggerInstance { get; set; }
+
+    /// <summary>Gets or sets the list controller the data type list entries are read from.</summary>
+    [Inject]
+    protected ListController ListControllerInstance { get; set; }
+
+    /// <summary>Gets or sets the portal controller the property definitions are read and written with.</summary>
+    [Inject]
+    protected IPortalController PortalControllerInstance { get; set; }
+
+    /// <summary>Gets or sets the application status the property definition calls are made against.</summary>
+    [Inject]
+    protected IApplicationStatusInfo AppStatus { get; set; }
+
+    /// <summary>Gets or sets the portal group controller the property definitions are read and written with.</summary>
+    [Inject]
+    protected IPortalGroupController PortalGroupControllerInstance { get; set; }
+
+    /// <summary>Gets the Return Url for the page.</summary>
+    public string ReturnUrl
+    {
+        get
+        {
+            string returnURL;
+            var query = this.Request.GetQueryString();
+            var filterParams = new string[string.IsNullOrEmpty(query["filterproperty"]) ? 1 : 2];
+
+            if (string.IsNullOrEmpty(query["filterProperty"]))
+            {
+                filterParams.SetValue("filter=" + query["filter"], 0);
+            }
+            else
+            {
+                filterParams.SetValue("filter=" + query["filter"], 0);
+                filterParams.SetValue("filterProperty=" + query["filterProperty"], 1);
+            }
+
+            if (string.IsNullOrEmpty(query["filter"]))
+            {
+                returnURL = this.DnnNavigationManager.NavigateURL(this.TabId);
+            }
+            else
+            {
+                returnURL = this.DnnNavigationManager.NavigateURL(this.TabId, string.Empty, filterParams);
+            }
+
+            return returnURL;
+        }
+    }
+
+    /// <inheritdoc />
+    public ModuleActionCollection ModuleActions
+    {
+        get
+        {
+            var actions = new ModuleActionCollection();
+            actions.Add(
+                this.GetNextActionID(),
+                Localization.GetString(ModuleActionType.AddContent, this.LocalResourceFile),
+                ModuleActionType.AddContent,
+                string.Empty,
+                "add.gif",
+                this.EditUrl("EditProfileProperty"),
+                false,
+                SecurityAccessLevel.Admin,
+                true,
+                false);
+            actions.Add(
+                this.GetNextActionID(),
+                Localization.GetString("Cancel.Action", this.LocalResourceFile),
+                ModuleActionType.AddContent,
+                string.Empty,
+                "lt.gif",
+                this.ReturnUrl,
+                false,
+                SecurityAccessLevel.Admin,
+                true,
+                false);
+            return actions;
+        }
+    }
+
+    /// <summary>Gets a value indicating whether we are dealing with SuperUsers.</summary>
+    protected bool IsSuperUser => DotNetNuke.Common.Globals.IsHostTab(this.PortalSettings.ActiveTab.TabID);
+
+    /// <summary>Gets the collection of Profile Properties.</summary>
+    protected ProfilePropertyDefinitionCollection ProfileProperties
+        => this.profileProperties ??= ProfileController.GetPropertyDefinitionsByPortal(this.HostSettingsInstance, this.PortalControllerInstance, this.AppStatus, this.PortalGroupControllerInstance, this.UsersPortalId, false, false);
+
+    /// <summary>Gets the Portal ID whose Users we are managing.</summary>
+    protected int UsersPortalId
+    {
+        get
+        {
+            int intPortalId = this.PortalId;
+            if (this.IsSuperUser)
+            {
+                intPortalId = Null.NullInteger;
+            }
+
+            return intPortalId;
+        }
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether the Required column renders.
+    /// </summary>
+    /// <remarks>
+    /// This is the OnInit branch that hid the "Required" CheckBoxColumn (and set
+    /// requiredColumnHidden) when the properties being managed are the host ones. The sentinel is
+    /// deliberately <see cref="Null.NullInteger"/> (-1), not 0 or "less than one".
+    /// </remarks>
+    protected bool ShowRequiredColumn => this.UsersPortalId != Null.NullInteger;
+
+    /// <summary>Gets the localized value of a data type list entry.</summary>
+    /// <param name="definition">The definition to display the data type of.</param>
+    /// <returns>The data type value.</returns>
+    public string DisplayDataType(ProfilePropertyDefinition definition)
+    {
+        string retValue = Null.NullString;
+        ListEntryInfo definitionEntry = this.ListControllerInstance.GetListEntryInfo("DataType", definition.DataType);
+        if (definitionEntry != null)
+        {
+            retValue = definitionEntry.Value;
+        }
+
+        return retValue;
+    }
+
+    /// <summary>Gets the localized default visibility of a definition.</summary>
+    /// <param name="definition">The definition to display the default visibility of.</param>
+    /// <returns>The localized visibility.</returns>
+    public string DisplayDefaultVisibility(ProfilePropertyDefinition definition)
+    {
+        string retValue = Null.NullString;
+        if (!string.IsNullOrEmpty(definition.DefaultVisibility.ToString()))
+        {
+            retValue = this.LocalizeText(definition.DefaultVisibility.ToString()) ?? definition.DefaultVisibility.ToString();
+        }
+
+        return retValue;
+    }
+
+    /// <summary>Updates any "dirty" properties.</summary>
+    /// <remarks>
+    /// This is the public Update() of the original control, kept for callers that drive the module
+    /// from the outside. The ProcessPostBack() call it opened with has no Blazor counterpart: the
+    /// Required/Visible checkboxes and the view order are already applied to the collection by the
+    /// handlers below (that is what reading the posted grid and
+    /// ClientAPI.GetClientSideReorder achieved), so only the persistence remains.
+    /// </remarks>
+    public void Update()
+    {
+        try
+        {
+            this.UpdateProperties();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>This is Page_Load: the grid was bound once, on the non-postback request.</remarks>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            this.RecomputeHeaderCheckboxes();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Gets the edit URL of a property definition.</summary>
+    /// <param name="definition">The definition.</param>
+    /// <returns>The edit URL.</returns>
+    /// <remarks>
+    /// This is the NavigateURLFormatString the Edit ImageCommandColumn was given in OnInit; the
+    /// KEYFIELD round trip existed only to keep the Friendly URL parser happy while building the
+    /// format string, so the ID is passed directly here.
+    /// </remarks>
+    private string GetEditUrl(ProfilePropertyDefinition definition)
+        => this.EditUrl("PropertyDefinitionID", definition.PropertyDefinitionId.ToString(CultureInfo.InvariantCulture), "EditProfileProperty");
+
+    /// <summary>Gets a value indicating whether the delete command renders for a definition.</summary>
+    /// <param name="definition">The definition.</param>
+    /// <returns><see langword="true"/> when the property may be deleted.</returns>
+    /// <remarks>This is grdProfileProperties_ItemDataBound, which hid the delete button for these four properties.</remarks>
+    private bool IsDeletable(ProfilePropertyDefinition definition)
+    {
+        switch (definition.PropertyName.ToLowerInvariant())
+        {
+            case "lastname":
+            case "firstname":
+            case "preferredtimezone":
+            case "preferredlocale":
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    /// <summary>Deletes a property.</summary>
+    /// <param name="index">The index of the Property to delete.</param>
+    private void DeleteProperty(int index)
+    {
+        ProfileController.DeletePropertyDefinition(this.EventLoggerInstance, this.PortalControllerInstance, this.AppStatus, this.PortalGroupControllerInstance, this.ProfileProperties[index]);
+
+        this.RefreshGrid();
+    }
+
+    /// <summary>Moves a property.</summary>
+    /// <param name="index">The index of the Property to move.</param>
+    /// <param name="destIndex">The new index of the Property.</param>
+    /// <remarks>
+    /// The ViewOrder swap and the re-sort are the original MoveProperty verbatim. The two swapped
+    /// definitions are then persisted: under WebForms the new order travelled in view state and
+    /// was written by Update(); there is no such deferred post back here, so the reorder is saved
+    /// at once (the UsersPortalId == Null.NullInteger rule that forces Required to false is
+    /// applied by UpdateProperties, which this goes through).
+    /// </remarks>
+    private void MoveProperty(int index, int destIndex)
+    {
+        ProfilePropertyDefinition profileProperty = this.ProfileProperties[index];
+        ProfilePropertyDefinition nextProfileProperty = this.ProfileProperties[destIndex];
+
+        int currentOrder = profileProperty.ViewOrder;
+        int nextOrder = nextProfileProperty.ViewOrder;
+
+        // Swap ViewOrders
+        profileProperty.ViewOrder = nextOrder;
+        nextProfileProperty.ViewOrder = currentOrder;
+
+        // Refresh Grid
+        this.ProfileProperties.Sort();
+
+        this.UpdateProperties();
+        this.RecomputeHeaderCheckboxes();
+    }
+
+    /// <summary>Moves a property down in the ViewOrder.</summary>
+    /// <param name="index">The index of the Property to move.</param>
+    private void MovePropertyDown(int index)
+    {
+        this.MoveProperty(index, index + 1);
+    }
+
+    /// <summary>Moves a property up in the ViewOrder.</summary>
+    /// <param name="index">The index of the Property to move.</param>
+    private void MovePropertyUp(int index)
+    {
+        this.MoveProperty(index, index - 1);
+    }
+
+    /// <summary>Refreshes the Property Collection.</summary>
+    /// <remarks>This is cmdRefresh_Click / RefreshGrid.</remarks>
+    private void RefreshGrid()
+    {
+        this.profileProperties = null;
+        this.RecomputeHeaderCheckboxes();
+    }
+
+    /// <summary>Computes the state of the two header checkboxes.</summary>
+    /// <remarks>This is the "all required"/"all visible" loop BindGrid opened with.</remarks>
+    private void RecomputeHeaderCheckboxes()
+    {
+        bool allRequiredValue = true;
+        bool allVisibleValue = true;
+
+        // Check whether the checkbox column headers are true or false
+        foreach (ProfilePropertyDefinition profProperty in this.ProfileProperties)
+        {
+            if (profProperty.Required == false)
+            {
+                allRequiredValue = false;
+            }
+
+            if (profProperty.Visible == false)
+            {
+                allVisibleValue = false;
+            }
+
+            if (!allRequiredValue && !allVisibleValue)
+            {
+                break;
+            }
+        }
+
+        this.allRequired = allRequiredValue;
+        this.allVisible = allVisibleValue;
+    }
+
+    /// <summary>Updates all the properties from a header checkbox.</summary>
+    /// <param name="propertyName">Either <c>Required</c> or <c>Visible</c>.</param>
+    /// <param name="propertyValue">The new value.</param>
+    /// <remarks>This is GrdProfileProperties_ItemCheckedChanged with e.IsAll set.</remarks>
+    private void CheckAllChanged(string propertyName, bool propertyValue)
+    {
+        foreach (ProfilePropertyDefinition profProperty in this.ProfileProperties)
+        {
+            switch (propertyName)
+            {
+                case "Required":
+                    profProperty.Required = propertyValue;
+                    break;
+                case "Visible":
+                    profProperty.Visible = propertyValue;
+                    break;
+            }
+        }
+
+        this.UpdateProperties();
+        this.RecomputeHeaderCheckboxes();
+    }
+
+    /// <summary>Updates a single property from a row checkbox.</summary>
+    /// <param name="propertyName">Either <c>Required</c> or <c>Visible</c>.</param>
+    /// <param name="index">The index of the property.</param>
+    /// <param name="propertyValue">The new value.</param>
+    /// <remarks>This is GrdProfileProperties_ItemCheckedChanged for a single item.</remarks>
+    private void ItemCheckedChanged(string propertyName, int index, bool propertyValue)
+    {
+        ProfilePropertyDefinition profileProperty = this.ProfileProperties[index];
+        switch (propertyName)
+        {
+            case "Required":
+                profileProperty.Required = propertyValue;
+                break;
+            case "Visible":
+                profileProperty.Visible = propertyValue;
+                break;
+        }
+
+        this.UpdateProperties();
+        this.RecomputeHeaderCheckboxes();
+    }
+
+    /// <summary>Updates any "dirty" properties.</summary>
+    private void UpdateProperties()
+    {
+        foreach (ProfilePropertyDefinition property in this.ProfileProperties)
+        {
+            if (property.IsDirty)
+            {
+                if (this.UsersPortalId == Null.NullInteger)
+                {
+                    property.Required = false;
+                }
+
+                ProfileController.UpdatePropertyDefinition(this.EventLoggerInstance, this.PortalControllerInstance, this.AppStatus, this.PortalGroupControllerInstance, property);
+            }
+        }
+    }
+}

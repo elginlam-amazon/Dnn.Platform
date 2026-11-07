@@ -18,19 +18,9 @@
 // limitations under the License.
 // 
 
-// MONO 1.0 Beta mcs does not like #if !A && !B && !C syntax
-
-// .NET Compact Framework 1.0 has no support for Win32 NetMessageBufferSend API
-#if !NETCF 
-// MONO 1.0 has no support for Win32 NetMessageBufferSend API
-#if !MONO 
-// SSCLI 1.0 has no support for Win32 NetMessageBufferSend API
-#if !SSCLI
-// We don't want framework or platform specific code in the CLI version of log4net
-#if !CLI_1_0
-
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 using log4net.Util;
 using log4net.Core;
@@ -139,6 +129,7 @@ namespace log4net.Appender
     /// </example>
     /// <author>Nicko Cadell</author>
     /// <author>Gert Driesen</author>
+    [SupportedOSPlatform("windows")]
     public class NetSendAppender : AppenderSkeleton 
     {
         /// <summary>The DNS or NetBIOS name of the server on which the function is to execute.</summary>
@@ -254,6 +245,14 @@ namespace log4net.Appender
             {
                 this.m_securityContext = SecurityContextProvider.DefaultProvider.CreateSecurityContext(this);
             }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                // The netapi32 NetMessageBufferSend API only exists on Windows. The appender
+                // remains configured so log4net configuration parsing never fails, but Append is
+                // a documented no-op on this platform.
+                LogLog.Warn(declaringType, "NetSendAppender: the Win32 NetMessageBufferSend API is only available on Windows; this appender is a no-op on the current platform.");
+            }
         }
 
         /// <summary>This method is called by the <see cref="M:AppenderSkeleton.DoAppend(LoggingEvent)"/> method.</summary>
@@ -263,14 +262,15 @@ namespace log4net.Appender
         /// Sends the event using a network message.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecuritySafeCritical]
-#endif
-#if !NETSTANDARD1_3
-        [System.Security.Permissions.SecurityPermission(System.Security.Permissions.SecurityAction.Demand, UnmanagedCode = true)]
-#endif
         protected override void Append(LoggingEvent loggingEvent) 
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                // Documented no-op: NetMessageBufferSend does not exist on this platform.
+                LogLog.Debug(declaringType, "NetSendAppender: dropping event, NetMessageBufferSend is not available on this platform.");
+                return;
+            }
+
             NativeError nativeError = null;
 
             // Render the event in the callers security context
@@ -307,6 +307,11 @@ namespace log4net.Appender
         {
             get { return true; }
         }
+
+        /// <summary>
+        /// The fully qualified type of the NetSendAppender class.
+        /// </summary>
+        private static readonly Type declaringType = typeof(NetSendAppender);
 
         /// <summary>Sends a buffer of information to a registered message alias.</summary>
         /// <param name="serverName">The DNS or NetBIOS name of the server on which the function is to execute.</param>
@@ -369,8 +374,3 @@ namespace log4net.Appender
             int bufferSize);
     }
 }
-
-#endif // !CLI_1_0
-#endif // !SSCLI
-#endif // !MONO
-#endif // !NETCF

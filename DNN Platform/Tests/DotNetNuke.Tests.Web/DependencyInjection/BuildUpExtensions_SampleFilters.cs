@@ -3,11 +3,20 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Tests.Web.DependencyInjection
 {
-    using System.Web.Http.Filters;
-
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.DependencyInjection;
 
+    using Microsoft.AspNetCore.Mvc.Filters;
+
+    /// <summary>
+    /// Sample filters for <see cref="BuildUpExtensionsTests"/>.
+    /// </summary>
+    /// <remarks>
+    /// These were <c>System.Web.Http.Filters.ActionFilterAttribute</c> overriding
+    /// <c>OnActionExecuted(HttpActionExecutedContext)</c>. On ASP.NET Core the equivalent base type is
+    /// <see cref="ActionFilterAttribute"/> and the hook takes an <see cref="ActionExecutedContext"/>;
+    /// the <see cref="DependencyAttribute"/> members and bodies are otherwise unchanged.
+    /// </remarks>
     public partial class BuildUpExtensionsTests
     {
         private class PrivateFilterAttribute : ActionFilterAttribute
@@ -15,7 +24,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
             [Dependency]
             private IEventLogger EventLogger { get; set; }
 
-            public override void OnActionExecuted(HttpActionExecutedContext actionExecutedContext)
+            public override void OnActionExecuted(ActionExecutedContext actionExecutedContext)
             {
                 this.EventLogger.AddLog("Test", "Message", EventLogType.ADMIN_ALERT);
                 base.OnActionExecuted(actionExecutedContext);
@@ -27,7 +36,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
             [Dependency]
             protected IEventLogger EventLogger { get; set; }
 
-            public override void OnActionExecuted(HttpActionExecutedContext actionExecutedContext)
+            public override void OnActionExecuted(ActionExecutedContext actionExecutedContext)
             {
                 this.EventLogger.AddLog("Test", "Message", EventLogType.ADMIN_ALERT);
                 base.OnActionExecuted(actionExecutedContext);
@@ -39,7 +48,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
             [Dependency]
             protected internal IEventLogger EventLogger { get; set; }
 
-            public override void OnActionExecuted(HttpActionExecutedContext actionExecutedContext)
+            public override void OnActionExecuted(ActionExecutedContext actionExecutedContext)
             {
                 this.EventLogger.AddLog("Test", "Message", EventLogType.ADMIN_ALERT);
                 base.OnActionExecuted(actionExecutedContext);
@@ -51,7 +60,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
             [Dependency]
             internal IEventLogger EventLogger { get; set; }
 
-            public override void OnActionExecuted(HttpActionExecutedContext actionExecutedContext)
+            public override void OnActionExecuted(ActionExecutedContext actionExecutedContext)
             {
                 this.EventLogger.AddLog("Test", "Message", EventLogType.ADMIN_ALERT);
                 base.OnActionExecuted(actionExecutedContext);
@@ -63,7 +72,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
             [Dependency]
             public IEventLogger EventLogger { get; set; }
 
-            public override void OnActionExecuted(HttpActionExecutedContext actionExecutedContext)
+            public override void OnActionExecuted(ActionExecutedContext actionExecutedContext)
             {
                 this.EventLogger.AddLog("Test", "Message", EventLogType.ADMIN_ALERT);
                 base.OnActionExecuted(actionExecutedContext);
@@ -74,7 +83,7 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
         {
             public IEventLogger EventLogger { get; set; }
 
-            public override void OnActionExecuted(HttpActionExecutedContext actionExecutedContext)
+            public override void OnActionExecuted(ActionExecutedContext actionExecutedContext)
             {
                 // This should throw an exception as EventLogger will be null
                 this.EventLogger.AddLog("Test", "Message", EventLogType.ADMIN_ALERT);
@@ -87,9 +96,46 @@ namespace DotNetNuke.Tests.Web.DependencyInjection
             [Dependency]
             public IEventLogger EventLogger { get; }
 
-            public override void OnActionExecuted(HttpActionExecutedContext actionExecutedContext)
+            public override void OnActionExecuted(ActionExecutedContext actionExecutedContext)
             {
                 this.EventLogger.AddLog("Test", "Message", EventLogType.ADMIN_ALERT);
+                base.OnActionExecuted(actionExecutedContext);
+            }
+        }
+
+        /// <summary>A filter which takes its services through the constructor, as <c>CreateFilter</c> expects.</summary>
+        private class ConstructorFilterAttribute : ActionFilterAttribute
+        {
+            public ConstructorFilterAttribute(IEventLogger eventLogger)
+            {
+                this.EventLogger = eventLogger;
+            }
+
+            public IEventLogger EventLogger { get; }
+
+            public override void OnActionExecuted(ActionExecutedContext actionExecutedContext)
+            {
+                this.EventLogger.AddLog("Test", "Message", EventLogType.ADMIN_ALERT);
+                base.OnActionExecuted(actionExecutedContext);
+            }
+        }
+
+        /// <summary>A filter which mixes container services with explicit constructor parameters.</summary>
+        private class ParameterizedFilterAttribute : ActionFilterAttribute
+        {
+            public ParameterizedFilterAttribute(IEventLogger eventLogger, string logTypeName)
+            {
+                this.EventLogger = eventLogger;
+                this.LogTypeName = logTypeName;
+            }
+
+            public IEventLogger EventLogger { get; }
+
+            public string LogTypeName { get; }
+
+            public override void OnActionExecuted(ActionExecutedContext actionExecutedContext)
+            {
+                this.EventLogger.AddLog("Test", this.LogTypeName, EventLogType.ADMIN_ALERT);
                 base.OnActionExecuted(actionExecutedContext);
             }
         }

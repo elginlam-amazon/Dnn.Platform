@@ -1,0 +1,63 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.UI.Modules.ModuleUserControlBase
+
+@*
+    Replaces AddScript.ascx. Every ID is preserved because the IDs are the resource keys:
+
+      asp:Label createNewScriptLabel resourceKey="createNewScript"
+                                        -> <span id="createNewScriptLabel"> localized from
+                                           createNewScript.Text.
+      dnn:Label fileTypeLabel / fileNameLabel
+                                        -> the migrated <LabelControl /> component (fileTypeLabel.*,
+                                           fileNameLabel.*) pointing at scriptFileType / fileName.
+      asp:DropDownList scriptFileType AutoPostBack="true" (CSHTML selected, VBHTML)
+                                        -> <select id="scriptFileType" @onchange=...> whose handler is
+                                           the old ScriptFileType_SelectedIndexChanged. Both options
+                                           are kept: Core Razor cannot compile VB today, but
+                                           RazorModuleControlFactory.SupportsControl still claims
+                                           .vbhtml, so dropping the option would be a UI and
+                                           localization regression (CSHTML.Text / VBHTML.Text).
+      asp:TextBox fileName width="150px" -> <input type="text" id="fileName" style="width:150px;">.
+      asp:Label fileExtension            -> <span id="fileExtension">.
+      asp:LinkButton cmdAdd / cmdCancel  -> anchors with the same IDs, CSS classes and resource keys.
+                                           cmdCancel had CausesValidation="false", which is why it
+                                           does not run the fileName check below.
+      Page.IsValid                       -> FileNameValid + the guard in CmdAdd_Click.
+*@
+
+<div class="dnnForm dnnRazorHost dnnClear" id="dnnRazorHost">
+    <fieldset>
+        <legend></legend>
+        <div class="dnnFormItem">
+            <span id="createNewScriptLabel">@this.LocalizeString("createNewScript")</span>
+        </div>
+
+        <div class="dnnFormItem">
+            <LabelControl ID="fileTypeLabel" ControlName="scriptFileType" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="scriptFileType" value="@this.SelectedFileType" @onchange="this.ScriptFileType_SelectedIndexChanged">
+                @foreach (var fileType in this.FileTypes)
+                {
+                    <option value="@fileType" selected="@(fileType == this.SelectedFileType)">@this.LocalizeString(fileType)</option>
+                }
+            </select>
+        </div>
+
+        <div class="dnnFormItem">
+            <LabelControl ID="fileNameLabel" ControlName="fileName" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="text" id="fileName" style="width:150px;" value="@this.FileName" @onchange="this.OnFileNameChanged" />
+            @if (this.validationAttempted && !this.FileNameValid)
+            {
+                <span id="valFileName" class="dnnFormError">@this.LocalizeString("valFileName.Text")</span>
+            }
+            <span id="fileExtension">@this.FileExtension</span>
+        </div>
+    </fieldset>
+
+    <ul class="dnnActions dnnClear">
+        <li><a id="cmdAdd" class="PrimaryAction" href="javascript:void(0);" @onclick="this.CmdAdd_Click">@this.LocalizeString("cmdAdd")</a></li>
+        <li><a id="cmdCancel" class="SecondaryAction" href="javascript:void(0);" @onclick="this.CmdCancel_Click">@this.LocalizeString("cmdCancel")</a></li>
+    </ul>
+
+</div>

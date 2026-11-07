@@ -7,8 +7,6 @@ namespace Dnn.PersonaBar.Servers.Services
     using System;
     using System.IO;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -16,7 +14,9 @@ namespace Dnn.PersonaBar.Servers.Services
     using DotNetNuke.Common;
     using DotNetNuke.Data;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     [MenuPermission(Scope = ServiceScope.Host)]
@@ -26,7 +26,7 @@ namespace Dnn.PersonaBar.Servers.Services
         private readonly LogController logController = new LogController();
 
         [HttpGet]
-        public HttpResponseMessage GetLogs()
+        public IActionResult GetLogs()
         {
             try
             {
@@ -40,17 +40,17 @@ namespace Dnn.PersonaBar.Servers.Services
                     },
                     TotalResults = 1,
                 };
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.ServerSettingsLogsControllerGetLogsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetLogFile(string fileName)
+        public IActionResult GetLogFile(string fileName)
         {
             try
             {
@@ -60,17 +60,17 @@ namespace Dnn.PersonaBar.Servers.Services
             }
             catch (ArgumentException exc)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, exc.Message);
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, exc.Message);
             }
             catch (Exception exc)
             {
                 Logger.ServerSettingsLogsControllerGetLogFileException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetUpgradeLogFile(string logName)
+        public IActionResult GetUpgradeLogFile(string logName)
         {
             try
             {
@@ -81,12 +81,12 @@ namespace Dnn.PersonaBar.Servers.Services
             }
             catch (ArgumentException exc)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, exc.Message);
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, exc.Message);
             }
             catch (Exception exc)
             {
                 Logger.ServerSettingsLogsControllerGetUpgradeLogFileException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
@@ -101,17 +101,17 @@ namespace Dnn.PersonaBar.Servers.Services
         }
 
         [NonAction]
-        private HttpResponseMessage CreateLogFileResponse(string logFilePath)
+        private IActionResult CreateLogFileResponse(string logFilePath)
         {
             ValidateFilePath(logFilePath);
-            if (!File.Exists(logFilePath))
+            if (!System.IO.File.Exists(logFilePath))
             {
-                return this.Request.CreateResponse(HttpStatusCode.NotFound);
+                return DnnApiResults.Response(HttpStatusCode.NotFound);
             }
 
-            using var reader = File.OpenText(logFilePath);
+            using var reader = System.IO.File.OpenText(logFilePath);
             var logText = reader.ReadToEnd();
-            return this.Request.CreateResponse(HttpStatusCode.OK, logText);
+            return this.Ok(logText);
         }
     }
 }

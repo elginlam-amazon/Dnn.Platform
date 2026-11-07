@@ -7,20 +7,20 @@ namespace DotNetNuke.Services.Exceptions
     using System.Diagnostics;
     using System.Globalization;
     using System.Threading;
-    using System.Web;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Log.EventLog;
+    using DotNetNuke.UI;
     using DotNetNuke.UI.Modules;
-
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.Logging;
     using Microsoft.VisualBasic.CompilerServices;
 
@@ -99,30 +99,48 @@ namespace DotNetNuke.Services.Exceptions
             return objExceptionInfo;
         }
 
+        /// <summary>Processes a 404 (not found) condition for the current request's raw URL.</summary>
         public static void ProcessHttpException()
         {
             var notFoundErrorString = Localization.GetString("ResourceNotFound", Localization.SharedResourceFile);
-            var exc = new HttpException(404, notFoundErrorString);
-            ProcessHttpException(exc, HttpContext.Current.Request.RawUrl);
+            var exc = new BadHttpRequestException(notFoundErrorString, 404);
+            ProcessHttpException(exc, HttpContextSource.CurrentOrThrow.Request.GetRawUrl());
         }
 
+        /// <summary>Processes a 404 (not found) condition for the given URL.</summary>
+        /// <param name="url">The URL that could not be found.</param>
         public static void ProcessHttpException(string url)
         {
             var notFoundErrorString = Localization.GetString("ResourceNotFound", Localization.SharedResourceFile);
-            var exc = new HttpException(404, notFoundErrorString);
+            var exc = new BadHttpRequestException(notFoundErrorString, 404);
             ProcessHttpException(exc, url);
         }
 
-        public static void ProcessHttpException(HttpException exc)
+        /// <summary>Processes an HTTP status exception for the current request's raw URL.</summary>
+        /// <param name="exc">The exception, carrying the HTTP status code.</param>
+        /// <remarks>
+        /// On ASP.NET Framework this took a <c>System.Web.HttpException</c>, which does not exist on
+        /// modern .NET. <see cref="BadHttpRequestException"/> is the ASP.NET Core replacement: it
+        /// carries a <see cref="BadHttpRequestException.StatusCode"/> exactly as
+        /// <c>HttpException.GetHttpCode()</c> did.
+        /// </remarks>
+        public static void ProcessHttpException(BadHttpRequestException exc)
         {
-            ProcessHttpException(exc, HttpContext.Current.Request.RawUrl);
+            ProcessHttpException(exc, HttpContextSource.CurrentOrThrow.Request.GetRawUrl());
         }
 
+        /// <summary>Processes a 404 (not found) condition for the given request.</summary>
+        /// <param name="request">The request that could not be served.</param>
         public static void ProcessHttpException(HttpRequest request)
         {
+            if (request is null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
             var notFoundErrorString = Localization.GetString("ResourceNotFound", Localization.SharedResourceFile);
-            var exc = new HttpException(404, notFoundErrorString);
-            ProcessHttpException(exc, request.RawUrl);
+            var exc = new BadHttpRequestException(notFoundErrorString, 404);
+            ProcessHttpException(exc, request.GetRawUrl());
         }
 
         /// <summary>Processes the module load exception.</summary>
@@ -130,7 +148,7 @@ namespace DotNetNuke.Services.Exceptions
         /// <param name="exc">The exception.</param>
         public static void ProcessModuleLoadException(PortalModuleBase objPortalModuleBase, Exception exc)
         {
-            ProcessModuleLoadException((Control)objPortalModuleBase, exc);
+            ProcessModuleLoadException((IComponent)objPortalModuleBase, exc);
         }
 
         /// <summary>Processes the module load exception.</summary>
@@ -139,7 +157,7 @@ namespace DotNetNuke.Services.Exceptions
         /// <param name="displayErrorMessage">if set to <see langword="true"/> display error message.</param>
         public static void ProcessModuleLoadException(PortalModuleBase objPortalModuleBase, Exception exc, bool displayErrorMessage)
         {
-            ProcessModuleLoadException((Control)objPortalModuleBase, exc, displayErrorMessage);
+            ProcessModuleLoadException((IComponent)objPortalModuleBase, exc, displayErrorMessage);
         }
 
         /// <summary>Processes the module load exception.</summary>
@@ -149,13 +167,13 @@ namespace DotNetNuke.Services.Exceptions
         /// <param name="displayErrorMessage">if set to <see langword="true"/> display error message.</param>
         public static void ProcessModuleLoadException(string friendlyMessage, PortalModuleBase objPortalModuleBase, Exception exc, bool displayErrorMessage)
         {
-            ProcessModuleLoadException(friendlyMessage, (Control)objPortalModuleBase, exc, displayErrorMessage);
+            ProcessModuleLoadException(friendlyMessage, (IComponent)objPortalModuleBase, exc, displayErrorMessage);
         }
 
         /// <summary>Processes the module load exception.</summary>
         /// <param name="ctrl">The control.</param>
         /// <param name="exc">The exception.</param>
-        public static void ProcessModuleLoadException(Control ctrl, Exception exc)
+        public static void ProcessModuleLoadException(IComponent ctrl, Exception exc)
         {
             // Exit Early if ThreadAbort Exception
             if (ThreadAbortCheck(exc))
@@ -170,7 +188,7 @@ namespace DotNetNuke.Services.Exceptions
         /// <param name="ctrl">The control.</param>
         /// <param name="exc">The exception.</param>
         /// <param name="displayErrorMessage">if set to <see langword="true"/> displays an error message.</param>
-        public static void ProcessModuleLoadException(Control ctrl, Exception exc, bool displayErrorMessage)
+        public static void ProcessModuleLoadException(IComponent ctrl, Exception exc, bool displayErrorMessage)
         {
             // Exit Early if ThreadAbort Exception
             if (ThreadAbortCheck(exc))
@@ -204,7 +222,7 @@ namespace DotNetNuke.Services.Exceptions
         /// <param name="friendlyMessage">The friendly message.</param>
         /// <param name="ctrl">The control.</param>
         /// <param name="exc">The exception.</param>
-        public static void ProcessModuleLoadException(string friendlyMessage, Control ctrl, Exception exc)
+        public static void ProcessModuleLoadException(string friendlyMessage, IComponent ctrl, Exception exc)
         {
             // Exit Early if ThreadAbort Exception
             if (ThreadAbortCheck(exc))
@@ -220,7 +238,7 @@ namespace DotNetNuke.Services.Exceptions
         /// <param name="ctrl">The control.</param>
         /// <param name="exc">The exception.</param>
         /// <param name="displayErrorMessage">if set to <see langword="true"/> display error message.</param>
-        public static void ProcessModuleLoadException(string friendlyMessage, Control ctrl, Exception exc, bool displayErrorMessage)
+        public static void ProcessModuleLoadException(string friendlyMessage, IComponent ctrl, Exception exc, bool displayErrorMessage)
         {
             // Exit Early if ThreadAbort Exception
             if (ThreadAbortCheck(exc))
@@ -240,12 +258,6 @@ namespace DotNetNuke.Services.Exceptions
                     ModuleLoadException lex = null;
                     var friendlyMessageOverride = exc.Message;
 
-                    if (Host.DebugMode && exc is HttpParseException)
-                    {
-                        var httpParseError = (HttpParseException)exc;
-                        friendlyMessageOverride = string.Concat(exc.Message, " in ", httpParseError.VirtualPath, ":line ", httpParseError.Line);
-                    }
-
                     if (ctrlModule == null)
                     {
                         lex = new ModuleLoadException(friendlyMessageOverride, exc);
@@ -263,23 +275,27 @@ namespace DotNetNuke.Services.Exceptions
                     // and just log the exception.
                     if (displayErrorMessage)
                     {
-                        PlaceHolder errorPlaceholder = null;
-                        if (ctrl.Parent != null)
-                        {
-                            errorPlaceholder = (PlaceHolder)ctrl.Parent.FindControl("MessagePlaceHolder");
-                        }
+                        // The message placeholder (injected by UI.Modules.ModuleHost) is found on the
+                        // DNN component tree; a module control that is not part of that tree cannot
+                        // host the message, so the exception is logged above and rethrown here.
+                        var treeControl = ctrl as IDnnControl;
+                        var errorPlaceholder = treeControl?.Parent?.FindControl("MessagePlaceHolder") as IDnnControl;
 
                         if (errorPlaceholder != null)
                         {
                             // hide the module
-                            ctrl.Visible = false;
+                            treeControl.Visible = false;
                             errorPlaceholder.Visible = true;
                             errorPlaceholder.Controls.Add(new ErrorContainer(friendlyMessage, lex).Container);
                         }
-                        else
+                        else if (treeControl != null)
                         {
                             // there's no ErrorPlaceholder, add it to the module's control collection
-                            ctrl.Controls.Add(new ErrorContainer(friendlyMessage, lex).Container);
+                            treeControl.Controls.Add(new ErrorContainer(friendlyMessage, lex).Container);
+                        }
+                        else
+                        {
+                            throw lex;
                         }
                     }
                 }
@@ -335,14 +351,24 @@ namespace DotNetNuke.Services.Exceptions
                 if (!string.IsNullOrEmpty(url))
                 {
                     // redirect
+                    var context = HttpContextSource.Current;
+                    if (context == null)
+                    {
+                        // No request to redirect (e.g. scheduler/background thread). The exception is
+                        // logged above; rethrow so the caller is not left believing it was handled.
+                        throw lex;
+                    }
+
                     if (url.Contains("error=terminate", StringComparison.OrdinalIgnoreCase))
                     {
-                        HttpContext.Current.Response.Clear();
-                        HttpContext.Current.Server.Transfer("~/ErrorPage.aspx");
+                        // Server.Transfer has no ASP.NET Core equivalent. Matching Framework/PageBase,
+                        // the error page is reached by a redirect instead of an in-process transfer.
+                        context.Response.Clear();
+                        context.Response.Redirect(Globals.ResolveUrl(DotNetNuke.Common.ErrorPage.Path));
                     }
                     else
                     {
-                        HttpContext.Current.Response.Redirect(url, true);
+                        context.Response.Redirect(url);
                     }
                 }
             }
@@ -418,7 +444,9 @@ namespace DotNetNuke.Services.Exceptions
         {
             if (exc is ThreadAbortException)
             {
-                Thread.ResetAbort();
+                // Thread.ResetAbort is not supported on modern .NET (SYSLIB0006) and throws
+                // PlatformNotSupportedException; thread aborts no longer exist, so there is nothing
+                // to reset. The detection result is preserved so callers still exit early.
                 return true;
             }
             else
@@ -427,7 +455,7 @@ namespace DotNetNuke.Services.Exceptions
             }
         }
 
-        private static void ProcessHttpException(HttpException exc, string url)
+        private static void ProcessHttpException(BadHttpRequestException exc, string url)
         {
             var notFoundErrorString = Localization.GetString("ResourceNotFound", Localization.SharedResourceFile);
             Logger.ExceptionsProcessHttpException(exc, notFoundErrorString, url);
@@ -438,7 +466,7 @@ namespace DotNetNuke.Services.Exceptions
                 LogTypeKey = nameof(EventLogType.HOST_ALERT),
             };
             log.LogProperties.Add(new LogDetailInfo(notFoundErrorString, "URL"));
-            var context = HttpContext.Current;
+            var context = HttpContextSource.Current;
             if (context != null)
             {
                 log.LogProperties.Add(new LogDetailInfo("URL:", url));

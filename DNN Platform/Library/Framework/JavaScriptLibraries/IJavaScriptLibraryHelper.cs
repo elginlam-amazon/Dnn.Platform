@@ -5,7 +5,6 @@
 namespace DotNetNuke.Framework.JavaScriptLibraries;
 
 using System;
-using System.Web.UI;
 
 /// <summary>Provides the ability to request JavaScript libraries to be registered on a page.</summary>
 public interface IJavaScriptLibraryHelper

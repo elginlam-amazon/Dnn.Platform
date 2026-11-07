@@ -1,0 +1,74 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+@rendermode InteractiveServer
+
+@*
+    Replaces search.ascx. The designer controls map as follows:
+      ClassicSearch / DropDownSearch (HtmlGenericControl span/div) -> the two blocks below, shown by
+        UseDropDownList exactly as OnPreRender set their Visible flags.
+      WebRadioButton / SiteRadioButton (asp:RadioButton GroupName="Search") -> the two radio inputs,
+        which keep the single group name and the ShowWeb/ShowSite visibility rules.
+      txtSearch / txtSearchNew (asp:TextBox) -> the bound text inputs (MaxLength 255, autocomplete
+        off and the localized placeholder the code-behind added through Attributes).
+      cmdSearch / cmdSearchNew (asp:LinkButton CausesValidation="False") -> the two buttons; their
+        Click handlers are ported one to one, which is why this component is interactive.
+      downArrow (dnn:DnnImage IconKey="Action") -> the img below, with the same icon URL
+        (IconController.IconURL("Action")) and the localized alt/title text.
+
+    The inline <script> of the .ascx is not allowed in a Razor component: its body now lives in
+    ~/resources/Search/SearchSkinObjectInit.js and is invoked from OnAfterRenderAsync(firstRender)
+    with the same settings the <%= %> expressions produced.
+*@
+
+@if (!this.Visible)
+{
+    return;
+}
+
+@if (this.ClassicSearchVisible)
+{
+    <span id="ClassicSearch">
+        @if (this.WebRadioButtonVisible)
+        {
+            <input type="radio" id="WebRadioButton" name="Search" class="@this.OptionCssClass" checked="@this.WebRadioButtonChecked" title="@this.WebToolTip" />
+            <label for="WebRadioButton" class="@this.OptionCssClass" title="@this.WebToolTip">@this.WebText</label>
+        }
+        @if (this.SiteRadioButtonVisible)
+        {
+            <input type="radio" id="SiteRadioButton" name="Search" class="@this.OptionCssClass" checked="@this.SiteRadioButtonChecked" title="@this.SiteToolTip" />
+            <label for="SiteRadioButton" class="@this.OptionCssClass" title="@this.SiteToolTip">@this.SiteText</label>
+        }
+        <span class="searchInputContainer" data-moreresults="@this.SeeMoreText" data-noresult="@this.NoResultText">
+            <input type="text" id="txtSearch" class="NormalTextBox" size="20" maxlength="255" aria-label="Search"
+                   autocomplete="off" placeholder="@this.PlaceHolderText" @bind="this.SearchText" @bind:event="oninput" />
+            <a class="dnnSearchBoxClearText" title="@this.ClearQueryText"></a>
+        </span>
+        <button type="button" id="cmdSearch" class="@this.ButtonCssClass" @onclick="this.CmdSearchClickAsync">@((MarkupString)(this.Submit ?? string.Empty))</button>
+    </span>
+}
+
+@if (this.DropDownSearchVisible)
+{
+    <div id="DropDownSearch" class="SearchContainer">
+        <div class="SearchBorder">
+            <div id="SearchIcon" class="SearchIcon">
+                <img id="downArrow" src="@this.DownArrowIconUrl" alt="@this.DownArrowAlternateText" title="@this.DownArrowAlternateText" />
+            </div>
+            <span class="searchInputContainer" data-moreresults="@this.SeeMoreText" data-noresult="@this.NoResultText">
+                <input type="text" id="txtSearchNew" class="SearchTextBox" maxlength="255" aria-label="Search"
+                       autocomplete="off" placeholder="@this.PlaceHolderText" @bind="this.SearchTextNew" @bind:event="oninput" />
+                <a class="dnnSearchBoxClearText" title="@this.ClearQueryText"></a>
+            </span>
+
+            <ul id="SearchChoices">
+                <li id="SearchIconSite">@this.SiteText</li>
+                <li id="SearchIconWeb">@this.WebText</li>
+            </ul>
+        </div>
+        <button type="button" id="cmdSearchNew" class="@this.SearchButtonCssClass" @onclick="this.CmdSearchNewClickAsync">@((MarkupString)(this.Submit ?? string.Empty))</button>
+    </div>
+}

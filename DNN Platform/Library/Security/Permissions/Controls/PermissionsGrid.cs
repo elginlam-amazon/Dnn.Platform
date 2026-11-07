@@ -10,8 +10,6 @@ namespace DotNetNuke.Security.Permissions.Controls
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Security.Permissions;
     using DotNetNuke.Common;
@@ -23,17 +21,33 @@ namespace DotNetNuke.Security.Permissions.Controls
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security.Roles;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI.Utilities;
     using DotNetNuke.UI.WebControls;
     using DotNetNuke.UI.WebControls.Internal;
     using DotNetNuke.Web.Client;
     using DotNetNuke.Web.Client.ClientResourceManagement;
-
+    using Globals = DotNetNuke.Common.Globals;
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
     using Microsoft.Extensions.DependencyInjection;
 
-    using Globals = DotNetNuke.Common.Globals;
-
     /// <summary>A base class for permissions grid controls.</summary>
-    public abstract partial class PermissionsGrid : Control, INamingContainer
+    /// <remarks>
+    /// <para>
+    /// This was a <c>System.Web.UI.Control</c> (an <c>INamingContainer</c>) that built its whole UI
+    /// in <c>CreateChildControls</c>. On ASP.NET Core the platform renders with Blazor, so it is now
+    /// a component deriving from <see cref="UserControlBase"/>: <c>CreateChildControls</c> survives as
+    /// the (still overridable) place where the grids and their columns are configured, and
+    /// <see cref="BuildRenderTree"/> emits the markup the WebForms child controls used to emit.
+    /// </para>
+    /// <para>
+    /// Every permission decision -- <c>GetPermission</c>, <c>GetEnabled</c>, <c>SupportsDenyPermissions</c>,
+    /// <c>IsFullControl</c>, <c>IsViewPermission</c>, the <c>True</c>/<c>False</c>/<c>Null</c> sentinels
+    /// and the key format of <see cref="BuildKey(bool,int,int,int,string)"/> -- is unchanged.
+    /// </para>
+    /// </remarks>
+    public abstract partial class PermissionsGrid : UserControlBase
     {
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
@@ -44,12 +58,16 @@ namespace DotNetNuke.Security.Permissions.Controls
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
         protected const string PermissionTypeNull = "Null";
+
+        /// <summary>The name of the bound column that carries whether a row's delete action renders.</summary>
+        private const string ActionsVisibleColumnName = "ActionsVisible";
+
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
-        protected DataGrid rolePermissionsGrid;
+        protected DNNDataGrid rolePermissionsGrid;
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
-        protected DataGrid userPermissionsGrid;
+        protected DNNDataGrid userPermissionsGrid;
 
         private readonly IServicesFramework servicesFramework;
         private readonly int unAuthUsersRoleId = int.Parse(Globals.glbRoleUnauthUser, CultureInfo.InvariantCulture);
@@ -57,17 +75,23 @@ namespace DotNetNuke.Security.Permissions.Controls
 
         private IList<IPermissionDefinitionInfo> permissions;
         private ArrayList users;
-        private DropDownList cboRoleGroups;
-        private DropDownList cboSelectRole;
-        private LinkButton cmdUser;
-        private LinkButton cmdRole;
-        private Label lblGroups;
-        private Label lblSelectRole;
-        private Label lblErrorMessage;
-        private Panel pnlPermissions;
-        private TextBox txtUser;
-        private HiddenField hiddenUserIds;
-        private HiddenField roleField;
+
+        // These were the child controls the WebForms grid created in CreateChildControls. A Blazor
+        // component renders its markup instead of owning a control tree, so what is left is the
+        // state those controls carried: the two drop down lists' items and selections, the values of
+        // the text box and the two hidden fields the permission grid's client script writes into, and
+        // the error message.
+        private readonly List<GridOption> roleGroupOptions = new List<GridOption>();
+        private readonly List<GridOption> selectRoleOptions = new List<GridOption>();
+        private string selectedRoleGroupValue = "-1";
+        private string selectedRoleValue = string.Empty;
+        private string userNameValue = string.Empty;
+        private string hiddenUserIdsValue = string.Empty;
+        private string roleFieldValue = string.Empty;
+        private string errorMessage = string.Empty;
+        private bool userPermissionsGridVisible;
+        private bool childControlsCreated;
+        private object columnAddedState;
 
         /// <summary>Initializes a new instance of the <see cref="PermissionsGrid"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IServicesFramework. Scheduled removal in v12.0.0.")]
@@ -173,10 +197,15 @@ namespace DotNetNuke.Security.Permissions.Controls
         }
 
         /// <summary>Gets or sets a value indicating whether a Dynamic Column has been added.</summary>
+        /// <remarks>
+        /// Was backed by <c>ViewState["ColumnAdded"]</c>. The (long standing) semantics are
+        /// preserved exactly: the getter reports whether the setter has ever been called, whatever
+        /// value it was called with.
+        /// </remarks>
         public bool DynamicColumnAdded
         {
-            get => this.ViewState["ColumnAdded"] != null;
-            set => this.ViewState["ColumnAdded"] = value;
+            get => this.columnAddedState != null;
+            set => this.columnAddedState = value;
         }
 
         /// <summary>Gets the underlying Permissions Data Table.</summary>
@@ -196,6 +225,14 @@ namespace DotNetNuke.Security.Permissions.Controls
 
         /// <summary>Gets or sets the ResourceFile to localize permissions.</summary>
         public string ResourceFile { get; set; }
+
+        /// <summary>Gets the DOM id of this grid, used by its client script.</summary>
+        /// <remarks>
+        /// Replaces <c>Control.ClientID</c>. There is no naming container to derive an id from any
+        /// more, so a unique one is generated per instance; it is still rendered onto the wrapper
+        /// element and still handed to <c>dnn.permissionGridManager</c>.
+        /// </remarks>
+        public string ClientID { get; } = "PermissionsGrid_" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
         /// <summary>Gets a value indicating whether the implementation supports the APIs using <see cref="IPermissionDefinitionInfo"/>, rather than <see cref="PermissionInfoBase"/>.</summary>
         protected virtual bool SupportsPermissionsAbstractions => false;
@@ -218,7 +255,14 @@ namespace DotNetNuke.Security.Permissions.Controls
         /// </remarks>
         public void RegisterScriptsForAjaxPanel()
         {
-            PermissionTriState.RegisterScripts(this.Page, this);
+            // The control arguments became the Client API abstractions (see Specialist 8's notes):
+            // the page is resolved from the current request, and PermissionTriState only uses the
+            // control argument to look up localized tool tips, which it does without it.
+            var page = ClientApiPageAccessor.GetPage(HttpContextSource.Current, nameof(this.RegisterScriptsForAjaxPanel));
+            if (page != null)
+            {
+                PermissionTriState.RegisterScripts(page, page);
+            }
         }
 
         /// <summary>Generate the Data Grid.</summary>
@@ -325,8 +369,14 @@ namespace DotNetNuke.Security.Permissions.Controls
             return key;
         }
 
-        /// <inheritdoc />
-        protected override void CreateChildControls()
+        /// <summary>Creates and configures the two permission grids and the add role/user controls.</summary>
+        /// <remarks>
+        /// Was <c>Control.CreateChildControls</c>. It no longer builds a control tree -- the markup is
+        /// emitted by <see cref="BuildRenderTree"/> -- but it is still the single place where the
+        /// grids, their columns and the role group filter are set up, and it is still the method the
+        /// derived grids override to attach their own behaviour.
+        /// </remarks>
+        protected virtual void CreateChildControls()
         {
             this.permissions = this.SupportsPermissionsAbstractions
                 ? this.GetPermissionDefinitions()
@@ -334,12 +384,10 @@ namespace DotNetNuke.Security.Permissions.Controls
                 : this.GetPermissions().Cast<IPermissionDefinitionInfo>().ToList();
 #pragma warning restore CS0618 // Type or member is obsolete
 
-            this.pnlPermissions = new Panel { CssClass = "dnnGrid dnnPermissionsGrid", };
-
             // Optionally Add Role Group Filter
             this.CreateAddRoleControls();
 
-            this.rolePermissionsGrid = new DataGrid
+            this.rolePermissionsGrid = new DNNDataGrid
             {
                 AutoGenerateColumns = false,
                 CellSpacing = 0,
@@ -351,14 +399,12 @@ namespace DotNetNuke.Security.Permissions.Controls
             this.rolePermissionsGrid.HeaderStyle.CssClass = "dnnGridHeader";
             this.rolePermissionsGrid.ItemStyle.CssClass = "dnnGridItem";
             this.rolePermissionsGrid.AlternatingItemStyle.CssClass = "dnnGridAltItem";
-            this.rolePermissionsGrid.ItemDataBound += this.RolePermissionsGrid_ItemDataBound;
             this.SetUpRolesGrid();
-            this.pnlPermissions.Controls.Add(this.rolePermissionsGrid);
 
             this.users = this.GetUsers();
             if (this.users != null)
             {
-                this.userPermissionsGrid = new DataGrid
+                this.userPermissionsGrid = new DNNDataGrid
                 {
                     AutoGenerateColumns = false,
                     CellSpacing = 0,
@@ -371,28 +417,7 @@ namespace DotNetNuke.Security.Permissions.Controls
                 this.userPermissionsGrid.AlternatingItemStyle.CssClass = "dnnGridAltItem";
 
                 this.SetUpUsersGrid();
-                this.pnlPermissions.Controls.Add(this.userPermissionsGrid);
-
-                var divAddUser = new Panel { CssClass = "dnnFormItem" };
-
-                this.lblErrorMessage = new Label { Text = Localization.GetString("DisplayName") };
-                this.txtUser = new TextBox { ID = "txtUser" };
-                this.lblErrorMessage.AssociatedControlID = this.txtUser.ID;
-
-                this.hiddenUserIds = new HiddenField { ID = "hiddenUserIds" };
-
-                divAddUser.Controls.Add(this.lblErrorMessage);
-                divAddUser.Controls.Add(this.txtUser);
-                divAddUser.Controls.Add(this.hiddenUserIds);
-
-                this.cmdUser = new LinkButton { Text = Localization.GetString("Add"), CssClass = "dnnSecondaryAction" };
-                divAddUser.Controls.Add(this.cmdUser);
-                this.cmdUser.Click += this.AddUser;
-
-                this.pnlPermissions.Controls.Add(divAddUser);
             }
-
-            this.Controls.Add(this.pnlPermissions);
         }
 
         /// <summary>Gets the Enabled status of the permission.</summary>
@@ -600,34 +625,45 @@ namespace DotNetNuke.Security.Permissions.Controls
         protected virtual bool IsViewPermission(IPermissionDefinitionInfo permissionDefinition) => false;
 
         /// <inheritdoc />
+        /// <remarks>
+        /// The client resources are registered against the current request rather than against
+        /// <c>this.Page</c> (see Specialist 8's notes). The grid's start-up script also moved here
+        /// from <c>OnPreRender</c>, because <c>OnPreRender</c> now runs after the first render, by
+        /// which time there is no request to register page state against.
+        /// </remarks>
         protected override void OnInit(EventArgs e)
         {
             base.OnInit(e);
 
             this.servicesFramework.RequestAjaxAntiForgerySupport();
 
-            ClientResourceManager.RegisterScript(this.Page, "~/Resources/Shared/Components/Tokeninput/jquery.tokeninput.js");
-            ClientResourceManager.RegisterScript(this.Page, "~/js/dnn.permissiongrid.js");
+            var context = HttpContextSource.Current;
 
-            ClientResourceManager.RegisterStyleSheet(this.Page, "~/Resources/Shared/Components/Tokeninput/Themes/token-input-facebook.css", FileOrder.Css.ResourceCss);
+            ClientResourceManager.RegisterScript(context, "~/resources/Shared/Components/Tokeninput/jquery.tokeninput.js");
+            ClientResourceManager.RegisterScript(context, "~/js/dnn.permissiongrid.js");
+
+            ClientResourceManager.RegisterStyleSheet(context, "~/resources/Shared/Components/Tokeninput/Themes/token-input-facebook.css", FileOrder.Css.ResourceCss);
+
+            var script = "var pgm = new dnn.permissionGridManager('" + this.ClientID + "');";
+            var page = ClientApiPageAccessor.GetPage(context, nameof(PermissionsGrid));
+            if (page != null)
+            {
+                // Both WebForms branches (ScriptManager.RegisterStartupScript and
+                // Page.ClientScript.RegisterStartupScript) registered the very same keyed start-up
+                // script; on ASP.NET Core there is a single registry for it.
+                ClientAPI.RegisterStartUpScript(
+                    page,
+                    this.ClientID + "PermissionGridManager",
+                    "<script type=\"text/javascript\">" + script + "</script>");
+            }
         }
 
         /// <summary>Overrides the base OnPreRender method to Bind the Grid to the Permissions.</summary>
         /// <param name="e">The event arguments.</param>
         protected override void OnPreRender(EventArgs e)
         {
+            base.OnPreRender(e);
             this.BindData();
-
-            var script = "var pgm = new dnn.permissionGridManager('" + this.ClientID + "');";
-            if (ScriptManager.GetCurrent(this.Page) != null)
-            {
-                // respect MS AJAX
-                ScriptManager.RegisterStartupScript(this.Page, this.GetType(), this.ClientID + "PermissionGridManager", script, true);
-            }
-            else
-            {
-                this.Page.ClientScript.RegisterStartupScript(this.GetType(), this.ClientID + "PermissionGridManager", script, true);
-            }
         }
 
         /// <summary>Update the <paramref name="permission"/> with the <paramref name="settings"/>.</summary>
@@ -840,7 +876,7 @@ namespace DotNetNuke.Security.Permissions.Controls
         /// <param name="e">The event arguments.</param>
         protected virtual void RoleGroupsSelectedIndexChanged(object sender, EventArgs e)
         {
-            this.FillSelectRoleComboBox(int.Parse(this.cboRoleGroups.SelectedValue, CultureInfo.InvariantCulture));
+            this.FillSelectRoleComboBox(int.Parse(this.selectedRoleGroupValue, CultureInfo.InvariantCulture));
         }
 
         /// <summary>AddUser runs when the Add user linkbutton is clicked.</summary>
@@ -849,9 +885,9 @@ namespace DotNetNuke.Security.Permissions.Controls
         protected virtual void AddUser(object sender, EventArgs e)
         {
             this.UpdatePermissions();
-            if (!string.IsNullOrEmpty(this.hiddenUserIds.Value))
+            if (!string.IsNullOrEmpty(this.hiddenUserIdsValue))
             {
-                foreach (var id in this.hiddenUserIds.Value.Split(','))
+                foreach (var id in this.hiddenUserIdsValue.Split(','))
                 {
                     var userId = Convert.ToInt32(id, CultureInfo.InvariantCulture);
                     var user = UserController.GetUserById(this.PortalId, userId);
@@ -862,7 +898,7 @@ namespace DotNetNuke.Security.Permissions.Controls
                     }
                 }
 
-                this.txtUser.Text = this.hiddenUserIds.Value = string.Empty;
+                this.userNameValue = this.hiddenUserIdsValue = string.Empty;
             }
         }
 
@@ -1063,6 +1099,9 @@ namespace DotNetNuke.Security.Permissions.Controls
             // Add Roles Column
             this.dtRolePermissions.Columns.Add(new DataColumn("RoleName"));
 
+            // Carries the decision the WebForms ItemDataBound handlers used to take after binding.
+            this.dtRolePermissions.Columns.Add(new DataColumn(ActionsVisibleColumnName, typeof(bool)));
+
             foreach (var permissionInfo in this.permissions)
             {
                 // Add Enabled Column
@@ -1081,6 +1120,7 @@ namespace DotNetNuke.Security.Permissions.Controls
                 var row = this.dtRolePermissions.NewRow();
                 row["RoleId"] = role.RoleID;
                 row["RoleName"] = Localization.LocalizeRole(role.RoleName);
+                row[ActionsVisibleColumnName] = this.GetRoleActionsVisible(role.RoleID);
                 int j;
                 for (j = 0; j <= this.permissions.Count - 1; j++)
                 {
@@ -1106,7 +1146,7 @@ namespace DotNetNuke.Security.Permissions.Controls
                 this.dtRolePermissions.Rows.Add(row);
             }
 
-            this.rolePermissionsGrid.DataSource = this.dtRolePermissions;
+            this.rolePermissionsGrid.DataSource = this.dtRolePermissions.DefaultView;
             this.rolePermissionsGrid.DataBind();
         }
 
@@ -1122,6 +1162,9 @@ namespace DotNetNuke.Security.Permissions.Controls
             // Add Roles Column
             col = new DataColumn("DisplayName");
             this.dtUserPermissions.Columns.Add(col);
+
+            // Carries the decision the WebForms ItemDataBound handlers used to take after binding.
+            this.dtUserPermissions.Columns.Add(new DataColumn(ActionsVisibleColumnName, typeof(bool)));
             int i;
             for (i = 0; i <= this.permissions.Count - 1; i++)
             {
@@ -1143,7 +1186,7 @@ namespace DotNetNuke.Security.Permissions.Controls
 
                 if (this.users.Count != 0)
                 {
-                    this.userPermissionsGrid.Visible = true;
+                    this.userPermissionsGridVisible = true;
                     DataRow row;
                     for (i = 0; i <= this.users.Count - 1; i++)
                     {
@@ -1151,6 +1194,7 @@ namespace DotNetNuke.Security.Permissions.Controls
                         row = this.dtUserPermissions.NewRow();
                         row["UserId"] = user.UserID;
                         row["DisplayName"] = user.DisplayName;
+                        row[ActionsVisibleColumnName] = this.GetUserActionsVisible(user.UserID);
                         int j;
                         for (j = 0; j <= this.permissions.Count - 1; j++)
                         {
@@ -1176,15 +1220,15 @@ namespace DotNetNuke.Security.Permissions.Controls
                         this.dtUserPermissions.Rows.Add(row);
                     }
 
-                    this.userPermissionsGrid.DataSource = this.dtUserPermissions;
+                    this.userPermissionsGrid.DataSource = this.dtUserPermissions.DefaultView;
                     this.userPermissionsGrid.DataBind();
                 }
                 else
                 {
                     this.dtUserPermissions.Rows.Clear();
-                    this.userPermissionsGrid.DataSource = this.dtUserPermissions;
+                    this.userPermissionsGrid.DataSource = this.dtUserPermissions.DefaultView;
                     this.userPermissionsGrid.DataBind();
-                    this.userPermissionsGrid.Visible = false;
+                    this.userPermissionsGridVisible = false;
                 }
             }
         }
@@ -1230,7 +1274,7 @@ namespace DotNetNuke.Security.Permissions.Controls
             return permissionCollection?.Select(p => p.RoleId).Distinct() ?? new List<int>();
         }
 
-        private void SetUpGrid(DataGrid grid, string nameColumnDataField, string idColumnDataField, string permissionHeaderText)
+        private void SetUpGrid(DNNDataGrid grid, string nameColumnDataField, string idColumnDataField, string permissionHeaderText)
         {
             grid.Columns.Clear();
             grid.Columns.Add(new BoundColumn
@@ -1276,6 +1320,14 @@ namespace DotNetNuke.Security.Permissions.Controls
                 IconSize = "16x16",
                 IconStyle = "PermissionGrid",
                 HeaderText = Localization.GetString("PermissionActionsHeader.Text", PermissionProvider.Instance().LocalResourceFile),
+
+                // The WebForms grids hid the delete button after binding, by walking the bound row's
+                // control tree and setting the ImageButton's Visible to false (see the
+                // RolePermissionsGrid_ItemDataBound handlers of this class and of the derived grids).
+                // There is no control tree to walk now, so the very same decision is taken while the
+                // row is built, through GetRoleActionsVisible/GetUserActionsVisible, and carried in
+                // the bound record's ActionsVisible column.
+                VisibleField = ActionsVisibleColumnName,
             };
             grid.Columns.Add(actionsColumn);
             grid.ItemCommand += this.Grid_ItemCommand;
@@ -1339,7 +1391,7 @@ namespace DotNetNuke.Security.Permissions.Controls
 
         private void FillSelectRoleComboBox(int selectedRoleGroupId)
         {
-            this.cboSelectRole.Items.Clear();
+            this.selectRoleOptions.Clear();
             var portalSettings = PortalController.Instance.GetCurrentSettings();
             var groupRoles = (selectedRoleGroupId > -2) ? RoleController.Instance.GetRoles(portalSettings.PortalId, r => r.RoleGroupID == selectedRoleGroupId && r.SecurityMode != SecurityMode.SocialGroup && r.Status == RoleStatus.Approved)
                 : RoleController.Instance.GetRoles(portalSettings.PortalId, r => r.SecurityMode != SecurityMode.SocialGroup && r.Status == RoleStatus.Approved);
@@ -1359,43 +1411,21 @@ namespace DotNetNuke.Security.Permissions.Controls
 
             foreach (var role in roleList)
             {
-                this.cboSelectRole.Items.Add(new ListItem(role.Key, role.Value.ToString(CultureInfo.InvariantCulture)));
+                this.selectRoleOptions.Add(new GridOption(role.Key, role.Value.ToString(CultureInfo.InvariantCulture)));
             }
 
             int[] defaultRoleIds = [this.AllUsersRoleId, portalSettings.RegisteredRoleId, portalSettings.AdministratorRoleId,];
-            var itemToSelect = this.cboSelectRole.Items.Cast<ListItem>().FirstOrDefault(i => !defaultRoleIds.Contains(int.Parse(i.Value, CultureInfo.InvariantCulture)));
+            var itemToSelect = this.selectRoleOptions.FirstOrDefault(i => !defaultRoleIds.Contains(int.Parse(i.Value, CultureInfo.InvariantCulture)));
             if (itemToSelect != null)
             {
-                this.cboSelectRole.SelectedValue = itemToSelect.Value;
+                this.selectedRoleValue = itemToSelect.Value;
             }
         }
 
         private void SetErrorMessage(string errorKey)
         {
-            this.lblErrorMessage = new Label
-            {
-                // TODO Remove DEBUG test
-                Text = "<br />" + (errorKey.StartsWith("DEBUG", StringComparison.Ordinal) ? errorKey : Localization.GetString(errorKey)),
-                CssClass = "NormalRed",
-            };
-            this.pnlPermissions.Controls.Add(this.lblErrorMessage);
-        }
-
-        private void RolePermissionsGrid_ItemDataBound(object sender, DataGridItemEventArgs e)
-        {
-            var item = e.Item;
-
-            if (item.ItemType is ListItemType.Item or ListItemType.AlternatingItem or ListItemType.SelectedItem)
-            {
-                var roleId = int.Parse(((DataRowView)item.DataItem)[0].ToString(), CultureInfo.InvariantCulture);
-                if (roleId == PortalSettings.Current.AdministratorRoleId || roleId == this.AllUsersRoleId || roleId == PortalSettings.Current.RegisteredRoleId)
-                {
-                    if (item.Controls.Cast<Control>().Last().Controls[0] is ImageButton actionImage)
-                    {
-                        actionImage.Visible = false;
-                    }
-                }
-            }
+            // TODO Remove DEBUG test
+            this.errorMessage = "<br />" + (errorKey.StartsWith("DEBUG", StringComparison.Ordinal) ? errorKey : Localization.GetString(errorKey));
         }
 
         private void CreateAddRoleControls()
@@ -1403,51 +1433,31 @@ namespace DotNetNuke.Security.Permissions.Controls
             var portalSettings = PortalController.Instance.GetCurrentSettings();
             var arrGroups = RoleController.GetRoleGroups(portalSettings.PortalId);
 
-            var addRoleControls = new Panel { CssClass = "dnnFormItem" };
-            var divRoleGroups = new Panel { CssClass = "leftGroup" };
-            var divSelectRole = new Panel { CssClass = "rightGroup" };
-
-            this.lblGroups = new Label { Text = Localization.GetString("RoleGroupFilter") };
-            this.cboRoleGroups = new DropDownList { AutoPostBack = true, ID = "cboRoleGroups", ViewStateMode = ViewStateMode.Disabled };
-            this.lblGroups.AssociatedControlID = this.cboRoleGroups.ID;
-            divRoleGroups.Controls.Add(this.lblGroups);
-
-            this.cboRoleGroups.SelectedIndexChanged += this.RoleGroupsSelectedIndexChanged;
-            this.cboRoleGroups.Items.Add(new ListItem(Localization.GetString("AllRoles"), "-2"));
-            var liItem = new ListItem(Localization.GetString("GlobalRoles"), "-1") { Selected = true };
-            this.cboRoleGroups.Items.Add(liItem);
+            // The role group drop down list was an AutoPostBack DropDownList; it is now a select
+            // whose change handler calls the very same RoleGroupsSelectedIndexChanged.
+            this.roleGroupOptions.Clear();
+            this.roleGroupOptions.Add(new GridOption(Localization.GetString("AllRoles"), "-2"));
+            this.roleGroupOptions.Add(new GridOption(Localization.GetString("GlobalRoles"), "-1"));
             foreach (RoleGroupInfo roleGroup in arrGroups)
             {
-                this.cboRoleGroups.Items.Add(new ListItem(roleGroup.RoleGroupName, roleGroup.RoleGroupID.ToString(CultureInfo.InvariantCulture)));
+                this.roleGroupOptions.Add(new GridOption(roleGroup.RoleGroupName, roleGroup.RoleGroupID.ToString(CultureInfo.InvariantCulture)));
             }
 
-            divRoleGroups.Controls.Add(this.cboRoleGroups);
-            addRoleControls.Controls.Add(divRoleGroups);
-
-            this.lblSelectRole = new Label { Text = Localization.GetString("RoleSelect") };
-            this.cboSelectRole = new DropDownList { ID = "cboSelectRole", ViewStateMode = ViewStateMode.Disabled };
-            this.lblSelectRole.AssociatedControlID = this.cboSelectRole.ID;
-            divSelectRole.Controls.Add(this.lblSelectRole);
+            this.selectedRoleGroupValue = "-1";
 
             this.FillSelectRoleComboBox(-1); // Default Role Group is Global Roles
-            divSelectRole.Controls.Add(this.cboSelectRole);
-
-            this.cmdRole = new LinkButton { Text = Localization.GetString("Add"), CssClass = "dnnSecondaryAction" };
-            this.cmdRole.Click += this.AddRole;
-            divSelectRole.Controls.Add(this.cmdRole);
-            this.roleField = new HiddenField() { ID = "roleField" };
-            addRoleControls.Controls.Add(this.roleField);
-
-            addRoleControls.Controls.Add(divSelectRole);
-
-            this.pnlPermissions.Controls.Add(addRoleControls);
         }
 
         /// <summary>AddRole runs when the Add Role linkbutton is clicked.</summary>
         private void AddRole(object sender, EventArgs e)
         {
             this.UpdatePermissions();
-            if (!int.TryParse(this.roleField.Value, out var selectedRoleId))
+
+            // The hidden field is written by dnn.permissiongrid.js, which replaces the select with a
+            // token input. When the script did not write it (or could not), the select's own value is
+            // used, which is what the WebForms DropDownList would have posted.
+            var postedRole = !string.IsNullOrEmpty(this.roleFieldValue) ? this.roleFieldValue : this.selectedRoleValue;
+            if (!int.TryParse(postedRole, out var selectedRoleId))
             {
                 // Role not selected
                 this.SetErrorMessage("InvalidRoleId");
@@ -1466,6 +1476,217 @@ namespace DotNetNuke.Security.Permissions.Controls
                 // role does not exist
                 this.SetErrorMessage("RoleNotFound");
             }
+        }
+
+        /// <summary>Gets a value indicating whether the delete action renders for the given role's row.</summary>
+        /// <param name="roleId">The ID of the role of the row.</param>
+        /// <returns><see langword="true"/> when the row may be deleted, otherwise <see langword="false"/>.</returns>
+        /// <remarks>
+        /// Replaces the WebForms <c>RolePermissionsGrid_ItemDataBound</c> handler, which hid the
+        /// delete <c>ImageButton</c> of the administrator, all-users and registered-users rows by
+        /// walking the bound row's control tree. The condition is unchanged.
+        /// </remarks>
+        protected virtual bool GetRoleActionsVisible(int roleId)
+        {
+            return roleId != PortalSettings.Current.AdministratorRoleId
+                && roleId != this.AllUsersRoleId
+                && roleId != PortalSettings.Current.RegisteredRoleId;
+        }
+
+        /// <summary>Gets a value indicating whether the delete action renders for the given user's row.</summary>
+        /// <param name="userId">The ID of the user of the row.</param>
+        /// <returns><see langword="true"/> when the row may be deleted, otherwise <see langword="false"/>.</returns>
+        /// <remarks>The WebForms user grid never hid its delete button, so this is always <see langword="true"/> by default.</remarks>
+        protected virtual bool GetUserActionsVisible(int userId) => true;
+
+        /// <summary>Binds this grid to its permissions.</summary>
+        /// <remarks>
+        /// Replaces <c>Control.DataBind()</c>, which bound the child controls. The derived grids
+        /// override it to refresh their permission collection first, so it stays virtual.
+        /// </remarks>
+        public virtual void DataBind()
+        {
+            this.BindData();
+        }
+
+        /// <summary>Saves the state of this grid.</summary>
+        /// <returns>The state, or <see langword="null"/>.</returns>
+        /// <remarks>
+        /// Was <c>Control.SaveViewState()</c>. There is no view state on ASP.NET Core, but the
+        /// derived grids persist their permission collections through this protocol, so it survives
+        /// as an explicit, overridable pair of methods: a host that needs to round-trip a grid over
+        /// something other than a Blazor circuit (see <c>DotNetNuke.Framework.PageStatePersister</c>)
+        /// can call them. The state produced by the derived grids is the same string of permission
+        /// keys as before, so nothing about the format changed.
+        /// </remarks>
+        protected virtual object SaveViewState() => null;
+
+        /// <summary>Restores the state of this grid.</summary>
+        /// <param name="savedState">The state previously returned by <see cref="SaveViewState"/>.</param>
+        /// <remarks>See <see cref="SaveViewState"/>.</remarks>
+        protected virtual void LoadViewState(object savedState)
+        {
+        }
+
+        /// <summary>Creates the child controls once, if they have not been created yet.</summary>
+        /// <remarks>Replaces <c>Control.EnsureChildControls()</c>, with the same "exactly once" semantics.</remarks>
+        protected void EnsureChildControls()
+        {
+            if (this.childControlsCreated)
+            {
+                return;
+            }
+
+            this.childControlsCreated = true;
+            this.CreateChildControls();
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// Emits what the WebForms child control tree emitted: the permissions panel, the role group
+        /// filter and role picker, the two grid tables (through
+        /// <see cref="DNNDataGrid.RenderTable"/>) and the add-user controls.
+        /// </remarks>
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+
+            this.EnsureChildControls();
+
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "id", this.ClientID);
+            builder.AddAttribute(2, "class", "dnnGrid dnnPermissionsGrid");
+
+            // Add role controls (was CreateAddRoleControls' panel).
+            builder.OpenElement(3, "div");
+            builder.AddAttribute(4, "class", "dnnFormItem");
+
+            builder.OpenElement(5, "div");
+            builder.AddAttribute(6, "class", "leftGroup");
+            this.RenderLabel(builder, 7, "cboRoleGroups", Localization.GetString("RoleGroupFilter"));
+            this.RenderSelect(builder, 10, "cboRoleGroups", this.selectedRoleGroupValue, this.roleGroupOptions, this.RoleGroupChanged);
+            builder.CloseElement();
+
+            // The permission grid's client script writes the selected role into this field.
+            builder.OpenElement(20, "input");
+            builder.AddAttribute(21, "type", "hidden");
+            builder.AddAttribute(22, "id", this.ClientID + "_roleField");
+            builder.AddAttribute(23, "name", "roleField");
+            builder.AddAttribute(24, "value", this.roleFieldValue);
+            builder.AddAttribute(25, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, args => this.roleFieldValue = args?.Value?.ToString() ?? string.Empty));
+            builder.CloseElement();
+
+            builder.OpenElement(30, "div");
+            builder.AddAttribute(31, "class", "rightGroup");
+            this.RenderLabel(builder, 32, "cboSelectRole", Localization.GetString("RoleSelect"));
+            this.RenderSelect(builder, 35, "cboSelectRole", this.selectedRoleValue, this.selectRoleOptions, this.SelectRoleChanged);
+            this.RenderActionLink(builder, 45, Localization.GetString("Add"), EventCallback.Factory.Create<MouseEventArgs>(this, () => this.AddRole(this, EventArgs.Empty)));
+            builder.CloseElement();
+
+            builder.CloseElement();
+
+            if (this.rolePermissionsGrid != null)
+            {
+                builder.AddContent(100, this.rolePermissionsGrid.RenderTable());
+            }
+
+            if (this.users != null && this.userPermissionsGrid != null)
+            {
+                if (this.userPermissionsGridVisible)
+                {
+                    builder.AddContent(200, this.userPermissionsGrid.RenderTable());
+                }
+
+                builder.OpenElement(300, "div");
+                builder.AddAttribute(301, "class", "dnnFormItem");
+                this.RenderLabel(builder, 302, "txtUser", Localization.GetString("DisplayName"));
+
+                builder.OpenElement(305, "input");
+                builder.AddAttribute(306, "type", "text");
+                builder.AddAttribute(307, "id", this.ClientID + "_txtUser");
+                builder.AddAttribute(308, "name", "txtUser");
+                builder.AddAttribute(309, "value", this.userNameValue);
+                builder.AddAttribute(310, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, args => this.userNameValue = args?.Value?.ToString() ?? string.Empty));
+                builder.CloseElement();
+
+                // The token input writes the picked user IDs into this field.
+                builder.OpenElement(315, "input");
+                builder.AddAttribute(316, "type", "hidden");
+                builder.AddAttribute(317, "id", this.ClientID + "_hiddenUserIds");
+                builder.AddAttribute(318, "name", "hiddenUserIds");
+                builder.AddAttribute(319, "value", this.hiddenUserIdsValue);
+                builder.AddAttribute(320, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, args => this.hiddenUserIdsValue = args?.Value?.ToString() ?? string.Empty));
+                builder.CloseElement();
+
+                this.RenderActionLink(builder, 325, Localization.GetString("Add"), EventCallback.Factory.Create<MouseEventArgs>(this, () => this.AddUser(this, EventArgs.Empty)));
+
+                builder.CloseElement();
+            }
+
+            if (!string.IsNullOrEmpty(this.errorMessage))
+            {
+                builder.OpenElement(400, "span");
+                builder.AddAttribute(401, "class", "NormalRed");
+                builder.AddContent(402, new MarkupString(this.errorMessage));
+                builder.CloseElement();
+            }
+
+            builder.CloseElement();
+        }
+
+        private void RenderLabel(RenderTreeBuilder builder, int sequence, string forControl, string text)
+        {
+            builder.OpenElement(sequence, "label");
+            builder.AddAttribute(sequence + 1, "for", this.ClientID + "_" + forControl);
+            builder.AddContent(sequence + 2, text);
+            builder.CloseElement();
+        }
+
+        private void RenderSelect(RenderTreeBuilder builder, int sequence, string id, string selectedValue, List<GridOption> options, Action<ChangeEventArgs> onChange)
+        {
+            builder.OpenElement(sequence, "select");
+            builder.AddAttribute(sequence + 1, "id", this.ClientID + "_" + id);
+            builder.AddAttribute(sequence + 2, "name", id);
+            builder.AddAttribute(sequence + 3, "value", selectedValue);
+            builder.AddAttribute(sequence + 4, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, onChange));
+
+            var optionSequence = sequence + 5;
+            foreach (var option in options)
+            {
+                builder.OpenElement(optionSequence, "option");
+                builder.AddAttribute(optionSequence + 1, "value", option.Value);
+                if (option.Value == selectedValue)
+                {
+                    builder.AddAttribute(optionSequence + 2, "selected", true);
+                }
+
+                builder.AddContent(optionSequence + 3, option.Text);
+                builder.CloseElement();
+                optionSequence += 4;
+            }
+
+            builder.CloseElement();
+        }
+
+        private void RenderActionLink(RenderTreeBuilder builder, int sequence, string text, EventCallback<MouseEventArgs> onClick)
+        {
+            builder.OpenElement(sequence, "button");
+            builder.AddAttribute(sequence + 1, "type", "button");
+            builder.AddAttribute(sequence + 2, "class", "dnnSecondaryAction");
+            builder.AddAttribute(sequence + 3, "onclick", onClick);
+            builder.AddContent(sequence + 4, text);
+            builder.CloseElement();
+        }
+
+        private void RoleGroupChanged(ChangeEventArgs args)
+        {
+            this.selectedRoleGroupValue = args?.Value?.ToString() ?? "-1";
+            this.RoleGroupsSelectedIndexChanged(this, EventArgs.Empty);
+        }
+
+        private void SelectRoleChanged(ChangeEventArgs args)
+        {
+            this.selectedRoleValue = args?.Value?.ToString() ?? string.Empty;
         }
 
         private RoleInfo GetSelectedRole(int selectedRoleId)
@@ -1493,6 +1714,26 @@ namespace DotNetNuke.Security.Permissions.Controls
             }
 
             return role;
+        }
+
+        /// <summary>An option of one of the grid's drop down lists.</summary>
+        /// <remarks>Replaces <c>System.Web.UI.WebControls.ListItem</c>.</remarks>
+        private sealed class GridOption
+        {
+            /// <summary>Initializes a new instance of the <see cref="GridOption"/> class.</summary>
+            /// <param name="text">The display text.</param>
+            /// <param name="value">The value.</param>
+            public GridOption(string text, string value)
+            {
+                this.Text = text;
+                this.Value = value;
+            }
+
+            /// <summary>Gets the display text of this option.</summary>
+            public string Text { get; }
+
+            /// <summary>Gets the value of this option.</summary>
+            public string Value { get; }
         }
     }
 }

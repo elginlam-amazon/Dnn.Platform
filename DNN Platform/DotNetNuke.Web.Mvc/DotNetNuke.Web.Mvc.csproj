@@ -1,10 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
+    <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">../../</SolutionDir>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -17,31 +17,26 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNet.Mvc" />
-    <PackageReference Include="Microsoft.AspNet.WebApi.Core" />
-    <PackageReference Include="Microsoft.AspNet.WebApi.WebHost" />
-    <PackageReference Include="Microsoft.AspNet.WebHelpers" />
-    <PackageReference Include="Microsoft.Web.Infrastructure" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.Web" />
+    <ProjectReference Include="../../DotNetNuke.Internal.SourceGenerators/DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    <ProjectReference Include="../DotNetNuke.Abstractions/DotNetNuke.Abstractions.csproj" />
+    <ProjectReference Include="../DotNetNuke.DependencyInjection/DotNetNuke.DependencyInjection.csproj" />
+    <ProjectReference Include="../DotNetNuke.Instrumentation/DotNetNuke.Instrumentation.csproj" />
+    <ProjectReference Include="../DotNetNuke.Web.Client/DotNetNuke.Web.Client.csproj" />
+    <ProjectReference Include="../HttpModules/DotNetNuke.HttpModules.csproj" />
+    <ProjectReference Include="../Library/DotNetNuke.Library.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
-    <ProjectReference Include="..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
-    <ProjectReference Include="..\DotNetNuke.DependencyInjection\DotNetNuke.DependencyInjection.csproj" />
-    <ProjectReference Include="..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
-    <ProjectReference Include="..\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj" />
-    <ProjectReference Include="..\HttpModules\DotNetNuke.HttpModules.csproj" />
-    <ProjectReference Include="..\Library\DotNetNuke.Library.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <AdditionalFiles Include="..\..\stylecop.json" Link="stylecop.json" />
-    <Compile Include="..\..\SolutionInfo.cs" Link="SolutionInfo.cs" />
+    <AdditionalFiles Include="../../stylecop.json" Link="stylecop.json" />
+    <Compile Include="../../SolutionInfo.cs" Link="SolutionInfo.cs" />
   </ItemGroup>
 
   <Import Project="Library.build" />

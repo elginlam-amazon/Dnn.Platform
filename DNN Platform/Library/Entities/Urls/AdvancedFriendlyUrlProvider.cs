@@ -11,13 +11,15 @@ namespace DotNetNuke.Entities.Urls
     using System.Reflection;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Tabs;
+
+    using Microsoft.AspNetCore.Http;
 
     public class AdvancedFriendlyUrlProvider : FriendlyUrlProviderBase
     {
@@ -274,7 +276,13 @@ namespace DotNetNuke.Entities.Urls
             // 798 : change reference to debug parameters
             if (request != null)
             {
-                debugValue = request.Params.Get("HTTP_" + debugToken);
+                // Request.Params merged QueryString/Form/Cookies/ServerVariables; the
+                // "HTTP_<name>" form is the server-variable spelling of a request header.
+                debugValue = request.Headers[debugToken].ToString();
+                if (string.IsNullOrEmpty(debugValue))
+                {
+                    debugValue = request.GetValue(debugToken);
+                }
             }
 
             if (debugValue == null)
@@ -616,9 +624,12 @@ namespace DotNetNuke.Entities.Urls
                     // should now have a standard /path/path/page.aspx?key=value style of Url
                     httpAliasFull = Globals.AddHTTP(httpAlias);
 
-                    if (HttpContext.Current != null && HttpContext.Current.Items["UrlRewrite:OriginalUrl"] != null)
+                    var httpContext = HttpContextSource.Current;
+                    object originalUrlItem = null;
+                    httpContext?.Items.TryGetValue("UrlRewrite:OriginalUrl", out originalUrlItem);
+                    if (originalUrlItem != null)
                     {
-                        string originalUrl = HttpContext.Current.Items["UrlRewrite:OriginalUrl"].ToString();
+                        string originalUrl = originalUrlItem.ToString();
 
                         // confirming this portal was the original one requested, making all the generated aliases
                         // for the same portal
@@ -1246,16 +1257,17 @@ namespace DotNetNuke.Entities.Urls
             string resultUrl,
             FriendlyUrlSettings settings)
         {
-            if (settings is { AllowDebugCode: true, } && HttpContext.Current != null)
+            var context = HttpContextSource.Current;
+            if (settings is { AllowDebugCode: true, } && context != null)
             {
-                HttpRequest request = HttpContext.Current.Request;
+                HttpRequest request = context.Request;
                 string debugCheck = CheckForDebug(request);
                 if (debugCheck != string.Empty && debugCheck != "false")
                 {
                     int id = DateTime.Now.Millisecond;
 
                     // append the friendly url headers
-                    HttpResponse response = HttpContext.Current.Response;
+                    HttpResponse response = context.Response;
                     string msgId = id.ToString("000", CultureInfo.InvariantCulture);
                     int tabId = -1;
                     string tabName = "null";
@@ -1269,20 +1281,20 @@ namespace DotNetNuke.Entities.Urls
 
                     if (messages is { Count: > 0, })
                     {
-                        response.AppendHeader(
+                        response.Headers.Append(
                             $"X-Friendly-Url-{msgId}.00",
                             $"Messages for Tab {tabId}, {tabName}, {path} calltype:{method}");
 
                         int i = 1;
                         foreach (string msg in messages)
                         {
-                            response.AppendHeader($"X-Friendly-Url-{msgId}.{i:00}", msg);
+                            response.Headers.Append($"X-Friendly-Url-{msgId}.{i:00}", msg);
                             i++;
                         }
 
                         if (resultUrl != null)
                         {
-                            response.AppendHeader(
+                            response.Headers.Append(
                                 $"X-Friendly-Url-{msgId}.99",
                                 $"Path : {path} Generated Url : {resultUrl}");
                         }
@@ -1291,7 +1303,7 @@ namespace DotNetNuke.Entities.Urls
                     {
                         if (debugCheck == "all")
                         {
-                            response.AppendHeader(
+                            response.Headers.Append(
                                 $"X-Friendly-Url-{msgId}.00",
                                 $"Path : {path} Generated Url: {resultUrl}");
                         }

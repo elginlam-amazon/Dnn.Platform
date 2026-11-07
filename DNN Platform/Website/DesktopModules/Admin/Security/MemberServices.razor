@@ -1,0 +1,106 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* Replaces MemberServices.ascx + MemberServices.ascx.cs + MemberServices.ascx.designer.cs.
+
+   <asp:datagrid id="grdServices"> becomes a @@foreach over the same data source
+   (RoleController.Instance.GetUserRoles(UserInfo, false)). The seven columns are rendered in their
+   original order with their original content expressions - the DataBinder.Eval calls become direct
+   property reads on the UserRoleInfo row, and every Format*/ServiceText/Show* helper is called with
+   exactly the same arguments it was called with from the item templates:
+
+     1. subscribe / unsubscribe / renew link   text+command = ServiceText(Subscribed, ExpiryDate)
+                                               shown when ShowSubscribe(RoleID)
+     2. use-trial link ("UseTrial" command)    shown when ShowTrial(RoleID)
+     3. RoleName                               header "Name"
+     4. Description                            header "Description"
+     5. FormatPrice(ServiceFee, BillingPeriod, BillingFrequency)   header "Fee"
+     6. FormatTrial(TrialFee, TrialPeriod, TrialFrequency)         header "Trial"
+     7. FormatExpiryDate(ExpiryDate)                               header "ExpiryDate"
+
+   The headers were localized by Localization.LocalizeDataGrid, which looks up "<HeaderText>.Header"
+   in the local resource file and keeps the literal when there is no entry; LocalizeHeader() does
+   exactly that, so the same resource keys (Name.Header, Description.Header, Fee.Header,
+   Trial.Header, ExpiryDate.Header) are still used. The dnnGridHeader / dnnGridItem / dnnGridAltItem
+   / dnnGridFooter CSS classes the grid styles applied are kept, including the alternating-row class.
+
+   ViewStateMode="Disabled" is moot - there is no view state. The grid's unused footer/pager/edit/
+   selected styles have nothing to render against and are dropped with the grid itself. *@
+
+@namespace DotNetNuke.Modules.Admin.Security
+@inherits DotNetNuke.Entities.Modules.UserModuleBase
+
+@using DotNetNuke.Security.Roles
+@using DotNetNuke.UI.UserControls
+
+<div class="dnnForm dnnServices dnnClear" id="dnnServices">
+    <fieldset>
+        <div class="dnnFormItem">
+            <span id="lblServicesHelp">@this.LocalizeText("ServicesHelp.Text")</span>
+        </div>
+        @if (this.servicesRowVisible)
+        {
+            <div id="ServicesRow" class="dnnFormItem">
+                <table id="grdServices" cellpadding="4" border="0" summary="Register Design Table">
+                    <thead>
+                        <tr class="dnnGridHeader">
+                            <th></th>
+                            <th></th>
+                            <th>@this.LocalizeHeader("Name")</th>
+                            <th>@this.LocalizeHeader("Description")</th>
+                            <th>@this.LocalizeHeader("Fee")</th>
+                            <th>@this.LocalizeHeader("Trial")</th>
+                            <th>@this.LocalizeHeader("ExpiryDate")</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (var rowIndex = 0; rowIndex < this.services.Count; rowIndex++)
+                        {
+                            var row = this.services[rowIndex];
+                            var serviceText = this.ServiceText(row.Subscribed, row.ExpiryDate);
+                            <tr class="@(rowIndex % 2 == 0 ? "dnnGridItem" : "dnnGridAltItem")">
+                                <td>
+                                    @if (this.ShowSubscribe(row.RoleID))
+                                    {
+                                        <a class="dnnSecondaryAction" href="javascript:void(0);"
+                                           @onclick="@(() => this.GrdServicesItemCommand(serviceText, row.RoleID))"
+                                           @onclick:preventDefault="true">@serviceText</a>
+                                    }
+                                </td>
+                                <td>
+                                    @if (this.ShowTrial(row.RoleID))
+                                    {
+                                        <a class="dnnSecondaryAction" href="javascript:void(0);"
+                                           @onclick="@(() => this.GrdServicesItemCommand("UseTrial", row.RoleID))"
+                                           @onclick:preventDefault="true">@this.LocalizeText("UseTrial.Text")</a>
+                                    }
+                                </td>
+                                <td>@row.RoleName</td>
+                                <td>@row.Description</td>
+                                <td>@this.FormatPrice(row.ServiceFee, row.BillingPeriod, row.BillingFrequency)</td>
+                                <td>@this.FormatTrial(row.TrialFee, row.TrialPeriod, row.TrialFrequency)</td>
+                                <td>@this.FormatExpiryDate(row.ExpiryDate)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                @if (this.servicesLabelVisible)
+                {
+                    <span id="lblServices">@this.servicesLabelText</span>
+                }
+            </div>
+        }
+        <div class="dnnFormItem">
+            <span id="lblRSVPHelp">@this.LocalizeText("RSVPHelp.Text")</span>
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="plRSVPCode" ControlName="txtRSVPCode" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="text" id="txtRSVPCode" style="width:100px;" maxlength="50" @bind="this.rsvpCode" />
+            <a class="dnnSecondaryAction" id="cmdRSVP" href="javascript:void(0);" @onclick="this.CmdRSVPClick" @onclick:preventDefault="true">@this.LocalizeText("cmdRSVP.Text")</a>
+        </div>
+        <div class="dnnFormItem">
+            <span id="lblRSVP">@this.rsvpMessage</span>
+        </div>
+    </fieldset>
+</div>

@@ -1,0 +1,137 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace Dnn.Modules.Console
+@inherits DotNetNuke.Entities.Modules.ModuleSettingsBase
+
+@*
+    Replaces Settings.ascx, element for element.
+
+    - <%@ Register TagPrefix="dnn" TagName="Label" Src="~/controls/LabelControl.ascx" %> becomes
+      the migrated <LabelControl> component (DotNetNuke.UI.UserControls), with the same
+      ControlName/ResourceKey/Suffix values, so every label resolves the same resource keys
+      (Mode, ParentTab, IncludeParent, tabsLabel, DefaultSize, AllowResize, DefaultView,
+      AllowViewChange, ShowTooltip, OrderTabsByHierarchy, IncludeHiddenPages, ConsoleWidth) out
+      of Resources/Settings.resx.
+    - the four <dnn:DnnComboBox>es (modeList, DefaultSize, DefaultView and the per-row
+      tabVisibility) are plain <select> elements over the same item lists the code behind builds,
+      keeping ListItem's Value/Text and the "nothing selected" state ClearSelection produced.
+      modeList's AutoPostBack="true" + SelectedIndexChanged is the @onchange handler below, which
+      calls the same SwitchMode().
+    - <dnn:DnnPageDropDownList ID="ParentTab" IncludeHostPages="true"> is a <select> over the
+      portal's pages (plus the host pages, for a super user, which is what IncludeHostPages meant)
+      led by the UndefinedItem the code behind set to DynamicSharedConstants.Unspecified with an
+      empty value; SelectedPage / SelectedItemValueAsInt / SelectedItem.Value are preserved on the
+      code behind.
+    - the <asp:Repeater ID="tabs"> ItemTemplate is the @foreach below. Its three controls per item
+      (tabLabel, the tabPath <asp:HiddenField> and the tabVisibility combo) are the TabRow state
+      the code behind binds; the hidden field is kept as a real hidden input so the rendered form
+      is unchanged, while UpdateSettings reads the row's TabPath directly as it read the field.
+    - the three runat="server" row <div>s (parentTabRow, includeParentRow, tabVisibilityRow) had
+      their Visible set by SwitchMode(); those are the @if guards.
+    - every <asp:Checkbox> is a checkbox input keeping the server control's ID as its element id
+      (which is what each label's ControlName pointed at) bound to the matching state.
+*@
+
+<div class="dnnForm dnnConsole dnnClear">
+    <div class="dnnFormItem">
+        <LabelControl ID="Label1" ControlName="ParentTab" ResourceKey="Mode" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <select id="modeList" @onchange="this.ModeListSelectedIndexChanged">
+            @foreach (var item in this.ModeItems)
+            {
+                <option value="@item.Value" selected="@(item.Value == this.ModeSelectedValue)">@item.Text</option>
+            }
+        </select>
+    </div>
+    @if (this.ParentTabRowVisible)
+    {
+        <div id="parentTabRow" class="dnnFormItem">
+            <LabelControl ID="lblParentTab" ControlName="ParentTab" ResourceKey="ParentTab" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+            <select id="ParentTab" @onchange="this.ParentTabSelectedIndexChanged">
+                @foreach (var item in this.ParentTabItems)
+                {
+                    <option value="@item.Value" selected="@(item.Value == this.ParentTabSelectedValue)">@item.Text</option>
+                }
+            </select>
+        </div>
+    }
+    @if (this.IncludeParentRowVisible)
+    {
+        <div id="includeParentRow" class="dnnFormItem">
+            <LabelControl ID="lblIncludeParent" ControlName="IncludeParent" ResourceKey="IncludeParent" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="checkbox" id="IncludeParent" checked="@this.IncludeParentChecked"
+                   @onchange="(ChangeEventArgs args) => { this.IncludeParentChecked = Convert.ToBoolean(args.Value); }" />
+        </div>
+    }
+    @if (this.TabVisibilityRowVisible)
+    {
+        <div id="tabVisibilityRow" class="dnnFormItem">
+            <LabelControl ID="tabsLabel" ControlName="groupTabs" LocalResourceFile="@this.LocalResourceFile" /><br />
+            <div class="dnnLeft tabVisibilityRow">
+                @foreach (var row in this.TabRows)
+                {
+                    var tabRow = row;
+                    <div class="tabVisibilityRowItem">
+                        <label id="@("tabLabel_" + tabRow.ElementSuffix)" class="dnnFormLabel">@tabRow.TabName</label>
+                        <input type="hidden" id="@("tabPath_" + tabRow.ElementSuffix)" value="@tabRow.TabPath" />
+                        <select id="@("tabVisibility_" + tabRow.ElementSuffix)"
+                                @onchange="(ChangeEventArgs args) => { tabRow.VisibilitySelectedValue = args.Value?.ToString(); }">
+                            @foreach (var item in tabRow.VisibilityItems)
+                            {
+                                <option value="@item.Value" selected="@(item.Value == tabRow.VisibilitySelectedValue)">@item.Text</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    <div class="dnnFormItem">
+        <LabelControl ID="lblDefaultSize" ControlName="DefaultSize" ResourceKey="DefaultSize" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <select id="DefaultSize" @onchange="(ChangeEventArgs args) => { this.DefaultSizeSelectedValue = args.Value?.ToString(); }">
+            @foreach (var item in this.DefaultSizeItems)
+            {
+                <option value="@item.Value" selected="@(item.Value == this.DefaultSizeSelectedValue)">@item.Text</option>
+            }
+        </select>
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblAllowResize" ControlName="AllowResize" ResourceKey="AllowResize" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="AllowResize" checked="@this.AllowResizeChecked"
+               @onchange="(ChangeEventArgs args) => { this.AllowResizeChecked = Convert.ToBoolean(args.Value); }" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblDefaultView" ControlName="DefaultView" ResourceKey="DefaultView" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <select id="DefaultView" @onchange="(ChangeEventArgs args) => { this.DefaultViewSelectedValue = args.Value?.ToString(); }">
+            @foreach (var item in this.DefaultViewItems)
+            {
+                <option value="@item.Value" selected="@(item.Value == this.DefaultViewSelectedValue)">@item.Text</option>
+            }
+        </select>
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblAllowViewChange" ControlName="AllowViewChange" ResourceKey="AllowViewChange" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="AllowViewChange" checked="@this.AllowViewChangeChecked"
+               @onchange="(ChangeEventArgs args) => { this.AllowViewChangeChecked = Convert.ToBoolean(args.Value); }" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblShowTooltip" ControlName="ShowTooltip" ResourceKey="ShowTooltip" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="ShowTooltip" checked="@this.ShowTooltipChecked"
+               @onchange="(ChangeEventArgs args) => { this.ShowTooltipChecked = Convert.ToBoolean(args.Value); }" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblOrderTabsByHierarchy" ControlName="OrderTabsByHierarchy" ResourceKey="OrderTabsByHierarchy" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="OrderTabsByHierarchy" checked="@this.OrderTabsByHierarchyChecked"
+               @onchange="(ChangeEventArgs args) => { this.OrderTabsByHierarchyChecked = Convert.ToBoolean(args.Value); }" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblIncludeHiddenPages" ControlName="IncludeHiddenPages" ResourceKey="IncludeHiddenPages" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="IncludeHiddenPages" checked="@this.IncludeHiddenPagesChecked"
+               @onchange="(ChangeEventArgs args) => { this.IncludeHiddenPagesChecked = Convert.ToBoolean(args.Value); }" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblConsoleWidth" ControlName="ConsoleWidth" ResourceKey="ConsoleWidth" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="text" id="ConsoleWidth" value="@this.ConsoleWidthText"
+               @onchange="(ChangeEventArgs args) => { this.ConsoleWidthText = args.Value?.ToString() ?? string.Empty; }" />
+    </div>
+</div>

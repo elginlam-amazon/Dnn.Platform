@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputPath>bin/Providers</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -16,7 +16,9 @@
 
 
   <ItemGroup>
-    <Reference Include="System.Web" />
+    <!-- Replaces the net48 <Reference Include="System.Web" />: the cache-sync handler is now an
+         ASP.NET Core endpoint, and IHttpClientFactory comes from this framework reference. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>

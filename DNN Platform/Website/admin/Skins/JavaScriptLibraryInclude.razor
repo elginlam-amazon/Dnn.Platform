@@ -1,0 +1,47 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* The dnn:JavaScriptLibraryInclude skin object (was JavaScriptLibraryInclude.ascx + .cs).
+   A client-resource REGISTRATION by library name/version. The WebForms markup additionally
+   emitted an "<!--CDF(JS-LIBRARY|name|version|specificVersion)-->" comment, which the module
+   content filter translated back into exactly the JavaScript.RequestRegistration calls below
+   (see UI/Modules/ModuleHost.cs). The requests themselves are therefore preserved verbatim and
+   the now-unparsed comment is not emitted. *@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+@using System
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using Microsoft.AspNetCore.Components
+@inject IJavaScriptLibraryHelper JsLibraries
+
+@code {
+    /// <summary>Gets or sets the name of the JavaScript library to include.</summary>
+    [Parameter]
+    public string Name { get; set; }
+
+    /// <summary>Gets or sets the version of the JavaScript library to include.</summary>
+    [Parameter]
+    public Version Version { get; set; }
+
+    /// <summary>Gets or sets how strictly <see cref="Version"/> is matched.</summary>
+    [Parameter]
+    public SpecificVersion? SpecificVersion { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        if (this.Version == null)
+        {
+            this.JsLibraries.RequestRegistration(this.Name);
+        }
+        else if (this.SpecificVersion == null)
+        {
+            this.JsLibraries.RequestRegistration(this.Name, this.Version);
+        }
+        else
+        {
+            this.JsLibraries.RequestRegistration(this.Name, this.Version, this.SpecificVersion.Value);
+        }
+    }
+}

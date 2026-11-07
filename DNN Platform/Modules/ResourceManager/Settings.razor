@@ -1,0 +1,53 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace Dnn.Modules.ResourceManager
+@inherits DotNetNuke.Entities.Modules.ModuleSettingsBase
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.Web.UI.WebControls
+
+@*
+    Replaces Settings.ascx + Settings.ascx.cs + Settings.ascx.designer.cs, element for element.
+    The logic lives in Settings.razor.cs.
+
+    Control mapping:
+      - <%=LocalizeString("BasicSettings")%> -> LocalizeText("BasicSettings"); the key is kept
+        verbatim (it is absent from every resource file upstream too, so the heading renders
+        empty exactly as it did before).
+      - <dnn:Label ID="lblMode"> / <dnn:label ID="lblHomeFolder"> (~/controls/labelcontrol.ascx)
+        -> the already migrated DotNetNuke.UI.UserControls.LabelControl component, which still
+        derives its text from the id ("lblMode.Text") and its help from "lblMode.Help" in
+        App_LocalResources/Settings.resx.
+      - <asp:DropDownList ID="ddlMode"> -> the <select> below, populated from
+        Constants.ModuleModes with Utils.GetEnumDescription as text and (int) as value.
+        value="@..." + @onchange replaces SelectedValue + the implicit postback round trip
+        (@bind cannot be combined with @onchange).
+      - <dnn:DnnFolderDropDownList ID="ddlFolder"> -> the migrated DnnFolderDropDownList
+        component, captured with @ref so SelectedFolder keeps its original semantics.
+*@
+
+<h2 id="dnnSitePanel-BasicSettings" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeText("BasicSettings")</a></h2>
+<fieldset>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblMode" ControlName="ddlMode" LocalResourceFile="@this.LocalResourceFile" />
+
+        <select id="ddlMode" name="ddlMode" value="@this.SelectedMode" @onchange="this.OnModeChanged">
+            @foreach (var item in this.ModeItems)
+            {
+                <option value="@item.Value" selected="@(item.Value == this.SelectedMode)">@item.Text</option>
+            }
+        </select>
+    </div>
+</fieldset>
+<fieldset>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblHomeFolder" ControlName="ddlFolder" LocalResourceFile="@this.LocalResourceFile" />
+        @* Rendered once LoadSettings has run, so the home folder is already known when @ref is
+           captured and FolderPicker can apply the selection in time for the picker's own
+           OnPreRender to compute ExpandPath (which is what expands the tree to that folder). *@
+        @if (this.SettingsLoaded)
+        {
+            <DnnFolderDropDownList @ref="this.FolderPicker" />
+        }
+    </div>
+</fieldset>

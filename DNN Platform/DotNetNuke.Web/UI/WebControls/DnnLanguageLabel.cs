@@ -5,19 +5,29 @@ namespace DotNetNuke.Web.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Personalization;
+    using DotNetNuke.UI;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
 
     /// <summary>A language label control.</summary>
-    public class DnnLanguageLabel : CompositeControl, ILocalizable
+    /// <remarks>
+    /// This was a <c>CompositeControl</c> that built a flag <c>Image</c>, a non breaking space and a
+    /// <c>Label</c> into its control tree and filled them in <c>OnPreRender</c>. The composition is
+    /// unchanged — a <see cref="DnnImage"/> and a <see cref="DnnLabel"/> in
+    /// <see cref="DnnComponentBase.Controls"/> — but the values are computed before the render pass
+    /// (Blazor has no pre-render stage that can still influence the markup) by
+    /// <see cref="UpdateDisplay"/>.
+    /// </remarks>
+    public class DnnLanguageLabel : DnnComponentBase, ILocalizable
     {
-        private Image flag;
+        private DnnImage flag;
 
-        private Label label;
+        private DnnLabel label;
 
         /// <summary>Initializes a new instance of the <see cref="DnnLanguageLabel"/> class.</summary>
         public DnnLanguageLabel()
@@ -26,27 +36,23 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets the display type.</summary>
+        [Parameter]
         public CultureDropDownTypes DisplayType { get; set; }
 
         /// <summary>Gets or sets the language.</summary>
-        public string Language
-        {
-            get
-            {
-                return (string)this.ViewState["Language"];
-            }
-
-            set
-            {
-                this.ViewState["Language"] = value;
-            }
-        }
+        [Parameter]
+        public string Language { get; set; }
 
         /// <inheritdoc />
+        [Parameter]
         public bool Localize { get; set; }
 
         /// <inheritdoc />
+        [Parameter]
         public string LocalResourceFile { get; set; }
+
+        /// <inheritdoc />
+        protected override string TagName => "span";
 
         /// <inheritdoc />
         public virtual void LocalizeStrings()
@@ -60,33 +66,45 @@ namespace DotNetNuke.Web.UI.WebControls
             this.LocalResourceFile = Utilities.GetLocalResourceFile(this);
         }
 
-        /// <summary>
-        ///   CreateChildControls overrides the Base class's method to correctly build the
-        ///   control based on the configuration.
-        /// </summary>
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
+        /// <summary>Builds the flag image, the separator and the language label.</summary>
         protected override void CreateChildControls()
         {
             // First clear the controls collection
             this.Controls.Clear();
 
-            this.flag = new Image { ViewStateMode = ViewStateMode.Disabled };
+            this.flag = new DnnImage();
             this.Controls.Add(this.flag);
 
-            this.Controls.Add(new LiteralControl("&nbsp;"));
+            this.Controls.Add(new DnnLiteralControl("&nbsp;"));
 
-            this.label = new Label();
-            this.label.ViewStateMode = ViewStateMode.Disabled;
+            this.label = new DnnLabel { CssClass = null, Localize = false, };
             this.Controls.Add(this.label);
 
-            // Call base class's method
             base.CreateChildControls();
         }
+        #pragma warning restore BL0005
 
-        /// <summary>OnPreRender runs just before the control is rendered.</summary>
-        /// <param name="e">The event arguments.</param>
-        protected override void OnPreRender(EventArgs e)
+        /// <inheritdoc />
+        protected override void OnParametersSet()
         {
-            base.OnPreRender(e);
+            base.OnParametersSet();
+            this.UpdateDisplay();
+        }
+
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
+        /// <summary>Resolves the flag image and the language name of <see cref="Language"/>.</summary>
+        /// <remarks>Replaces the <c>OnPreRender</c> override of the original control.</remarks>
+        protected void UpdateDisplay()
+        {
+            this.EnsureChildControls();
+
+            if (this.flag == null || this.label == null)
+            {
+                return;
+            }
 
             if (string.IsNullOrEmpty(this.Language))
             {
@@ -116,7 +134,7 @@ namespace DotNetNuke.Web.UI.WebControls
                 }
             }
 
-            string localeName = null;
+            string localeName;
             if (string.IsNullOrEmpty(this.Language))
             {
                 localeName = Localization.GetString("NeutralCulture", Localization.GlobalResourceFile);
@@ -128,6 +146,14 @@ namespace DotNetNuke.Web.UI.WebControls
 
             this.label.Text = localeName;
             this.flag.AlternateText = localeName;
+        }
+        #pragma warning restore BL0005
+
+        /// <inheritdoc />
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            this.UpdateDisplay();
+            base.BuildRenderTree(builder);
         }
     }
 }

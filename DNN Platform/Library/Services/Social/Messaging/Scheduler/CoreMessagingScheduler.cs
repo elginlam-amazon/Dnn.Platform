@@ -10,7 +10,7 @@ namespace DotNetNuke.Services.Social.Messaging.Scheduler
     using System.IO;
     using System.Linq;
     using System.Text.RegularExpressions;
-    using System.Web.Caching;
+    using DotNetNuke.Services.Cache;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;

@@ -80,8 +80,8 @@ namespace DotNetNuke.HttpModules.RequestFilter
                     {
                         string serverVar = ruleList.Current.GetAttribute("servervar", string.Empty);
                         string values = ruleList.Current.GetAttribute("values", string.Empty);
-                        var ac = (RequestFilterRuleType)Enum.Parse(typeof(RequestFilterRuleType), ruleList.Current.GetAttribute("action", string.Empty));
-                        var op = (RequestFilterOperatorType)Enum.Parse(typeof(RequestFilterOperatorType), ruleList.Current.GetAttribute("operator", string.Empty));
+                        var ac = Enum.Parse<RequestFilterRuleType>(ruleList.Current.GetAttribute("action", string.Empty));
+                        var op = Enum.Parse<RequestFilterOperatorType>(ruleList.Current.GetAttribute("operator", string.Empty));
                         string location = ruleList.Current.GetAttribute("location", string.Empty);
                         var rule = new RequestFilterRule(serverVar, values, op, ac, location);
                         settings.Rules.Add(rule);
@@ -116,7 +116,7 @@ namespace DotNetNuke.HttpModules.RequestFilter
             string filePath = Config.GetPathToFile(appStatus, Config.ConfigFileType.DotNetNuke);
             if (!File.Exists(filePath))
             {
-                string defaultConfigFile = appStatus.ApplicationMapPath + Globals.glbConfigFolder + Globals.glbDotNetNukeConfig;
+                string defaultConfigFile = Path.Combine(appStatus.ApplicationMapPath, "Config", Globals.glbDotNetNukeConfig);
                 if (File.Exists(defaultConfigFile))
                 {
                     File.Copy(defaultConfigFile, filePath, true);

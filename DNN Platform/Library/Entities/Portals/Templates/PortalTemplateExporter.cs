@@ -12,8 +12,8 @@ namespace DotNetNuke.Entities.Portals.Templates
     using System.IO;
     using System.IO.Compression;
     using System.Linq;
+    using System.Net;
     using System.Text;
-    using System.Web;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Application;
@@ -73,7 +73,7 @@ namespace DotNetNuke.Entities.Portals.Templates
                 writer.WriteAttributeString("version", "5.0");
 
                 // Add template description
-                writer.WriteElementString("description", HttpUtility.HtmlEncode(description));
+                writer.WriteElementString("description", WebUtility.HtmlEncode(description));
 
                 // Serialize portal settings
                 var portal = PortalController.Instance.GetPortal(portalId);

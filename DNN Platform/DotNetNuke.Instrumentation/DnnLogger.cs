@@ -7,10 +7,6 @@ namespace DotNetNuke.Instrumentation
     using System.Diagnostics;
     using System.Globalization;
     using System.Reflection;
-#if NET48_OR_GREATER
-    using System.Web.Compilation;
-    using System.Web.UI;
-#endif
 
     using DotNetNuke.Internal.SourceGenerators;
     using log4net;
@@ -26,11 +22,7 @@ namespace DotNetNuke.Instrumentation
         private static Level levelLogInfo = new Level(10001, "LogInfo");
         private static Level levelLogError = new Level(10002, "LogError");
 
-#if NET48_OR_GREATER
-        private readonly Type dnnExceptionType = BuildManager.GetType("DotNetNuke.Services.Exceptions.Exceptions", false);
-#else
         private readonly Type dnnExceptionType = Type.GetType("DotNetNuke.Services.Exceptions.Exceptions", false);
-#endif
         private readonly Type stackBoundary = typeof(DnnLogger);
 
         private DnnLogger(ILogger logger)
@@ -45,9 +37,6 @@ namespace DotNetNuke.Instrumentation
 #pragma warning disable 612, 618
                 while (methodType == this.dnnExceptionType
                        || methodType == typeof(DnnLogger)
-#if NET48_OR_GREATER
-                       || methodType == typeof(Control)
-#endif
                        || methodType == typeof(DnnLog))
 #pragma warning restore 612, 618
                 {

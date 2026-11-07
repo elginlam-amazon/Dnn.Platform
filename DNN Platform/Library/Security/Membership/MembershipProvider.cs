@@ -9,6 +9,7 @@ namespace DotNetNuke.Security.Membership
 
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Entities.Users;
+    using DotNetNuke.Framework;
 
     public abstract class MembershipProvider
     {
@@ -37,7 +38,10 @@ namespace DotNetNuke.Security.Membership
         // return the provider
         public static MembershipProvider Instance()
         {
-            return ComponentFactory.GetComponent<MembershipProvider>();
+            // Prefer the application's dependency-injection container. The legacy
+            // ComponentFactory registration (populated from the provider configuration)
+            // remains the fallback so that third-party providers keep working.
+            return ServiceLocator.GetService<MembershipProvider>() ?? ComponentFactory.GetComponent<MembershipProvider>();
         }
 
         // Users

@@ -7,7 +7,6 @@ namespace DotNetNuke.Entities.Portals
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
@@ -184,7 +183,7 @@ namespace DotNetNuke.Entities.Portals
         {
             get
             {
-                if (HttpContext.Current != null && HttpContext.Current.Request.IsAuthenticated)
+                if (HttpContextSource.Current?.User?.Identity?.IsAuthenticated == true)
                 {
                     return this.UserInfo.UserID;
                 }
@@ -831,10 +830,10 @@ namespace DotNetNuke.Entities.Portals
             PortalSettingsController.Instance().LoadPortal(portal, this);
 
             var key = string.Join(":", "ActiveTab", portal.PortalID.ToString(CultureInfo.InvariantCulture), tabId.ToString(CultureInfo.InvariantCulture));
-            var items = HttpContext.Current != null ? HttpContext.Current.Items : null;
-            if (items != null && items.Contains(key))
+            var items = HttpContextSource.Current?.Items;
+            if (items != null && items.TryGetValue(key, out var cachedActiveTab) && cachedActiveTab is TabInfo tab)
             {
-                this.ActiveTab = items[key] as TabInfo;
+                this.ActiveTab = tab;
             }
             else
             {

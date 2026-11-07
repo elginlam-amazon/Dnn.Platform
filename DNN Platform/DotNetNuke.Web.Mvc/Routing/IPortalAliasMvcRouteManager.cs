@@ -9,9 +9,9 @@ namespace DotNetNuke.Web.Mvc.Routing
     using System.Linq;
     using System.Text;
     using System.Threading.Tasks;
-    using System.Web.Routing;
 
     using DotNetNuke.Entities.Portals;
+    using Microsoft.AspNetCore.Routing;
 
     internal interface IPortalAliasMvcRouteManager
     {

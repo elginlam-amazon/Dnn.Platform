@@ -6,14 +6,14 @@ namespace Dnn.PersonaBar.Licensing.Services
 {
     using System;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using DotNetNuke.Application;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     [MenuPermission(Scope = ServiceScope.Host)]
@@ -25,7 +25,7 @@ namespace Dnn.PersonaBar.Licensing.Services
         /// <summary>Gets product info.</summary>
         /// <returns>product info.</returns>
         [HttpGet]
-        public HttpResponseMessage GetProduct()
+        public IActionResult GetProduct()
         {
             try
             {
@@ -40,12 +40,12 @@ namespace Dnn.PersonaBar.Licensing.Services
                     },
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.LicensingControllerGetProductException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
     }

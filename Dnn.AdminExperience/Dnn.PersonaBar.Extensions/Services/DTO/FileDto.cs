@@ -7,7 +7,6 @@ namespace Dnn.PersonaBar.Pages.Services.Dto
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
     using System.Linq;
-    using System.Web;
 
     using Newtonsoft.Json;
 

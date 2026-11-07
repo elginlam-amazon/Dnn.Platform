@@ -5,53 +5,72 @@
 namespace DotNetNuke.Tests.Web.Mvc.Fakes
 {
     using System;
-    using System.Web.Mvc;
-    using System.Web.Routing;
 
     using DotNetNuke.Tests.Web.Mvc.Fakes.Filters;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
 
+    using Microsoft.AspNetCore.Mvc;
+
+    /// <summary>A DNN module controller used by the framework tests.</summary>
     public class FakeDnnController : DnnController
     {
-        public ActionResult Action1()
+        /// <summary>An action rendering a view.</summary>
+        /// <returns>A <c>DnnViewResult</c> for the <c>Action1</c> view.</returns>
+        public IActionResult Action1()
         {
-            return this.View("Action1");
+            return this.View("Action1", null, null);
         }
 
-        public ActionResult Action2()
+        /// <summary>An action rendering a view with a master page.</summary>
+        /// <returns>A <c>DnnViewResult</c> for the <c>Action2</c> view.</returns>
+        public IActionResult Action2()
         {
-            return this.View("Action2", "Master2");
+            return this.View("Action2", "Master2", null);
         }
 
-        public ActionResult Action3(Dog dog)
+        /// <summary>An action rendering a view with a master page and a model.</summary>
+        /// <param name="dog">The model.</param>
+        /// <returns>A <c>DnnViewResult</c> for the <c>Action3</c> view.</returns>
+        public IActionResult Action3(Dog dog)
         {
             return this.View("Action3", "Master3", dog);
         }
 
+        /// <summary>An action which always throws, so the exception filter runs.</summary>
+        /// <returns>Never returns.</returns>
         [FakeHandleExceptionRedirect]
-        public ActionResult ActionWithExceptionFilter()
+        public IActionResult ActionWithExceptionFilter()
         {
             throw new Exception();
         }
 
+        /// <summary>An action decorated with a filter which short circuits it.</summary>
+        /// <returns>A <c>DnnViewResult</c> for the <c>Action1</c> view.</returns>
         [FakeOnExecutingRedirect]
-        public ActionResult ActionWithOnExecutingFilter()
+        public IActionResult ActionWithOnExecutingFilter()
         {
-            return this.View("Action1");
+            return this.View("Action1", null, null);
         }
 
+        /// <summary>An action decorated with a filter which replaces its result.</summary>
+        /// <returns>A <c>DnnViewResult</c> for the <c>Action1</c> view.</returns>
         [FakeOnExecutedRedirect]
-        public ActionResult ActionWithOnExecutedFilter()
+        public IActionResult ActionWithOnExecutedFilter()
         {
-            return this.View("Action1");
+            return this.View("Action1", null, null);
         }
 
-        public void MockInitialize(RequestContext requestContext)
+        /// <summary>Runs the per-request DNN initialization of the controller.</summary>
+        /// <param name="actionContext">The context of the executing action.</param>
+        /// <remarks>
+        /// Mocking out the entire controller lifecycle proved to be difficult. This method executes the
+        /// initialization logic which runs on every request, which ASP.NET Core performs from
+        /// <see cref="DnnController.OnActionExecuting"/> (it was the MVC 5 <c>Controller.Initialize</c> overload
+        /// on MVC 5).
+        /// </remarks>
+        public void MockInitialize(ActionContext actionContext)
         {
-            // Mocking out the entire MvcHandler and Controller lifecycle proved to be difficult
-            // This method executes the initialization logic that occurs on every request which is
-            // executed from the Execute method.
-            this.Initialize(requestContext);
+            this.Initialize(actionContext);
         }
     }
 }

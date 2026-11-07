@@ -6,8 +6,6 @@ namespace DotNetNuke.Services.Authentication
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -18,17 +16,22 @@ namespace DotNetNuke.Services.Authentication
     using DotNetNuke.Entities.Controllers;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
+    using DotNetNuke.Framework.Reflections;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security.Permissions;
     using DotNetNuke.Services.Log.EventLog;
-
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
     /// <summary>The AuthenticationController class provides the Business Layer for the Authentication Systems.</summary>
     public partial class AuthenticationController
     {
+        /// <summary>The name of the cookie/request value that carries the chosen authentication type.</summary>
+        private const string AuthenticationCookieName = "authentication";
+
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<AuthenticationController>();
         private static readonly DataProvider Provider = DataProvider.Instance();
 
@@ -216,11 +219,12 @@ namespace DotNetNuke.Services.Authentication
         public static AuthenticationInfo GetAuthenticationType()
         {
             AuthenticationInfo objAuthentication = null;
-            if (HttpContext.Current?.Request != null)
+            var request = HttpContextSource.Current?.Request;
+            if (request != null)
             {
                 try
                 {
-                    objAuthentication = GetAuthenticationServiceByType(HttpContext.Current.Request["authentication"]);
+                    objAuthentication = GetAuthenticationServiceByType(GetRequestValue(request, AuthenticationCookieName));
                 }
                 catch (Exception ex)
                 {
@@ -255,9 +259,16 @@ namespace DotNetNuke.Services.Authentication
         }
 
         /// <summary>Determines whether the current portal has any Non-DNN authentication providers enabled.</summary>
-        /// <param name="control">The control.</param>
+        /// <param name="component">The component asking, used only for API compatibility with the WebForms signature.</param>
         /// <returns><see langword="true"/> if the portal has any Non-DNN authentication enabled, Otherwise <see langword="false"/>.</returns>
-        public static bool HasSocialAuthenticationEnabled(UserControl control = null)
+        /// <remarks>
+        /// On WebForms the non-social branch called <c>control.LoadControl(...)</c> to instantiate
+        /// the provider's login control and read its <c>Enabled</c> flag. ASP.NET Core/Blazor has
+        /// no <c>LoadControl</c>, so the provider's <see cref="AuthenticationLoginBase"/>-derived
+        /// component type is located by reflection and instantiated directly, which reads exactly
+        /// the same <see cref="AuthenticationLoginBase.Enabled"/> value.
+        /// </remarks>
+        public static bool HasSocialAuthenticationEnabled(ComponentBase component = null)
         {
             return (from a in GetEnabledAuthenticationServices()
                     let enabled = (a.AuthenticationType.Equals("Facebook", StringComparison.Ordinal)
@@ -265,9 +276,53 @@ namespace DotNetNuke.Services.Authentication
                                      || a.AuthenticationType.Equals("Live", StringComparison.Ordinal)
                                      || a.AuthenticationType.Equals("Twitter", StringComparison.Ordinal))
                                   ? IsEnabledForPortal(a, PortalSettings.Current.PortalId)
-                                  : !string.IsNullOrEmpty(a.LoginControlSrc) && ((control?.LoadControl("~/" + a.LoginControlSrc) as AuthenticationLoginBase)?.Enabled ?? true)
+                                  : !string.IsNullOrEmpty(a.LoginControlSrc) && (CreateLoginComponent(a.LoginControlSrc)?.Enabled ?? true)
                     where !a.AuthenticationType.Equals("DNN", StringComparison.Ordinal) && enabled
                     select a).Any();
+        }
+
+        /// <summary>
+        /// Locates and instantiates the <see cref="AuthenticationLoginBase"/> component that
+        /// implements the given legacy login-control source path, so that its
+        /// <see cref="AuthenticationLoginBase.Enabled"/> flag can be read.
+        /// </summary>
+        /// <param name="loginControlSrc">The provider's login control source, e.g. <c>DesktopModules/AuthenticationServices/Facebook/Login.ascx</c>.</param>
+        /// <returns>The component instance, or <see langword="null"/> when no matching type exists.</returns>
+        public static AuthenticationLoginBase CreateLoginComponent(string loginControlSrc)
+        {
+            if (string.IsNullOrEmpty(loginControlSrc))
+            {
+                return null;
+            }
+
+            // The provider folder ("Facebook", "Google", a third party's name...) is what
+            // identifies the provider; the file name itself is always "Login".
+            var segments = loginControlSrc.Replace('\\', '/').Split('/');
+            var providerFolder = segments.Length >= 2 ? segments[segments.Length - 2] : null;
+            if (string.IsNullOrEmpty(providerFolder))
+            {
+                return null;
+            }
+
+            try
+            {
+                var componentType = new TypeLocator()
+                    .GetAllMatchingTypes(t =>
+                        t != null &&
+                        t.IsClass &&
+                        !t.IsAbstract &&
+                        typeof(AuthenticationLoginBase).IsAssignableFrom(t) &&
+                        (t.Namespace?.IndexOf(providerFolder, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         t.FullName?.IndexOf(providerFolder, StringComparison.OrdinalIgnoreCase) >= 0))
+                    .FirstOrDefault();
+
+                return componentType == null ? null : (AuthenticationLoginBase)Activator.CreateInstance(componentType);
+            }
+            catch (Exception ex)
+            {
+                Logger.AuthenticationControllerGetAuthenticationTypeException(ex);
+                return null;
+            }
         }
 
         /// <summary>Determines whether the authentication is enabled for the specified portal.</summary>
@@ -299,7 +354,8 @@ namespace DotNetNuke.Services.Authentication
                     }
                     else
                     {
-                        redirectURL = (request != null && request.UrlReferrer != null) ? request.UrlReferrer.PathAndQuery : TestableGlobals.Instance.NavigateURL(settings.ActiveTab.TabID);
+                        var referrer = GetReferrer(request);
+                        redirectURL = referrer != null ? referrer.PathAndQuery : TestableGlobals.Instance.NavigateURL(settings.ActiveTab.TabID);
                     }
                 }
                 else if (settings.HomeTabId != -1)
@@ -329,50 +385,39 @@ namespace DotNetNuke.Services.Authentication
             SetAuthenticationType(value, false);
         }
 
+        /// <summary>SetAuthenticationType sets the authentication method used by the currently logged on user.</summary>
+        /// <param name="value">The Authentication type.</param>
+        /// <param name="createPersistentCookie">Whether the cookie should survive a browser restart.</param>
         public static void SetAuthenticationType(string value, bool createPersistentCookie)
         {
             try
             {
-                int persistentCookieTimeout = Config.GetPersistentCookieTimeout();
-                HttpResponse response = HttpContext.Current.Response;
+                var persistentCookieTimeout = Config.GetPersistentCookieTimeout();
+                var response = HttpContextSource.Current?.Response;
                 if (response == null)
                 {
                     return;
                 }
 
-                // save the authenticationmethod as a cookie
-                HttpCookie cookie = null;
-                cookie = response.Cookies.Get("authentication");
-                if (cookie == null)
+                var cookieOptions = new CookieOptions
                 {
-                    if (!string.IsNullOrEmpty(value))
-                    {
-                        cookie = new HttpCookie("authentication", value) { Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/" };
-                        if (createPersistentCookie)
-                        {
-                            cookie.Expires = DateTime.Now.AddMinutes(persistentCookieTimeout);
-                        }
+                    Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
+                };
 
-                        response.Cookies.Add(cookie);
-                    }
-                }
-                else
+                if (string.IsNullOrEmpty(value))
                 {
-                    cookie.Value = value;
-                    if (!string.IsNullOrEmpty(value))
-                    {
-                        if (createPersistentCookie)
-                        {
-                            cookie.Expires = DateTime.Now.AddMinutes(persistentCookieTimeout);
-                        }
-
-                        response.Cookies.Set(cookie);
-                    }
-                    else
-                    {
-                        response.Cookies.Remove("authentication");
-                    }
+                    // an empty value removes the cookie, as it did on ASP.NET
+                    response.Cookies.Delete(AuthenticationCookieName, cookieOptions);
+                    return;
                 }
+
+                if (createPersistentCookie)
+                {
+                    cookieOptions.Expires = DateTimeOffset.Now.AddMinutes(persistentCookieTimeout);
+                }
+
+                // save the authentication method as a cookie
+                response.Cookies.Append(AuthenticationCookieName, value, cookieOptions);
             }
             catch
             {
@@ -401,6 +446,39 @@ namespace DotNetNuke.Services.Authentication
                 authSystem.LogoffControlSrc,
                 UserController.Instance.GetCurrentUserInfo().UserID);
             eventLogger.AddLog(authSystem, PortalController.Instance.GetCurrentSettings(), UserController.Instance.GetCurrentUserInfo().UserID, string.Empty, EventLogType.AUTHENTICATION_UPDATED);
+        }
+
+        /// <summary>
+        /// The ASP.NET Core replacement for the legacy <c>Request[key]</c> indexer, which searched
+        /// the query string, then the form, then the cookies.
+        /// </summary>
+        private static string GetRequestValue(HttpRequest request, string key)
+        {
+            var value = request.Query[key].ToString();
+            if (!string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            if (request.HasFormContentType)
+            {
+                value = request.Form[key].ToString();
+                if (!string.IsNullOrEmpty(value))
+                {
+                    return value;
+                }
+            }
+
+            return request.Cookies.TryGetValue(key, out var cookieValue) ? cookieValue : null;
+        }
+
+        /// <summary>The ASP.NET Core replacement for the legacy <c>Request.UrlReferrer</c>.</summary>
+        private static Uri GetReferrer(HttpRequest request)
+        {
+            var referer = request?.Headers.Referer.ToString();
+            return !string.IsNullOrEmpty(referer) && Uri.TryCreate(referer, UriKind.Absolute, out var referrerUri)
+                ? referrerUri
+                : null;
         }
 
         private static object GetAuthenticationServicesCallBack(CacheItemArgs cacheItemArgs)

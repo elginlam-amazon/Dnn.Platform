@@ -40,6 +40,27 @@ internal static class DependencyInjection
         return (IServiceScope)serviceScope;
     }
 
+    /// <summary>Gets the current service provider, returning <see langword="null"/> instead of throwing when the bridge is unavailable.</summary>
+    /// <returns>A service provider, or <see langword="null"/> when the main DotNetNuke library is not loaded.</returns>
+    /// <remarks>
+    /// Used from static members (such as <c>ClientResourceManager.AddConfiguration</c>) which have no
+    /// <see cref="Microsoft.AspNetCore.Http.HttpContext"/> to resolve services from and which previously used
+    /// ambient .NET Framework statics (<c>HostingEnvironment</c>/<c>HttpContext.Current</c>). Those call sites must
+    /// degrade gracefully when there is no application, exactly as the ambient statics returned <see langword="null"/>.
+    /// </remarks>
+    public static IServiceProvider TryGetCurrentServiceProvider()
+    {
+        try
+        {
+            return CommonGlobalsType is null ? null : GetCurrentServiceProvider();
+        }
+        catch (Exception exception)
+        {
+            DnnLoggingController.GetLogger(typeof(DependencyInjection)).DependencyInjectionFailedToGetTypesForReflection(exception);
+            return null;
+        }
+    }
+
     /// <summary>Gets the current service provider.</summary>
     /// <returns>A service provider.</returns>
     /// <exception cref="InvalidOperationException">The expected method in <c>DotNetNuke.Common.Globals</c> does not exist.</exception>

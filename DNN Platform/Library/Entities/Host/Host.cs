@@ -6,7 +6,6 @@ namespace DotNetNuke.Entities.Host
 {
     using System;
     using System.Diagnostics.CodeAnalysis;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -29,28 +28,28 @@ namespace DotNetNuke.Entities.Host
         /// <summary>Gets the duration before an account is automatically unlocked.</summary>
         public static int AutoAccountUnlockDuration => HostController.Instance.GetInteger("AutoAccountUnlockDuration", 10);
 
-        /// <summary>Gets the <see cref="HttpCacheability"/> value for authenticated requests.</summary>
+        /// <summary>Gets the cache-control level for authenticated requests.</summary>
         /// <remarks>The following mapping is used:
         /// <list type="bullet">
-        /// <item><c>"0"</c> - <see cref="HttpCacheability.NoCache"/></item>
-        /// <item><c>"1"</c> - <see cref="HttpCacheability.Private"/></item>
-        /// <item><c>"2"</c> - <see cref="HttpCacheability.Public"/></item>
-        /// <item><c>"3"</c> - <see cref="HttpCacheability.Server"/></item>
-        /// <item><c>"4"</c> - <see cref="HttpCacheability.ServerAndNoCache"/></item>
-        /// <item><c>"5"</c> - <see cref="HttpCacheability.ServerAndPrivate"/></item>
+        /// <item><c>"0"</c> - <c>NoCache</c></item>
+        /// <item><c>"1"</c> - <c>Private</c></item>
+        /// <item><c>"2"</c> - <c>Public</c></item>
+        /// <item><c>"3"</c> - <c>Server</c></item>
+        /// <item><c>"4"</c> - <c>ServerAndNoCache</c></item>
+        /// <item><c>"5"</c> - <c>ServerAndPrivate</c></item>
         /// </list>
         /// </remarks>
         public static string AuthenticatedCacheability => HostController.Instance.GetString("AuthenticatedCacheability", "ServerAndNoCache");
 
-        /// <summary>Gets the <see cref="HttpCacheability"/> value for unauthenticated requests.</summary>
+        /// <summary>Gets the cache-control level for unauthenticated requests.</summary>
         /// <remarks>The following mapping is used:
         /// <list type="bullet">
-        /// <item><c>"0"</c> - <see cref="HttpCacheability.NoCache"/></item>
-        /// <item><c>"1"</c> - <see cref="HttpCacheability.Private"/></item>
-        /// <item><c>"2"</c> - <see cref="HttpCacheability.Public"/></item>
-        /// <item><c>"3"</c> - <see cref="HttpCacheability.Server"/></item>
-        /// <item><c>"4"</c> - <see cref="HttpCacheability.ServerAndNoCache"/></item>
-        /// <item><c>"5"</c> - <see cref="HttpCacheability.ServerAndPrivate"/></item>
+        /// <item><c>"0"</c> - <c>NoCache</c></item>
+        /// <item><c>"1"</c> - <c>Private</c></item>
+        /// <item><c>"2"</c> - <c>Public</c></item>
+        /// <item><c>"3"</c> - <c>Server</c></item>
+        /// <item><c>"4"</c> - <c>ServerAndNoCache</c></item>
+        /// <item><c>"5"</c> - <c>ServerAndPrivate</c></item>
         /// </list>
         /// </remarks>
         public static string UnauthenticatedCacheability => HostController.Instance.GetString("UnauthenticatedCacheability", "ServerAndNoCache");

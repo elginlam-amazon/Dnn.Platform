@@ -7,12 +7,13 @@ namespace DotNetNuke.ModulePipeline
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
-    using System.Web.UI;
 
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.UI;
     using DotNetNuke.UI.Modules;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.Logging;
 
     /// <summary>
@@ -33,11 +34,11 @@ namespace DotNetNuke.ModulePipeline
         }
 
         /// <inheritdoc />
-        public Control LoadModuleControl(TemplateControl containerControl, ModuleInfo moduleConfiguration, string controlKey, string controlSrc)
+        public IComponent LoadModuleControl(IComponent containerControl, ModuleInfo moduleConfiguration, string controlKey, string controlSrc)
         {
             TraceLogger.ModuleControlPipelineLoadModuleControlStart(moduleConfiguration.TabID, moduleConfiguration.ModuleID, moduleConfiguration.ModuleControl.ControlSrc);
 
-            Control control = null;
+            IComponent control = null;
             IModuleControlFactory controlFactory = this.GetModuleControlFactory(moduleConfiguration, controlSrc);
 
             if (controlFactory != null)
@@ -49,7 +50,7 @@ namespace DotNetNuke.ModulePipeline
             // this is necessary for the Localization in PageBase
             if (control != null)
             {
-                control.ID = Path.GetFileNameWithoutExtension(controlSrc);
+                SetControlId(control, Path.GetFileNameWithoutExtension(controlSrc));
 
                 if (control is IModuleControl moduleControl)
                 {
@@ -62,11 +63,11 @@ namespace DotNetNuke.ModulePipeline
         }
 
         /// <inheritdoc />
-        public Control LoadModuleControl(TemplateControl containerControl, ModuleInfo moduleConfiguration)
+        public IComponent LoadModuleControl(IComponent containerControl, ModuleInfo moduleConfiguration)
         {
             TraceLogger.ModuleControlPipelineLoadModuleControlStart(moduleConfiguration.TabID, moduleConfiguration.ModuleID, moduleConfiguration.ModuleControl.ControlSrc);
 
-            Control control = null;
+            IComponent control = null;
             IModuleControlFactory controlFactory = this.GetModuleControlFactory(moduleConfiguration, moduleConfiguration.ModuleControl.ControlSrc);
 
             if (controlFactory != null)
@@ -78,7 +79,7 @@ namespace DotNetNuke.ModulePipeline
             // this is necessary for the Localization in PageBase
             if (control != null)
             {
-                control.ID = Path.GetFileNameWithoutExtension(moduleConfiguration.ModuleControl.ControlSrc);
+                SetControlId(control, Path.GetFileNameWithoutExtension(moduleConfiguration.ModuleControl.ControlSrc));
 
                 if (control is IModuleControl moduleControl)
                 {
@@ -91,11 +92,11 @@ namespace DotNetNuke.ModulePipeline
         }
 
         /// <inheritdoc />
-        public Control LoadSettingsControl(TemplateControl containerControl, ModuleInfo moduleConfiguration, string controlSrc)
+        public IComponent LoadSettingsControl(IComponent containerControl, ModuleInfo moduleConfiguration, string controlSrc)
         {
             TraceLogger.ModuleControlPipelineLoadSettingsControlStart(moduleConfiguration.TabID, moduleConfiguration.ModuleID, moduleConfiguration.ModuleControl.ControlSrc);
 
-            Control control = null;
+            IComponent control = null;
             IModuleControlFactory controlFactory = this.GetModuleControlFactory(moduleConfiguration, controlSrc);
 
             if (controlFactory != null)
@@ -110,7 +111,7 @@ namespace DotNetNuke.ModulePipeline
                 var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(controlSrc);
                 if (fileNameWithoutExtension != null)
                 {
-                    control.ID = fileNameWithoutExtension.Replace('.', '-');
+                    SetControlId(control, fileNameWithoutExtension.Replace('.', '-'));
                 }
 
                 if (control is ISettingsControl settingsControl)
@@ -124,7 +125,7 @@ namespace DotNetNuke.ModulePipeline
         }
 
         /// <inheritdoc />
-        public Control CreateCachedControl(string cachedContent, ModuleInfo moduleConfiguration)
+        public IComponent CreateCachedControl(string cachedContent, ModuleInfo moduleConfiguration)
         {
             var moduleControl = new CachedModuleControl(cachedContent);
             moduleControl.ModuleContext.Configuration = moduleConfiguration;
@@ -132,10 +133,30 @@ namespace DotNetNuke.ModulePipeline
         }
 
         /// <inheritdoc />
-        public Control CreateModuleControl(ModuleInfo moduleConfiguration)
+        public IComponent CreateModuleControl(ModuleInfo moduleConfiguration)
         {
             IModuleControlFactory factory = this.GetModuleControlFactory(moduleConfiguration, moduleConfiguration.ModuleControl.ControlSrc);
             return factory.CreateModuleControl(moduleConfiguration);
+        }
+
+        /// <summary>
+        /// Assigns the server side identifier to <paramref name="control"/> when the component
+        /// exposes DNN's control-tree surface.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="IComponent"/> itself has no <c>ID</c>; it is declared on
+        /// <see cref="IDnnControl"/> (via <c>IClientApiControl.Id</c>) and implemented by
+        /// <c>DnnComponentBase</c>. A component produced by a third party factory need not derive
+        /// from that base, so the assignment is guarded by a type test rather than a cast.
+        /// </remarks>
+        /// <param name="control">The control to identify.</param>
+        /// <param name="id">The identifier to assign.</param>
+        private static void SetControlId(IComponent control, string id)
+        {
+            if (control is IDnnControl dnnControl)
+            {
+                dnnControl.Id = id;
+            }
         }
 
         private IModuleControlFactory GetModuleControlFactory(ModuleInfo moduleConfiguration, string controlSrc)

@@ -6,14 +6,13 @@ namespace DotNetNuke.Services.FileSystem
     using System;
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
-    using System.Drawing;
-    using System.Drawing.Imaging;
     using System.Globalization;
     using System.IO;
     using System.IO.Compression;
     using System.Linq;
     using System.Text;
-    using System.Web;
+    using System.Threading;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -35,8 +34,16 @@ namespace DotNetNuke.Services.FileSystem
     using DotNetNuke.Services.FileSystem.Internal;
     using DotNetNuke.Services.Log.EventLog;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Http.Features;
+    using Microsoft.AspNetCore.Http.Timeouts;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.Formats;
+    using SixLabors.ImageSharp.Metadata.Profiles.Exif;
+    using SixLabors.ImageSharp.Processing;
 
     using Localization = DotNetNuke.Services.Localization.Localization;
 
@@ -1053,6 +1060,33 @@ namespace DotNetNuke.Services.FileSystem
             this.WriteFileToHttpContext(file, contentDisposition);
         }
 
+        /// <summary>Downloads the specified file, writing it asynchronously to the current response.</summary>
+        /// <param name="file">The file to download.</param>
+        /// <param name="contentDisposition">Indicates how to display the document once downloaded.</param>
+        /// <param name="cancellationToken">A token used to cancel the write.</param>
+        /// <exception cref="System.ArgumentNullException">Thrown when file is null.</exception>
+        /// <exception cref="DotNetNuke.Services.FileSystem.PermissionsNotMetException">Thrown when permissions are not met.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <remarks>Async sibling of <see cref="WriteFileToResponse(IFileInfo,ContentDisposition)"/>. Prefer this overload in request paths: the synchronous one has to enable synchronous IO on the response body.</remarks>
+        public virtual async Task WriteFileToResponseAsync(IFileInfo file, ContentDisposition contentDisposition, CancellationToken cancellationToken = default)
+        {
+            Requires.NotNull("file", file);
+
+            var folder = this.folderManager.GetFolder(file.FolderId);
+
+            if (!this.folderPermissionController.CanViewFolder(folder))
+            {
+                throw new PermissionsNotMetException(Localization.GetExceptionMessage("WriteFileToResponsePermissionsNotMet", "Permissions are not met. The file cannot be downloaded."));
+            }
+
+            if (this.IsFileAutoSyncEnabled())
+            {
+                this.AutoSyncFile(file);
+            }
+
+            await this.WriteFileToHttpContextAsync(file, contentDisposition, cancellationToken);
+        }
+
         internal virtual int CopyContentItem(int contentItemId)
         {
             if (contentItemId == Null.NullInteger)
@@ -1323,7 +1357,7 @@ namespace DotNetNuke.Services.FileSystem
         /// <returns>An <see cref="Image"/> instance.</returns>
         internal virtual Image GetImageFromStream(Stream stream)
         {
-            return Image.FromStream(stream);
+            return Image.Load(stream);
         }
 
         /// <summary>This member is reserved for internal use and is not intended to be used directly from your code.</summary>
@@ -1369,21 +1403,142 @@ namespace DotNetNuke.Services.FileSystem
         /// <param name="contentDisposition">The type of the content-disposition header.</param>
         internal virtual void WriteFileToHttpContext(IFileInfo file, ContentDisposition contentDisposition)
         {
-            var scriptTimeOut = HttpContext.Current.Server.ScriptTimeout;
+            var context = HttpContextSource.CurrentOrThrow;
 
-            HttpContext.Current.Server.ScriptTimeout = int.MaxValue;
-            var objResponse = HttpContext.Current.Response;
+            // The legacy code raised Server.ScriptTimeout to int.MaxValue for the duration of the download.
+            // The ASP.NET Core equivalent is disabling the request timeout; it cannot be read back or restored.
+            context.Features.Get<IHttpRequestTimeoutFeature>()?.DisableTimeout();
 
-            objResponse.ClearContent();
-            objResponse.ClearHeaders();
+            var objResponse = context.Response;
 
+            // Kestrel forbids synchronous writes to the response body unless they are explicitly enabled
+            // for the request. This synchronous API needs them; WriteFileToHttpContextAsync does not.
+            var bodyControl = context.Features.Get<IHttpBodyControlFeature>();
+            var previousAllowSynchronousIo = bodyControl?.AllowSynchronousIO ?? false;
+            if (bodyControl != null)
+            {
+                bodyControl.AllowSynchronousIO = true;
+            }
+
+            try
+            {
+                // Replaces ClearContent() + ClearHeaders(): Clear() resets the (not yet started) response.
+                objResponse.Clear();
+
+                this.SetDownloadHeaders(objResponse, file, contentDisposition);
+
+                try
+                {
+                    using var fileContent = this.GetFileContent(file);
+                    this.WriteStream(objResponse, fileContent);
+                }
+                catch (Exception ex)
+                {
+                    Logger.FileManagerWriteToStreamException(ex);
+
+                    objResponse.Body.Write(Encoding.UTF8.GetBytes("Error : " + ex.Message));
+                }
+
+                objResponse.Body.Flush();
+
+                // The legacy Response.End() aborted the remainder of the ASP.NET page lifecycle. On
+                // ASP.NET Core the body is complete once this method returns, so there is nothing to abort.
+            }
+            finally
+            {
+                if (bodyControl != null)
+                {
+                    bodyControl.AllowSynchronousIO = previousAllowSynchronousIo;
+                }
+            }
+        }
+
+        /// <summary>This member is reserved for internal use and is not intended to be used directly from your code.</summary>
+        /// <param name="file">The file.</param>
+        /// <param name="contentDisposition">The type of the content-disposition header.</param>
+        /// <param name="cancellationToken">A token used to cancel the write.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        internal virtual async Task WriteFileToHttpContextAsync(IFileInfo file, ContentDisposition contentDisposition, CancellationToken cancellationToken = default)
+        {
+            var context = HttpContextSource.CurrentOrThrow;
+
+            // Equivalent of raising Server.ScriptTimeout to int.MaxValue for the duration of the download.
+            context.Features.Get<IHttpRequestTimeoutFeature>()?.DisableTimeout();
+
+            var objResponse = context.Response;
+            objResponse.Clear();
+
+            this.SetDownloadHeaders(objResponse, file, contentDisposition);
+
+            try
+            {
+                using var fileContent = this.GetFileContent(file);
+                await this.WriteStreamAsync(objResponse, fileContent, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Logger.FileManagerWriteToStreamException(ex);
+
+                await objResponse.WriteAsync("Error : " + ex.Message, cancellationToken);
+            }
+
+            await objResponse.Body.FlushAsync(cancellationToken);
+        }
+
+        /// <summary>This member is reserved for internal use and is not intended to be used directly from your code.</summary>
+        /// <param name="objResponse">The HTTP response.</param>
+        /// <param name="objStream">The stream to write to the response stream.</param>
+        /// <param name="cancellationToken">A token used to cancel the write.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        internal virtual async Task WriteStreamAsync(HttpResponse objResponse, Stream objStream, CancellationToken cancellationToken = default)
+        {
+            var bytBuffer = new byte[10000];
+            try
+            {
+                // IsClientConnected has no ASP.NET Core counterpart; RequestAborted is signalled when
+                // the client disconnects, which is the condition the legacy loop was guarding against.
+                var aborted = objResponse.HttpContext.RequestAborted;
+                if (!aborted.IsCancellationRequested)
+                {
+                    var intLength = await objStream.ReadAsync(bytBuffer, 0, 10000, cancellationToken);
+
+                    while (!aborted.IsCancellationRequested && intLength > 0)
+                    {
+                        await objResponse.Body.WriteAsync(bytBuffer.AsMemory(0, intLength), cancellationToken);
+                        await objResponse.Body.FlushAsync(cancellationToken);
+
+                        intLength = await objStream.ReadAsync(bytBuffer, 0, 10000, cancellationToken);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.FileManagerWriteStreamException(ex);
+                await objResponse.WriteAsync("Error : " + ex.Message, cancellationToken);
+            }
+            finally
+            {
+                if (objStream != null)
+                {
+                    objStream.Close();
+                    await objStream.DisposeAsync();
+                }
+            }
+        }
+
+        /// <summary>Writes the content-disposition, content-length and content-type headers for a file download.</summary>
+        /// <param name="objResponse">The HTTP response.</param>
+        /// <param name="file">The file being written.</param>
+        /// <param name="contentDisposition">The type of the content-disposition header.</param>
+        private void SetDownloadHeaders(HttpResponse objResponse, IFileInfo file, ContentDisposition contentDisposition)
+        {
             switch (contentDisposition)
             {
                 case ContentDisposition.Attachment:
-                    objResponse.AppendHeader("content-disposition", "attachment; filename=\"" + file.FileName + "\"");
+                    objResponse.Headers.Append("content-disposition", "attachment; filename=\"" + file.FileName + "\"");
                     break;
                 case ContentDisposition.Inline:
-                    objResponse.AppendHeader("content-disposition", "inline; filename=\"" + file.FileName + "\"");
+                    objResponse.Headers.Append("content-disposition", "inline; filename=\"" + file.FileName + "\"");
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(contentDisposition));
@@ -1392,45 +1547,32 @@ namespace DotNetNuke.Services.FileSystem
             // Do not send negative Content-Length (file.Size could be negative due to integer overflow for files > 2GB)
             if (file.Size >= 0)
             {
-                objResponse.AppendHeader("Content-Length", file.Size.ToString(CultureInfo.InvariantCulture));
+                objResponse.Headers.Append("Content-Length", file.Size.ToString(CultureInfo.InvariantCulture));
             }
 
             objResponse.ContentType = this.GetContentType(file.Extension.Replace(".", string.Empty));
-
-            try
-            {
-                using var fileContent = this.GetFileContent(file);
-                this.WriteStream(objResponse, fileContent);
-            }
-            catch (Exception ex)
-            {
-                Logger.FileManagerWriteToStreamException(ex);
-
-                objResponse.Write("Error : " + ex.Message);
-            }
-
-            objResponse.Flush();
-            objResponse.End();
-
-            HttpContext.Current.Server.ScriptTimeout = scriptTimeOut;
         }
 
         /// <summary>This member is reserved for internal use and is not intended to be used directly from your code.</summary>
         /// <param name="objResponse">The HTTP response.</param>
         /// <param name="objStream">The stream to write to the response stream.</param>
+        /// <remarks>Requires synchronous IO to be enabled on the response body; prefer <see cref="WriteStreamAsync"/>.</remarks>
         internal virtual void WriteStream(HttpResponse objResponse, Stream objStream)
         {
             var bytBuffer = new byte[10000];
             try
             {
-                if (objResponse.IsClientConnected)
+                // IsClientConnected has no ASP.NET Core counterpart; RequestAborted is signalled when
+                // the client disconnects, which is the condition the legacy loop was guarding against.
+                var aborted = objResponse.HttpContext.RequestAborted;
+                if (!aborted.IsCancellationRequested)
                 {
                     var intLength = objStream.Read(bytBuffer, 0, 10000);
 
-                    while (objResponse.IsClientConnected && intLength > 0)
+                    while (!aborted.IsCancellationRequested && intLength > 0)
                     {
-                        objResponse.OutputStream.Write(bytBuffer, 0, intLength);
-                        objResponse.Flush();
+                        objResponse.Body.Write(bytBuffer, 0, intLength);
+                        objResponse.Body.Flush();
 
                         intLength = objStream.Read(bytBuffer, 0, 10000);
                     }
@@ -1439,7 +1581,7 @@ namespace DotNetNuke.Services.FileSystem
             catch (Exception ex)
             {
                 Logger.FileManagerWriteStreamException(ex);
-                objResponse.Write("Error : " + ex.Message);
+                objResponse.Body.Write(Encoding.UTF8.GetBytes("Error : " + ex.Message));
             }
             finally
             {
@@ -1509,88 +1651,120 @@ namespace DotNetNuke.Services.FileSystem
             DataCache.ClearFolderCache(portalId);
         }
 
-        private static ImageFormat GetImageFormat(Image img)
+        /// <summary>The rotation/flip transformations described by the EXIF orientation tag, mirroring the legacy <c>System.Drawing.RotateFlipType</c> values this code used.</summary>
+        private enum ImageRotateFlip
         {
-            if (img.RawFormat.Equals(ImageFormat.Jpeg))
-            {
-                return ImageFormat.Jpeg;
-            }
+            /// <summary>No rotation and no flip.</summary>
+            RotateNoneFlipNone,
 
-            if (img.RawFormat.Equals(ImageFormat.Bmp))
-            {
-                return ImageFormat.Bmp;
-            }
+            /// <summary>No rotation, flipped horizontally.</summary>
+            RotateNoneFlipX,
 
-            if (img.RawFormat.Equals(ImageFormat.Png))
-            {
-                return ImageFormat.Png;
-            }
+            /// <summary>Rotated 180 degrees clockwise, no flip.</summary>
+            Rotate180FlipNone,
 
-            if (img.RawFormat.Equals(ImageFormat.Emf))
-            {
-                return ImageFormat.Emf;
-            }
+            /// <summary>Rotated 180 degrees clockwise, flipped horizontally.</summary>
+            Rotate180FlipX,
 
-            if (img.RawFormat.Equals(ImageFormat.Exif))
-            {
-                return ImageFormat.Exif;
-            }
+            /// <summary>Rotated 90 degrees clockwise, flipped horizontally.</summary>
+            Rotate90FlipX,
 
-            if (img.RawFormat.Equals(ImageFormat.Gif))
-            {
-                return ImageFormat.Gif;
-            }
+            /// <summary>Rotated 90 degrees clockwise, no flip.</summary>
+            Rotate90FlipNone,
 
-            if (img.RawFormat.Equals(ImageFormat.Icon))
-            {
-                return ImageFormat.Icon;
-            }
+            /// <summary>Rotated 270 degrees clockwise, flipped horizontally.</summary>
+            Rotate270FlipX,
 
-            if (img.RawFormat.Equals(ImageFormat.MemoryBmp))
-            {
-                return ImageFormat.Jpeg;
-            }
-
-            if (img.RawFormat.Equals(ImageFormat.Tiff))
-            {
-                return ImageFormat.Tiff;
-            }
-            else
-            {
-                return ImageFormat.Wmf;
-            }
+            /// <summary>Rotated 270 degrees clockwise, no flip.</summary>
+            Rotate270FlipNone,
         }
 
-        private static MemoryStream ToStream(Image image, ImageFormat format)
+        /// <summary>Gets the format the image was decoded from, which is the format it must be re-encoded to.</summary>
+        /// <param name="img">The image.</param>
+        /// <returns>The <see cref="IImageFormat"/> the image was decoded from.</returns>
+        /// <remarks>
+        /// Replaces the legacy System.Drawing RawFormat switch. ImageSharp records the format it actually
+        /// decoded, so the explicit Jpeg/Bmp/Png/Gif/Tiff mapping is no longer needed. The legacy special
+        /// cases map as follows: MemoryBmp had no on-disk format and was re-encoded as Jpeg (ImageSharp
+        /// never reports a memory-only format), and the Emf/Exif/Icon/Wmf fall-through formats are not
+        /// decodable by ImageSharp at all, so Image.Load throws before reaching here and the caller's
+        /// catch leaves the content untouched - the same net result as the legacy Save-to-Wmf failure.
+        /// </remarks>
+        private static IImageFormat GetImageFormat(Image img)
+        {
+            return img.Metadata.DecodedImageFormat
+                   ?? throw new InvalidOperationException("Unable to determine the format of the image; it was not produced by decoding a known image format.");
+        }
+
+        private static MemoryStream ToStream(Image image, IImageFormat format)
         {
             var stream = new MemoryStream();
-            image.Save(stream, format);
+            image.Save(stream, image.Configuration.ImageFormatsManager.GetEncoder(format));
             stream.Position = 0;
             return stream;
         }
 
-        private static RotateFlipType OrientationToFlipType(string orientation)
+        /// <summary>Maps an EXIF orientation value (tag 274) to the rotation/flip it describes.</summary>
+        /// <param name="orientation">The EXIF orientation value.</param>
+        /// <returns>The transformation to apply.</returns>
+        private static ImageRotateFlip OrientationToFlipType(string orientation)
         {
             switch (int.Parse(orientation, CultureInfo.InvariantCulture))
             {
                 case 1:
-                    return RotateFlipType.RotateNoneFlipNone;
+                    return ImageRotateFlip.RotateNoneFlipNone;
                 case 2:
-                    return RotateFlipType.RotateNoneFlipX;
+                    return ImageRotateFlip.RotateNoneFlipX;
                 case 3:
-                    return RotateFlipType.Rotate180FlipNone;
+                    return ImageRotateFlip.Rotate180FlipNone;
                 case 4:
-                    return RotateFlipType.Rotate180FlipX;
+                    return ImageRotateFlip.Rotate180FlipX;
                 case 5:
-                    return RotateFlipType.Rotate90FlipX;
+                    return ImageRotateFlip.Rotate90FlipX;
                 case 6:
-                    return RotateFlipType.Rotate90FlipNone;
+                    return ImageRotateFlip.Rotate90FlipNone;
                 case 7:
-                    return RotateFlipType.Rotate270FlipX;
+                    return ImageRotateFlip.Rotate270FlipX;
                 case 8:
-                    return RotateFlipType.Rotate270FlipNone;
+                    return ImageRotateFlip.Rotate270FlipNone;
                 default:
-                    return RotateFlipType.RotateNoneFlipNone;
+                    return ImageRotateFlip.RotateNoneFlipNone;
+            }
+        }
+
+        /// <summary>Applies the System.Drawing RotateFlipType semantics using ImageSharp processors.</summary>
+        /// <param name="ctx">The image processing context.</param>
+        /// <param name="flip">The transformation to apply.</param>
+        /// <remarks>Both System.Drawing's RotateFlip and ImageSharp's RotateMode rotate clockwise, and
+        /// System.Drawing applied the rotation before the flip, so the order below is preserved.</remarks>
+        private static void ApplyRotateFlip(IImageProcessingContext ctx, ImageRotateFlip flip)
+        {
+            switch (flip)
+            {
+                case ImageRotateFlip.RotateNoneFlipX:
+                    ctx.Flip(FlipMode.Horizontal);
+                    break;
+                case ImageRotateFlip.Rotate180FlipNone:
+                    ctx.Rotate(RotateMode.Rotate180);
+                    break;
+                case ImageRotateFlip.Rotate180FlipX:
+                    ctx.Rotate(RotateMode.Rotate180).Flip(FlipMode.Horizontal);
+                    break;
+                case ImageRotateFlip.Rotate90FlipX:
+                    ctx.Rotate(RotateMode.Rotate90).Flip(FlipMode.Horizontal);
+                    break;
+                case ImageRotateFlip.Rotate90FlipNone:
+                    ctx.Rotate(RotateMode.Rotate90);
+                    break;
+                case ImageRotateFlip.Rotate270FlipX:
+                    ctx.Rotate(RotateMode.Rotate270).Flip(FlipMode.Horizontal);
+                    break;
+                case ImageRotateFlip.Rotate270FlipNone:
+                    ctx.Rotate(RotateMode.Rotate270);
+                    break;
+                default:
+                    // RotateNoneFlipNone - nothing to do.
+                    break;
             }
         }
 
@@ -1622,7 +1796,9 @@ namespace DotNetNuke.Services.FileSystem
                 return false;
             }
 
-            if (file.StartDate == null || file.StartDate == Null.NullDate)
+            // file.StartDate is a non-nullable DateTime, so the legacy "== null" half of this condition
+            // was always false; Null.NullDate remains the "not set" sentinel.
+            if (file.StartDate == Null.NullDate)
             {
                 exceptionMessage = Localization.GetExceptionMessage("StartDateRequired", "The Start Date is required");
                 return false;
@@ -1839,29 +2015,24 @@ namespace DotNetNuke.Services.FileSystem
             try
             {
                 using var image = this.GetImageFromStream(content);
-                if (image.PropertyIdList.All(x => x != 274))
+
+                // EXIF property 274 is the orientation tag; ImageSharp exposes it through the EXIF profile.
+                var exif = image.Metadata.ExifProfile;
+                if (exif is null || !exif.TryGetValue(ExifTag.Orientation, out var orientationValue) || orientationValue?.Value is null)
                 {
                     return;
                 }
 
-                var orientation = image.GetPropertyItem(274); // Find rotation/flip meta property
-                if (orientation == null)
-                {
-                    return;
-                }
-
-                var flip = OrientationToFlipType(orientation.Value[0].ToString(CultureInfo.InvariantCulture));
-                if (flip == RotateFlipType.RotateNoneFlipNone)
+                var flip = OrientationToFlipType(orientationValue.Value.ToString(CultureInfo.InvariantCulture));
+                if (flip == ImageRotateFlip.RotateNoneFlipNone)
                 {
                     return; // No rotation or flip required
                 }
 
-                image.RotateFlip(flip);
-                var newOrientation = new byte[2];
-                newOrientation[0] = 1; // little Endian
-                newOrientation[1] = 0;
-                orientation.Value = newOrientation;
-                image.SetPropertyItem(orientation);
+                image.Mutate(ctx => ApplyRotateFlip(ctx, flip));
+
+                // Reset the orientation tag so the transformation is not applied a second time by viewers.
+                exif.SetValue(ExifTag.Orientation, (ushort)1);
                 content = ToStream(image, GetImageFormat(image));
             }
             catch (Exception ex)

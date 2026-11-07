@@ -5,43 +5,72 @@
 namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 {
     using System;
-    using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
-    using System.Linq;
-    using System.Threading;
-    using System.Web;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Web.Mvc.Common;
 
-    public class ValidateAntiForgeryTokenAttribute : AuthorizeAttributeBase
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc.Filters;
+
+    /// <summary>An authorization filter which validates the DNN anti-forgery token.</summary>
+    public class ValidateAntiForgeryTokenAttribute : DnnAuthorizeBaseAttribute
     {
-        public virtual bool IsAuthenticated(HttpContextBase httpContext)
+        private const string HeaderTokenName = "RequestVerificationToken";
+        private const string FormTokenName = "__RequestVerificationToken";
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// The ASP.NET Core anti-forgery validation API is asynchronous, so this rule is evaluated on the
+        /// asynchronous authorization path instead of the synchronous <see cref="DnnAuthorizeBaseAttribute.AuthorizeCore"/>.
+        /// </remarks>
+        public override async Task OnAuthorizationAsync(AuthorizationFilterContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+
+            if (this.SkipAuthorization(context))
+            {
+                return;
+            }
+
+            if (await this.IsAuthenticatedAsync(context.HttpContext))
+            {
+                this.HandleAuthorizedRequest(context);
+            }
+            else
+            {
+                this.HandleUnauthorizedRequest(context);
+            }
+        }
+
+        /// <summary>Determines whether the request is authenticated and carries a valid anti-forgery token pair.</summary>
+        /// <param name="httpContext">The current HTTP context.</param>
+        /// <returns><see langword="true"/> when the user is authenticated and the token pair validates.</returns>
+        public virtual async Task<bool> IsAuthenticatedAsync(HttpContext httpContext)
         {
             try
             {
-                if (Thread.CurrentPrincipal.Identity.IsAuthenticated)
-                {
-                    var headers = httpContext.Request.Headers;
-                    var form = httpContext.Request.Form;
-
-                    // Try to fetch the token from Headers. (Used with Dnn service framework.).
-                    // If not found then fetch it from form fields. (Would be used with standard MVC call).
-                    var token = headers.GetValues("RequestVerificationToken")?.FirstOrDefault() ?? form.GetValues("__RequestVerificationToken")?.FirstOrDefault();
-
-                    var cookieValue = this.GetAntiForgeryCookieValue(httpContext);
-                    if (token != null)
-                    {
-                        AntiForgery.Instance.Validate(cookieValue, token);
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-                else
+                if (httpContext?.User?.Identity?.IsAuthenticated != true)
                 {
                     return false;
                 }
+
+                // Try to fetch the token from Headers. (Used with Dnn service framework.).
+                // If not found then fetch it from form fields. (Would be used with standard MVC call).
+                var token = httpContext.Request.Headers[HeaderTokenName].ToString();
+                if (string.IsNullOrEmpty(token) && httpContext.Request.HasFormContentType)
+                {
+                    token = httpContext.Request.Form[FormTokenName].ToString();
+                }
+
+                if (string.IsNullOrEmpty(token))
+                {
+                    return false;
+                }
+
+                var cookieValue = this.GetAntiForgeryCookieValue(httpContext);
+
+                await AntiForgery.Instance.ValidateAsync(cookieValue, token);
             }
             catch (Exception)
             {
@@ -51,33 +80,13 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
             return true;
         }
 
+        /// <summary>Gets the anti-forgery cookie token from the request.</summary>
+        /// <param name="context">The current HTTP context.</param>
+        /// <returns>The cookie token value, or <see cref="string.Empty"/> when the cookie is not present.</returns>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
-        protected string GetAntiForgeryCookieValue(HttpContextBase context)
+        protected string GetAntiForgeryCookieValue(HttpContext context)
         {
-            foreach (var cookieValue in context.Request.Headers.GetValues("Cookie"))
-            {
-                var nameIndex = cookieValue.IndexOf(AntiForgery.Instance.CookieName, StringComparison.InvariantCultureIgnoreCase);
-
-                if (nameIndex > -1)
-                {
-                    var valueIndex = nameIndex + AntiForgery.Instance.CookieName.Length + 1;
-                    var valueEndIndex = cookieValue.Substring(valueIndex).IndexOf(';');
-                    return valueEndIndex > -1 ? cookieValue.Substring(valueIndex, valueEndIndex) : cookieValue.Substring(valueIndex);
-                }
-            }
-
-            return string.Empty;
-        }
-
-        /// <inheritdoc />
-        protected override bool AuthorizeCore(HttpContextBase httpContext)
-        {
-            if (!this.IsAuthenticated(httpContext))
-            {
-                return false;
-            }
-
-            return true;
+            return context.Request.Cookies[AntiForgery.Instance.CookieName] ?? string.Empty;
         }
     }
 }

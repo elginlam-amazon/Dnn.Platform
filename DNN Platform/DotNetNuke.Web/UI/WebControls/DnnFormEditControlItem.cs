@@ -4,13 +4,12 @@
 namespace DotNetNuke.Web.UI.WebControls
 {
     using System;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
     using DotNetNuke.Framework;
+    using DotNetNuke.UI;
     using DotNetNuke.UI.WebControls;
 
     using Microsoft.Extensions.DependencyInjection;
@@ -47,10 +46,13 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets the control type.</summary>
+        [Microsoft.AspNetCore.Components.Parameter]
         public string ControlType { get; set; }
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <inheritdoc />
-        protected override WebControl CreateControlInternal(Control container)
+        protected override IDnnControl CreateControlInternal(IDnnControl container)
         {
             this.control = ActivatorUtilities.CreateInstance(this.serviceProvider, Reflection.CreateType(this.ControlType)) as EditControl;
             if (this.control != null)
@@ -66,11 +68,16 @@ namespace DotNetNuke.Web.UI.WebControls
 
                 this.control.CssClass = "dnnFormInput";
 
-                container.Controls.Add(this.control);
+                // the property editor controls are not DnnComponentBase instances, so they go into
+                // the tree wrapped in the host adapter.
+                var host = new DnnEditControlHost { ID = this.control.ID, Control = this.control, };
+                container?.Controls.Add(host);
+                return host;
             }
 
-            return this.control;
+            return null;
         }
+        #pragma warning restore BL0005
 
         private void ValueChanged(object sender, PropertyEditorEventArgs e)
         {

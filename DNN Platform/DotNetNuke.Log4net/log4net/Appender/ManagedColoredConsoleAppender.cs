@@ -21,12 +21,6 @@
 // Compatibility:
 // http://msdn.microsoft.com/en-us/library/system.console.foregroundcolor.aspx
 // Disable for unsupported targets
-#if !NETCF 
-#if !SSCLI
-#if !CLI_1_0
-#if !MONO_1_0
-#if !NET_1_0
-#if !NET_1_1
 
 // The original ColoredConsoleAppender was written before the .NET framework
 // (and Mono) had built-in support for console colors so it was written using
@@ -332,9 +326,3 @@ namespace log4net.Appender
     }
 }
 
-#endif
-#endif
-#endif // !MONO_1_0
-#endif // !CLI_1_0
-#endif // !SSCLI
-#endif // !NETCF

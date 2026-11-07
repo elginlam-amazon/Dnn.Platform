@@ -7,8 +7,6 @@ namespace Dnn.PersonaBar.Servers.Services
     using System;
     using System.IO;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -22,7 +20,10 @@ namespace Dnn.PersonaBar.Servers.Services
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Client.ClientResourceManagement;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(Scope = ServiceScope.Host)]
     public class ServerController : PersonaBarApiController
@@ -40,7 +41,7 @@ namespace Dnn.PersonaBar.Servers.Services
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage RestartApplication()
+        public IActionResult RestartApplication()
         {
             try
             {
@@ -48,29 +49,29 @@ namespace Dnn.PersonaBar.Servers.Services
                 log.AddProperty("Message", Localization.GetString("UserRestart", LocalResourceFile));
                 LogController.Instance.AddLog(log);
                 Config.Touch();
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { url = this.NavigationManager.NavigateURL() });
+                return this.Ok(new { url = this.NavigationManager.NavigateURL() });
             }
             catch (Exception exc)
             {
                 Logger.ServerControllerRestartApplicationException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage ClearCache()
+        public IActionResult ClearCache()
         {
             try
             {
                 DataCache.ClearCache();
                 ClientResourceManager.ClearCache();
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { url = this.NavigationManager.NavigateURL() });
+                return this.Ok(new { url = this.NavigationManager.NavigateURL() });
             }
             catch (Exception exc)
             {
                 Logger.ServerControllerClearCacheException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
     }

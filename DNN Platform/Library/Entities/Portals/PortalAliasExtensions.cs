@@ -7,11 +7,13 @@ namespace DotNetNuke.Entities.Portals
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Portals;
+    using DotNetNuke.Common;
     using DotNetNuke.Entities.Urls;
     using DotNetNuke.Internal.SourceGenerators;
+
+    using Microsoft.AspNetCore.Http;
 
     using NewBrowserTypes = DotNetNuke.Abstractions.Urls.BrowserTypes;
 #pragma warning disable CS0618 // Type or member is obsolete
@@ -62,13 +64,10 @@ namespace DotNetNuke.Entities.Portals
 #pragma warning restore CS0618 // Type or member is obsolete
 
             // if required, and possible, detect browser type
-            if (HttpContext.Current != null && settings != null)
+            var context = HttpContextSource.Current;
+            if (context != null && settings != null)
             {
-                HttpRequest request = HttpContext.Current.Request;
-                HttpResponse response = HttpContext.Current.Response;
-
-                // TODO: create version of GetBrowserType that returns NewBrowserTypes
-                browserType = FriendlyUrlController.GetBrowserType(request, response, settings);
+                browserType = FriendlyUrlController.GetBrowserType(context, settings).ToDeprecatedBrowserTypes();
             }
 
             return GetAliasByPortalIdAndSettings(aliases, portalId, result, cultureCode, browserType.ToAbstractionsBrowserTypes());
@@ -82,16 +81,18 @@ namespace DotNetNuke.Entities.Portals
             UrlAction result = null;
 
             // if required, and possible, detect browser type
-            if (HttpContext.Current != null && settings != null)
+            var context = HttpContextSource.Current;
+            if (context != null && settings != null)
             {
-                HttpRequest request = HttpContext.Current.Request;
-                HttpResponse response = HttpContext.Current.Response;
-                browserType = FriendlyUrlController.GetBrowserType(request, response, settings);
+                var request = context.Request;
+                browserType = FriendlyUrlController.GetBrowserType(context, settings).ToDeprecatedBrowserTypes();
 
-                result = new UrlAction(HttpContext.Current.Request)
+                result = new UrlAction(request)
                 {
-                    IsSecureConnection = request.IsSecureConnection,
-                    RawUrl = request.RawUrl,
+                    IsSecureConnection = request.IsHttps,
+
+                    // ASP.NET Core has no Request.RawUrl; recompose it from the request parts.
+                    RawUrl = $"{request.PathBase}{request.Path}{request.QueryString}",
                     HttpAlias = requestedAlias,
                 };
             }

@@ -5,17 +5,25 @@
 namespace DotNetNuke.Tests.Web.Mvc
 {
     using System.Collections.Generic;
-    using System.Web.Routing;
+
+    using Microsoft.AspNetCore.Routing;
 
     using NUnit.Framework;
 
+    /// <summary>Assertions on dictionaries of route/view data values.</summary>
     public static class DictionaryAssert
     {
+        /// <summary>Asserts that the actual dictionary contains every entry of the given object's properties.</summary>
+        /// <param name="expected">An object whose properties are the expected entries.</param>
+        /// <param name="actual">The dictionary to check.</param>
         public static void ContainsEntries(object expected, IDictionary<string, object> actual)
         {
             ContainsEntries(new RouteValueDictionary(expected), actual);
         }
 
+        /// <summary>Asserts that the actual dictionary contains every expected entry.</summary>
+        /// <param name="expected">The expected entries.</param>
+        /// <param name="actual">The dictionary to check.</param>
         public static void ContainsEntries(IDictionary<string, object> expected, IDictionary<string, object> actual)
         {
             foreach (KeyValuePair<string, object> pair in expected)

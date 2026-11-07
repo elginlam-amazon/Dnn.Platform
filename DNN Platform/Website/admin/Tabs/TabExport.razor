@@ -1,0 +1,301 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Tabs
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using System.Globalization
+@using System.IO
+@using System.Text
+@using System.Xml
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Modules
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Tabs
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.FileSystem
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.Web.UI.WebControls
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+
+@*
+    Replaces admin/Tabs/export.ascx + Export.ascx.cs + Export.ascx.designer.cs, element for element.
+    Renamed to TabExport because admin/Modules also ships an export.ascx; the two would otherwise
+    produce two components called Export.
+
+    Control mapping:
+      - dnn:label plFolder/plFile/plDescription/plContent -> the migrated <LabelControl> component,
+        with the same ControlName/CssClass values and the same resource keys (the ID is the key).
+      - dnn:DnnFolderDropDownList cboFolders -> the migrated DnnFolderDropDownList component, which
+        is the same control; the properties the code behind set that are not Blazor parameters
+        (Services.Parameters, SelectedFolder) are set through @@ref in OnPreRender, which is the
+        phase the WebForms control used.
+      - asp:textbox txtFile/txtDescription -> the two bound inputs. txtDescription had
+        enableviewstate="False"; there is no view state, and the value lives in the component for
+        the circuit's lifetime, which is the behaviour the page needed.
+      - asp:CheckBox chkContent -> the checkbox bound to ContentChecked.
+      - asp:requiredfieldvalidator valFileName/valDescription -> the two validation messages below,
+        which carry the identical resource keys (valFileName.ErrorMessage / valDescription.ErrorMessage)
+        and the identical CSS classes. Page.IsValid becomes Validate(), evaluated by the same button.
+      - asp:LinkButton cmdExport -> the anchor whose @@onclick is OnExportClick.
+      - asp:HyperLink cmdCancel -> the anchor whose href is the NavigateURL the code behind assigned.
+
+    SECURITY: the TabPermissionController.CanExportPage() guard and its AccessDeniedURL redirect are
+    preserved verbatim in OnInit, and FolderPermissionController.Instance.CanAddFolder is still the
+    IsAccessibleByUser check that gates pre-selecting the Templates/ folder.
+
+    No @@rendermode directive on purpose: this component is a descendant of
+    <Routes @@rendermode="RenderModeForPage"> in Website/Components/App.razor, which is
+    InteractiveServer for every DNN page, so the @@onclick handlers fire. A second @@rendermode on a
+    descendant of an interactive component is not allowed.
+*@
+
+<div class="dnnForm dnnTabExport dnnClear">
+    <div class="dnnFormItem">
+        <LabelControl ID="plFolder" ControlName="cboFolders" LocalResourceFile="@this.LocalResourceFile" />
+        <DnnFolderDropDownList @ref="this.cboFolders" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plFile" ControlName="txtFile" CssClass="dnnFormRequired" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="text" id="txtFile" maxlength="200" value="@this.FileName" @onchange="@(e => this.FileName = e.Value?.ToString() ?? string.Empty)" />
+        @if (this.fileNameError)
+        {
+            <span class="dnnFormMessage dnnFormError">@this.LocalizeText("valFileName.ErrorMessage")</span>
+        }
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plDescription" ControlName="txtDescription" CssClass="dnnFormRequired" LocalResourceFile="@this.LocalResourceFile" />
+        <textarea id="txtDescription" @onchange="@(e => this.Description = e.Value?.ToString() ?? string.Empty)">@this.Description</textarea>
+        @if (this.descriptionError)
+        {
+            <span class="dnnFormMessage dnnFormError">@this.LocalizeText("valDescription.ErrorMessage")</span>
+        }
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plContent" ControlName="chkContent" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="chkContent" checked="@this.ContentChecked" @onchange="@(e => this.ContentChecked = (bool)(e.Value ?? false))" />
+    </div>
+    <ul class="dnnActions dnnClear">
+        <li><a id="cmdExport" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.OnExportClick" @onclick:preventDefault="true">@this.LocalizeText("cmdExport")</a></li>
+        <li><a id="cmdCancel" class="dnnSecondaryAction" href="@this.cancelUrl">@this.LocalizeText("cmdCancel")</a></li>
+    </ul>
+</div>
+
+@code {
+    private readonly IBusinessControllerProvider businessControllerProvider;
+    private readonly INavigationManager navigationManager;
+
+    private TabInfo tab;
+    private DnnFolderDropDownList cboFolders;
+    private string cancelUrl = string.Empty;
+    private bool fileNameError;
+    private bool descriptionError;
+    private bool initialBindDone;
+
+    /// <summary>Initializes a new instance of the <see cref="TabExport"/> class.</summary>
+    /// <remarks>
+    /// A Blazor component cannot take constructor parameters, so the two services the WebForms
+    /// control received by injection are resolved from the module's dependency provider - which is
+    /// exactly what its parameterless overload did.
+    /// </remarks>
+    public TabExport()
+    {
+        this.businessControllerProvider = this.DependencyProvider.GetRequiredService<IBusinessControllerProvider>();
+        this.navigationManager = this.DependencyProvider.GetRequiredService<INavigationManager>();
+    }
+
+    /// <summary>Gets the page being exported.</summary>
+    public TabInfo Tab
+    {
+        get
+        {
+            if (this.tab == null)
+            {
+                this.tab = TabController.Instance.GetTab(this.TabId, this.PortalId, false);
+            }
+
+            return this.tab;
+        }
+    }
+
+    /// <summary>Gets or sets the template file name (was <c>txtFile.Text</c>).</summary>
+    protected string FileName { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the template description (was <c>txtDescription.Text</c>).</summary>
+    protected string Description { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets a value indicating whether module content is exported (was <c>chkContent.Checked</c>).</summary>
+    protected bool ContentChecked { get; set; }
+
+    /// <summary>Gets the navigation manager used for the redirects <c>Response.Redirect</c> issued.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // The .resx of this control is still App_LocalResources/Export.ascx.resx; the component
+        // rename must not change which resource file is read.
+        this.LocalResourceFile = "~/admin/Tabs/" + Localization.LocalResourceDirectory + "/Export.ascx";
+
+        if (!TabPermissionController.CanExportPage())
+        {
+            this.Navigation.NavigateTo(Globals.AccessDeniedURL(), forceLoad: true);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            // Was the !Page.IsPostBack guard: this runs once per component instance, which is the
+            // same "first time this form is shown" moment.
+            if (this.initialBindDone)
+            {
+                return;
+            }
+
+            this.cancelUrl = this.navigationManager.NavigateURL();
+
+            if (this.Tab != null)
+            {
+                this.FileName = Globals.CleanName(this.Tab.TabName);
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The folder picker is a child component, so it only exists once this component has rendered.
+    /// The two things the WebForms code behind set on it (the ADD permission service parameter and
+    /// the pre-selected Templates/ folder) are applied here, in the phase that was OnPreRender.
+    /// </remarks>
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+
+        if (this.initialBindDone)
+        {
+            return;
+        }
+
+        this.initialBindDone = true;
+
+        try
+        {
+            if (this.cboFolders == null)
+            {
+                return;
+            }
+
+            var folderPath = "Templates/";
+            var templateFolder = FolderManager.Instance.GetFolder(this.UserInfo.PortalID, folderPath);
+            this.cboFolders.Services.Parameters.Add("permission", "ADD");
+
+            if (templateFolder != null && this.IsAccessibleByUser(templateFolder))
+            {
+                this.cboFolders.SelectedFolder = templateFolder;
+            }
+
+            this.StateHasChanged();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Exports the page to a template file in the portal file system (was <c>cmdExport.Click</c>).</summary>
+    protected void OnExportClick()
+    {
+        try
+        {
+            // Was Page.IsValid: the two required field validators.
+            if (!this.Validate())
+            {
+                return;
+            }
+
+            if (this.cboFolders?.SelectedItem != null)
+            {
+                var folder = FolderManager.Instance.GetFolder(this.cboFolders.SelectedItemValueAsInt);
+                if (folder != null)
+                {
+                    var filename = folder.FolderPath + this.FileName + ".page.template";
+                    filename = filename.Replace("/", @"\");
+
+                    var xmlTemplate = new XmlDocument { XmlResolver = null };
+                    XmlNode nodePortal = xmlTemplate.AppendChild(xmlTemplate.CreateElement("portal"));
+                    if (nodePortal.Attributes != null)
+                    {
+                        nodePortal.Attributes.Append(XmlUtils.CreateAttribute(xmlTemplate, "version", "3.0"));
+                    }
+
+                    // Add template description. Server.HtmlEncode has no ASP.NET Core equivalent;
+                    // WebUtility.HtmlEncode is the same encoding.
+                    XmlElement node = xmlTemplate.CreateElement("description");
+                    node.InnerXml = System.Net.WebUtility.HtmlEncode(this.Description);
+                    nodePortal.AppendChild(node);
+
+                    // Serialize tabs
+                    XmlNode nodeTabs = nodePortal.AppendChild(xmlTemplate.CreateElement("tabs"));
+                    this.SerializeTab(xmlTemplate, nodeTabs);
+
+                    DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, string.Empty, string.Format(CultureInfo.CurrentCulture, Localization.GetString("ExportedMessage", this.LocalResourceFile), filename), ModuleMessage.ModuleMessageType.BlueInfo);
+
+                    // add file to Files table
+                    using (var fileContent = new MemoryStream(Encoding.UTF8.GetBytes(xmlTemplate.OuterXml)))
+                    {
+                        DotNetNuke.Services.FileSystem.FileManager.Instance.AddFile(folder, this.FileName + ".page.template", fileContent, true, true, "application/octet-stream");
+                    }
+                }
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Evaluates the two required field validators (was <c>Page.IsValid</c>).</summary>
+    /// <returns><see langword="true"/> when both required fields have a value.</returns>
+    private bool Validate()
+    {
+        this.fileNameError = string.IsNullOrEmpty(this.FileName);
+        this.descriptionError = string.IsNullOrEmpty(this.Description);
+
+        return !this.fileNameError && !this.descriptionError;
+    }
+
+    /// <summary>Serializes the Tab.</summary>
+    /// <param name="xmlTemplate">Reference to XmlDocument context.</param>
+    /// <param name="nodeTabs">Node to add the serialized objects.</param>
+    private void SerializeTab(XmlDocument xmlTemplate, XmlNode nodeTabs)
+    {
+        var xmlTab = new XmlDocument { XmlResolver = null };
+        var nodeTab = TabController.SerializeTab(this.businessControllerProvider, xmlTab, this.Tab, this.ContentChecked);
+        nodeTabs.AppendChild(xmlTemplate.ImportNode(nodeTab, true));
+    }
+
+    private bool IsAccessibleByUser(IFolderInfo folder)
+    {
+        return FolderPermissionController.Instance.CanAddFolder(folder);
+    }
+}

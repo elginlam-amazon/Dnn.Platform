@@ -4,16 +4,33 @@
 namespace DotNetNuke.Services.GeneratedImage
 {
     using System;
-    #if INDIVIDUAL_LOCKS
-    using System.Collections;
-    #endif
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
     using System.Threading;
-    using System.Web;
-    using System.Web.Hosting;
+    using System.Threading.Tasks;
 
+    using DotNetNuke.Common;
+
+    using Microsoft.AspNetCore.Http;
+
+    /// <summary>A disk-backed server cache for the images produced by <see cref="ImageHandler"/>.</summary>
+    /// <remarks>
+    /// <para>
+    /// The public API is unchanged. What changed is how stale files are purged: the old code queued
+    /// <see cref="System.Threading.ThreadPool.QueueUserWorkItem(WaitCallback)"/> work from inside a
+    /// request and called <see cref="Thread.Sleep(int)"/>, which is exactly the fire-and-forget
+    /// pattern that loses work when the host recycles. Purging is now driven by
+    /// <see cref="DiskImageStorePurgeService"/>, a <c>BackgroundService</c> on a
+    /// <see cref="PeriodicTimer"/>, and <see cref="PurgeAsync"/> is the cooperative,
+    /// cancellation-aware body it calls.
+    /// </para>
+    /// <para>
+    /// The cache directory is resolved through <see cref="HttpContextSource.MapPath"/> instead of
+    /// <c>HostingEnvironment.MapPath</c>, and lazily, because on ASP.NET Core the hosting
+    /// environment is not available while static constructors run.
+    /// </para>
+    /// </remarks>
     public class DiskImageStore : IImageStore
     {
         private const string TempFileExtension = ".tmp";
@@ -22,39 +39,33 @@ namespace DotNetNuke.Services.GeneratedImage
         private static DiskImageStore diskImageStore;
         private static string cachePath;
         private static TimeSpan purgeInterval;
-        private readonly object purgeQueuedLock = new object();
         private readonly object fileLock = new object();
-        private DateTime lastPurge;
-        private bool purgeQueued;
-
-#if INDIVIDUAL_LOCKS
-        private Hashtable _fileLocks = new Hashtable();
-#else
 
         static DiskImageStore()
         {
             EnableAutoPurge = true;
             PurgeInterval = new TimeSpan(0, 5, 0);
-            CachePath = HostingEnvironment.MapPath(CacheAppRelativePath);
         }
 
         /// <summary>Initializes a new instance of the <see cref="DiskImageStore"/> class.</summary>
         internal DiskImageStore()
         {
-            if (CachePath != null && !Directory.Exists(CachePath))
-            {
-                Directory.CreateDirectory(CachePath);
-            }
-
-            this.lastPurge = DateTime.Now;
+            EnsureCacheDirectory();
         }
 
-#endif
-
+        /// <summary>Gets or sets the physical directory the cached images are written to.</summary>
         public static string CachePath
         {
             get
             {
+                if (cachePath == null)
+                {
+                    lock (InstanceLock)
+                    {
+                        cachePath ??= HttpContextSource.MapPath(CacheAppRelativePath) + Path.DirectorySeparatorChar;
+                    }
+                }
+
                 return cachePath;
             }
 
@@ -69,8 +80,10 @@ namespace DotNetNuke.Services.GeneratedImage
             }
         }
 
+        /// <summary>Gets or sets a value indicating whether the purge feature is turned on.</summary>
         public static bool EnableAutoPurge { get; set; } // turn on/off purge feature
 
+        /// <summary>Gets or sets how long a cached image is kept, and therefore how often the purge runs.</summary>
         public static TimeSpan PurgeInterval
         {
             get
@@ -80,11 +93,6 @@ namespace DotNetNuke.Services.GeneratedImage
 
             set
             {
-                if (value == null)
-                {
-                    throw new ArgumentNullException(nameof(value));
-                }
-
                 if (value.Ticks < 0)
                 {
                     throw new ArgumentOutOfRangeException(nameof(value));
@@ -113,29 +121,12 @@ namespace DotNetNuke.Services.GeneratedImage
             }
         }
 
-        private DateTime LastPurge
-        {
-            get
-            {
-                if (this.lastPurge < new DateTime(1990, 1, 1))
-                {
-                    this.lastPurge = DateTime.Now.Subtract(PurgeInterval);
-                }
-
-                return this.lastPurge;
-            }
-
-            set
-            {
-                this.lastPurge = value;
-            }
-        }
-
         /// <inheritdoc />
         public void ForcePurgeFromServerCache(string cacheId)
         {
+            EnsureCacheDirectory();
             var files = new DirectoryInfo(CachePath).GetFiles();
-            var fileInfo = files.FirstOrDefault(file => file.Name.Contains(cacheId));
+            var fileInfo = files.FirstOrDefault(file => file.Name.Contains(cacheId, StringComparison.Ordinal));
             try
             {
                 fileInfo?.Delete();
@@ -146,67 +137,28 @@ namespace DotNetNuke.Services.GeneratedImage
             }
         }
 
-        /// <inheritdoc />
-        void IImageStore.Add(string id, byte[] data)
+        /// <summary>Deletes every cached image that is older than <see cref="PurgeInterval"/>.</summary>
+        /// <param name="cancellationToken">A token that aborts the purge when the host is shutting down.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <remarks>
+        /// This is the old <c>PurgeCallback</c>. The two-phase "delete, yield, retry the ones that
+        /// were locked" behavior is kept; <see cref="Thread.Sleep(int)"/> became
+        /// <see cref="Task.Delay(int, CancellationToken)"/>, and
+        /// <see cref="OperationCanceledException"/> is allowed to propagate so the hosted service
+        /// stops promptly.
+        /// </remarks>
+        internal static async Task PurgeAsync(CancellationToken cancellationToken)
         {
-            this.Add(id, data);
-        }
-
-        /// <inheritdoc />
-        bool IImageStore.TryTransmitIfContains(string id, HttpResponseBase response)
-        {
-            return this.TryTransmitIfContains(id, response);
-        }
-
-#if INDIVIDUAL_LOCKS
-        private static string GetEntryId(FileInfo fileinfo) {
-            string id = fileinfo.Name.Substring(0, fileinfo.Name.Length - s_tempFileExtension.Length);
-            return id;
-        }
-
-        private void DiscardFileLockObject(string id) {
-            // lock on hashtable to prevent other writers
-            lock (_fileLocks) {
-                _fileLocks.Remove(id);
-            }
-        }
-#endif
-
-        private static string BuildFilePath(string id)
-        {
-            return CachePath + id + TempFileExtension;
-        }
-
-        private void PurgeCallback(object target)
-        {
+            EnsureCacheDirectory();
             var files = new DirectoryInfo(CachePath).GetFiles();
             var threshold = DateTime.Now.Subtract(PurgeInterval);
             var toTryDeleteAgain = new List<FileInfo>();
             foreach (var fileinfo in files)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (fileinfo.CreationTime < threshold)
                 {
-#if INDIVIDUAL_LOCKS
-                    string id = GetEntryId(fileinfo);
-                    object lockObject = GetFileLockObject(id);
-                    if (lockObject != null) {
-                        if (!Monitor.TryEnter(lockObject)) {
-                            toTryDeleteAgain.Add(fileinfo);
-                            continue;
-                        }
-
-                        try {
-                            fileinfo.Delete();
-                            DiscardFileLockObject(id);
-                        }
-                        catch (Exception) {
-                            // do nothing
-                        }
-                        finally {
-                            Monitor.Exit(lockObject);
-                        }
-                    }
-#else
                     try
                     {
                         fileinfo.Delete();
@@ -215,30 +167,15 @@ namespace DotNetNuke.Services.GeneratedImage
                     {
                         toTryDeleteAgain.Add(fileinfo);
                     }
-#endif
                 }
             }
 
-            Thread.Sleep(0);
+            await Task.Delay(TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
+
             foreach (var fileinfo in toTryDeleteAgain)
             {
-#if INDIVIDUAL_LOCKS
-                string id = GetEntryId(fileinfo);
-                object lockObject = GetFileLockObject(id);
-                if (!Monitor.TryEnter(lockObject)) {
-                    continue;
-                }
-                try {
-                    fileinfo.Delete();
-                    DiscardFileLockObject(id);
-                }
-                catch (Exception) {
-                    // do nothing, delete will be tried next time purge is called
-                }
-                finally {
-                    Monitor.Exit(lockObject);
-                }
-#else
+                cancellationToken.ThrowIfCancellationRequested();
+
                 try
                 {
                     fileinfo.Delete();
@@ -247,15 +184,38 @@ namespace DotNetNuke.Services.GeneratedImage
                 {
                     // do nothing at this point, try to delete file during next purge
                 }
-#endif
             }
+        }
 
-            this.LastPurge = DateTime.Now;
-            this.purgeQueued = false;
+        /// <inheritdoc />
+        void IImageStore.Add(string id, byte[] data)
+        {
+            this.Add(id, data);
+        }
+
+        /// <inheritdoc />
+        Task<bool> IImageStore.TryTransmitIfContainsAsync(string id, HttpResponse response)
+        {
+            return this.TryTransmitIfContainsAsync(id, response);
+        }
+
+        private static void EnsureCacheDirectory()
+        {
+            var path = CachePath;
+            if (!string.IsNullOrEmpty(path) && !Directory.Exists(path))
+            {
+                Directory.CreateDirectory(path);
+            }
+        }
+
+        private static string BuildFilePath(string id)
+        {
+            return CachePath + id + TempFileExtension;
         }
 
         private void Add(string id, byte[] data)
         {
+            EnsureCacheDirectory();
             var path = BuildFilePath(id);
             lock (this.GetFileLockObject(id))
             {
@@ -270,59 +230,29 @@ namespace DotNetNuke.Services.GeneratedImage
             }
         }
 
-        private bool TryTransmitIfContains(string id, HttpResponseBase response)
+        private async Task<bool> TryTransmitIfContainsAsync(string id, HttpResponse response)
         {
-            if (EnableAutoPurge)
-            {
-                this.QueueAutoPurge();
-            }
-
             string path = BuildFilePath(id);
+            bool exists;
             lock (this.GetFileLockObject(id))
             {
-                if (File.Exists(path))
-                {
-                    response.TransmitFile(path);
-                    return true;
-                }
+                exists = File.Exists(path);
+            }
 
+            if (!exists)
+            {
                 return false;
             }
-        }
 
-        private void QueueAutoPurge()
-        {
-            var now = DateTime.Now;
-            if (!this.purgeQueued && now.Subtract(this.LastPurge) > PurgeInterval)
-            {
-                lock (this.purgeQueuedLock)
-                {
-                    if (!this.purgeQueued)
-                    {
-                        this.purgeQueued = true;
-                        ThreadPool.QueueUserWorkItem(this.PurgeCallback);
-                    }
-                }
-            }
+            // Replaces HttpResponse.TransmitFile, which has no synchronous equivalent on
+            // ASP.NET Core; SendFileAsync uses the same kernel-level sendfile path.
+            await response.SendFileAsync(path).ConfigureAwait(false);
+            return true;
         }
 
         private object GetFileLockObject(string id)
         {
-#if INDIVIDUAL_LOCKS
-            object lockObject = _fileLocks[id];
-
-            if (lockObject == null) {
-                // lock on the hashtable to prevent other writers
-                lock (_fileLocks) {
-                    lockObject = new object();
-                    _fileLocks[id] = lockObject;
-                }
-            }
-
-            return lockObject;
-#else
             return this.fileLock;
-#endif
         }
     }
 }

@@ -6,22 +6,41 @@ namespace DNN.Connectors.GoogleTagManager
 {
     using System;
     using System.Collections.Generic;
-    using System.Web;
+    using System.IO;
     using System.Xml;
 
+    using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Services.Analytics.Config;
     using DotNetNuke.Services.Connections;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.Extensions.DependencyInjection;
+
     /// <summary>Connector to provide configuration for Google Tag Manager support.</summary>
     public class GoogleTagManagerConnector : IConnector
     {
         private const string DefaultDisplayName = "Google Tag Manager";
 
+        private readonly IApplicationStatusInfo applicationStatusInfo;
+
         private string displayName;
+
+        /// <summary>Initializes a new instance of the <see cref="GoogleTagManagerConnector"/> class.</summary>
+        public GoogleTagManagerConnector()
+            : this(null)
+        {
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="GoogleTagManagerConnector"/> class.</summary>
+        /// <param name="applicationStatusInfo">The application status info, used to resolve the application's physical root path.</param>
+        public GoogleTagManagerConnector(IApplicationStatusInfo applicationStatusInfo)
+        {
+            this.applicationStatusInfo = applicationStatusInfo ?? HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<IApplicationStatusInfo>();
+        }
 
         /// <inheritdoc />
         public string Name
@@ -183,7 +202,7 @@ namespace DNN.Connectors.GoogleTagManager
 
                     if (!isDeactivating)
                     {
-                        EnsureScriptInConfig();
+                        this.EnsureScriptInConfig();
                     }
                 }
 
@@ -196,11 +215,27 @@ namespace DNN.Connectors.GoogleTagManager
             }
         }
 
-        /// <summary>Check if there's an AnalyticsEngine element in siteanalytics.config for this connector. If not, adds the default one.</summary>
-        private static void EnsureScriptInConfig()
+        /// <summary>
+        /// Handles custom conversion from "true" => "true"
+        /// Anything else to "" to support the strange knockout handling of string as booleans.
+        /// </summary>
+        /// <param name="value">The string representing a boolean.</param>
+        /// <returns>The string representing a boolean after the correction.</returns>
+        private static string HandleCustomBoolean(string value)
         {
-            var applicationMapPath = HttpContext.Current.Server.MapPath(@"\");
-            var file = applicationMapPath + @"\SiteAnalytics.config";
+            if ((value ?? string.Empty).Trim().Equals("true", StringComparison.OrdinalIgnoreCase))
+            {
+                return "true";
+            }
+
+            return string.Empty;
+        }
+
+        /// <summary>Check if there's an AnalyticsEngine element in siteanalytics.config for this connector. If not, adds the default one.</summary>
+        private void EnsureScriptInConfig()
+        {
+            var applicationMapPath = this.applicationStatusInfo.ApplicationMapPath;
+            var file = Path.Combine(applicationMapPath, "SiteAnalytics.config");
             var xdoc = new XmlDocument();
             using (var siteConfigReader = XmlReader.Create(file, new XmlReaderSettings { XmlResolver = null, }))
             {
@@ -219,7 +254,7 @@ namespace DNN.Connectors.GoogleTagManager
 
             if (!found)
             {
-                var fileGtm = applicationMapPath + @"\DesktopModules\Connectors\GoogleTagManager\GoogleTagManager.config";
+                var fileGtm = Path.Combine(applicationMapPath, "DesktopModules", "Connectors", "GoogleTagManager", "GoogleTagManager.config");
                 var xdocGtm = new XmlDocument();
                 using (var googleConfigReader = XmlReader.Create(fileGtm, new XmlReaderSettings { XmlResolver = null, }))
                 {
@@ -236,22 +271,6 @@ namespace DNN.Connectors.GoogleTagManager
 
                 xdoc.Save(file);
             }
-        }
-
-        /// <summary>
-        /// Handles custom conversion from "true" => "true"
-        /// Anything else to "" to support the strange knockout handling of string as booleans.
-        /// </summary>
-        /// <param name="value">The string representing a boolean.</param>
-        /// <returns>The string representing a boolean after the correction.</returns>
-        private static string HandleCustomBoolean(string value)
-        {
-            if ((value ?? string.Empty).Trim().Equals("true", StringComparison.OrdinalIgnoreCase))
-            {
-                return "true";
-            }
-
-            return string.Empty;
         }
     }
 }

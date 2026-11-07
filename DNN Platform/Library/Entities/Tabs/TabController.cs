@@ -9,8 +9,8 @@ namespace DotNetNuke.Entities.Tabs
     using System.Data;
     using System.Globalization;
     using System.Linq;
+    using System.Net;
     using System.Text.RegularExpressions;
-    using System.Web;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Application;
@@ -260,10 +260,11 @@ namespace DotNetNuke.Entities.Tabs
             }
 
             // if deserialize tab from install wizard, we need parse deserialize handlers first.
-            var installFromWizard = HttpContext.Current != null && HttpContext.Current.Items.Contains("InstallFromWizard");
+            var wizardContext = HttpContextSource.Current;
+            var installFromWizard = wizardContext != null && wizardContext.Items.ContainsKey("InstallFromWizard");
             if (installFromWizard)
             {
-                HttpContext.Current.Items.Remove("InstallFromWizard");
+                wizardContext.Items.Remove("InstallFromWizard");
                 EventManager.Instance.RefreshTabSyncHandlers();
             }
 
@@ -977,7 +978,7 @@ namespace DotNetNuke.Entities.Tabs
                 if (!Null.IsNull(tab.ParentId))
                 {
                     newElement = tabXml.CreateElement("parent");
-                    newElement.InnerXml = HttpContext.Current.Server.HtmlEncode(tabs[tab.ParentId].ToString());
+                    newElement.InnerXml = WebUtility.HtmlEncode(tabs[tab.ParentId].ToString());
                     tabNode.AppendChild(newElement);
 
                     // save tab as: ParentTabName/CurrentTabName
@@ -996,7 +997,7 @@ namespace DotNetNuke.Entities.Tabs
                 try
                 {
                     newElement = tabXml.CreateElement("defaultLanguageTab");
-                    newElement.InnerXml = HttpContext.Current.Server.HtmlEncode(tabs[tab.DefaultLanguageTab.TabID].ToString());
+                    newElement.InnerXml = WebUtility.HtmlEncode(tabs[tab.DefaultLanguageTab.TabID].ToString());
                     tabNode.AppendChild(newElement);
                 }
                 catch

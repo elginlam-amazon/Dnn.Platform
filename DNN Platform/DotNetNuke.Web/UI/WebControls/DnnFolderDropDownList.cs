@@ -7,8 +7,6 @@ namespace DotNetNuke.Web.UI.WebControls
     using System;
     using System.ComponentModel;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Common;
@@ -17,13 +15,12 @@ namespace DotNetNuke.Web.UI.WebControls
     using DotNetNuke.Framework;
     using DotNetNuke.Services.FileSystem;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI;
     using DotNetNuke.Web.Common;
     using DotNetNuke.Web.UI.WebControls.Extensions;
-
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A folder dropdown control.</summary>
-    [ToolboxData("<{0}:DnnFolderDropDownList runat='server'></{0}:DnnFolderDropDownList>")]
     public class DnnFolderDropDownList : DnnDropDownList
     {
         /// <summary>Initializes a new instance of the <see cref="DnnFolderDropDownList"/> class.</summary>
@@ -60,7 +57,7 @@ namespace DotNetNuke.Web.UI.WebControls
                     folderName = PortalSettings.Current.ActiveTab.IsSuperTab ? DynamicSharedConstants.HostRootFolder : DynamicSharedConstants.RootFolder;
                 }
 
-                this.SelectedItem = (value != null) ? new ListItem() { Text = folderName, Value = value.FolderID.ToString(CultureInfo.InvariantCulture) } : null;
+                this.SelectedItem = (value != null) ? new DnnListItem(folderName, value.FolderID.ToString(CultureInfo.InvariantCulture)) : null;
             }
         }
 

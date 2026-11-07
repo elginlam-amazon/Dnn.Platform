@@ -6,10 +6,6 @@ namespace DotNetNuke.Services.Installer.Installers
     using System;
     using System.Diagnostics.CodeAnalysis;
     using System.IO;
-    using System.Reflection;
-    using System.Security;
-    using System.Text.RegularExpressions;
-    using System.Xml;
 
     using DotNetNuke.Common;
     using DotNetNuke.Data;
@@ -17,10 +13,6 @@ namespace DotNetNuke.Services.Installer.Installers
     /// <summary>The AssemblyInstaller installs Assembly Components to a DotNetNuke site.</summary>
     public class AssemblyInstaller : FileInstaller
     {
-        private static readonly Regex PublicKeyTokenRegex = new Regex(@"PublicKeyToken=(\w+)", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
-        private static readonly string OldVersion = "0.0.0.0-" + new Version(short.MaxValue, short.MaxValue, short.MaxValue, short.MaxValue);
-
         /// <inheritdoc />
         public override string AllowableFiles => "dll,pdb";
 
@@ -28,13 +20,13 @@ namespace DotNetNuke.Services.Installer.Installers
         protected override string CollectionNodeName => "assemblies";
 
         /// <summary>Gets the default Path for the file - if not present in the manifest.</summary>
-        protected override string DefaultPath => "bin\\";
+        protected override string DefaultPath => "bin" + System.IO.Path.DirectorySeparatorChar;
 
         /// <summary>Gets the name of the Item Node (<c>assembly</c>).</summary>
         protected override string ItemNodeName => "assembly";
 
         /// <summary>Gets the PhysicalBasePath for the assemblies.</summary>
-        protected override string PhysicalBasePath => this.PhysicalSitePath + @"\";
+        protected override string PhysicalBasePath => this.PhysicalSitePath + Path.DirectorySeparatorChar;
 
         /// <inheritdoc />
         [SuppressMessage("Microsoft.Naming", "CA1725:ParameterNamesShouldMatchBaseDeclaration", Justification = "Breaking change")]
@@ -115,150 +107,31 @@ namespace DotNetNuke.Services.Installer.Installers
             return bSuccess;
         }
 
-        /// <summary>Reads the file's <see cref="AssemblyName"/>.</summary>
-        /// <param name="assemblyFile">The path for the assembly whose <see cref="AssemblyName"/> is to be returned.</param>
-        /// <returns>An <see cref="AssemblyName"/> or <c>null</c>.</returns>
-        private static AssemblyName ReadAssemblyName(string assemblyFile)
-        {
-            try
-            {
-                return AssemblyName.GetAssemblyName(assemblyFile);
-            }
-            catch (BadImageFormatException)
-            {
-                // assemblyFile is not a valid assembly.
-                return null;
-            }
-            catch (ArgumentException)
-            {
-                // assemblyFile is invalid, such as an assembly with an invalid culture.
-                return null;
-            }
-            catch (SecurityException)
-            {
-                // The caller does not have path discovery permission.
-                return null;
-            }
-            catch (FileLoadException)
-            {
-                // An assembly or module was loaded twice with two different sets of evidence.
-                return null;
-            }
-        }
-
-        private static string ReadPublicKey(AssemblyName assemblyName)
-        {
-            if (assemblyName == null || !assemblyName.Flags.HasFlag(AssemblyNameFlags.PublicKey))
-            {
-                return null;
-            }
-
-            return PublicKeyTokenRegex.Match(assemblyName.FullName).Groups[1].Value;
-        }
-
-        /// <summary>Gets the XML merge document to create the binding redirect.</summary>
-        /// <param name="xmlMergePath">The path to the template binding redirect XML Merge document.</param>
-        /// <param name="name">The assembly name.</param>
-        /// <param name="publicKeyToken">The assembly's public key token.</param>
-        /// <param name="oldVersion">The old version range.</param>
-        /// <param name="newVersion">The new version.</param>
-        /// <returns>An <see cref="XmlDocument"/> instance.</returns>
-        private static XmlDocument GetXmlMergeDoc(string xmlMergePath, string name, string publicKeyToken, string oldVersion, string newVersion)
-        {
-            var xmlMergeDoc = new XmlDocument { XmlResolver = null };
-            using (var xmlMergeReader = XmlReader.Create(xmlMergePath, new XmlReaderSettings { XmlResolver = null, }))
-            {
-                xmlMergeDoc.Load(xmlMergeReader);
-            }
-
-            var namespaceManager = new XmlNamespaceManager(xmlMergeDoc.NameTable);
-            namespaceManager.AddNamespace("ab", "urn:schemas-microsoft-com:asm.v1");
-
-            var node = xmlMergeDoc.SelectSingleNode("/configuration/nodes/node", namespaceManager);
-            ReplaceInAttributeValue(node, namespaceManager, "@path", "$$name$$", name);
-            ReplaceInAttributeValue(node, namespaceManager, "@path", "$$publicKeyToken$$", publicKeyToken);
-
-            var dependentAssembly = node.SelectSingleNode("ab:dependentAssembly", namespaceManager);
-            if (dependentAssembly == null)
-            {
-                return xmlMergeDoc;
-            }
-
-            ReplaceInAttributeValue(node, namespaceManager, "@targetpath", "$$name$$", name);
-            ReplaceInAttributeValue(node, namespaceManager, "@targetpath", "$$publicKeyToken$$", publicKeyToken);
-
-            var assemblyIdentity = dependentAssembly.SelectSingleNode("ab:assemblyIdentity", namespaceManager);
-            ReplaceInAttributeValue(assemblyIdentity, namespaceManager, "@name", "$$name$$", name);
-            ReplaceInAttributeValue(assemblyIdentity, namespaceManager, "@publicKeyToken", "$$publicKeyToken$$", publicKeyToken);
-
-            var bindingRedirect = dependentAssembly.SelectSingleNode("ab:bindingRedirect", namespaceManager);
-            ReplaceInAttributeValue(bindingRedirect, namespaceManager, "@oldVersion", "$$oldVersion$$", oldVersion);
-            ReplaceInAttributeValue(bindingRedirect, namespaceManager, "@newVersion", "$$newVersion$$", newVersion);
-
-            return xmlMergeDoc;
-        }
-
-        /// <summary>Replaces the given text in the value of the attribute matched by <paramref name="xpath"/>.</summary>
-        /// <param name="parentNode">The parent node in which to search via the <paramref name="xpath"/> expression.</param>
-        /// <param name="namespaceManager">The namespace manager.</param>
-        /// <param name="xpath">The xpath expression to get the attribute.</param>
-        /// <param name="oldValue">The placeholder value to replace.</param>
-        /// <param name="newValue">The real value with which to replace <paramref name="oldValue"/>.</param>
-        private static void ReplaceInAttributeValue(XmlNode parentNode, XmlNamespaceManager namespaceManager, string xpath, string oldValue, string newValue)
-        {
-            var attribute = parentNode.SelectSingleNode(xpath, namespaceManager);
-            attribute.Value = attribute.Value.Replace(oldValue, newValue);
-        }
-
         /// <summary>Adds or updates the binding redirect for the assembly file, if the assembly file it strong-named.</summary>
         /// <param name="file">The assembly file.</param>
+        /// <remarks>
+        /// No-op on net10.0. Assembly binding redirects were a .NET Framework CLR loader feature
+        /// configured through <c>&lt;runtime&gt;&lt;assemblyBinding&gt;</c> in <c>web.config</c>.
+        /// Modern .NET resolves assemblies through <c>AssemblyLoadContext</c> and the
+        /// <c>.deps.json</c> dependency graph, where the newest compatible version always wins and
+        /// a redirect has nothing to redirect. Applying
+        /// <c>Install/Config/BindingRedirect.config</c> would write a <c>&lt;runtime&gt;</c>
+        /// section that nothing reads. The merge scripts are kept on disk verbatim so that a
+        /// rollback to the WebForms build can still use them; see migration-summary.md.
+        /// </remarks>
         private void AddOrUpdateBindingRedirect(InstallFile file)
         {
-            if (this.ApplyXmlMerge(file, "BindingRedirect.config"))
-            {
-                this.Log.AddInfo(Util.ASSEMBLY_AddedBindingRedirect + " - " + file.FullName);
-            }
+            this.Log.AddInfo(
+                $"Skipped the assembly binding redirect for {file.FullName}: binding redirects have no effect on .NET 10.");
         }
 
         /// <summary>Removes the binding redirect for the assembly file, if the assembly is strong-named.</summary>
         /// <param name="file">The assembly file.</param>
+        /// <remarks>No-op on net10.0, for the reason given on <see cref="AddOrUpdateBindingRedirect"/>.</remarks>
         private void RemoveBindingRedirect(InstallFile file)
         {
-            if (this.ApplyXmlMerge(file, "RemoveBindingRedirect.config"))
-            {
-                this.Log.AddInfo(Util.ASSEMBLY_RemovedBindingRedirect + " - " + file.FullName);
-            }
-        }
-
-        /// <summary>If the <paramref name="file"/> is a strong-named assembly, applies the XML merge.</summary>
-        /// <param name="file">The assembly file.</param>
-        /// <param name="xmlMergeFile">The XML merge file name.</param>
-        /// <returns><see langword="true"/> if the XML Merge was applied successfully, <see langword="false"/> if the file was not a strong-named assembly or could not be read.</returns>
-        private bool ApplyXmlMerge(InstallFile file, string xmlMergeFile)
-        {
-            var assemblyFileFullPath = Path.Combine(this.PhysicalBasePath, file.FullName);
-            if (!File.Exists(assemblyFileFullPath))
-            {
-                return false;
-            }
-
-            var assemblyName = ReadAssemblyName(assemblyFileFullPath);
-            var publicKeyToken = ReadPublicKey(assemblyName);
-            if (string.IsNullOrEmpty(publicKeyToken))
-            {
-                return false;
-            }
-
-            var name = assemblyName.Name;
-            var assemblyVersion = assemblyName.Version;
-            var newVersion = assemblyVersion.ToString();
-
-            var xmlMergePath = Path.Combine(Globals.InstallMapPath, "Config", xmlMergeFile);
-            var xmlMergeDoc = GetXmlMergeDoc(xmlMergePath, name, publicKeyToken, OldVersion, newVersion);
-            var xmlMerge = new XmlMerge(xmlMergeDoc, this.Package.Version.ToString(), this.Package.Name);
-            xmlMerge.UpdateConfigs();
-
-            return true;
+            this.Log.AddInfo(
+                $"Skipped removing the assembly binding redirect for {file.FullName}: binding redirects have no effect on .NET 10.");
         }
     }
 }

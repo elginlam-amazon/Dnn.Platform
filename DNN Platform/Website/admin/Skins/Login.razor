@@ -1,0 +1,186 @@
+@* Ported from login.ascx / Login.ascx.cs / Login.ascx.designer.cs — the dnn:LOGIN skin object.
+
+   It is a LINK, not a login form: it points at the very same login endpoint the converted
+   DesktopModules/Admin/Authentication/Login.razor module is rendered on, because the URL is still
+   produced by Globals.LoginURL(returnUrl, override) — i.e. the portal's Login tab when one is
+   configured, otherwise ctl=Login on the current tab. No second URL scheme is introduced here.
+   The returnurl it carries is passed through UrlUtils.ValidReturnUrl (the same open-redirect guard
+   the Login module applies when consuming it) before being URL encoded.
+
+   Markup mapping (the two mutually exclusive renderings of LegacyMode are preserved):
+     * loginLink         -> the first <a class="SkinObject" rel="nofollow">  (LegacyMode = true),
+     * loginGroup        -> <div class="loginGroup" id="loginGroup">          (LegacyMode = false),
+     * enhancedLoginLink -> <a class="secondaryActionsList" rel="nofollow"> inside that div.
+   HyperLink.Text carried markup (the skin may pass an <img src="...">), so it is emitted as a
+   MarkupString, exactly as the WebForms literal rendering did.
+
+   Not superseded by Dnn.Skins.Aperture's ApertureLoginLink: that component is theme private
+   (IApertureSkinContext, hard-coded "Login"/"Logout" captions and aperture-login class), whereas
+   this skin object is the platform-wide dnn:LOGIN with its Text/LogoffText/CssClass/LegacyMode/
+   ShowInErrorPage settings and per-portal localized captions.
+*@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Services.Authentication
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Http
+@using Microsoft.Extensions.DependencyInjection
+@using Exceptions = DotNetNuke.Services.Exceptions.Exceptions
+@using Globals = DotNetNuke.Common.Globals
+
+@if (this.Visible)
+{
+    @if (this.LegacyMode)
+    {
+        <a href="@this.navigateUrl"
+           class="@(string.IsNullOrEmpty(this.CssClass) ? "SkinObject" : this.CssClass)"
+           rel="nofollow"
+           title="@NullIfEmpty(this.toolTip)"
+           onclick="@NullIfEmpty(this.onClick)">@((MarkupString)this.linkText)</a>
+    }
+    else
+    {
+        <div class="loginGroup" id="loginGroup">
+            <a href="@this.navigateUrl"
+               class="@(string.IsNullOrEmpty(this.CssClass) ? "secondaryActionsList" : this.CssClass)"
+               rel="nofollow"
+               title="@NullIfEmpty(this.toolTip)"
+               onclick="@NullIfEmpty(this.onClick)">@((MarkupString)this.linkText)</a>
+        </div>
+    }
+}
+
+@code {
+    private const string MyFileName = "Login.ascx";
+
+    private INavigationManager navigationManager;
+
+    // The designer fields reduced to the state they actually carried.
+    private string linkText = string.Empty;
+    private string toolTip = string.Empty;
+    private string navigateUrl = string.Empty;
+    private string onClick = string.Empty;
+
+    /// <summary>Gets or sets the text of the login link.</summary>
+    [Parameter]
+    public string Text { get; set; }
+
+    /// <summary>Gets or sets the text of the logoff link.</summary>
+    [Parameter]
+    public string LogoffText { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether set this to false in the skin to take advantage of the enhanced markup.</summary>
+    [Parameter]
+    public bool LegacyMode { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether set this to true to show in custom 404/500 page.</summary>
+    [Parameter]
+    public bool ShowInErrorPage { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.navigationManager ??= Globals.GetCurrentServiceProvider().GetRequiredService<INavigationManager>();
+
+        this.Visible = (!this.PortalSettings.HideLoginControl || this.Request.IsAuthenticated())
+                    && (!this.PortalSettings.InErrorPageRequest() || this.ShowInErrorPage);
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.Visible)
+        {
+            try
+            {
+                if (this.Request.IsAuthenticated())
+                {
+                    if (!string.IsNullOrEmpty(this.LogoffText))
+                    {
+                        if (this.LogoffText.IndexOf("src=", StringComparison.Ordinal) != -1)
+                        {
+                            this.LogoffText = this.LogoffText.Replace("src=\"", "src=\"" + this.PortalSettings.ActiveTab.SkinPath);
+                        }
+
+                        this.linkText = this.LogoffText;
+                    }
+                    else
+                    {
+                        this.linkText = Localization.GetString("Logout", Localization.GetResourceFile(this, MyFileName));
+                        this.toolTip = this.linkText;
+                    }
+
+                    this.navigateUrl = this.navigationManager.NavigateURL(this.PortalSettings.ActiveTab.TabID, "Logoff");
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(this.Text))
+                    {
+                        if (this.Text.IndexOf("src=", StringComparison.Ordinal) != -1)
+                        {
+                            this.Text = this.Text.Replace("src=\"", "src=\"" + this.PortalSettings.ActiveTab.SkinPath);
+                        }
+
+                        this.linkText = this.Text;
+                    }
+                    else
+                    {
+                        this.linkText = Localization.GetString("Login", Localization.GetResourceFile(this, MyFileName));
+                        this.toolTip = this.linkText;
+                    }
+
+                    // Was HttpContext.Current.Request.RawUrl. The raw URL of an ASP.NET Core request
+                    // is its path plus its query string.
+                    var request = this.Request;
+                    string returnUrl = request is null
+                        ? string.Empty
+                        : request.Path.ToString() + request.QueryString.ToString();
+                    if (returnUrl.IndexOf("?returnurl=", StringComparison.Ordinal) != -1)
+                    {
+                        returnUrl = returnUrl.Substring(0, returnUrl.IndexOf("?returnurl=", StringComparison.Ordinal));
+                    }
+
+                    // Same open-redirect guard the Login module applies to the returnurl it reads,
+                    // so the value this link emits can never be one that would be rejected there.
+                    returnUrl = UrlUtils.ValidReturnUrl(returnUrl);
+
+                    returnUrl = System.Net.WebUtility.UrlEncode(returnUrl ?? string.Empty);
+
+                    this.navigateUrl = Globals.LoginURL(returnUrl, request?.Query["override"].Count > 0);
+
+                    // avoid issues caused by multiple clicks of login link
+                    var oneclick = "this.disabled=true;";
+                    var userAgent = request?.Headers.UserAgent.ToString();
+                    if (userAgent != null && userAgent.Contains("MSIE 8.0", StringComparison.Ordinal) == false)
+                    {
+                        this.onClick = oneclick;
+                    }
+
+                    if (this.PortalSettings.EnablePopUps && this.PortalSettings.LoginTabId == Null.NullInteger && !AuthenticationController.HasSocialAuthenticationEnabled(this))
+                    {
+                        // To avoid duplicated encodes of URL
+                        this.onClick = "return " + UrlUtils.PopUpUrl(System.Net.WebUtility.UrlDecode(this.navigateUrl), this.PortalSettings, true, false, 300, 650);
+                    }
+                }
+            }
+            catch (Exception exc)
+            {
+                Exceptions.ProcessModuleLoadException(this, exc);
+            }
+        }
+    }
+
+    private static string NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
+}

@@ -7,7 +7,6 @@ namespace Dnn.PersonaBar.Themes.Components
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
 
     [Flags]
     public enum ThemeLevel

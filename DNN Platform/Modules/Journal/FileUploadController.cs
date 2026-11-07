@@ -7,9 +7,7 @@ namespace DotNetNuke.Modules.Journal
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Net.Http;
-    using System.Web;
-    using System.Web.Http;
+    using System.Net;
 
     using DotNetNuke.Common;
     using DotNetNuke.Instrumentation;
@@ -18,6 +16,8 @@ namespace DotNetNuke.Modules.Journal
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     using Newtonsoft.Json;
@@ -31,13 +31,12 @@ namespace DotNetNuke.Modules.Journal
         [DnnAuthorize]
         [HttpPost]
         [IFrameSupportedValidateAntiForgeryToken]
-        public HttpResponseMessage UploadFile()
+        public IActionResult UploadFile()
         {
             var statuses = new List<FilesStatus>();
             try
             {
-                // todo can we eliminate the HttpContext here
-                this.UploadWholeFile(HttpContextSource.Current, statuses);
+                this.UploadWholeFile(this.HttpContext, statuses);
             }
             catch (Exception exc)
             {
@@ -52,21 +51,31 @@ namespace DotNetNuke.Modules.Journal
             return ImageExtensions.Contains(extension);
         }
 
-        private static HttpResponseMessage IframeSafeJson(List<FilesStatus> statuses)
+        /// <summary>
+        /// Writes the statuses as JSON but labels the response as plain text, which is what the legacy
+        /// <c>StringContent</c> (default <c>text/plain</c>) media type did. The iframe upload transport
+        /// used by the client depends on that content type, so it must not become <c>application/json</c>.
+        /// </summary>
+        /// <param name="statuses">The file statuses to serialize.</param>
+        /// <returns>A <see cref="ContentResult"/>.</returns>
+        private static ContentResult IframeSafeJson(List<FilesStatus> statuses)
         {
             // return json but label it as plain text
-            return new HttpResponseMessage
+            return new ContentResult
             {
-                Content = new StringContent(JsonConvert.SerializeObject(statuses)),
+                Content = JsonConvert.SerializeObject(statuses),
+                ContentType = "text/plain",
+                StatusCode = (int)HttpStatusCode.OK,
             };
         }
 
         // Upload entire file
-        private void UploadWholeFile(HttpContextBase context, ICollection<FilesStatus> statuses)
+        private void UploadWholeFile(HttpContext context, ICollection<FilesStatus> statuses)
         {
-            for (var i = 0; i < context.Request.Files.Count; i++)
+            var files = context.Request.Form.Files;
+            for (var i = 0; i < files.Count; i++)
             {
-                var file = context.Request.Files[i];
+                var file = files[i];
                 if (file == null)
                 {
                     continue;
@@ -82,9 +91,12 @@ namespace DotNetNuke.Modules.Journal
 
                 try
                 {
-                    var fileInfo = JournalController.Instance.SaveJourmalFile(this.ActiveModule, this.UserInfo, fileName, file.InputStream);
+                    using var stream = file.OpenReadStream();
+                    var fileInfo = JournalController.Instance.SaveJourmalFile(this.ActiveModule, this.UserInfo, fileName, stream);
                     var fileIcon = Entities.Icons.IconController.IconURL("Ext" + fileInfo.Extension, "32x32");
-                    if (!File.Exists(context.Server.MapPath(fileIcon)))
+                    // Fully qualified: the inherited MVC ControllerBase.File(...) helper otherwise
+                    // shadows the System.IO.File type this check has always used.
+                    if (!System.IO.File.Exists(HttpContextSource.MapPath(fileIcon)))
                     {
                         fileIcon = Entities.Icons.IconController.IconURL("File", "32x32");
                     }
@@ -95,7 +107,7 @@ namespace DotNetNuke.Modules.Journal
                         name = fileName,
                         extension = fileInfo.Extension,
                         type = fileInfo.ContentType,
-                        size = file.ContentLength,
+                        size = (int)file.Length,
                         progress = "1.0",
                         url = FileManager.Instance.GetUrl(fileInfo),
                         thumbnail_url = fileIcon,

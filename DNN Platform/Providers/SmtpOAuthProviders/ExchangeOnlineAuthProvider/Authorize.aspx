@@ -1,1 +1,0 @@
-<%@ Page Language="C#" AutoEventWireup="false" Inherits="Dnn.ExchangeOnlineAuthProvider.Authorize, Dnn.ExchangeOnlineAuthProvider" CodeBehind="Authorize.aspx.cs" Async="true" %>

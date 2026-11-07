@@ -4,14 +4,13 @@
 namespace DotNetNuke.UI.Modules.Html5
 {
     using System;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Modules;
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Framework;
-
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>Module control factory for HTML modules.</summary>
@@ -50,19 +49,19 @@ namespace DotNetNuke.UI.Modules.Html5
         }
 
         /// <inheritdoc />
-        public override Control CreateControl(TemplateControl containerControl, string controlKey, string controlSrc)
+        public override IComponent CreateControl(IComponent containerControl, string controlKey, string controlSrc)
         {
             return new Html5HostControl("~/" + controlSrc, this.businessControllerProvider, this.servicesFramework, this.hostSettings);
         }
 
         /// <inheritdoc />
-        public override Control CreateModuleControl(TemplateControl containerControl, ModuleInfo moduleConfiguration)
+        public override IComponent CreateModuleControl(IComponent containerControl, ModuleInfo moduleConfiguration)
         {
             return this.CreateControl(containerControl, string.Empty, moduleConfiguration.ModuleControl.ControlSrc);
         }
 
         /// <inheritdoc />
-        public override Control CreateSettingsControl(TemplateControl containerControl, ModuleInfo moduleConfiguration, string controlSrc)
+        public override IComponent CreateSettingsControl(IComponent containerControl, ModuleInfo moduleConfiguration, string controlSrc)
         {
             return this.CreateControl(containerControl, string.Empty, controlSrc);
         }

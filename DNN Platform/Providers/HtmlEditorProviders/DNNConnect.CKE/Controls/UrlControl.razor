@@ -1,0 +1,337 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DNNConnect.CKEditorProvider.Controls
+@using System.Collections
+@using System.Globalization
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.FileSystem
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.UserControls
+@using Globals = DotNetNuke.Common.Globals
+
+@*
+    Replaces Controls/UrlControl.cs (an abstract System.Web.UI.UserControl with 16 ViewState keys)
+    together with its markup UrlControl.ascx (two divs holding the Folder label + auto-postback
+    Folders DropDownList and the File label + Files DropDownList). Both are now this single
+    component: the markup below is the .ascx markup, the auto-postback cascade is the
+    OnFolderChangedAsync handler, and every ViewState key is a parameter or a field.
+*@
+
+<div style="float: left;">
+    <div>
+        <label id="FolderLabel" class="NormalBold" for="Folders">@this.FolderCaption</label>
+        <select id="Folders" class="NormalTextBox" style="@this.ControlWidthStyle" @onchange="this.OnFolderChangedAsync">
+            @foreach (var folder in this.folders)
+            {
+                <option value="@folder.Value" selected="@folder.Selected">@folder.Text</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label id="FileLabel" class="NormalBold" for="Files">@this.FileCaption</label>
+        <select id="Files" class="NormalTextBox" style="@this.ControlWidthStyle" @onchange="this.OnFileChangedAsync">
+            @foreach (var file in this.files)
+            {
+                <option value="@file.Value" selected="@file.Selected">@file.Text</option>
+            }
+        </select>
+    </div>
+</div>
+
+@code {
+    private readonly List<ListItem> folders = new List<ListItem>();
+    private readonly List<ListItem> files = new List<ListItem>();
+
+    private string localResourceFile;
+    private string url = string.Empty;
+    private string appliedUrl;
+
+    /// <summary>Gets or sets a value indicating whether the file list is (re)loaded on the next render.</summary>
+    /// <remarks>
+    /// Replaces <c>ViewState["ReloadFiles"]</c>, which defaulted to <see langword="true"/>; the
+    /// <c>Page_PreRender</c> handler that honoured it is <see cref="OnParametersSet"/> here.
+    /// </remarks>
+    public bool ReloadFiles { get; set; } = true;
+
+    /// <summary>Gets or sets the comma separated list of extensions the file list is filtered by.</summary>
+    /// <remarks>Replaces <c>ViewState["FileFilter"]</c>.</remarks>
+    [Parameter]
+    public string FileFilter { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the identifier of the portal whose folders and files are listed.</summary>
+    /// <remarks>Replaces <c>ViewState["PortalId"]</c>.</remarks>
+    [Parameter]
+    public int PortalId { get; set; }
+
+    /// <summary>Gets or sets the width applied to both drop downs.</summary>
+    /// <remarks>
+    /// Replaces <c>ViewState["SkinControlWidth"]</c> and the <c>Folders.Width</c>/<c>Files.Width</c>
+    /// assignments its setter performed; the value is rendered as an inline CSS width, which is
+    /// what the WebForms <c>Unit</c> produced.
+    /// </remarks>
+    [Parameter]
+    public string Width { get; set; }
+
+    /// <summary>Gets or sets the URL being edited, in DNN's <c>FileID=</c> form.</summary>
+    /// <remarks>
+    /// Replaces <c>ViewState["Url"]</c>. The original getter returned the selection
+    /// (<c>FileID={value}</c>) and the setter stored the incoming value for <c>BindData</c> to
+    /// resolve, so the two directions are a parameter plus <see cref="UrlChanged"/> here, which
+    /// keeps the round trip the settings pages depend on.
+    /// </remarks>
+    [Parameter]
+    public string Url { get; set; }
+
+    /// <summary>Gets or sets the callback raised when another file was picked.</summary>
+    [Parameter]
+    public EventCallback<string> UrlChanged { get; set; }
+
+    /// <summary>Gets or sets the resource file the Folder/File captions are read from.</summary>
+    /// <remarks>
+    /// The default is unchanged: the original derived it from <c>TemplateSourceDirectory</c> by
+    /// replacing the provider folder with <c>controls</c>, i.e. the website's shared
+    /// <c>controls/App_LocalResources/URLControl.ascx.resx</c>, whose <c>Folder</c>/<c>File</c>
+    /// and <c>Root</c> keys this control uses. The casing matches the file on disk so the lookup
+    /// also resolves on a case sensitive file system.
+    /// </remarks>
+    @* BL0007 asks for an auto property. This parameter cannot be one: its getter returns the
+       computed default the original control derived from TemplateSourceDirectory when the consumer
+       assigned no resource file, and dropping that would un-localize the Folder/File captions. *@
+#pragma warning disable BL0007
+    [Parameter]
+    public string LocalResourceFile
+    {
+        get => string.IsNullOrEmpty(this.localResourceFile)
+            ? $"~/controls/{Localization.LocalResourceDirectory}/URLControl.ascx.resx"
+            : this.localResourceFile;
+
+        set => this.localResourceFile = value;
+    }
+#pragma warning restore BL0007
+
+    /// <summary>Gets the selected URL, in the <c>FileID={id}</c> form the original getter produced.</summary>
+    public string SelectedUrl
+    {
+        get
+        {
+            var selected = this.files.Find(file => file.Selected);
+            if (selected == null)
+            {
+                return string.Empty;
+            }
+
+            return !string.IsNullOrEmpty(selected.Value)
+                ? string.Format(CultureInfo.InvariantCulture, "FileID={0}", selected.Value)
+                : string.Empty;
+        }
+    }
+
+    /// <summary>Gets the path of the folder that was selected last.</summary>
+    /// <remarks>Replaces <c>ViewState["LastFolderPath"]</c>.</remarks>
+    public string LastFolderPath { get; private set; } = string.Empty;
+
+    /// <summary>Gets the value of the file that was selected last.</summary>
+    /// <remarks>Replaces <c>ViewState["LastFileName"]</c>.</remarks>
+    public string LastFileName { get; private set; } = string.Empty;
+
+    private string FolderCaption => Localization.GetString("Folder", this.LocalResourceFile);
+
+    private string FileCaption => Localization.GetString("File", this.LocalResourceFile);
+
+    private string ControlWidthStyle =>
+        string.IsNullOrEmpty(this.Width) ? null : $"width:{this.Width};";
+
+    private string SelectedFolderValue =>
+        this.folders.Find(folder => folder.Selected)?.Value ?? string.Empty;
+
+    /// <summary>Binds the data.</summary>
+    public void BindData()
+    {
+        this.LoadFolders();
+
+        this.files.Clear();
+        this.files.AddRange(this.GetFileList(true));
+
+        this.ReloadFiles = false;
+
+        var currentUrl = this.url;
+
+        if (string.IsNullOrEmpty(currentUrl))
+        {
+            return;
+        }
+
+        var urlType = Globals.GetURLType(currentUrl).ToString("g").Substring(0, 1);
+        if (urlType == "F")
+        {
+            if (currentUrl.StartsWith("fileid=", StringComparison.OrdinalIgnoreCase))
+            {
+                var objFile = FileManager.Instance.GetFile(int.Parse(currentUrl.Substring(7), CultureInfo.InvariantCulture));
+
+                if (objFile != null)
+                {
+                    currentUrl = objFile.Folder + objFile.FileName;
+
+                    var fileName = currentUrl.Substring(currentUrl.LastIndexOf("/", StringComparison.Ordinal) + 1);
+                    var folderPath = currentUrl.Replace(fileName, string.Empty);
+
+                    if (this.folders.FindByValue(folderPath) != null)
+                    {
+                        this.folders.ClearSelection();
+                        this.folders.FindByValue(folderPath).Selected = true;
+                    }
+                    else if (this.folders.Count > 0)
+                    {
+                        this.folders.ClearSelection();
+                        this.folders[0].Selected = true;
+                    }
+
+                    // Reload files list
+                    this.files.Clear();
+                    this.files.AddRange(this.GetFileList(true));
+
+                    if (this.files.FindByText(fileName) != null)
+                    {
+                        this.files.ClearSelection();
+                        this.files.FindByText(fileName).Selected = true;
+                    }
+                }
+            }
+        }
+
+        this.url = currentUrl;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Replaces the <c>Page_PreRender</c> handler the constructor hooked up: it re-bound the
+    /// control whenever <see cref="ReloadFiles"/> was still set, logging (rather than throwing)
+    /// anything that went wrong while rendering the sub controls.
+    /// </remarks>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        if (!string.Equals(this.Url, this.appliedUrl, StringComparison.Ordinal))
+        {
+            this.appliedUrl = this.Url;
+            this.url = this.Url ?? string.Empty;
+            this.ReloadFiles = true;
+        }
+
+        try
+        {
+            if (this.ReloadFiles)
+            {
+                this.BindData();
+            }
+        }
+        catch (Exception exc)
+        {
+            // Let's detect possible problems
+            Exceptions.LogException(new Exception("Error rendering URLControl subcontrols.", exc));
+        }
+    }
+
+    /// <summary>The get file list.</summary>
+    /// <param name="noneSpecified">The none specified.</param>
+    /// <returns>The files of the selected folder, as options.</returns>
+    private List<ListItem> GetFileList(bool noneSpecified)
+    {
+        var items = new List<ListItem>();
+
+        foreach (FileItem file in Globals.GetFileList(
+            this.PortalId, this.FileFilter, noneSpecified, this.SelectedFolderValue, false))
+        {
+            items.Add(new ListItem(file.Text, file.Value));
+        }
+
+        return items;
+    }
+
+    /// <summary>The load folders.</summary>
+    private void LoadFolders()
+    {
+        this.folders.Clear();
+
+        var foldersList = FolderManager.Instance.GetFolders(this.PortalId);
+
+        foreach (FolderInfo folder in foldersList)
+        {
+            this.folders.Add(new ListItem
+            {
+                Text = folder.FolderPath == Null.NullString
+                    ? Localization.GetString("Root", this.LocalResourceFile)
+                    : folder.FolderPath,
+                Value = folder.FolderPath,
+            });
+        }
+
+        if (this.folders.Count > 0 && this.folders.Find(folder => folder.Selected) == null)
+        {
+            this.folders[0].Selected = true;
+        }
+    }
+
+    /// <summary>Reloads the file list for the newly selected folder.</summary>
+    /// <param name="args">The change event of the Folders drop down.</param>
+    /// <returns>A task that completes once the cascade has run.</returns>
+    /// <remarks>
+    /// Replaces <c>Folders_SelectedIndexChanged</c>, which the <c>AutoPostBack="True"</c> drop
+    /// down raised; <c>LastFolderPath</c>/<c>LastFileName</c> are updated exactly as before.
+    /// </remarks>
+    private async Task OnFolderChangedAsync(ChangeEventArgs args)
+    {
+        var selectedFolder = args?.Value?.ToString() ?? string.Empty;
+
+        this.folders.ClearSelection();
+        var folderItem = this.folders.FindByValue(selectedFolder);
+        if (folderItem != null)
+        {
+            folderItem.Selected = true;
+        }
+
+        this.files.Clear();
+        this.files.AddRange(this.GetFileList(true));
+
+        this.LastFolderPath = folderItem != null ? folderItem.Value : string.Empty;
+
+        var selectedFile = this.files.Find(file => file.Selected);
+        this.LastFileName = selectedFile != null ? selectedFile.Value : string.Empty;
+
+        await this.RaiseUrlChangedAsync();
+    }
+
+    /// <summary>Records the newly picked file and reports the resulting URL.</summary>
+    /// <param name="args">The change event of the Files drop down.</param>
+    /// <returns>A task that completes once the callback has run.</returns>
+    private async Task OnFileChangedAsync(ChangeEventArgs args)
+    {
+        var selectedFile = args?.Value?.ToString() ?? string.Empty;
+
+        this.files.ClearSelection();
+        var fileItem = this.files.FindByValue(selectedFile);
+        if (fileItem != null)
+        {
+            fileItem.Selected = true;
+        }
+
+        this.LastFileName = fileItem != null ? fileItem.Value : string.Empty;
+
+        await this.RaiseUrlChangedAsync();
+    }
+
+    private async Task RaiseUrlChangedAsync()
+    {
+        this.url = this.SelectedUrl;
+        this.appliedUrl = this.url;
+
+        if (this.UrlChanged.HasDelegate)
+        {
+            await this.UrlChanged.InvokeAsync(this.url);
+        }
+    }
+}

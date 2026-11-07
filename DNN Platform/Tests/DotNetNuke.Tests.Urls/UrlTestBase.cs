@@ -7,6 +7,7 @@ namespace DotNetNuke.Tests.Urls
     using System;
     using System.Collections.Generic;
     using System.Data;
+    using System.IO;
 
     using DotNetNuke.Data;
     using DotNetNuke.Entities.Portals;
@@ -25,23 +26,23 @@ namespace DotNetNuke.Tests.Urls
 
         public virtual void SetUp()
         {
-            this.ExecuteScriptFile($@"{this.TestType}\{this.GetTestFolder()}\SetUp.sql");
+            this.ExecuteScriptFile(Path.Combine(this.TestType, this.GetTestFolder(), "SetUp.sql"));
         }
 
         public override void OneTimeSetUp()
         {
-            this.ExecuteScriptFile($@"{this.TestType}\SetUp.sql");
+            this.ExecuteScriptFile(Path.Combine(this.TestType, "SetUp.sql"));
             base.OneTimeSetUp();
         }
 
         public virtual void TearDown()
         {
-            this.ExecuteScriptFile($@"{this.TestType}\{this.GetTestFolder()}\TearDown.sql");
+            this.ExecuteScriptFile(Path.Combine(this.TestType, this.GetTestFolder(), "TearDown.sql"));
         }
 
         public virtual void OneTimeTearDown()
         {
-            this.ExecuteScriptFile($@"{this.TestType}\TearDown.sql");
+            this.ExecuteScriptFile(Path.Combine(this.TestType, "TearDown.sql"));
         }
 
         protected void CreateTab(string tabName)

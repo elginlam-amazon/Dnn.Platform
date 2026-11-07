@@ -18,7 +18,6 @@
 // limitations under the License.
 // 
 
-#if !NETCF
 using System;
 
 namespace log4net.Util
@@ -64,11 +63,7 @@ namespace log4net.Util
                 if (propertyValue == null)
                 {
                     // Stack does not exist, create
-#if NET_2_0 || MONO_2_0 || NETSTANDARD
                     stack = new LogicalThreadContextStack(key, this.registerNew);
-#else
-                    stack = new LogicalThreadContextStack(key, new TwoArgAction(registerNew));
-#endif
                     this.m_properties[key] = stack;
                 }
                 else
@@ -90,11 +85,7 @@ namespace log4net.Util
 
                         LogLog.Error(declaringType, "ThreadContextStacks: Request for stack named [" + key + "] failed because a property with the same name exists which is a [" + propertyValue.GetType().Name + "] with value [" + propertyValueString + "]");
 
-#if NET_2_0 || MONO_2_0 || NETSTANDARD
                         stack = new LogicalThreadContextStack(key, this.registerNew);
-#else
-                        stack = new LogicalThreadContextStack(key, new TwoArgAction(registerNew));
-#endif
                     }
                 }
 
@@ -116,4 +107,3 @@ namespace log4net.Util
     }
 }
 
-#endif

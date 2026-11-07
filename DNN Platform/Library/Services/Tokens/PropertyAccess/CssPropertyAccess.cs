@@ -6,21 +6,22 @@
 namespace DotNetNuke.Services.Tokens
 {
     using System;
-    using System.Web.UI;
 
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Web.Client;
     using DotNetNuke.Web.Client.ClientResourceManagement;
+    using Microsoft.AspNetCore.Http;
 
     public class CssPropertyAccess : JsonPropertyAccess<StylesheetDto>
     {
-        private readonly Page page;
+        private readonly HttpContext context;
 
         /// <summary>Initializes a new instance of the <see cref="CssPropertyAccess"/> class.</summary>
-        /// <param name="page">The page to which the CSS should be registered.</param>
-        public CssPropertyAccess(Page page)
+        /// <param name="context">The request the CSS should be registered on.</param>
+        /// <remarks>Was <c>CssPropertyAccess(System.Web.UI.Page)</c>; client resources are registered per request now.</remarks>
+        public CssPropertyAccess(HttpContext context)
         {
-            this.page = page;
+            this.context = context;
         }
 
         /// <inheritdoc />
@@ -38,11 +39,11 @@ namespace DotNetNuke.Services.Tokens
 
             if (string.IsNullOrEmpty(model.Provider))
             {
-                ClientResourceManager.RegisterStyleSheet(this.page, model.Path, model.Priority);
+                ClientResourceManager.RegisterStyleSheet(this.context, model.Path, model.Priority);
             }
             else
             {
-                ClientResourceManager.RegisterStyleSheet(this.page, model.Path, model.Priority, model.Provider);
+                ClientResourceManager.RegisterStyleSheet(this.context, model.Path, model.Priority, model.Provider);
             }
 
             return string.Empty;

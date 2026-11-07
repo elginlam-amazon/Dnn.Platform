@@ -7,12 +7,10 @@ namespace DotNetNuke.Web.Mvp
 
     using DotNetNuke.Internal.SourceGenerators;
 
-    using WebFormsMvp;
-
     /// <summary>Represents a class that is a view for a module with a strongly typed view model in a Web Forms Model-View-Presenter application.</summary>
     /// <typeparam name="TModel">The type of the model.</typeparam>
     [DnnDeprecated(9, 2, 0, "Replace WebFormsMvp and DotNetNuke.Web.Mvp with MVC or SPA patterns instead")]
-    public abstract partial class ModuleView<TModel> : ModuleViewBase, IView<TModel>
+    public abstract partial class ModuleView<TModel> : ModuleViewBase, IMvpView<TModel>
         where TModel : class, new()
     {
         private TModel model;
@@ -38,20 +36,26 @@ namespace DotNetNuke.Web.Mvp
         }
 
         /// <inheritdoc />
-        protected override void LoadViewState(object savedState)
+        protected override void LoadComponentState()
         {
-            // Call the base class to load any View State
-            base.LoadViewState(savedState);
-            AttributeBasedViewStateSerializer.DeSerialize(this.Model, this.ViewState);
+            // Call the base class to load any persisted state
+            base.LoadComponentState();
+
+            // Restore the model properties marked with [ViewState] from this component's state bag,
+            // which has just been read back from Blazor's PersistentComponentState. This replaces
+            // the former LoadViewState(object)/Control.ViewState round-trip.
+            MvpPresenterBinder.EnsureModel(this);
+            AttributeBasedViewStateSerializer.DeSerialize(this.model, this.State);
         }
 
         /// <inheritdoc />
-        protected override object SaveViewState()
+        protected override void SaveComponentState()
         {
-            AttributeBasedViewStateSerializer.Serialize(this.Model, this.ViewState);
+            // Write the model properties marked with [ViewState] into this component's state bag so
+            // they are persisted for the interactive circuit. Replaces SaveViewState().
+            AttributeBasedViewStateSerializer.Serialize(this.model, this.State);
 
-            // Call the base class to save the View State
-            return base.SaveViewState();
+            base.SaveComponentState();
         }
     }
 }

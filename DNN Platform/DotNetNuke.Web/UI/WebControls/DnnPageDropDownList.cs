@@ -9,8 +9,6 @@ namespace DotNetNuke.Web.UI.WebControls
     using System.ComponentModel;
     using System.Globalization;
     using System.Linq;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Common;
@@ -20,14 +18,22 @@ namespace DotNetNuke.Web.UI.WebControls
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Framework;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI;
     using DotNetNuke.Web.UI.WebControls.Extensions;
 
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A page dropdown control.</summary>
-    [ToolboxData("<{0}:DnnPageDropDownList runat='server'></{0}:DnnPageDropDownList>")]
+    /// <remarks>
+    /// The tab tree and its permission filtering are unchanged: the client still reads the
+    /// <c>InternalServices/ItemListService/GetPages</c> family of endpoints with the same
+    /// <c>includeDisabled</c>/<c>includeAllTypes</c>/<c>includeActive</c>/
+    /// <c>disabledNotSelectable</c>/<c>includeHostPages</c>/<c>roles</c> parameters.
+    /// </remarks>
     public class DnnPageDropDownList : DnnDropDownList
     {
+        private int? internalPortalId;
+
         /// <summary>Initializes a new instance of the <see cref="DnnPageDropDownList"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IClientResourceController. Scheduled removal in v12.0.0.")]
         public DnnPageDropDownList()
@@ -93,7 +99,7 @@ namespace DotNetNuke.Web.UI.WebControls
 
             set
             {
-                this.SelectedItem = (value != null) ? new ListItem() { Text = value.IndentedTabName, Value = value.TabID.ToString(CultureInfo.InvariantCulture) } : null;
+                this.SelectedItem = (value != null) ? new DnnListItem { Text = value.IndentedTabName, Value = value.TabID.ToString(CultureInfo.InvariantCulture) } : null;
             }
         }
 
@@ -102,15 +108,9 @@ namespace DotNetNuke.Web.UI.WebControls
 
         private int? InternalPortalId
         {
-            get
-            {
-                return this.ViewState.GetValue<int?>("PortalId", null);
-            }
+            get => this.internalPortalId;
 
-            set
-            {
-                this.ViewState.SetValue<int?>("PortalId", value, null);
-            }
+            set => this.internalPortalId = value;
         }
 
         /// <inheritdoc />

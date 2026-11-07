@@ -5,9 +5,10 @@ namespace DotNetNuke.Application
 {
     using System;
     using System.IO;
-    using System.Web;
+    using System.Net;
 
     using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
     using DotNetNuke.Framework.Providers;
@@ -133,7 +134,7 @@ namespace DotNetNuke.Application
             int dataproviderfactor = Convert.ToInt32(HasDataProviderLogFiles() ? 3 : 0);
             int htmlmodulefactor = Convert.ToInt32(this.ModuleDirectoryExists("html") ? 2 : 0);
             int portaldirectoryfactor = Convert.ToInt32(this.HasNonDefaultPortalDirectory() ? 2 : 0);
-            int localexecutionfactor = Convert.ToInt32(HttpContext.Current.Request.IsLocal ? c_PassingScore - 1 : 0);
+            int localexecutionfactor = Convert.ToInt32(IsLocalRequest() ? c_PassingScore - 1 : 0);
 
             // This calculation ensures that you have a more than one item that indicates you have already installed DNN.
             // While it is possible that you might not have an installation date or that you have deleted log files
@@ -177,7 +178,7 @@ namespace DotNetNuke.Application
             // If the provider path does not exist, then there can't be any log files
             if (!string.IsNullOrEmpty(providerpath))
             {
-                providerpath = HttpRuntime.AppDomainAppPath + providerpath.Replace("~", string.Empty);
+                providerpath = HttpContextSource.MapPath(providerpath);
                 if (Directory.Exists(providerpath))
                 {
                     var incrementalcount = Directory.GetFiles(providerpath, Upgrade.GetStringVersion(version) + ".*." + Upgrade.DefaultProvider).Length;
@@ -205,11 +206,35 @@ namespace DotNetNuke.Application
             }
         }
 
+        /// <summary>
+        /// Determines whether the current request originates from the local machine (the
+        /// ASP.NET Core replacement for <c>HttpRequest.IsLocal</c>).
+        /// </summary>
+        /// <returns><see langword="true"/> when the request comes from a loopback address or the remote and local addresses match.</returns>
+        private static bool IsLocalRequest()
+        {
+            var connection = HttpContextSource.CurrentOrThrow.Connection;
+            var remoteIp = connection.RemoteIpAddress;
+            if (remoteIp == null)
+            {
+                // No remote address means the request was not made over the network (in-process/test host).
+                return true;
+            }
+
+            if (IPAddress.IsLoopback(remoteIp))
+            {
+                return true;
+            }
+
+            return connection.LocalIpAddress != null && remoteIp.Equals(connection.LocalIpAddress);
+        }
+
         /// <summary>Determines whether current request is for install.</summary>
         /// <returns><see langword="true"/> if current request is for install; otherwise, <see langword="false"/>.</returns>
         private static bool IsInstallationURL()
         {
-            string requestURL = HttpContext.Current.Request.RawUrl.ToLowerInvariant().Replace(@"\", "/");
+            var request = HttpContextSource.CurrentOrThrow.Request;
+            string requestURL = (request.Path + request.QueryString).ToString().ToLowerInvariant().Replace(@"\", "/");
             return requestURL.Contains("/install.aspx") || requestURL.Contains("/installwizard.aspx");
         }
 
@@ -230,7 +255,7 @@ namespace DotNetNuke.Application
             // If the provider path does not exist, then there can't be any log files
             if (!string.IsNullOrEmpty(providerpath))
             {
-                providerpath = HttpContext.Current.Server.MapPath(providerpath);
+                providerpath = HttpContextSource.MapPath(providerpath);
                 if (Directory.Exists(providerpath))
                 {
                     return Directory.GetFiles(providerpath, "*.log.resources").Length > 0;
@@ -247,17 +272,36 @@ namespace DotNetNuke.Application
             return Config.GetSetting("InstallVersion") != null;
         }
 
-        /// <summary>Get the current domain directory.</summary>
-        /// <returns>returns the domain directory.</returns>
+        /// <summary>Get the application's content-root directory.</summary>
+        /// <returns>The physical path of the application content root, without a trailing separator.</returns>
+        /// <remarks>
+        /// The WebForms implementation read <c>AppDomain.CurrentDomain.BaseDirectory</c> and
+        /// normalized every <c>/</c> to <c>\</c>, which was harmless on Windows/IIS (where the
+        /// bin directory's parent WAS the application root and <c>\</c> is the separator) but is
+        /// doubly wrong on modern .NET: the base directory is the build output folder rather than
+        /// the content root, and rewriting <c>/</c> to <c>\</c> turns an absolute POSIX path such
+        /// as <c>/srv/dnn</c> into the relative name <c>\srv\dnn</c>. Every consumer of
+        /// <c>ApplicationMapPath</c> — the <c>Config/*.config</c> files, <c>SiteUrls.config</c>,
+        /// the <c>Install/Config</c> upgrade merge scripts, the portal file system — then resolved
+        /// against a directory that does not exist. Use the registered
+        /// <see cref="Microsoft.Extensions.Hosting.IHostEnvironment.ContentRootPath"/> and let
+        /// <see cref="Path"/> own the separator.
+        /// </remarks>
         private static string GetCurrentDomainDirectory()
         {
-            var dir = AppDomain.CurrentDomain.BaseDirectory.Replace("/", @"\");
-            if (dir.Length > 3 && dir.EndsWith(@"\", StringComparison.Ordinal))
+            string dir;
+            try
             {
-                dir = dir.Substring(0, dir.Length - 1);
+                dir = HttpContextSource.ApplicationPhysicalPath;
+            }
+            catch (InvalidOperationException)
+            {
+                // No IWebHostEnvironment registered yet (unit tests, or a caller that runs before
+                // AddDnnPlatform). The build output directory is the best available answer.
+                dir = AppContext.BaseDirectory;
             }
 
-            return dir;
+            return dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
 
         /// <summary>Check whether the modules directory exists.</summary>
@@ -265,7 +309,7 @@ namespace DotNetNuke.Application
         /// <returns><see langword="true"/> if the module directory exist, otherwise, <see langword="false"/>.</returns>
         private bool ModuleDirectoryExists(string moduleName)
         {
-            string dir = $@"{this.ApplicationMapPath}\desktopmodules\{moduleName}";
+            string dir = Path.Combine(this.ApplicationMapPath, "desktopmodules", moduleName);
             return Directory.Exists(dir);
         }
 
@@ -273,7 +317,7 @@ namespace DotNetNuke.Application
         /// <returns><see langword="true"/> if has portal directory except default portal directory in portal path; otherwise, <see langword="false"/>.</returns>
         private bool HasNonDefaultPortalDirectory()
         {
-            string dir = $@"{this.ApplicationMapPath}\portals";
+            string dir = Path.Combine(this.ApplicationMapPath, "portals");
             if (Directory.Exists(dir))
             {
                 return Directory.GetDirectories(dir).Length > 1;

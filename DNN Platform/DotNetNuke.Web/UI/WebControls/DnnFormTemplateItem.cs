@@ -4,17 +4,22 @@
 namespace DotNetNuke.Web.UI.WebControls
 {
     using System;
-    using System.ComponentModel;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
+    using DotNetNuke.UI;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A template item control.</summary>
-    [ParseChildren(true)]
+    /// <remarks>
+    /// The <c>ITemplate ItemTemplate</c> of the Web Forms control is a
+    /// <see cref="RenderFragment"/> here; instead of <c>ItemTemplate.InstantiateIn(template)</c>
+    /// the fragment is handed to a <see cref="DnnFormEmptyTemplate"/> added to the control tree,
+    /// which renders it inside the same <c>div</c> as before.
+    /// </remarks>
     public class DnnFormTemplateItem : DnnFormItemBase
     {
         /// <summary>Initializes a new instance of the <see cref="DnnFormTemplateItem"/> class.</summary>
@@ -33,13 +38,8 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets the item template.</summary>
-        [Browsable(false)]
-        [DefaultValue(null)]
-        [Description("The Item Template.")]
-        [TemplateInstance(TemplateInstance.Single)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [TemplateContainer(typeof(DnnFormEmptyTemplate))]
-        public ITemplate ItemTemplate { get; set; }
+        [Parameter]
+        public RenderFragment ItemTemplate { get; set; }
 
         /// <inheritdoc />
         protected override void CreateControlHierarchy()
@@ -47,8 +47,12 @@ namespace DotNetNuke.Web.UI.WebControls
             this.CssClass += " dnnFormItem";
             this.CssClass += (this.FormMode == DnnFormMode.Long) ? " dnnFormLong" : " dnnFormShort";
 
-            var template = new DnnFormEmptyTemplate();
-            this.ItemTemplate.InstantiateIn(template);
+            if (this.ItemTemplate == null)
+            {
+                return;
+            }
+
+            var template = new DnnFormEmptyTemplate { ChildContent = this.ItemTemplate, };
             this.Controls.Add(template);
         }
     }

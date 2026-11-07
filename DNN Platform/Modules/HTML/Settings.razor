@@ -1,0 +1,42 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.Entities.Modules.ModuleSettingsBase
+@using DotNetNuke.UI.UserControls
+
+@*
+    Replaces Settings.ascx. The <%@ Register %> directives have no Blazor equivalent:
+      * dnn:Label (~/controls/LabelControl.ascx) is the migrated LabelControl component; each label
+        keeps the ID the .ascx gave it, which is the resource key it localizes through
+        (plReplaceTokens / plDecorate / plSearchDescLength, with their .Help siblings), and keeps
+        pointing at the same input through ControlName,
+      * dnncl:DnnCssInclude FilePath="DesktopModules/HTML/edit.css" AddTag="false" is a tag helper
+        that cannot be used in a component, so the stylesheet is registered through
+        IClientResourceController (see the code behind), which is what the tag helper does,
+      * asp:CheckBox / asp:TextBox are plain bound inputs keeping their IDs,
+      * asp:RegularExpressionValidator RegularExpressionValidator1 (ValidationExpression ^\d+$,
+        Display="Dynamic", CssClass="dnnFormMessage dnnFormError",
+        resourcekey="valSearchDescLength.ErrorMessage") is the validation below: the message is the
+        same localized string in the same CSS classes, it only appears once the value is invalid
+        (Display="Dynamic"), and UpdateSettings refuses to save while it shows - so int.Parse never
+        sees a value the expression would have rejected.
+*@
+
+<div class="dnnForm dnnHTMLSettings dnnClear">
+    <div class="dnnFormItem">
+        <LabelControl ID="plReplaceTokens" ControlName="chkReplaceTokens" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="chkReplaceTokens" checked="@this.ReplaceTokens" @onchange="this.OnReplaceTokensChanged" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plDecorate" ControlName="cbDecorate" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="checkbox" id="cbDecorate" checked="@this.UseDecorate" @onchange="this.OnUseDecorateChanged" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="plSearchDescLength" ControlName="txtSearchDescLength" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="text" id="txtSearchDescLength" value="@this.SearchDescLengthText" @onchange="this.OnSearchDescLengthChanged" />
+        @if (!this.IsSearchDescLengthValid)
+        {
+            <span id="RegularExpressionValidator1" class="dnnFormMessage dnnFormError">@this.LocalizeText("valSearchDescLength.ErrorMessage")</span>
+        }
+    </div>
+</div>

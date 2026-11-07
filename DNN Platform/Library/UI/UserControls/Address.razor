@@ -1,0 +1,1067 @@
+﻿@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using System.Linq
+@using System.Threading.Tasks
+@using DotNetNuke.Common.Lists
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.WebControls
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="dnnForm dnnAddress dnnClear">
+    @if (!string.IsNullOrEmpty(this.errorMessage))
+    {
+        <div class="dnnFormMessage dnnFormError">@this.errorMessage</div>
+    }
+    @if (this.ShowStreetField)
+    {
+        <div id="divStreet" class="dnnFormItem">
+            <LabelControl ID="plStreet" ControlName="txtStreet" LocalResourceFile="@this.ResourceFile" />
+            <input id="txtStreet" type="text" maxlength="50" tabindex="@this.TabIndexFor(0)"
+                   class="@this.streetCssClass" value="@this.Street" @onchange="this.OnStreetChangedAsync" />
+            @if (this.ShowRequiredCheckBoxes)
+            {
+                <input type="checkbox" id="chkStreet" checked="@this.chkStreetChecked" @onchange="this.OnStreetCheckChangedAsync" />
+            }
+            @if (!string.IsNullOrEmpty(this.streetError))
+            {
+                <span class="dnnFormMessage dnnFormError">@this.streetError</span>
+            }
+        </div>
+    }
+    @if (this.ShowUnitField)
+    {
+        <div id="divUnit" class="dnnFormItem">
+            <LabelControl ID="plUnit" ControlName="txtUnit" LocalResourceFile="@this.ResourceFile" />
+            <input id="txtUnit" type="text" maxlength="50" tabindex="@this.TabIndexFor(1)"
+                   value="@this.Unit" @onchange="this.OnUnitChangedAsync" />
+        </div>
+    }
+    @if (this.ShowCityField)
+    {
+        <div id="divCity" class="dnnFormItem">
+            <LabelControl ID="plCity" ControlName="txtCity" LocalResourceFile="@this.ResourceFile" />
+            <input id="txtCity" type="text" maxlength="50" tabindex="@this.TabIndexFor(2)"
+                   class="@this.cityCssClass" value="@this.City" @onchange="this.OnCityChangedAsync" />
+            @if (this.ShowRequiredCheckBoxes)
+            {
+                <input type="checkbox" id="chkCity" checked="@this.chkCityChecked" @onchange="this.OnCityCheckChangedAsync" />
+            }
+            @if (!string.IsNullOrEmpty(this.cityError))
+            {
+                <span class="dnnFormMessage dnnFormError">@this.cityError</span>
+            }
+        </div>
+    }
+    @if (this.ShowCountryField)
+    {
+        <div id="divCountry" class="dnnFormItem dnnAddressCountry">
+            <LabelControl ID="plCountry" ControlName="cboCountry" LocalResourceFile="@this.ResourceFile" />
+            <div class="dnnLeft">
+                <CountryListBox @ref="this.countryListBox"
+                                id="cboCountry"
+                                TestIP=""
+                                LocalhostCountryCode="US"
+                                DataSource="@this.countryItems"
+                                Value="@this.selectedCountryCode"
+                                ValueChanged="@this.OnCountryIndexChangedAsync"
+                                CssClass="@this.countryCssClass" />
+            </div>
+            @if (this.ShowRequiredCheckBoxes)
+            {
+                <input type="checkbox" id="chkCountry" checked="@this.chkCountryChecked" @onchange="this.OnCountryCheckChangedAsync" />
+            }
+            @if (!string.IsNullOrEmpty(this.countryError))
+            {
+                <span class="dnnFormMessage dnnFormError">@this.countryError</span>
+            }
+        </div>
+    }
+    @if (this.ShowRegionField)
+    {
+        <div id="divRegion" class="dnnFormItem">
+            <LabelControl ID="plRegion" ControlName="cboRegion" Text="@this.regionLabelText" HelpText="@this.regionLabelHelpText" LocalResourceFile="@this.ResourceFile" />
+            @if (this.RegionListVisible)
+            {
+                <select id="cboRegion" tabindex="@this.TabIndexFor(4)" class="@this.regionListCssClass" @onchange="this.OnRegionSelectedAsync">
+                    @foreach (var item in this.regionItems)
+                    {
+                        <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+                    }
+                </select>
+            }
+            else
+            {
+                <input id="txtRegion" type="text" maxlength="50" tabindex="@this.TabIndexFor(5)"
+                       class="@this.regionTextCssClass" value="@this.Region" @onchange="this.OnRegionTextChangedAsync" />
+            }
+            @if (this.ShowRequiredCheckBoxes)
+            {
+                <input type="checkbox" id="chkRegion" checked="@this.chkRegionChecked" @onchange="this.OnRegionCheckChangedAsync" />
+            }
+            @if (!string.IsNullOrEmpty(this.regionError))
+            {
+                <span class="dnnFormMessage dnnFormError">@this.regionError</span>
+            }
+        </div>
+    }
+    @if (this.ShowPostalField)
+    {
+        <div id="divPostal" class="dnnFormItem">
+            <LabelControl ID="plPostal" ControlName="txtPostal" Text="@this.postalLabelText" HelpText="@this.postalLabelHelpText" LocalResourceFile="@this.ResourceFile" />
+            <input id="txtPostal" type="text" maxlength="50" tabindex="@this.TabIndexFor(6)"
+                   class="@this.postalCssClass" value="@this.Postal" @onchange="this.OnPostalChangedAsync" />
+            @if (this.ShowRequiredCheckBoxes)
+            {
+                <input type="checkbox" id="chkPostal" checked="@this.chkPostalChecked" @onchange="this.OnPostalCheckChangedAsync" />
+            }
+            @if (!string.IsNullOrEmpty(this.postalError))
+            {
+                <span class="dnnFormMessage dnnFormError">@this.postalError</span>
+            }
+        </div>
+    }
+    @if (this.ShowTelephoneField)
+    {
+        <div id="divTelephone" class="dnnFormItem">
+            <LabelControl ID="plTelephone" ControlName="txtTelephone" LocalResourceFile="@this.ResourceFile" />
+            <input id="txtTelephone" type="text" maxlength="50" tabindex="@this.TabIndexFor(7)"
+                   class="@this.telephoneCssClass" value="@this.Telephone" @onchange="this.OnTelephoneChangedAsync" />
+            @if (this.ShowRequiredCheckBoxes)
+            {
+                <input type="checkbox" id="chkTelephone" checked="@this.chkTelephoneChecked" @onchange="this.OnTelephoneCheckChangedAsync" />
+            }
+            @if (!string.IsNullOrEmpty(this.telephoneError))
+            {
+                <span class="dnnFormMessage dnnFormError">@this.telephoneError</span>
+            }
+        </div>
+    }
+    @if (this.ShowCellField)
+    {
+        <div id="divCell" class="dnnFormItem">
+            <LabelControl ID="plCell" ControlName="txtCell" LocalResourceFile="@this.ResourceFile" />
+            <input id="txtCell" type="text" maxlength="50" tabindex="@this.TabIndexFor(8)"
+                   class="@this.cellCssClass" value="@this.Cell" @onchange="this.OnCellChangedAsync" />
+            @if (this.ShowRequiredCheckBoxes)
+            {
+                <input type="checkbox" id="chkCell" checked="@this.chkCellChecked" @onchange="this.OnCellCheckChangedAsync" />
+            }
+            @if (!string.IsNullOrEmpty(this.cellError))
+            {
+                <span class="dnnFormMessage dnnFormError">@this.cellError</span>
+            }
+        </div>
+    }
+    @if (this.ShowFaxField)
+    {
+        <div id="divFax" class="dnnFormItem">
+            <LabelControl ID="plFax" ControlName="txtFax" LocalResourceFile="@this.ResourceFile" />
+            <input id="txtFax" type="text" maxlength="50" tabindex="@this.TabIndexFor(9)"
+                   class="@this.faxCssClass" value="@this.Fax" @onchange="this.OnFaxChangedAsync" />
+            @if (this.ShowRequiredCheckBoxes)
+            {
+                <input type="checkbox" id="chkFax" checked="@this.chkFaxChecked" @onchange="this.OnFaxCheckChangedAsync" />
+            }
+            @if (!string.IsNullOrEmpty(this.faxError))
+            {
+                <span class="dnnFormMessage dnnFormError">@this.faxError</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "Address.ascx";
+
+    private readonly List<CountryListItem> countryItems = new List<CountryListItem>();
+    private readonly List<ListItem> regionItems = new List<ListItem>();
+
+    private CountryListBox countryListBox;
+    private string errorMessage;
+    private string countryData = "Text";
+    private string regionData = "Text";
+    private string selectedCountryCode;
+    private string selectedRegionValue;
+    private bool loaded;
+
+    private string streetError;
+    private string cityError;
+    private string countryError;
+    private string regionError;
+    private string postalError;
+    private string telephoneError;
+    private string cellError;
+    private string faxError;
+
+    private bool streetRequired;
+    private bool cityRequired;
+    private bool countryRequired;
+    private bool regionListRequired;
+    private bool regionTextRequired;
+    private bool postalRequired;
+    private bool telephoneRequired;
+    private bool cellRequired;
+    private bool faxRequired;
+
+    private bool chkStreetChecked;
+    private bool chkCityChecked;
+    private bool chkCountryChecked;
+    private bool chkRegionChecked;
+    private bool chkPostalChecked;
+    private bool chkTelephoneChecked;
+    private bool chkCellChecked;
+    private bool chkFaxChecked;
+
+    private string streetCssClass = string.Empty;
+    private string cityCssClass = string.Empty;
+    private string countryCssClass = string.Empty;
+    private string regionListCssClass = string.Empty;
+    private string regionTextCssClass = string.Empty;
+    private string postalCssClass = string.Empty;
+    private string telephoneCssClass = string.Empty;
+    private string cellCssClass = string.Empty;
+    private string faxCssClass = string.Empty;
+
+    private string regionLabelText;
+    private string regionLabelHelpText;
+    private string postalLabelText;
+    private string postalLabelHelpText;
+
+    /// <summary>Gets or sets the list controller used to read the country and region lists.</summary>
+    [Inject]
+    protected ListController ListController { get; set; }
+
+    /// <summary>Gets or sets the portal controller used to read and write the required-field settings.</summary>
+    [Inject]
+    protected IPortalController PortalController { get; set; }
+
+    /// <summary>Gets the resource file of this control.</summary>
+    public string LocalResourceFile => this.ResourceFile;
+
+    /// <summary>Gets or sets the id of the module the control is hosted in.</summary>
+    [Parameter]
+    public int ModuleId { get; set; }
+
+    /// <summary>Gets or sets the CSS width of the label column.</summary>
+    [Parameter]
+    public string LabelColumnWidth { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS width of the control column.</summary>
+    [Parameter]
+    public string ControlColumnWidth { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the tab index of the first editor of the control.</summary>
+    [Parameter]
+    public int StartTabIndex { get; set; } = 1;
+
+    /// <summary>Gets or sets the street.</summary>
+    [Parameter]
+    public string Street { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="Street"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> StreetChanged { get; set; }
+
+    /// <summary>Gets or sets the unit.</summary>
+    [Parameter]
+    public string Unit { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="Unit"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> UnitChanged { get; set; }
+
+    /// <summary>Gets or sets the city.</summary>
+    [Parameter]
+    public string City { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="City"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> CityChanged { get; set; }
+
+    /// <summary>Gets or sets the country.</summary>
+    /// <value>
+    /// Either the text or the value of the selected country, depending on
+    /// <see cref="CountryData"/>, exactly as the Web Forms control did.
+    /// </value>
+    [Parameter]
+    public string Country
+    {
+        get
+        {
+            var retValue = string.Empty;
+            var selectedItem = this.SelectedCountryItem;
+            if (selectedItem != null)
+            {
+                switch (this.countryData.ToLowerInvariant())
+                {
+                    case "text":
+                        retValue = this.SelectedCountryIndex == 0 ? string.Empty : selectedItem.Text;
+                        break;
+                    case "value":
+                        retValue = selectedItem.Value;
+                        break;
+                }
+            }
+
+            return retValue;
+        }
+
+        set => this.country = value;
+    }
+
+    /// <summary>Gets or sets the callback raised when <see cref="Country"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> CountryChanged { get; set; }
+
+    /// <summary>Gets or sets the region.</summary>
+    /// <value>
+    /// Either the text or the value of the selected region when the region list is shown,
+    /// and the typed region otherwise, exactly as the Web Forms control did.
+    /// </value>
+    [Parameter]
+    public string Region
+    {
+        get
+        {
+            var retValue = string.Empty;
+            if (this.RegionListVisible)
+            {
+                var selectedItem = this.regionItems.FindByValue(this.selectedRegionValue);
+                if (selectedItem != null)
+                {
+                    switch (this.regionData.ToLowerInvariant())
+                    {
+                        case "text":
+                            if (this.regionItems.IndexOf(selectedItem) > 0)
+                            {
+                                retValue = selectedItem.Text;
+                            }
+
+                            break;
+                        case "value":
+                            retValue = selectedItem.Value;
+                            break;
+                    }
+                }
+            }
+            else
+            {
+                retValue = this.regionText;
+            }
+
+            return retValue;
+        }
+
+        set => this.region = value;
+    }
+
+    /// <summary>Gets or sets the callback raised when <see cref="Region"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> RegionChanged { get; set; }
+
+    /// <summary>Gets or sets the postal code.</summary>
+    [Parameter]
+    public string Postal { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="Postal"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> PostalChanged { get; set; }
+
+    /// <summary>Gets or sets the telephone number.</summary>
+    [Parameter]
+    public string Telephone { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="Telephone"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> TelephoneChanged { get; set; }
+
+    /// <summary>Gets or sets the cell phone number.</summary>
+    [Parameter]
+    public string Cell { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="Cell"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> CellChanged { get; set; }
+
+    /// <summary>Gets or sets the fax number.</summary>
+    [Parameter]
+    public string Fax { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when <see cref="Fax"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> FaxChanged { get; set; }
+
+    /// <summary>Sets a value indicating whether the street editor is shown.</summary>
+    [Parameter]
+    public bool ShowStreet { get; set; } = true;
+
+    /// <summary>Sets a value indicating whether the unit editor is shown.</summary>
+    [Parameter]
+    public bool ShowUnit { get; set; } = true;
+
+    /// <summary>Sets a value indicating whether the city editor is shown.</summary>
+    [Parameter]
+    public bool ShowCity { get; set; } = true;
+
+    /// <summary>Sets a value indicating whether the country editor is shown.</summary>
+    [Parameter]
+    public bool ShowCountry { get; set; } = true;
+
+    /// <summary>Sets a value indicating whether the region editor is shown.</summary>
+    [Parameter]
+    public bool ShowRegion { get; set; } = true;
+
+    /// <summary>Sets a value indicating whether the postal code editor is shown.</summary>
+    [Parameter]
+    public bool ShowPostal { get; set; } = true;
+
+    /// <summary>Sets a value indicating whether the telephone editor is shown.</summary>
+    [Parameter]
+    public bool ShowTelephone { get; set; } = true;
+
+    /// <summary>Sets a value indicating whether the cell phone editor is shown.</summary>
+    [Parameter]
+    public bool ShowCell { get; set; } = true;
+
+    /// <summary>Sets a value indicating whether the fax editor is shown.</summary>
+    [Parameter]
+    public bool ShowFax { get; set; } = true;
+
+    /// <summary>Sets whether <see cref="Country"/> returns the <c>Text</c> or the <c>Value</c> of the selection.</summary>
+    [Parameter]
+    public string CountryData
+    {
+        get => this.countryData;
+        set => this.countryData = value;
+    }
+
+    /// <summary>Sets whether <see cref="Region"/> returns the <c>Text</c> or the <c>Value</c> of the selection.</summary>
+    [Parameter]
+    public string RegionData
+    {
+        get => this.regionData;
+        set => this.regionData = value;
+    }
+
+    /// <summary>Gets a value indicating whether the street editor is rendered.</summary>
+    public bool ShowStreetField => this.ShowStreet;
+
+    /// <summary>Gets a value indicating whether the unit editor is rendered.</summary>
+    public bool ShowUnitField => this.ShowUnit;
+
+    /// <summary>Gets a value indicating whether the city editor is rendered.</summary>
+    public bool ShowCityField => this.ShowCity;
+
+    /// <summary>Gets a value indicating whether the country editor is rendered.</summary>
+    public bool ShowCountryField => this.ShowCountry;
+
+    /// <summary>Gets a value indicating whether the region editor is rendered.</summary>
+    public bool ShowRegionField => this.ShowRegion;
+
+    /// <summary>Gets a value indicating whether the postal code editor is rendered.</summary>
+    public bool ShowPostalField => this.ShowPostal;
+
+    /// <summary>Gets a value indicating whether the telephone editor is rendered.</summary>
+    public bool ShowTelephoneField => this.ShowTelephone;
+
+    /// <summary>Gets a value indicating whether the cell phone editor is rendered.</summary>
+    public bool ShowCellField => this.ShowCell;
+
+    /// <summary>Gets a value indicating whether the fax editor is rendered.</summary>
+    public bool ShowFaxField => this.ShowFax;
+
+    /// <summary>Gets a value indicating whether the per-field "required" check boxes are rendered.</summary>
+    public bool ShowRequiredCheckBoxes { get; private set; }
+
+    /// <summary>Gets a value indicating whether the region is picked from a list rather than typed.</summary>
+    public bool RegionListVisible { get; private set; }
+
+    /// <summary>Gets the currently selected country item.</summary>
+    private CountryListItem SelectedCountryItem =>
+        this.countryListBox?.SelectedItem
+            ?? this.countryItems.FirstOrDefault(item => string.Equals(item.Value, this.selectedCountryCode, StringComparison.Ordinal));
+
+    /// <summary>Gets the index of the currently selected country item.</summary>
+    private int SelectedCountryIndex
+    {
+        get
+        {
+            if (this.countryListBox is not null)
+            {
+                return this.countryListBox.SelectedIndex;
+            }
+
+            return this.countryItems.FindIndex(item => string.Equals(item.Value, this.selectedCountryCode, StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>Gets the resource file of this control.</summary>
+    private string ResourceFile => "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName;
+
+    private string country;
+    private string region;
+    private string regionText = string.Empty;
+
+    /// <summary>Validates every editor of the control.</summary>
+    /// <returns><see langword="true"/> when all required values are supplied.</returns>
+    /// <remarks>Replaces the <c>RequiredFieldValidator</c> controls of <c>Address.ascx</c>.</remarks>
+    public bool Validate()
+    {
+        this.streetError = this.streetRequired && string.IsNullOrEmpty(this.Street)
+            ? Localization.GetString("StreetRequired", this.ResourceFile)
+            : null;
+        this.cityError = this.cityRequired && string.IsNullOrEmpty(this.City)
+            ? Localization.GetString("CityRequired", this.ResourceFile)
+            : null;
+        this.countryError = this.countryRequired && string.IsNullOrEmpty(this.Country)
+            ? Localization.GetString("CountryRequired", this.ResourceFile)
+            : null;
+        this.postalError = this.postalRequired && string.IsNullOrEmpty(this.Postal)
+            ? Localization.GetString("PostalRequired", this.ResourceFile)
+            : null;
+        this.telephoneError = this.telephoneRequired && string.IsNullOrEmpty(this.Telephone)
+            ? Localization.GetString("TelephoneRequired", this.ResourceFile)
+            : null;
+        this.cellError = this.cellRequired && string.IsNullOrEmpty(this.Cell)
+            ? Localization.GetString("CellRequired", this.ResourceFile)
+            : null;
+        this.faxError = this.faxRequired && string.IsNullOrEmpty(this.Fax)
+            ? Localization.GetString("FaxRequired", this.ResourceFile)
+            : null;
+
+        var regionIsRequired = this.RegionListVisible ? this.regionListRequired : this.regionTextRequired;
+        this.regionError = regionIsRequired && string.IsNullOrEmpty(this.Region)
+            ? this.regionRequiredMessage
+            : null;
+
+        return string.IsNullOrEmpty(this.streetError)
+            && string.IsNullOrEmpty(this.cityError)
+            && string.IsNullOrEmpty(this.countryError)
+            && string.IsNullOrEmpty(this.postalError)
+            && string.IsNullOrEmpty(this.telephoneError)
+            && string.IsNullOrEmpty(this.cellError)
+            && string.IsNullOrEmpty(this.faxError)
+            && string.IsNullOrEmpty(this.regionError);
+    }
+
+    private string regionRequiredMessage;
+
+    /// <summary>Page_Load runs when the control is loaded.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        try
+        {
+            // Load the country list. This replaces cboCountry.DataSource/DataBind().
+            var entryCollection = this.ListController.GetListEntryInfoItems("Country");
+
+            this.countryItems.Clear();
+            this.countryItems.Add(new CountryListItem(string.Empty, "<" + Localization.GetString("Not_Specified", Localization.SharedResourceFile) + ">"));
+            foreach (var entry in entryCollection)
+            {
+                this.countryItems.Add(new CountryListItem(entry.Value, entry.Text));
+            }
+
+            switch (this.countryData.ToLowerInvariant())
+            {
+                case "text":
+                    if (string.IsNullOrEmpty(this.country))
+                    {
+                        this.selectedCountryCode = this.countryItems[0].Value;
+                    }
+                    else
+                    {
+                        var byText = this.countryItems.FirstOrDefault(item => string.Equals(item.Text, this.country, StringComparison.Ordinal));
+                        if (byText != null)
+                        {
+                            this.selectedCountryCode = byText.Value;
+                        }
+                    }
+
+                    break;
+                case "value":
+                    var byValue = this.countryItems.FirstOrDefault(item => string.Equals(item.Value, this.country, StringComparison.Ordinal));
+                    if (byValue != null)
+                    {
+                        this.selectedCountryCode = byValue.Value;
+                    }
+
+                    break;
+            }
+
+            this.Localize();
+
+            if (this.RegionListVisible)
+            {
+                switch (this.regionData.ToLowerInvariant())
+                {
+                    case "text":
+                        if (string.IsNullOrEmpty(this.region))
+                        {
+                            this.selectedRegionValue = this.regionItems.Count > 0 ? this.regionItems[0].Value : null;
+                        }
+                        else
+                        {
+                            var byText = this.regionItems.FindByText(this.region);
+                            if (byText != null)
+                            {
+                                this.selectedRegionValue = byText.Value;
+                            }
+                        }
+
+                        break;
+                    case "value":
+                        var byValue = this.regionItems.FindByValue(this.region);
+                        if (byValue != null)
+                        {
+                            this.selectedRegionValue = byValue.Value;
+                        }
+
+                        break;
+                }
+
+                this.ApplyRegionSelection();
+            }
+            else
+            {
+                this.regionText = this.region ?? string.Empty;
+            }
+
+            this.ShowRequiredCheckBoxes = TabPermissionController.CanAdminPage();
+            this.ShowRequiredFields();
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+    }
+
+    /// <summary>Gets the tab index of an editor.</summary>
+    /// <param name="offset">The zero based offset of the editor.</param>
+    /// <returns>The tab index to render.</returns>
+    private int TabIndexFor(int offset) => this.StartTabIndex + offset;
+
+    /// <summary>Marks the item matching <see cref="selectedRegionValue"/> as selected.</summary>
+    private void ApplyRegionSelection()
+    {
+        this.regionItems.ClearSelection();
+        var selected = this.regionItems.FindByValue(this.selectedRegionValue);
+        if (selected != null)
+        {
+            selected.Selected = true;
+        }
+    }
+
+    /// <summary>Handles a change of the selected country.</summary>
+    /// <param name="value">The newly selected country code.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnCountryIndexChangedAsync(string value)
+    {
+        try
+        {
+            this.selectedCountryCode = value;
+            this.Localize();
+            await this.CountryChanged.InvokeAsync(this.Country);
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+    }
+
+    /// <summary>Handles a change of the region list selection.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnRegionSelectedAsync(ChangeEventArgs args)
+    {
+        this.selectedRegionValue = args?.Value?.ToString();
+        this.ApplyRegionSelection();
+        await this.RegionChanged.InvokeAsync(this.Region);
+    }
+
+    /// <summary>Handles a change of the typed region.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnRegionTextChangedAsync(ChangeEventArgs args)
+    {
+        this.regionText = args?.Value?.ToString() ?? string.Empty;
+        await this.RegionChanged.InvokeAsync(this.Region);
+    }
+
+    /// <summary>Handles a change of the street.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnStreetChangedAsync(ChangeEventArgs args)
+    {
+        this.Street = args?.Value?.ToString() ?? string.Empty;
+        await this.StreetChanged.InvokeAsync(this.Street);
+    }
+
+    /// <summary>Handles a change of the unit.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnUnitChangedAsync(ChangeEventArgs args)
+    {
+        this.Unit = args?.Value?.ToString() ?? string.Empty;
+        await this.UnitChanged.InvokeAsync(this.Unit);
+    }
+
+    /// <summary>Handles a change of the city.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnCityChangedAsync(ChangeEventArgs args)
+    {
+        this.City = args?.Value?.ToString() ?? string.Empty;
+        await this.CityChanged.InvokeAsync(this.City);
+    }
+
+    /// <summary>Handles a change of the postal code.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnPostalChangedAsync(ChangeEventArgs args)
+    {
+        this.Postal = args?.Value?.ToString() ?? string.Empty;
+        await this.PostalChanged.InvokeAsync(this.Postal);
+    }
+
+    /// <summary>Handles a change of the telephone number.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnTelephoneChangedAsync(ChangeEventArgs args)
+    {
+        this.Telephone = args?.Value?.ToString() ?? string.Empty;
+        await this.TelephoneChanged.InvokeAsync(this.Telephone);
+    }
+
+    /// <summary>Handles a change of the cell phone number.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnCellChangedAsync(ChangeEventArgs args)
+    {
+        this.Cell = args?.Value?.ToString() ?? string.Empty;
+        await this.CellChanged.InvokeAsync(this.Cell);
+    }
+
+    /// <summary>Handles a change of the fax number.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnFaxChangedAsync(ChangeEventArgs args)
+    {
+        this.Fax = args?.Value?.ToString() ?? string.Empty;
+        await this.FaxChanged.InvokeAsync(this.Fax);
+    }
+
+    /// <summary>Handles the "street is required" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnStreetCheckChangedAsync(ChangeEventArgs args)
+    {
+        this.chkStreetChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+        return this.UpdateRequiredFieldsAsync();
+    }
+
+    /// <summary>Handles the "city is required" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnCityCheckChangedAsync(ChangeEventArgs args)
+    {
+        this.chkCityChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+        return this.UpdateRequiredFieldsAsync();
+    }
+
+    /// <summary>Handles the "country is required" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnCountryCheckChangedAsync(ChangeEventArgs args)
+    {
+        this.chkCountryChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+        return this.UpdateRequiredFieldsAsync();
+    }
+
+    /// <summary>Handles the "region is required" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnRegionCheckChangedAsync(ChangeEventArgs args)
+    {
+        this.chkRegionChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+        return this.UpdateRequiredFieldsAsync();
+    }
+
+    /// <summary>Handles the "postal code is required" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnPostalCheckChangedAsync(ChangeEventArgs args)
+    {
+        this.chkPostalChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+        return this.UpdateRequiredFieldsAsync();
+    }
+
+    /// <summary>Handles the "telephone is required" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnTelephoneCheckChangedAsync(ChangeEventArgs args)
+    {
+        this.chkTelephoneChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+        return this.UpdateRequiredFieldsAsync();
+    }
+
+    /// <summary>Handles the "cell phone is required" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnCellCheckChangedAsync(ChangeEventArgs args)
+    {
+        this.chkCellChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+        return this.UpdateRequiredFieldsAsync();
+    }
+
+    /// <summary>Handles the "fax is required" check box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private Task OnFaxCheckChangedAsync(ChangeEventArgs args)
+    {
+        this.chkFaxChecked = Convert.ToBoolean(args?.Value ?? false, CultureInfo.InvariantCulture);
+        return this.UpdateRequiredFieldsAsync();
+    }
+
+    /// <summary>Localize correctly sets up the control for US/Canada/Other Countries.</summary>
+    private void Localize()
+    {
+        var countryCode = this.SelectedCountryItem?.Value ?? string.Empty;
+
+        // listKey in format "Country.US:Region"
+        var listKey = $"Country.{countryCode}";
+        var entryCollection = this.ListController.GetListEntryInfoItems("Region", listKey);
+
+        if (entryCollection.Any())
+        {
+            this.RegionListVisible = true;
+
+            this.regionItems.Clear();
+            this.regionItems.Add(new ListItem($"<{Localization.GetString("Not_Specified", Localization.SharedResourceFile)}>", string.Empty));
+            foreach (var entry in entryCollection)
+            {
+                this.regionItems.Add(new ListItem(entry.Text, entry.Value));
+            }
+
+            this.ApplyRegionSelection();
+
+            if (countryCode.Equals("us", StringComparison.OrdinalIgnoreCase))
+            {
+                this.regionListRequired = true;
+                this.regionTextRequired = false;
+                this.regionRequiredMessage = Localization.GetString("StateRequired", this.ResourceFile);
+                this.regionLabelText = Localization.GetString("plState", this.ResourceFile);
+                this.regionLabelHelpText = Localization.GetString("plState.Help", this.ResourceFile);
+                this.postalLabelText = Localization.GetString("plZip", this.ResourceFile);
+                this.postalLabelHelpText = Localization.GetString("plZip.Help", this.ResourceFile);
+            }
+            else
+            {
+                this.regionRequiredMessage = Localization.GetString("ProvinceRequired", this.ResourceFile);
+                this.regionLabelText = Localization.GetString("plProvince", this.ResourceFile);
+                this.regionLabelHelpText = Localization.GetString("plProvince.Help", this.ResourceFile);
+                this.postalLabelText = Localization.GetString("plPostal", this.ResourceFile);
+                this.postalLabelHelpText = Localization.GetString("plPostal.Help", this.ResourceFile);
+            }
+
+            this.regionListRequired = true;
+            this.regionTextRequired = false;
+        }
+        else
+        {
+            this.selectedRegionValue = null;
+            this.regionItems.ClearSelection();
+            this.RegionListVisible = false;
+            this.regionListRequired = false;
+            this.regionTextRequired = true;
+            this.regionRequiredMessage = Localization.GetString("RegionRequired", this.ResourceFile);
+            this.regionLabelText = Localization.GetString("plRegion", this.ResourceFile);
+            this.regionLabelHelpText = Localization.GetString("plRegion.Help", this.ResourceFile);
+            this.postalLabelText = Localization.GetString("plPostal", this.ResourceFile);
+            this.postalLabelHelpText = Localization.GetString("plPostal.Help", this.ResourceFile);
+        }
+
+        var reqRegion = DotNetNuke.Entities.Portals.PortalController.GetPortalSettingAsBoolean(this.PortalController, "addressregion", this.PortalSettings.PortalId, true);
+        if (reqRegion)
+        {
+            this.regionListRequired = false;
+            this.regionTextRequired = false;
+        }
+    }
+
+    /// <summary>ShowRequiredFields sets up displaying which fields are required.</summary>
+    private void ShowRequiredFields()
+    {
+        var reqStreet = DotNetNuke.Entities.Portals.PortalController.GetPortalSettingAsBoolean(this.PortalController, "addressstreet", this.PortalSettings.PortalId, true);
+        var reqCity = DotNetNuke.Entities.Portals.PortalController.GetPortalSettingAsBoolean(this.PortalController, "addresscity", this.PortalSettings.PortalId, true);
+        var reqCountry = DotNetNuke.Entities.Portals.PortalController.GetPortalSettingAsBoolean(this.PortalController, "addresscountry", this.PortalSettings.PortalId, true);
+        var reqRegion = DotNetNuke.Entities.Portals.PortalController.GetPortalSettingAsBoolean(this.PortalController, "addressregion", this.PortalSettings.PortalId, true);
+        var reqPostal = DotNetNuke.Entities.Portals.PortalController.GetPortalSettingAsBoolean(this.PortalController, "addresspostal", this.PortalSettings.PortalId, true);
+        var reqTelephone = DotNetNuke.Entities.Portals.PortalController.GetPortalSettingAsBoolean(this.PortalController, "addresstelephone", this.PortalSettings.PortalId, true);
+        var reqCell = DotNetNuke.Entities.Portals.PortalController.GetPortalSettingAsBoolean(this.PortalController, "addresscell", this.PortalSettings.PortalId, true);
+        var reqFax = DotNetNuke.Entities.Portals.PortalController.GetPortalSettingAsBoolean(this.PortalController, "addressfax", this.PortalSettings.PortalId, true);
+
+        if (!this.ShowRequiredCheckBoxes)
+        {
+            return;
+        }
+
+        if (reqCountry)
+        {
+            this.chkCountryChecked = true;
+            this.countryRequired = true;
+            this.countryCssClass = "dnnFormRequired";
+        }
+        else
+        {
+            this.countryRequired = false;
+            this.countryCssClass = string.Empty;
+        }
+
+        if (reqRegion)
+        {
+            this.chkRegionChecked = true;
+            this.regionTextCssClass = "dnnFormRequired";
+            this.regionListCssClass = "dnnFormRequired";
+
+            if (this.RegionListVisible)
+            {
+                this.regionListRequired = true;
+                this.regionTextRequired = false;
+            }
+            else
+            {
+                this.regionListRequired = false;
+                this.regionTextRequired = true;
+            }
+        }
+        else
+        {
+            this.regionListRequired = false;
+            this.regionTextRequired = false;
+            this.regionTextCssClass = string.Empty;
+            this.regionListCssClass = string.Empty;
+        }
+
+        if (reqCity)
+        {
+            this.chkCityChecked = true;
+            this.cityRequired = true;
+            this.cityCssClass = "dnnFormRequired";
+        }
+        else
+        {
+            this.cityRequired = false;
+            this.cityCssClass = string.Empty;
+        }
+
+        if (reqStreet)
+        {
+            this.chkStreetChecked = true;
+            this.streetRequired = true;
+            this.streetCssClass = "dnnFormRequired";
+        }
+        else
+        {
+            this.streetRequired = false;
+            this.streetCssClass = string.Empty;
+        }
+
+        if (reqPostal)
+        {
+            this.chkPostalChecked = true;
+            this.postalRequired = true;
+            this.postalCssClass = "dnnFormRequired";
+        }
+        else
+        {
+            this.postalRequired = false;
+            this.postalCssClass = string.Empty;
+        }
+
+        if (reqTelephone)
+        {
+            this.chkTelephoneChecked = true;
+            this.telephoneRequired = true;
+            this.telephoneCssClass = "dnnFormRequired";
+        }
+        else
+        {
+            this.telephoneRequired = false;
+            this.telephoneCssClass = string.Empty;
+        }
+
+        if (reqCell)
+        {
+            this.chkCellChecked = true;
+            this.cellRequired = true;
+            this.cellCssClass = "dnnFormRequired";
+        }
+        else
+        {
+            this.cellRequired = false;
+            this.cellCssClass = string.Empty;
+        }
+
+        if (reqFax)
+        {
+            this.chkFaxChecked = true;
+            this.faxRequired = true;
+            this.faxCssClass = "dnnFormRequired";
+        }
+        else
+        {
+            this.faxRequired = false;
+            this.faxCssClass = string.Empty;
+        }
+    }
+
+    /// <summary>UpdateRequiredFields updates which fields are required.</summary>
+    /// <returns>A task representing the operation.</returns>
+    private Task UpdateRequiredFieldsAsync()
+    {
+        try
+        {
+            if (!this.chkCountryChecked)
+            {
+                this.chkRegionChecked = false;
+            }
+
+            DotNetNuke.Entities.Portals.PortalController.UpdatePortalSetting(this.PortalController, this.PortalSettings.PortalId, "addressstreet", this.chkStreetChecked ? string.Empty : "N");
+            DotNetNuke.Entities.Portals.PortalController.UpdatePortalSetting(this.PortalController, this.PortalSettings.PortalId, "addresscity", this.chkCityChecked ? string.Empty : "N");
+            DotNetNuke.Entities.Portals.PortalController.UpdatePortalSetting(this.PortalController, this.PortalSettings.PortalId, "addresscountry", this.chkCountryChecked ? string.Empty : "N");
+            DotNetNuke.Entities.Portals.PortalController.UpdatePortalSetting(this.PortalController, this.PortalSettings.PortalId, "addressregion", this.chkRegionChecked ? string.Empty : "N");
+            DotNetNuke.Entities.Portals.PortalController.UpdatePortalSetting(this.PortalController, this.PortalSettings.PortalId, "addresspostal", this.chkPostalChecked ? string.Empty : "N");
+            DotNetNuke.Entities.Portals.PortalController.UpdatePortalSetting(this.PortalController, this.PortalSettings.PortalId, "addresstelephone", this.chkTelephoneChecked ? string.Empty : "N");
+            DotNetNuke.Entities.Portals.PortalController.UpdatePortalSetting(this.PortalController, this.PortalSettings.PortalId, "addresscell", this.chkCellChecked ? string.Empty : "N");
+            DotNetNuke.Entities.Portals.PortalController.UpdatePortalSetting(this.PortalController, this.PortalSettings.PortalId, "addressfax", this.chkFaxChecked ? string.Empty : "N");
+
+            this.ShowRequiredFields();
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+
+        return Task.CompletedTask;
+    }
+}

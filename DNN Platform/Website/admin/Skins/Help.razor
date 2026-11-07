@@ -1,0 +1,82 @@
+@* Ported from help.ascx / Help.ascx.cs / Help.ascx.designer.cs — the dnn:HELP skin object, a
+   mailto link to the site (or host) administrator.
+
+   hypHelp (<asp:hyperlink cssclass="SkinObject" enableviewstate="False">) becomes the <a> below.
+   The WebForms hyperlink was visible by default and only got its Text/NavigateUrl inside the
+   authenticated branch, so for an anonymous visitor it rendered an empty anchor — that is
+   reproduced here rather than "tidied" into rendering nothing.
+
+   Not superseded by Aperture: its SkinObjects README maps dnn:Help to "a plain <a> element" the
+   theme never instantiated, so there is no Aperture component to point at; the platform skin object
+   (with its TabPermissionController.CanAdminPage() branch) is converted here.
+
+   admin/Skins has no Help.ascx.resx — the caption comes from the GLOBAL resource file
+   (Localization.GetString("Help")), which is kept verbatim, including the per-portal override
+   behaviour of the DNN localization engine.
+*@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+@using Exceptions = DotNetNuke.Services.Exceptions.Exceptions
+@using Globals = DotNetNuke.Common.Globals
+
+@if (this.Visible && this.helpVisible)
+{
+    <a href="@NullIfEmpty(this.navigateUrl)"
+       class="@(string.IsNullOrEmpty(this.CssClass) ? "SkinObject" : this.CssClass)">@this.linkText</a>
+}
+
+@code {
+    private IHostSettings hostSettings;
+
+    // HyperLink.Visible defaulted to true; the code-behind only ever set it to true.
+    private bool helpVisible = true;
+    private string linkText = string.Empty;
+    private string navigateUrl = string.Empty;
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.hostSettings ??= Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        try
+        {
+            if (this.Request.IsAuthenticated())
+            {
+                if (TabPermissionController.CanAdminPage())
+                {
+                    this.linkText = Localization.GetString("Help");
+                    this.navigateUrl = "mailto:" + this.hostSettings.HostEmail + "?subject=" + this.PortalSettings.PortalName + " Support Request";
+                    this.helpVisible = true;
+                }
+                else
+                {
+                    this.linkText = Localization.GetString("Help");
+                    this.navigateUrl = "mailto:" + this.PortalSettings.Email + "?subject=" + this.PortalSettings.PortalName + " Support Request";
+                    this.helpVisible = true;
+                }
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    private static string NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
+}

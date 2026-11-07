@@ -19,12 +19,14 @@ namespace DotNetNuke.Web.Razor
     {
         private TModel model;
 
+        /// <summary>Initializes a new instance of the <see cref="DotNetNukeWebPage{TModel}"/> class.</summary>
         public DotNetNukeWebPage()
         {
             var model = Globals.GetCurrentServiceProvider().GetService<TModel>();
             this.Model = model ?? Activator.CreateInstance<TModel>();
         }
 
+        /// <summary>Gets or sets the model of this page.</summary>
         public new TModel Model
         {
             get { return this.PageContext?.Model as TModel ?? this.model; }

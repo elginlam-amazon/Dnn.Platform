@@ -5,20 +5,36 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Collections;
+    using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.HtmlControls;
-    using System.Web.UI.WebControls;
+    using System.Linq;
 
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Services.Localization;
 
-    /// <summary>Language Selector control.</summary>
-    public class LanguageSelector : Control, INamingContainer
-    {
-        private Panel pnlControl;
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
 
+    /// <summary>Language Selector control.</summary>
+    /// <remarks>
+    /// Was a <c>System.Web.UI.Control</c> that built a tree of <c>RadioButton</c>/<c>CheckBox</c>
+    /// controls in <c>CreateChildControls</c> and read the selection back with
+    /// <c>FindControl</c>. It is now a <see cref="DnnComponentBase"/> that renders the same list and
+    /// keeps the selection in a dictionary keyed by culture name, which is what
+    /// <see cref="SelectedLanguages"/> reads and writes.
+    /// </remarks>
+    public class LanguageSelector : DnnComponentBase
+    {
+        private readonly Dictionary<string, bool> selection = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        private LanguageSelectionMode selectionMode = LanguageSelectionMode.Single;
+        private LanguageSelectionObject selectionObject = LanguageSelectionObject.SpecificCulture;
+        private LanguageItemStyle itemStyle = LanguageItemStyle.FlagAndCaption;
+        private LanguageListDirection listDirection = LanguageListDirection.Vertical;
+        private bool selectionInitialized;
+
+        /// <summary>The way a language is presented in the list.</summary>
         public enum LanguageItemStyle
         {
             /// <summary>Display only the flag.</summary>
@@ -31,6 +47,7 @@ namespace DotNetNuke.UI.WebControls
             CaptionOnly = 3,
         }
 
+        /// <summary>The direction the language list flows in.</summary>
         public enum LanguageListDirection
         {
             /// <summary>Horizontal language list.</summary>
@@ -62,123 +79,60 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <summary>Gets or sets selection mode (single, multiple).</summary>
+        [Parameter]
         public LanguageSelectionMode SelectionMode
         {
-            get
-            {
-                if (this.ViewState["SelectionMode"] == null)
-                {
-                    return LanguageSelectionMode.Single;
-                }
-                else
-                {
-                    return (LanguageSelectionMode)this.ViewState["SelectionMode"];
-                }
-            }
+            get => this.selectionMode;
 
             set
             {
-                if (this.SelectionMode != value)
+                if (this.selectionMode != value)
                 {
-                    this.ViewState["SelectionMode"] = value;
-                    if (this.Controls.Count > 0)
-                    {
-                        this.CreateChildControls(); // Recreate if already created
-                    }
+                    this.selectionMode = value;
+                    this.ResetSelection();
                 }
             }
         }
 
         /// <summary>Gets or sets the type of objects to be selectable: NeutralCulture ("de") or SpecificCulture ("de-DE").</summary>
+        [Parameter]
         public LanguageSelectionObject SelectionObject
         {
-            get
-            {
-                if (this.ViewState["SelectionObject"] == null)
-                {
-                    return LanguageSelectionObject.SpecificCulture;
-                }
-                else
-                {
-                    return (LanguageSelectionObject)this.ViewState["SelectionObject"];
-                }
-            }
+            get => this.selectionObject;
 
             set
             {
-                if ((int)this.SelectionMode != (int)value)
+                if (this.selectionObject != value)
                 {
-                    this.ViewState["SelectionObject"] = value;
-                    if (this.Controls.Count > 0)
-                    {
-                        this.CreateChildControls(); // Recreate if already created
-                    }
+                    this.selectionObject = value;
+                    this.ResetSelection();
                 }
             }
         }
 
         /// <summary>Gets or sets the style of the language items.</summary>
+        [Parameter]
         public LanguageItemStyle ItemStyle
         {
-            get
-            {
-                if (this.ViewState["ItemStyle"] == null)
-                {
-                    return LanguageItemStyle.FlagAndCaption;
-                }
-                else
-                {
-                    return (LanguageItemStyle)this.ViewState["ItemStyle"];
-                }
-            }
-
-            set
-            {
-                if (this.ItemStyle != value)
-                {
-                    this.ViewState["ItemStyle"] = value;
-                    if (this.Controls.Count > 0)
-                    {
-                        this.CreateChildControls(); // Recreate if already created
-                    }
-                }
-            }
+            get => this.itemStyle;
+            set => this.itemStyle = value;
         }
 
         /// <summary>Gets or sets the direction of the language list.</summary>
+        [Parameter]
         public LanguageListDirection ListDirection
         {
-            get
-            {
-                if (this.ViewState["ListDirection"] == null)
-                {
-                    return LanguageListDirection.Vertical;
-                }
-                else
-                {
-                    return (LanguageListDirection)this.ViewState["ListDirection"];
-                }
-            }
-
-            set
-            {
-                if (this.ListDirection != value)
-                {
-                    this.ViewState["ListDirection"] = value;
-                    if (this.Controls.Count > 0)
-                    {
-                        this.CreateChildControls(); // Recreate if already created
-                    }
-                }
-            }
+            get => this.listDirection;
+            set => this.listDirection = value;
         }
 
         /// <summary>Gets or sets the list of selected languages.</summary>
+        [SuppressMessage("Microsoft.Performance", "CA1819:PropertiesShouldNotReturnArrays", Justification = "Breaking change")]
         public string[] SelectedLanguages
         {
             get
             {
-                this.EnsureChildControls();
+                this.EnsureSelection();
                 var a = new ArrayList();
                 if (GetCultures(this.SelectionObject == LanguageSelectionObject.SpecificCulture).Length < 2)
                 {
@@ -194,19 +148,9 @@ namespace DotNetNuke.UI.WebControls
                     // create list of selected languages
                     foreach (CultureInfo c in GetCultures(this.SelectionObject == LanguageSelectionObject.SpecificCulture))
                     {
-                        if (this.SelectionMode == LanguageSelectionMode.Single)
+                        if (this.selection.TryGetValue(c.Name, out var isSelected) && isSelected)
                         {
-                            if (((RadioButton)this.pnlControl.FindControl("opt" + c.Name)).Checked)
-                            {
-                                a.Add(c.Name);
-                            }
-                        }
-                        else
-                        {
-                            if (((CheckBox)this.pnlControl.FindControl("chk" + c.Name)).Checked)
-                            {
-                                a.Add(c.Name);
-                            }
+                            a.Add(c.Name);
                         }
                     }
                 }
@@ -216,7 +160,9 @@ namespace DotNetNuke.UI.WebControls
 
             set
             {
-                this.EnsureChildControls();
+                ArgumentNullException.ThrowIfNull(value);
+
+                this.EnsureSelection();
                 if (this.SelectionMode == LanguageSelectionMode.Single && value.Length > 1)
                 {
                     throw new ArgumentException("Selection mode 'single' cannot have more than one selected item.");
@@ -224,99 +170,115 @@ namespace DotNetNuke.UI.WebControls
 
                 foreach (CultureInfo c in GetCultures(this.SelectionObject == LanguageSelectionObject.SpecificCulture))
                 {
-                    if (this.SelectionMode == LanguageSelectionMode.Single)
-                    {
-                        ((RadioButton)this.pnlControl.FindControl("opt" + c.Name)).Checked = false;
-                    }
-                    else
-                    {
-                        ((CheckBox)this.pnlControl.FindControl("chk" + c.Name)).Checked = false;
-                    }
+                    this.selection[c.Name] = false;
                 }
 
                 foreach (string strLocale in value)
                 {
-                    if (this.SelectionMode == LanguageSelectionMode.Single)
+                    if (this.selection.ContainsKey(strLocale))
                     {
-                        Control ctl = this.pnlControl.FindControl("opt" + strLocale);
-                        if (ctl != null)
-                        {
-                            ((RadioButton)ctl).Checked = true;
-                        }
-                    }
-                    else
-                    {
-                        Control ctl = this.pnlControl.FindControl("chk" + strLocale);
-                        if (ctl != null)
-                        {
-                            ((CheckBox)ctl).Checked = true;
-                        }
+                        this.selection[strLocale] = true;
                     }
                 }
             }
         }
 
+        /// <inheritdoc />
+        protected override string TagName => null;
+
         /// <summary>Create Child Controls.</summary>
+        /// <remarks>
+        /// Replaces <c>CreateChildControls</c>: the controls are the markup built by
+        /// <see cref="RenderContents"/>, so what is created here is the selection state and the
+        /// visibility of the control.
+        /// </remarks>
         protected override void CreateChildControls()
         {
-            this.Controls.Clear();
-            this.pnlControl = new Panel();
-            this.pnlControl.CssClass = "dnnLangSelector";
+            var cultures = GetCultures(this.SelectionObject == LanguageSelectionObject.SpecificCulture);
+            this.selection.Clear();
+            foreach (var c in cultures)
+            {
+                // the single-select list starts out on the system locale, as the radio buttons did
+                this.selection[c.Name] = this.SelectionMode == LanguageSelectionMode.Single
+                    && c.Name == Localization.SystemLocale;
+            }
 
-            this.Controls.Add(this.pnlControl);
-            this.pnlControl.Controls.Add(new LiteralControl("<ul>"));
+            // Hide if not more than one language
+            if (cultures.Length < 2)
+            {
+                this.Visible = false;
+            }
+
+            this.selectionInitialized = true;
+        }
+
+        /// <inheritdoc />
+        protected override void OnInit(EventArgs e)
+        {
+            base.OnInit(e);
+            this.EnsureSelection();
+        }
+
+        /// <inheritdoc />
+        protected override void RenderContents(RenderTreeBuilder builder, ref int sequence)
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+
+            this.EnsureSelection();
+
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "dnnLangSelector");
+            builder.OpenElement(sequence++, "ul");
+            if (this.ListDirection == LanguageListDirection.Horizontal)
+            {
+                builder.AddAttribute(sequence++, "class", "dnnLangSelectorHorizontal");
+            }
 
             foreach (var c in GetCultures(this.SelectionObject == LanguageSelectionObject.SpecificCulture))
             {
-                this.pnlControl.Controls.Add(new LiteralControl("<li>"));
+                var culture = c;
+                var inputId = (this.SelectionMode == LanguageSelectionMode.Single ? "opt" : "chk") + culture.Name;
+                builder.OpenElement(sequence++, "li");
 
-                var lblLocale = new HtmlGenericControl("label");
+                builder.OpenElement(sequence++, "input");
+                builder.AddAttribute(sequence++, "type", this.SelectionMode == LanguageSelectionMode.Single ? "radio" : "checkbox");
+                builder.AddAttribute(sequence++, "id", inputId);
                 if (this.SelectionMode == LanguageSelectionMode.Single)
                 {
-                    var optLocale = new RadioButton();
-                    optLocale.ID = "opt" + c.Name;
-                    optLocale.GroupName = this.pnlControl.ID + "_Locale";
-                    if (c.Name == Localization.SystemLocale)
-                    {
-                        optLocale.Checked = true;
-                    }
-
-                    this.pnlControl.Controls.Add(optLocale);
-                    lblLocale.Attributes["for"] = optLocale.ClientID;
-                }
-                else
-                {
-                    var chkLocale = new CheckBox();
-                    chkLocale.ID = "chk" + c.Name;
-                    this.pnlControl.Controls.Add(chkLocale);
-                    lblLocale.Attributes["for"] = chkLocale.ClientID;
+                    builder.AddAttribute(sequence++, "name", (this.ID ?? string.Empty) + "_Locale");
                 }
 
-                this.pnlControl.Controls.Add(lblLocale);
+                builder.AddAttribute(sequence++, "checked", this.selection.TryGetValue(culture.Name, out var isSelected) && isSelected);
+                builder.AddAttribute(sequence++, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(
+                    this,
+                    args => this.ItemChanged(culture.Name, args)));
+                builder.CloseElement();
+
+                builder.OpenElement(sequence++, "label");
+                builder.AddAttribute(sequence++, "for", inputId);
                 if (this.ItemStyle != LanguageItemStyle.CaptionOnly)
                 {
-                    var imgLocale = new Image();
-                    imgLocale.ImageUrl = this.ResolveUrl("~/images/Flags/" + c.Name + ".gif");
-                    imgLocale.AlternateText = c.DisplayName;
-                    imgLocale.Style["vertical-align"] = "middle";
-                    lblLocale.Controls.Add(imgLocale);
+                    builder.OpenElement(sequence++, "img");
+                    builder.AddAttribute(sequence++, "src", Common.Globals.ResolveUrl("~/images/Flags/" + culture.Name + ".gif"));
+                    builder.AddAttribute(sequence++, "alt", culture.DisplayName);
+                    builder.AddAttribute(sequence++, "style", "vertical-align:middle");
+                    builder.CloseElement();
                 }
 
                 if (this.ItemStyle != LanguageItemStyle.FlagOnly)
                 {
-                    lblLocale.Controls.Add(new LiteralControl("&nbsp;" + c.DisplayName));
+                    builder.AddMarkupContent(sequence++, "&nbsp;" + culture.DisplayName);
                 }
 
-                this.pnlControl.Controls.Add(new LiteralControl("</li>"));
+                builder.CloseElement();
+
+                builder.CloseElement();
             }
 
-            this.pnlControl.Controls.Add(new LiteralControl("</ul>"));
+            builder.CloseElement();
+            builder.CloseElement();
 
-            // Hide if not more than one language
-            if (GetCultures(this.SelectionObject == LanguageSelectionObject.SpecificCulture).Length < 2)
-            {
-                this.Visible = false;
-            }
+            base.RenderContents(builder, ref sequence);
         }
 
         /// <summary>retrieve the cultures, currently supported by the portal.</summary>
@@ -344,6 +306,41 @@ namespace DotNetNuke.UI.WebControls
             }
 
             return (CultureInfo[])a.ToArray(typeof(CultureInfo));
+        }
+
+        private void ItemChanged(string cultureName, ChangeEventArgs args)
+        {
+            var isSelected = args?.Value is bool value
+                ? value
+                : Convert.ToBoolean(args?.Value, CultureInfo.InvariantCulture);
+
+            if (this.SelectionMode == LanguageSelectionMode.Single && isSelected)
+            {
+                foreach (var key in this.selection.Keys.ToList())
+                {
+                    this.selection[key] = false;
+                }
+            }
+
+            this.selection[cultureName] = isSelected;
+        }
+
+        private void ResetSelection()
+        {
+            if (this.selectionInitialized)
+            {
+                this.CreateChildControls();
+            }
+        }
+
+        private void EnsureSelection()
+        {
+            if (this.selectionInitialized)
+            {
+                return;
+            }
+
+            this.EnsureChildControls();
         }
     }
 }

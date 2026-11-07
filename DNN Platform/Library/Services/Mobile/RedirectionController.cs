@@ -7,7 +7,6 @@ namespace DotNetNuke.Services.Mobile
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -22,6 +21,7 @@ namespace DotNetNuke.Services.Mobile
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.ClientCapability;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     public class RedirectionController : IRedirectionController
@@ -77,39 +77,32 @@ namespace DotNetNuke.Services.Mobile
         /// Cookie is created to temporarily store those parameters so that they remain available till the interactions are active.
         /// </summary>
         /// <returns>boolean - True if redirection. </returns>
-        /// <param name="app">app - HttpApplication. Request and Response properties are used.</param>
-        public bool IsRedirectAllowedForTheSession(HttpApplication app)
+        /// <param name="context">The current <see cref="HttpContext"/>. Request and Response properties are used.</param>
+        public bool IsRedirectAllowedForTheSession(HttpContext context)
         {
+            if (context == null)
+            {
+                throw new ArgumentNullException(nameof(context));
+            }
+
             bool allowed = true;
 
+            var cookiePath = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/";
+
             // Check for the existence of special query string to force enable / disable of redirect
-            if (app.Request.QueryString[DisableMobileRedirectQueryStringName] != null)
+            var queryStringValue = context.Request.Query[DisableMobileRedirectQueryStringName].FirstOrDefault();
+            if (queryStringValue != null)
             {
                 int val;
-                if (int.TryParse(app.Request.QueryString[DisableMobileRedirectQueryStringName], out val))
+                if (int.TryParse(queryStringValue, out val))
                 {
                     if (val == 0)
                     {
-                        // forced enable. clear any cookie previously set
-                        if (app.Response.Cookies[DisableMobileRedirectCookieName] != null)
-                        {
-                            var cookie = new HttpCookie(DisableMobileRedirectCookieName)
-                            {
-                                Expires = DateTime.Now.AddMinutes(-1),
-                                Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-                            };
-                            app.Response.Cookies.Add(cookie);
-                        }
-
-                        if (app.Response.Cookies[DisableRedirectPresistCookieName] != null)
-                        {
-                            var cookie = new HttpCookie(DisableRedirectPresistCookieName)
-                            {
-                                Expires = DateTime.Now.AddMinutes(-1),
-                                Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-                            };
-                            app.Response.Cookies.Add(cookie);
-                        }
+                        // forced enable. clear any cookie previously set.
+                        // The legacy code wrote an already-expired cookie; ASP.NET Core's Delete does
+                        // exactly that (Set-Cookie with an expiry in the past) for the same path.
+                        context.Response.Cookies.Delete(DisableMobileRedirectCookieName, new CookieOptions { Path = cookiePath });
+                        context.Response.Cookies.Delete(DisableRedirectPresistCookieName, new CookieOptions { Path = cookiePath });
                     }
                     else if (val == 1)
                     {
@@ -118,7 +111,7 @@ namespace DotNetNuke.Services.Mobile
                     }
                 }
             }
-            else if (app.Request.Cookies[DisableMobileRedirectCookieName] != null && app.Request.Cookies[DisableRedirectPresistCookieName] != null)
+            else if (context.Request.Cookies.ContainsKey(DisableMobileRedirectCookieName) && context.Request.Cookies.ContainsKey(DisableRedirectPresistCookieName))
             {
                 // check for cookie
                 allowed = false;
@@ -128,19 +121,20 @@ namespace DotNetNuke.Services.Mobile
             {
                 // redirect is not setup to be allowed, keep the cookie alive
                 // this cookie is set to re-enable redirect after 20 minutes
-                var presistCookie = new HttpCookie(DisableRedirectPresistCookieName)
-                {
-                    Expires = DateTime.Now.AddMinutes(20),
-                    Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-                };
-                app.Response.Cookies.Add(presistCookie);
+                context.Response.Cookies.Append(
+                    DisableRedirectPresistCookieName,
+                    string.Empty,
+                    new CookieOptions
+                    {
+                        Expires = DateTime.Now.AddMinutes(20),
+                        Path = cookiePath,
+                    });
 
-                // this cookie is set to re-enable redirect after close browser.
-                var cookie = new HttpCookie(DisableMobileRedirectCookieName)
-                {
-                    Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-                };
-                app.Response.Cookies.Add(cookie);
+                // this cookie is set to re-enable redirect after close browser (session cookie, no expiry).
+                context.Response.Cookies.Append(
+                    DisableMobileRedirectCookieName,
+                    string.Empty,
+                    new CookieOptions { Path = cookiePath });
             }
 
             return allowed;

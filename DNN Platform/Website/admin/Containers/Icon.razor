@@ -1,0 +1,111 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Containers
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using DotNetNuke.Common
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.FileSystem
+
+@*
+    Replaces icon.ascx + Icon.ascx.cs + Icon.ascx.designer.cs.
+
+    The markup was a single <asp:Image BorderWidth="0" ID="imgIcon" EnableViewState="False" />, so
+    the whole control is the <img> below: the designer field imgIcon becomes the element, its
+    ImageUrl/AlternateText/CssClass/BorderWidth assignments become the attributes, and
+    EnableViewState="False" has no equivalent (there is no view state).
+
+    this.Visible is honoured explicitly because a .razor file replaces
+    DnnComponentBase.BuildRenderTree (which carried that guard) wholesale. The guard is the one the
+    original OnLoad set: not visible unless a module configuration AND an icon file were resolved.
+
+    Asset casing: the by-convention module path is now ~/desktopmodules/ (lowercase top level dir
+    under wwwroot, inner casing of the module folder preserved) - Linux is case sensitive.
+*@
+
+@if (this.Visible && !string.IsNullOrEmpty(this.iconUrl))
+{
+    <img src="@this.iconUrl"
+         alt="@this.alternateText"
+         class="@this.CssClass"
+         style="@this.BorderWidthStyle" />
+}
+
+@code {
+    private string iconUrl;
+    private string alternateText;
+
+    /// <summary>Gets or sets the border width of the icon.</summary>
+    /// <remarks>Was <c>imgIcon.BorderWidth = Unit.Parse(this.BorderWidth)</c>; <c>Unit</c> is a
+    /// <c>System.Web.UI.WebControls</c> type, so the value is written as the CSS it rendered.</remarks>
+    [Parameter]
+    public string BorderWidth { get; set; }
+
+    /// <summary>Gets the inline style carrying <see cref="BorderWidth"/>.</summary>
+    private string BorderWidthStyle =>
+        string.IsNullOrEmpty(this.BorderWidth)
+            ? null
+            : "border-width:" + (char.IsDigit(this.BorderWidth[this.BorderWidth.Length - 1]) ? this.BorderWidth + "px" : this.BorderWidth) + ";";
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        try
+        {
+            // public attributes: BorderWidth and CssClass are rendered onto the img above
+            // (CssClass is the inherited DnnComponentBase parameter, which is the same attribute
+            // the WebForms CssClass property rendered).
+            this.Visible = false;
+            this.iconUrl = null;
+            if (this.ModuleControl?.ModuleContext.Configuration == null)
+            {
+                return;
+            }
+
+            var iconFile = this.GetIconFileUrl();
+            if (string.IsNullOrEmpty(iconFile))
+            {
+                return;
+            }
+
+            if (!iconFile.StartsWith("~", StringComparison.Ordinal) && Globals.IsAdminControl())
+            {
+                iconFile = $"~/desktopmodules/{this.ModuleControl.ModuleContext.Configuration.DesktopModule.FolderName}/{iconFile}";
+            }
+
+            this.iconUrl = iconFile;
+            this.alternateText = this.ModuleControl.ModuleContext.Configuration.ModuleTitle;
+            this.Visible = true;
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    private string GetIconFileUrl()
+    {
+        var iconFile = this.ModuleControl.ModuleContext.Configuration.IconFile;
+        if (string.IsNullOrEmpty(iconFile) || iconFile.StartsWith("~", StringComparison.Ordinal))
+        {
+            return iconFile;
+        }
+
+        IFileInfo fileInfo;
+        if (iconFile.StartsWith("FileID=", StringComparison.InvariantCultureIgnoreCase))
+        {
+            var fileId = Convert.ToInt32(iconFile.Substring(7));
+            fileInfo = FileManager.Instance.GetFile(fileId);
+        }
+        else
+        {
+            fileInfo = FileManager.Instance.GetFile(this.PortalSettings.PortalId, iconFile);
+        }
+
+        return fileInfo != null ? FileManager.Instance.GetUrl(fileInfo) : iconFile;
+    }
+}

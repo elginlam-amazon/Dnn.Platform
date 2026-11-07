@@ -3,11 +3,12 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Common.Utilities
 {
+    using System.Text.Encodings.Web;
     using System;
+    using System.Globalization;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.UI;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
@@ -18,7 +19,11 @@ namespace DotNetNuke.Common.Utilities
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Http.Extensions;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.JSInterop;
 
     /// <summary>Provides utilities for dealing with DNN's URLs. Consider using <see cref="System.Uri"/> if applicable.</summary>
     public static partial class UrlUtils
@@ -186,13 +191,12 @@ namespace DotNetNuke.Common.Utilities
         public static string[] GetQSParamsForNavigateURL()
         {
             string returnValue = string.Empty;
-            var coll = HttpContext.Current.Request.QueryString;
-            string[] keys = coll.AllKeys;
-            for (var i = 0; i <= keys.GetUpperBound(0); i++)
+            var coll = HttpContextSource.CurrentOrThrow.Request.Query;
+            foreach (var key in coll.Keys)
             {
-                if (keys[i] != null)
+                if (key != null)
                 {
-                    switch (keys[i].ToLowerInvariant())
+                    switch (key.ToLowerInvariant())
                     {
                         case "tabid":
                         case "ctl":
@@ -200,22 +204,21 @@ namespace DotNetNuke.Common.Utilities
                             // skip parameter
                             break;
                         default:
-                            if (keys[i].Equals("portalid", StringComparison.OrdinalIgnoreCase) && TabController.CurrentPage.IsSuperTab)
+                            if (key.Equals("portalid", StringComparison.OrdinalIgnoreCase) && TabController.CurrentPage.IsSuperTab)
                             {
                                 // skip parameter
                                 // navigateURL adds portalid to querystring if tab is superTab
                             }
                             else
                             {
-                                string[] values = coll.GetValues(i);
-                                for (int j = 0; j <= values.GetUpperBound(0); j++)
+                                foreach (var value in coll[key])
                                 {
                                     if (!string.IsNullOrEmpty(returnValue))
                                     {
                                         returnValue += "&";
                                     }
 
-                                    returnValue += keys[i] + "=" + values[j];
+                                    returnValue += key + "=" + value;
                                 }
                             }
 
@@ -235,17 +238,6 @@ namespace DotNetNuke.Common.Utilities
         /// <param name="request">current request.</param>
         /// <returns>true if HTTPS or if HTTP with an SSL offload header value, false otherwise.</returns>
         public static bool IsSecureConnectionOrSslOffload(HttpRequest request)
-        {
-            return IsSecureConnectionOrSslOffload(new HttpRequestWrapper(request));
-        }
-
-        /// <summary>
-        /// check if connection is HTTPS
-        /// or is HTTP but with SSL offload enabled on a secure page.
-        /// </summary>
-        /// <param name="request">current request.</param>
-        /// <returns>true if HTTPS or if HTTP with an SSL offload header value, false otherwise.</returns>
-        public static bool IsSecureConnectionOrSslOffload(HttpRequestBase request)
             => IsSecureConnectionOrSslOffload(Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettingsService>(), request);
 
         /// <summary>
@@ -255,9 +247,9 @@ namespace DotNetNuke.Common.Utilities
         /// <param name="hostSettingsService">The host settings service.</param>
         /// <param name="request">current request.</param>
         /// <returns>true if HTTPS or if HTTP with an SSL offload header value, false otherwise.</returns>
-        public static bool IsSecureConnectionOrSslOffload(IHostSettingsService hostSettingsService, HttpRequestBase request)
+        public static bool IsSecureConnectionOrSslOffload(IHostSettingsService hostSettingsService, HttpRequest request)
         {
-            return request.IsSecureConnection || IsSslOffloadEnabled(hostSettingsService, request);
+            return request.IsHttps || IsSslOffloadEnabled(hostSettingsService, request);
         }
 
         /// <summary>Gets a value indicating whether SSL/HTTPS offloading is enabled for the given <paramref name="request"/>.</summary>
@@ -272,20 +264,6 @@ namespace DotNetNuke.Common.Utilities
         /// <param name="request">The request.</param>
         /// <returns><see langword="true"/> if offloading is in use, otherwise <see langword="false"/>.</returns>
         public static bool IsSslOffloadEnabled(IHostSettingsService hostSettingsService, HttpRequest request)
-            => IsSslOffloadEnabled(hostSettingsService, new HttpRequestWrapper(request));
-
-        /// <summary>Gets a value indicating whether SSL/HTTPS offloading is enabled for the given <paramref name="request"/>.</summary>
-        /// <param name="request">The request.</param>
-        /// <returns><see langword="true"/> if offloading is in use, otherwise <see langword="false"/>.</returns>
-        [DnnDeprecated(10, 2, 2, "Use overload taking IHostSettingsService")]
-        public static partial bool IsSslOffloadEnabled(HttpRequestBase request)
-            => IsSslOffloadEnabled(Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettingsService>(), request);
-
-        /// <summary>Gets a value indicating whether SSL/HTTPS offloading is enabled for the given <paramref name="request"/>.</summary>
-        /// <param name="hostSettingsService">The host settings service.</param>
-        /// <param name="request">The request.</param>
-        /// <returns><see langword="true"/> if offloading is in use, otherwise <see langword="false"/>.</returns>
-        public static bool IsSslOffloadEnabled(IHostSettingsService hostSettingsService, HttpRequestBase request)
         {
             var sslOffloadHeader = hostSettingsService.GetString("SSLOffloadHeader", string.Empty);
 
@@ -303,36 +281,67 @@ namespace DotNetNuke.Common.Utilities
                 sslOffloadValue = settingParts[1];
             }
 
-            var sslOffload = request.Headers[sslOffloadHeader];
+            var sslOffload = request.Headers[sslOffloadHeader].ToString();
             return !string.IsNullOrEmpty(sslOffload) && (string.IsNullOrWhiteSpace(sslOffloadValue) || sslOffloadValue == sslOffload);
         }
 
-        public static void OpenNewWindow(Page page, Type type, string url)
+        /// <summary>Opens the given <paramref name="url"/> in a new browser window.</summary>
+        /// <param name="jsRuntime">The JavaScript runtime used to call <c>window.open</c>.</param>
+        /// <param name="url">The URL to open.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <remarks>
+        /// Replaces the WebForms implementation which registered a <c>window.open</c> start-up
+        /// script on the page via <c>Page.ClientScript.RegisterStartupScript</c>.
+        /// </remarks>
+        public static ValueTask OpenNewWindow(IJSRuntime jsRuntime, string url)
         {
-            page.ClientScript.RegisterStartupScript(
-                type,
-                "DotNetNuke.NewWindow",
-                $"<script>window.open({HttpUtility.JavaScriptStringEncode(url, addDoubleQuotes: true)},'new')</script>");
+            if (jsRuntime is null)
+            {
+                throw new ArgumentNullException(nameof(jsRuntime));
+            }
+
+            return jsRuntime.InvokeVoidAsync("window.open", url, "new");
         }
 
-        public static string PopUpUrl(string url, Control control, PortalSettings portalSettings, bool onClickEvent, bool responseRedirect)
+        /// <summary>Builds the URL (or <c>dnnModal.show</c> script) used to open <paramref name="url"/> in a pop-up.</summary>
+        /// <param name="url">The URL to show in the pop-up.</param>
+        /// <param name="portalSettings">The portal settings.</param>
+        /// <param name="onClickEvent">Whether the result is used in an onClick handler (rather than as a <c>javascript:</c> URL).</param>
+        /// <param name="responseRedirect">Whether the result is used for a server-side redirect.</param>
+        /// <returns>The pop-up URL or script.</returns>
+        public static string PopUpUrl(string url, PortalSettings portalSettings, bool onClickEvent, bool responseRedirect)
         {
-            return PopUpUrl(url, control, portalSettings, onClickEvent, responseRedirect, 550, 950);
+            return PopUpUrl(url, portalSettings, onClickEvent, responseRedirect, 550, 950);
         }
 
-        public static string PopUpUrl(string url, Control control, PortalSettings portalSettings, bool onClickEvent, bool responseRedirect, int windowHeight, int windowWidth)
-        {
-            return PopUpUrl(url, control, portalSettings, onClickEvent, responseRedirect, windowHeight, windowWidth, true, string.Empty);
-        }
-
+        /// <summary>Builds the URL (or <c>dnnModal.show</c> script) used to open <paramref name="url"/> in a pop-up.</summary>
+        /// <param name="url">The URL to show in the pop-up.</param>
+        /// <param name="portalSettings">The portal settings.</param>
+        /// <param name="onClickEvent">Whether the result is used in an onClick handler (rather than as a <c>javascript:</c> URL).</param>
+        /// <param name="responseRedirect">Whether the result is used for a server-side redirect.</param>
+        /// <param name="windowHeight">The pop-up height.</param>
+        /// <param name="windowWidth">The pop-up width.</param>
+        /// <returns>The pop-up URL or script.</returns>
         public static string PopUpUrl(string url, PortalSettings portalSettings, bool onClickEvent, bool responseRedirect, int windowHeight, int windowWidth)
         {
-            return PopUpUrl(url, null, portalSettings, onClickEvent, responseRedirect, windowHeight, windowWidth, true, string.Empty);
+            return PopUpUrl(url, portalSettings, onClickEvent, responseRedirect, windowHeight, windowWidth, true, string.Empty);
         }
 
-        public static string PopUpUrl(string url, Control control, PortalSettings portalSettings, bool onClickEvent, bool responseRedirect, int windowHeight, int windowWidth, bool refresh, string closingUrl)
+        /// <summary>Builds the URL (or <c>dnnModal.show</c> script) used to open <paramref name="url"/> in a pop-up.</summary>
+        /// <param name="url">The URL to show in the pop-up.</param>
+        /// <param name="portalSettings">The portal settings.</param>
+        /// <param name="onClickEvent">Whether the result is used in an onClick handler (rather than as a <c>javascript:</c> URL).</param>
+        /// <param name="responseRedirect">Whether the result is used for a server-side redirect.</param>
+        /// <param name="windowHeight">The pop-up height.</param>
+        /// <param name="windowWidth">The pop-up width.</param>
+        /// <param name="refresh">Whether to refresh the opener when the pop-up closes.</param>
+        /// <param name="closingUrl">The URL to navigate to when the pop-up closes.</param>
+        /// <returns>The pop-up URL or script.</returns>
+        /// <remarks>The WebForms overloads taking a <c>System.Web.UI.Control</c> were removed; the control argument was never used.</remarks>
+        public static string PopUpUrl(string url, PortalSettings portalSettings, bool onClickEvent, bool responseRedirect, int windowHeight, int windowWidth, bool refresh, string closingUrl)
         {
-            if (UrlUtils.IsSecureConnectionOrSslOffload(HttpContext.Current.Request))
+            var currentRequest = HttpContextSource.Current?.Request;
+            if (currentRequest != null && UrlUtils.IsSecureConnectionOrSslOffload(currentRequest))
             {
                 url = url.Replace("http://", "https://");
             }
@@ -342,7 +351,7 @@ namespace DotNetNuke.Common.Utilities
             // ensure delimiters are not used
             if (!popUpUrl.Contains("dnnModal.show"))
             {
-                popUpUrl = Uri.EscapeUriString(url);
+                popUpUrl = EscapeUriStringCompat(url);
                 popUpUrl = popUpUrl.Replace("\"", string.Empty);
                 popUpUrl = popUpUrl.Replace("'", string.Empty);
             }
@@ -360,7 +369,7 @@ namespace DotNetNuke.Common.Utilities
                 {
                     closingUrl = (closingUrl != Null.NullString) ? closingUrl : string.Empty;
                     popUpUrl =
-                        $"javascript:dnnModal.show('{HttpUtility.JavaScriptStringEncode(popUpUrl)}{delimiter}popUp=true',/*showReturn*/{onClickEvent.ToString().ToLowerInvariant()},{windowHeight},{windowWidth},{refresh.ToString().ToLowerInvariant()},'{HttpUtility.JavaScriptStringEncode(closingUrl)}')";
+                        $"javascript:dnnModal.show('{JavaScriptEncoder.Default.Encode(popUpUrl)}{delimiter}popUp=true',/*showReturn*/{onClickEvent.ToString().ToLowerInvariant()},{windowHeight},{windowWidth},{refresh.ToString().ToLowerInvariant()},'{JavaScriptEncoder.Default.Encode(closingUrl)}')";
                 }
                 else
                 {
@@ -394,7 +403,7 @@ namespace DotNetNuke.Common.Utilities
         {
             var protocol = onClickEvent ? string.Empty : "javascript:";
             var refreshBool = refresh.ToString().ToLowerInvariant();
-            var urlString = HttpUtility.JavaScriptStringEncode(url);
+            var urlString = JavaScriptEncoder.Default.Encode(url);
             return $"{protocol}dnnModal.closePopUp({refreshBool}, '{urlString}')";
         }
 
@@ -536,7 +545,8 @@ namespace DotNetNuke.Common.Utilities
         /// <returns><see langword="true"/> if the current page is in a pop-up, otherwise <see langword="false"/>.</returns>
         public static bool InPopUp()
         {
-            return HttpContext.Current != null && IsPopUp(HttpContext.Current.Request.Url.ToString());
+            var request = HttpContextSource.Current?.Request;
+            return request != null && IsPopUp(request.GetDisplayUrl());
         }
 
         /// <summary>Determines whether the given URL is for a page being shown in a pop-up.</summary>
@@ -550,26 +560,36 @@ namespace DotNetNuke.Common.Utilities
         /// <summary>Redirect current response to 404 error page or output 404 content if error page not defined.</summary>
         /// <param name="response">The response.</param>
         /// <param name="portalSetting">The portal settings.</param>
-        public static void Handle404Exception(HttpResponse response, PortalSettings portalSetting)
-            => Handle404Exception(new HttpResponseWrapper(response), portalSetting);
+        public static void Handle404Exception(HttpResponse response, IPortalSettings portalSetting)
+        {
+            Handle404ExceptionAsync(response, portalSetting).GetAwaiter().GetResult();
+        }
 
         /// <summary>Redirect current response to 404 error page or output 404 content if error page not defined.</summary>
         /// <param name="response">The response.</param>
         /// <param name="portalSetting">The portal settings.</param>
-        public static void Handle404Exception(HttpResponseBase response, IPortalSettings portalSetting)
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static async Task Handle404ExceptionAsync(HttpResponse response, IPortalSettings portalSetting)
         {
+            if (response is null)
+            {
+                throw new ArgumentNullException(nameof(response));
+            }
+
             if (portalSetting?.ErrorPage404 > Null.NullInteger)
             {
                 response.Redirect(NavigationManager.NavigateURL(portalSetting.ErrorPage404, string.Empty, "status=404"));
             }
             else
             {
-                response.ClearContent();
-                response.TrySkipIisCustomErrors = true;
+                // Response.ClearContent()/Status/TrySkipIisCustomErrors have no ASP.NET Core
+                // equivalent: Clear() resets the (not yet started) response, the reason phrase is
+                // derived from the status code, and IIS custom errors are bypassed because the
+                // body is written here.
+                response.Clear();
                 response.StatusCode = 404;
-                response.Status = "404 Not Found";
-                response.Write("404 Not Found");
-                response.End();
+                response.ContentType = "text/plain";
+                await response.WriteAsync("404 Not Found");
             }
         }
 
@@ -586,6 +606,46 @@ namespace DotNetNuke.Common.Utilities
             toDecrypt.Replace('-', '+');
             toDecrypt.Replace("%3d", "=");
             return decrypt(toDecrypt.ToString(), encryptionKey);
+        }
+
+        /// <summary>
+        /// Percent-encodes the characters that are never legal in a URI, leaving the reserved
+        /// delimiters intact so that the URL's structure survives.
+        /// </summary>
+        /// <param name="value">The URL to escape.</param>
+        /// <returns>The escaped URL.</returns>
+        /// <remarks>
+        /// This replaces the obsolete <c>Uri.EscapeUriString</c> (SYSLIB0013). It deliberately
+        /// escapes only the "unsafe" set that method escaped — <c>Uri.EscapeDataString</c> cannot
+        /// be substituted here because it also encodes <c>/</c>, <c>?</c>, <c>&amp;</c> and
+        /// <c>=</c>, which would destroy the URL being wrapped for the pop-up.
+        /// </remarks>
+        private static string EscapeUriStringCompat(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            const string unsafeChars = " \"<>{}|\\^`";
+            var builder = new StringBuilder(value.Length);
+            foreach (var character in value)
+            {
+                if (character <= 127 && unsafeChars.IndexOf(character) < 0)
+                {
+                    builder.Append(character);
+                    continue;
+                }
+
+                // Non-ASCII and unsafe characters are UTF-8 encoded, then percent-encoded
+                // byte by byte — the same transformation Uri.EscapeUriString applied.
+                foreach (var b in Encoding.UTF8.GetBytes(character.ToString()))
+                {
+                    builder.Append('%').Append(b.ToString("X2", CultureInfo.InvariantCulture));
+                }
+            }
+
+            return builder.ToString();
         }
     }
 }

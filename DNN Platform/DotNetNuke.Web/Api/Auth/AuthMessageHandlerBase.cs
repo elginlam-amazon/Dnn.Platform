@@ -5,19 +5,41 @@
 namespace DotNetNuke.Web.Api.Auth
 {
     using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Net.Http;
     using System.Security.Principal;
     using System.Threading;
-    using System.Threading.Tasks;
 
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Web.Api.Internal;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.Logging;
 
     /// <summary>Base class for authentication providers message handlers.</summary>
-    public abstract partial class AuthMessageHandlerBase : DelegatingHandler
+    /// <remarks>
+    /// <para>
+    /// This was a <c>System.Net.Http.DelegatingHandler</c> installed into
+    /// <c>HttpConfiguration.MessageHandlers</c>. ASP.NET Core has no message handler chain, so the handlers
+    /// are now driven by <see cref="DnnAuthMessageHandlerMiddleware"/>, which walks the ordered
+    /// <see cref="IDnnAuthMessageHandlerCollection"/>. The <c>DelegatingHandler.SendAsync</c> split into
+    /// an inbound and an outbound phase is preserved one for one:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description><c>OnInboundRequest</c> → <see cref="OnAuthenticateRequest"/>. It returned an
+    /// <c>HttpResponseMessage</c> to terminate inbound processing; it now returns <see langword="true"/>
+    /// after writing the response onto the context, which short-circuits the pipeline the same way.</description></item>
+    /// <item><description><c>OnOutboundResponse</c> → <see cref="OnSendResponse"/>, invoked just before
+    /// the response headers are sent (and therefore still able to add the <c>WWW-Authenticate</c>
+    /// challenge to a 401 produced anywhere downstream, including by the authorization filters).</description></item>
+    /// </list>
+    /// <para>
+    /// <see cref="BypassAntiForgeryToken"/>, <see cref="DefaultInclude"/>, <see cref="ForceSsl"/>,
+    /// <see cref="AuthScheme"/>, <see cref="IsXmlHttpRequest"/> and <see cref="NeedsAuthentication"/> keep
+    /// their former semantics exactly, including the <see cref="ForceSsl"/>/scheme validation and its log
+    /// message. The constructor signature is unchanged, so the <c>&lt;messageHandlers&gt;</c> entries keep
+    /// activating third-party handlers through <c>(includeByDefault, forceSsl)</c>.
+    /// </para>
+    /// </remarks>
+    public abstract partial class AuthMessageHandlerBase : IDnnAuthMessageHandler
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<AuthMessageHandlerBase>();
 
@@ -43,34 +65,28 @@ namespace DotNetNuke.Web.Api.Auth
         public bool ForceSsl { get; }
 
         /// <summary>A chance to process inbound requests.</summary>
-        /// <param name="request">The request message.</param>
-        /// <param name="cancellationToken">A cancellationtoken.</param>
-        /// <returns>null normally, if a response is returned all inbound processing is terminated and the resposne is returned.</returns>
-        public virtual HttpResponseMessage OnInboundRequest(HttpRequestMessage request, CancellationToken cancellationToken)
+        /// <param name="context">The current HTTP context.</param>
+        /// <returns>
+        /// <see langword="false"/> normally. When <see langword="true"/> is returned all inbound processing
+        /// is terminated and the response the handler wrote onto <paramref name="context"/> is returned.
+        /// </returns>
+        public virtual bool OnAuthenticateRequest(HttpContext context)
         {
-            return null;
+            return false;
         }
 
-        /// <summary>A change to process outbound responses.</summary>
-        /// <param name="response">The response message.</param>
-        /// <param name="cancellationToken">A cancellationtoken.</param>
-        /// <returns>The responsemessage.</returns>
-        public virtual HttpResponseMessage OnOutboundResponse(HttpResponseMessage response, CancellationToken cancellationToken)
+        /// <summary>A chance to process outbound responses, just before the response headers are sent.</summary>
+        /// <param name="context">The current HTTP context.</param>
+        public virtual void OnSendResponse(HttpContext context)
         {
-            return response;
         }
 
         /// <summary>Checks if the current request is an XmlHttpRequest.</summary>
         /// <param name="request">The HTTP Request.</param>
         /// <returns>A value indicating whether the request is an XmlHttpRequest.</returns>
-        protected static bool IsXmlHttpRequest(HttpRequestMessage request)
+        protected static bool IsXmlHttpRequest(HttpRequest request)
         {
-            string value = null;
-            IEnumerable<string> values;
-            if (request != null && request.Headers.TryGetValues("X-REQUESTED-WITH", out values))
-            {
-                value = values.FirstOrDefault();
-            }
+            var value = request?.Headers["X-REQUESTED-WITH"].ToString();
 
             return !string.IsNullOrEmpty(value) &&
                    value.Equals("XmlHttpRequest", StringComparison.OrdinalIgnoreCase);
@@ -78,37 +94,32 @@ namespace DotNetNuke.Web.Api.Auth
 
         /// <summary>Sets the current principal for the request.</summary>
         /// <param name="principal">The principal to set.</param>
-        /// <param name="request">The current request.</param>
-        protected static void SetCurrentPrincipal(IPrincipal principal, HttpRequestMessage request)
+        /// <param name="context">The current HTTP context.</param>
+        /// <remarks>
+        /// Both <see cref="Thread.CurrentPrincipal"/> and <see cref="HttpContext.User"/> are set, exactly
+        /// as the legacy handler did, because DNN code (and third-party modules) read either one.
+        /// </remarks>
+        protected static void SetCurrentPrincipal(IPrincipal principal, HttpContext context)
         {
             Thread.CurrentPrincipal = principal;
-            request.GetHttpContext().User = principal;
-        }
-
-        /// <summary>Asynchronously sends a response.</summary>
-        /// <param name="request">The current request.</param>
-        /// <param name="cancellationToken">A cancellation token.</param>
-        /// <returns>An HttpResponseMessage Task.</returns>
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            var response = this.OnInboundRequest(request, cancellationToken);
-            if (response != null)
+            if (context != null && principal is System.Security.Claims.ClaimsPrincipal claimsPrincipal)
             {
-                response.RequestMessage = response.RequestMessage ?? request; // if someone returns new HttpResponseMessage(), fill in the requestMessage for other handlers in the chain
-                return Task<HttpResponseMessage>.Factory.StartNew(() => response, cancellationToken);
+                context.User = claimsPrincipal;
             }
-
-            return base.SendAsync(request, cancellationToken).ContinueWith(x => this.OnOutboundResponse(x.Result, cancellationToken), cancellationToken);
+            else if (context != null && principal != null)
+            {
+                context.User = new System.Security.Claims.ClaimsPrincipal(principal.Identity);
+            }
         }
 
         /// <summary>Checks if the current request requires authentication.</summary>
-        /// <param name="request">The current request.</param>
+        /// <param name="context">The current HTTP context.</param>
         /// <returns>A value indication whether the current request needs authentication.</returns>
-        protected bool NeedsAuthentication(HttpRequestMessage request)
+        protected bool NeedsAuthentication(HttpContext context)
         {
-            if (this.MustEnforceSslInRequest(request))
+            if (this.MustEnforceSslInRequest(context?.Request))
             {
-                return !Thread.CurrentPrincipal.Identity.IsAuthenticated;
+                return !IsAuthenticated(context);
             }
 
             Logger.AuthMessageHandlerBaseValidatingRequestVsSslModeFailed(this.AuthScheme, this.ForceSsl);
@@ -117,11 +128,18 @@ namespace DotNetNuke.Web.Api.Auth
             return false;
         }
 
+        private static bool IsAuthenticated(HttpContext context)
+        {
+            return context?.User?.Identity?.IsAuthenticated == true
+                   || Thread.CurrentPrincipal?.Identity?.IsAuthenticated == true;
+        }
+
         /// <summary>Validated the <see cref="ForceSsl"/> setting of the instance against the HTTP(S) request.</summary>
         /// <returns>True if <see cref="ForceSsl"/> matcher the request scheme; false otherwise.</returns>
-        private bool MustEnforceSslInRequest(HttpRequestMessage request)
+        private bool MustEnforceSslInRequest(HttpRequest request)
         {
-            return !this.ForceSsl || request.RequestUri.Scheme.Equals("HTTPS", StringComparison.OrdinalIgnoreCase);
+            return !this.ForceSsl
+                   || string.Equals(request?.Scheme, "HTTPS", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

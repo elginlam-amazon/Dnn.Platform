@@ -5,7 +5,6 @@
 namespace DotNetNuke.Tests.Integration.PersonaBar.Pages
 {
     using System.Collections.Generic;
-    using System.Configuration;
     using System.Linq;
     using System.Net;
     using System.Threading.Tasks;
@@ -28,9 +27,9 @@ namespace DotNetNuke.Tests.Integration.PersonaBar.Pages
 
         public PagesManagementTests()
         {
-            var url = ConfigurationManager.AppSettings["siteUrl"];
-            this._hostName = ConfigurationManager.AppSettings["hostUsername"];
-            this._hostPass = ConfigurationManager.AppSettings["hostPassword"];
+            var url = AppConfigHelper.SiteUrl;
+            this._hostName = AppConfigHelper.HostUserName;
+            this._hostPass = AppConfigHelper.HostPassword;
         }
 
         [OneTimeSetUp]
@@ -38,7 +37,12 @@ namespace DotNetNuke.Tests.Integration.PersonaBar.Pages
         {
             await base.TestFixtureSetUp();
 
-            ServicePointManager.ServerCertificateValidationCallback += (sender, cert, chain, sslPolicyErrors) => true;
+            // Port of the net48 `ServicePointManager.ServerCertificateValidationCallback += ... => true`:
+            // ServicePointManager is obsolete on modern .NET and has no effect on the
+            // SocketsHttpHandler-based clients the test framework uses, so the "accept the dev
+            // site's self-signed certificate" behaviour is expressed per HttpClientHandler
+            // through this opt-in flag (honoured by every connector-created handler).
+            ServerCertificateValidation.AcceptAny = true;
 
             this.UpdateSslSettings(true);
 

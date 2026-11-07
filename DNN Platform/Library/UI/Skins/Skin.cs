@@ -11,17 +11,14 @@ namespace DotNetNuke.UI.Skins
     using System.IO;
     using System.Linq;
     using System.Text;
-    using System.Threading;
-    using System.Web;
-    using System.Web.UI;
-    using System.Web.UI.HtmlControls;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Abstractions.Pages;
     using DotNetNuke.Application;
     using DotNetNuke.Collections.Internal;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Controllers;
     using DotNetNuke.Entities.Host;
@@ -34,6 +31,7 @@ namespace DotNetNuke.UI.Skins
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Framework;
     using DotNetNuke.Framework.JavaScriptLibraries;
+    using DotNetNuke.Instrumentation;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security;
     using DotNetNuke.Security.Permissions;
@@ -46,13 +44,29 @@ namespace DotNetNuke.UI.Skins
     using DotNetNuke.UI.Utilities;
     using DotNetNuke.Web.Client;
     using DotNetNuke.Web.Client.ClientResourceManagement;
-    using Microsoft.Extensions.DependencyInjection;
-    using Microsoft.VisualBasic;
-
     using Globals = DotNetNuke.Common.Globals;
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Logging;
 
     /// <summary>Skin is the base for the Skins.</summary>
-    public partial class Skin : UserControlBase
+    /// <remarks>
+    /// <para>
+    /// A DNN skin renders a portal page: it declares the page's panes, injects the modules assigned
+    /// to the current tab into them (each wrapped in its container) and injects the control panel.
+    /// </para>
+    /// <para>
+    /// The base class changed from <c>DotNetNuke.Framework.UserControlBase</c> (a
+    /// <c>System.Web.UI.UserControl</c>) to <see cref="DnnComponentBase"/>, the DNN skinning
+    /// component, because the skinning engine is built on the control tree (<c>Controls</c>,
+    /// <c>FindControl</c>, <c>ID</c>, <c>Visible</c>) and on the
+    /// <c>OnInit</c>/<c>OnLoad</c>/<c>OnPreRender</c>/<c>OnUnload</c> lifecycle, all of which
+    /// <see cref="DnnComponentBase"/> provides on ASP.NET Core. <see cref="PortalSettings"/> and
+    /// <see cref="IsHostMenu"/> are declared here so that skins which used them through
+    /// <c>UserControlBase</c> keep compiling.
+    /// </para>
+    /// </remarks>
+    public partial class Skin : DnnComponentBase
     {
         public const string OnInitMessage = "Skin_InitMessage";
         public const string OnInitMessageType = "Skin_InitMessageType";
@@ -76,6 +90,8 @@ namespace DotNetNuke.UI.Skins
 #pragma warning restore CA1707
 
         // ReSharper restore InconsistentNaming
+        private static readonly ILogger Logger = DnnLoggingController.GetLogger<Skin>();
+
         private readonly ModuleInjectionManager moduleInjectionManager;
         private readonly IHostSettings hostSettings;
         private readonly IHostSettingsService hostSettingsService;
@@ -83,7 +99,7 @@ namespace DotNetNuke.UI.Skins
         private readonly IServicesFramework servicesFramework;
         private readonly ModuleCommunicate communicator = new ModuleCommunicate();
         private ArrayList actionEventListeners;
-        private Control controlPanel;
+        private IClientApiControl controlPanel;
         private Dictionary<string, Pane> panes;
 
         /// <summary>Initializes a new instance of the <see cref="Skin"/> class.</summary>
@@ -164,6 +180,16 @@ namespace DotNetNuke.UI.Skins
             }
         }
 
+        /// <summary>Gets the Portal Settings for the current Portal.</summary>
+        /// <remarks>Was inherited from <c>DotNetNuke.Framework.UserControlBase</c>.</remarks>
+        [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
+        public PortalSettings PortalSettings => PortalSettings.Current;
+
+        /// <summary>Gets a value indicating whether the current tab is a host (super user) tab.</summary>
+        /// <remarks>Was inherited from <c>DotNetNuke.Framework.UserControlBase</c>.</remarks>
+        [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
+        public bool IsHostMenu => Globals.IsHostTab(PortalSettings.Current.ActiveTab.TabID);
+
         /// <summary>Gets or sets an ArrayList of ActionEventListeners.</summary>
         public ArrayList ActionEventListeners
         {
@@ -182,7 +208,7 @@ namespace DotNetNuke.UI.Skins
         public string SkinSrc { get; set; }
 
         /// <summary>Gets the ControlPanel container.</summary>
-        internal Control ControlPanel
+        internal IClientApiControl ControlPanel
         {
             get
             {
@@ -217,7 +243,7 @@ namespace DotNetNuke.UI.Skins
         /// <param name="control">The current control.</param>
         /// <param name="message">The Message Text.</param>
         /// <param name="moduleMessageType">The type of the message.</param>
-        public static void AddModuleMessage(Control control, string message, ModuleMessage.ModuleMessageType moduleMessageType)
+        public static void AddModuleMessage(IComponent control, string message, ModuleMessage.ModuleMessageType moduleMessageType)
         {
             AddModuleMessage(control, string.Empty, message, moduleMessageType, Null.NullString);
         }
@@ -227,7 +253,7 @@ namespace DotNetNuke.UI.Skins
         /// <param name="heading">The Message Heading.</param>
         /// <param name="message">The Message Text.</param>
         /// <param name="moduleMessageType">The type of the message.</param>
-        public static void AddModuleMessage(Control control, string heading, string message, ModuleMessage.ModuleMessageType moduleMessageType)
+        public static void AddModuleMessage(IComponent control, string heading, string message, ModuleMessage.ModuleMessageType moduleMessageType)
         {
             AddModuleMessage(control, heading, message, moduleMessageType, Null.NullString);
         }
@@ -238,7 +264,7 @@ namespace DotNetNuke.UI.Skins
         /// <param name="message">The Message Text.</param>
         /// <param name="iconSrc">The Icon to display.</param>
         [DnnDeprecated(10, 2, 0, "Please use IPageService.AddMessage")]
-        public static partial void AddPageMessage(Page page, string heading, string message, string iconSrc)
+        public static partial void AddPageMessage(PageBase page, string heading, string message, string iconSrc)
         {
             AddPageMessage(page, heading, message, ModuleMessage.ModuleMessageType.GreenSuccess, iconSrc);
         }
@@ -271,7 +297,7 @@ namespace DotNetNuke.UI.Skins
         /// <param name="message">The Message Text.</param>
         /// <param name="moduleMessageType">The type of the message.</param>
         [DnnDeprecated(10, 2, 0, "Please use IPageService.AddMessage")]
-        public static partial void AddPageMessage(Page page, string heading, string message, ModuleMessage.ModuleMessageType moduleMessageType)
+        public static partial void AddPageMessage(PageBase page, string heading, string message, ModuleMessage.ModuleMessageType moduleMessageType)
         {
             AddPageMessage(page, heading, message, moduleMessageType, Null.NullString);
         }
@@ -305,9 +331,10 @@ namespace DotNetNuke.UI.Skins
         public static ModuleMessage GetModuleMessageControl(string heading, string message, ModuleMessage.ModuleMessageType moduleMessageType, string iconImage)
         {
             // Use this to get a module message control
-            // with a standard DotNetNuke icon
-            var s = new Skin();
-            var moduleMessage = (ModuleMessage)s.LoadControl("~/admin/skins/ModuleMessage.ascx");
+            // with a standard DotNetNuke icon.
+            // Was: new Skin().LoadControl("~/admin/skins/ModuleMessage.ascx"). The .ascx is now the
+            // ModuleMessage component, which is instantiated directly.
+            var moduleMessage = new ModuleMessage();
             moduleMessage.Heading = heading;
             moduleMessage.Text = message;
             moduleMessage.IconImage = iconImage;
@@ -320,13 +347,14 @@ namespace DotNetNuke.UI.Skins
         /// <returns>A <see cref="Skin"/> instance or <see langword="null"/>.</returns>
         public static Skin GetParentSkin(PortalModuleBase module)
         {
-            return GetParentSkin(module as Control);
+            return GetParentSkin(module as IClientApiControl);
         }
 
         /// <summary>GetParentSkin gets the Parent Skin for a control.</summary>
         /// <param name="control">The control whose Parent Skin is requested.</param>
         /// <returns>A <see cref="Skin"/> instance or <see langword="null"/>.</returns>
-        public static Skin GetParentSkin(Control control)
+        /// <remarks>The <c>control</c> parameter was a <c>System.Web.UI.Control</c>; it is now the DNN component tree node.</remarks>
+        public static Skin GetParentSkin(IClientApiControl control)
         {
             return ControlUtilities.FindParentControl<Skin>(control);
         }
@@ -344,7 +372,7 @@ namespace DotNetNuke.UI.Skins
             {
                 skinSource = SkinController.FormatSkinSrc(SkinController.FormatSkinPath(skinSource) + "popUpSkin.ascx", page.PortalSettings);
 
-                if (File.Exists(HttpContext.Current.Server.MapPath(SkinController.FormatSkinSrc(skinSource, page.PortalSettings))))
+                if (File.Exists(HttpContextSource.MapPath(SkinController.FormatSkinSrc(skinSource, page.PortalSettings))))
                 {
                     skin = LoadSkin(page, skinSource);
                 }
@@ -383,13 +411,14 @@ namespace DotNetNuke.UI.Skins
             string skinSource = Null.NullString;
 
             // skin preview
-            if (page.Request.QueryString["SkinSrc"] != null)
+            var queryString = page.Request.GetQueryString();
+            if (queryString["SkinSrc"] != null)
             {
                 hostSettings ??= Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
 
                 if (hostSettings.AllowOverrideThemeViaQueryString || TabPermissionController.CanManagePage())
                 {
-                    skinSource = SkinController.FormatSkinSrc(Globals.QueryStringDecode(page.Request.QueryString["SkinSrc"]) + ".ascx", page.PortalSettings);
+                    skinSource = SkinController.FormatSkinSrc(Globals.QueryStringDecode(queryString["SkinSrc"]) + ".ascx", page.PortalSettings);
                     skin = LoadSkin(page, skinSource);
                 }
             }
@@ -397,14 +426,11 @@ namespace DotNetNuke.UI.Skins
             // load user skin ( based on cookie )
             if (skin == null)
             {
-                HttpCookie skinCookie = page.Request.Cookies["_SkinSrc" + page.PortalSettings.PortalId];
-                if (skinCookie != null)
+                var skinCookie = page.Request.Cookies["_SkinSrc" + page.PortalSettings.PortalId];
+                if (!string.IsNullOrEmpty(skinCookie))
                 {
-                    if (!string.IsNullOrEmpty(skinCookie.Value))
-                    {
-                        skinSource = SkinController.FormatSkinSrc(skinCookie.Value + ".ascx", page.PortalSettings);
-                        skin = LoadSkin(page, skinSource);
-                    }
+                    skinSource = SkinController.FormatSkinSrc(skinCookie + ".ascx", page.PortalSettings);
+                    skin = LoadSkin(page, skinSource);
                 }
             }
 
@@ -447,7 +473,9 @@ namespace DotNetNuke.UI.Skins
                 if (!folder.EndsWith(Globals.glbHostSkinFolder, StringComparison.OrdinalIgnoreCase))
                 {
                     var skin = new InstalledSkinInfo();
-                    skin.SkinName = folder.Substring(folder.LastIndexOf(@"\", StringComparison.Ordinal) + 1);
+                    // Was folder.Substring(folder.LastIndexOf(@"\") + 1), which only works with
+                    // Windows directory separators.
+                    skin.SkinName = Path.GetFileName(folder);
                     skin.InUse = IsFallbackSkin(folder) || !SkinController.CanDeleteSkin(folder, string.Empty);
                     list.Add(skin);
                 }
@@ -469,7 +497,7 @@ namespace DotNetNuke.UI.Skins
             {
                 if (this.PortalSettings.ActiveTab.TabID == this.PortalSettings.UserTabId || this.PortalSettings.ActiveTab.ParentId == this.PortalSettings.UserTabId)
                 {
-                    var profileModule = this.ModuleControlPipeline.LoadModuleControl(this.Page, module) as IProfileModule;
+                    var profileModule = this.ModuleControlPipeline.LoadModuleControl(this, module) as IProfileModule;
                     if (profileModule == null || profileModule.DisplayModule)
                     {
                         pane.InjectModule(module);
@@ -480,12 +508,10 @@ namespace DotNetNuke.UI.Skins
                     pane.InjectModule(module);
                 }
             }
-            catch (ThreadAbortException)
-            {
-                // Response.Redirect may be called in module control's OnInit method, so it will cause ThreadAbortException, no need any action here.
-            }
             catch (Exception ex)
             {
+                // Was preceded by a ThreadAbortException catch, because Response.Redirect in a module
+                // control's OnInit raised one. ASP.NET Core's Redirect does not abort the thread.
                 Exceptions.LogException(ex);
                 bSuccess = false;
             }
@@ -507,17 +533,44 @@ namespace DotNetNuke.UI.Skins
         /// <param name="message">The Message Text.</param>
         /// <param name="moduleMessageType">The type of the message.</param>
         /// <param name="iconSrc">The Icon to display.</param>
-        internal static void AddPageMessage(Control control, string heading, string message, ModuleMessage.ModuleMessageType moduleMessageType, string iconSrc)
+        internal static void AddPageMessage(IComponent control, string heading, string message, ModuleMessage.ModuleMessageType moduleMessageType, string iconSrc)
         {
-            if (!string.IsNullOrEmpty(message))
+            if (string.IsNullOrEmpty(message))
             {
-                Control contentPane = FindControlRecursive(control, Globals.glbDefaultPane);
+                return;
+            }
 
-                if (contentPane != null)
-                {
-                    ModuleMessage moduleMessage = GetModuleMessageControl(heading, message, moduleMessageType, iconSrc);
-                    contentPane.Controls.AddAt(0, moduleMessage);
-                }
+            var contentPane = FindControlRecursive(control as IClientApiControl, Globals.glbDefaultPane) as IDnnControl;
+
+            if (contentPane != null)
+            {
+                ModuleMessage moduleMessage = GetModuleMessageControl(heading, message, moduleMessageType, iconSrc);
+                contentPane.Controls.AddAt(0, moduleMessage);
+                return;
+            }
+
+            // There is no content pane to host the message (the caller is a page rather than a
+            // rendered skin, e.g. PageBase before the skin is loaded). The message is published
+            // through IPageService so that the layout still renders it rather than dropping it.
+            var pageService = Globals.GetCurrentServiceProvider().GetService<IPageService>();
+            pageService?.AddMessage(new PageMessage(heading, message, ToPageMessageType(moduleMessageType), iconSrc, PagePriority.Default));
+        }
+
+        /// <summary>Maps a module message type onto the equivalent page message type.</summary>
+        /// <param name="moduleMessageType">The module message type.</param>
+        /// <returns>The page message type.</returns>
+        private static PageMessageType ToPageMessageType(ModuleMessage.ModuleMessageType moduleMessageType)
+        {
+            switch (moduleMessageType)
+            {
+                case ModuleMessage.ModuleMessageType.YellowWarning:
+                    return PageMessageType.Warning;
+                case ModuleMessage.ModuleMessageType.RedError:
+                    return PageMessageType.Error;
+                case ModuleMessage.ModuleMessageType.BlueInfo:
+                    return PageMessageType.Info;
+                default:
+                    return PageMessageType.Success;
             }
         }
 
@@ -536,7 +589,8 @@ namespace DotNetNuke.UI.Skins
             this.InjectControlPanel();
 
             // Register any error messages on the Skin
-            if (this.Request.QueryString["error"] != null && this.hostSettings.ShowCriticalErrors)
+            var context = HttpContextSource.Current;
+            if (this.Request?.GetValue("error") != null && this.hostSettings.ShowCriticalErrors)
             {
                 AddPageMessage(this, Localization.GetString("CriticalError.Error"), " ", ModuleMessage.ModuleMessageType.RedError, string.Empty);
 
@@ -546,8 +600,8 @@ namespace DotNetNuke.UI.Skins
                     this.servicesFramework.RequestAjaxAntiForgerySupport();
 
                     this.javaScript.RequestRegistration(CommonJs.jQueryUI);
-                    JavaScript.RegisterClientReference(this.Page, ClientAPI.ClientNamespaceReferences.dnn_dom);
-                    ClientResourceManager.RegisterScript(this.Page, "~/resources/shared/scripts/dnn.logViewer.js");
+                    JavaScript.RegisterClientReference(context, ClientAPI.ClientNamespaceReferences.dnn_dom);
+                    ClientResourceManager.RegisterScript(context, "~/resources/shared/scripts/dnn.logViewer.js");
                 }
             }
 
@@ -559,15 +613,15 @@ namespace DotNetNuke.UI.Skins
 
             this.InvokeSkinEvents(SkinEventType.OnSkinInit);
 
-            if (HttpContextSource.Current != null && HttpContextSource.Current.Items.Contains(OnInitMessage))
+            if (context != null && context.Items.ContainsKey(OnInitMessage))
             {
                 var messageType = ModuleMessage.ModuleMessageType.YellowWarning;
-                if (HttpContextSource.Current.Items.Contains(OnInitMessageType))
+                if (context.Items.ContainsKey(OnInitMessageType))
                 {
-                    messageType = (ModuleMessage.ModuleMessageType)Enum.Parse(typeof(ModuleMessage.ModuleMessageType), HttpContextSource.Current.Items[OnInitMessageType].ToString(), true);
+                    messageType = (ModuleMessage.ModuleMessageType)Enum.Parse(typeof(ModuleMessage.ModuleMessageType), context.Items[OnInitMessageType].ToString(), true);
                 }
 
-                AddPageMessage(this, string.Empty, HttpContextSource.Current.Items[OnInitMessage].ToString(), messageType, string.Empty);
+                AddPageMessage(this, string.Empty, context.Items[OnInitMessage].ToString(), messageType, string.Empty);
 
                 this.javaScript.RequestRegistration(CommonJs.DnnPlugins);
                 this.servicesFramework.RequestAjaxAntiForgerySupport();
@@ -591,13 +645,14 @@ namespace DotNetNuke.UI.Skins
             base.OnPreRender(e);
 
             this.InvokeSkinEvents(SkinEventType.OnSkinPreRender);
-            var isSpecialPageMode = UrlUtils.InPopUp() || this.Request.QueryString["dnnprintmode"] == "true";
+            var context = HttpContextSource.Current;
+            var isSpecialPageMode = UrlUtils.InPopUp() || this.Request?.GetValue("dnnprintmode") == "true";
             if (TabPermissionController.CanAddContentToPage() && Globals.IsEditMode() && !isSpecialPageMode)
             {
                 // Register Drag and Drop plugin
                 this.javaScript.RequestRegistration(CommonJs.DnnPlugins);
-                ClientResourceManager.RegisterStyleSheet(this.Page, "~/resources/shared/stylesheets/dnn.dragDrop.css", FileOrder.Css.FeatureCss);
-                ClientResourceManager.RegisterScript(this.Page, "~/resources/shared/scripts/dnn.dragDrop.js");
+                ClientResourceManager.RegisterStyleSheet(context, "~/resources/shared/stylesheets/dnn.dragDrop.css", FileOrder.Css.FeatureCss);
+                ClientResourceManager.RegisterScript(context, "~/resources/shared/scripts/dnn.dragDrop.js");
 
                 // Register Client Script
                 var sb = new StringBuilder();
@@ -614,14 +669,19 @@ namespace DotNetNuke.UI.Skins
                 sb.AppendLine(" } (jQuery));");
 
                 var script = sb.ToString();
-                if (ScriptManager.GetCurrent(this.Page) != null)
+
+                // Was: ScriptManager.RegisterStartupScript when MS AJAX was present, otherwise
+                // Page.ClientScript.RegisterStartupScript. There is a single path now: the startup
+                // script is registered on the request's client API page.
+                var clientApiPage = this.Page ?? context?.RequestServices?.GetService<IClientApiPage>();
+                if (clientApiPage != null)
                 {
-                    // respect MS AJAX
-                    ScriptManager.RegisterStartupScript(this.Page, this.GetType(), "DragAndDrop", script, true);
+                    clientApiPage.RegisterStartupScript(this.GetType(), "DragAndDrop", script, true);
                 }
                 else
                 {
-                    this.Page.ClientScript.RegisterStartupScript(this.GetType(), "DragAndDrop", script, true);
+                    Logger.LogWarning(
+                        "The module drag and drop startup script could not be registered: no IClientApiPage is registered for this request (see UseDnnWebUtility).");
                 }
             }
         }
@@ -634,13 +694,13 @@ namespace DotNetNuke.UI.Skins
             this.InvokeSkinEvents(SkinEventType.OnSkinUnLoad);
         }
 
-        private static void AddModuleMessage(Control control, string heading, string message, ModuleMessage.ModuleMessageType moduleMessageType, string iconSrc)
+        private static void AddModuleMessage(IComponent control, string heading, string message, ModuleMessage.ModuleMessageType moduleMessageType, string iconSrc)
         {
             if (control != null)
             {
                 if (!string.IsNullOrEmpty(message))
                 {
-                    var messagePlaceHolder = ControlUtilities.FindControl<PlaceHolder>(control, "MessagePlaceHolder", true);
+                    var messagePlaceHolder = ControlUtilities.FindControl<IDnnControl>(control as IClientApiControl, "MessagePlaceHolder", true);
                     if (messagePlaceHolder != null)
                     {
                         messagePlaceHolder.Visible = true;
@@ -651,16 +711,21 @@ namespace DotNetNuke.UI.Skins
             }
         }
 
-        private static Control FindControlRecursive(Control rootControl, string controlId)
+        private static IClientApiControl FindControlRecursive(IClientApiControl rootControl, string controlId)
         {
-            if (rootControl.ID == controlId)
+            if (rootControl == null)
+            {
+                return null;
+            }
+
+            if (rootControl.Id == controlId)
             {
                 return rootControl;
             }
 
-            foreach (Control controlToSearch in rootControl.Controls)
+            foreach (var controlToSearch in rootControl.Children)
             {
-                Control controlToReturn = FindControlRecursive(controlToSearch, controlId);
+                var controlToReturn = FindControlRecursive(controlToSearch, controlId);
                 if (controlToReturn != null)
                 {
                     return controlToReturn;
@@ -684,19 +749,26 @@ namespace DotNetNuke.UI.Skins
                 ctlSkin = ControlUtilities.LoadControl<Skin>(page, skinPath);
                 ctlSkin.SkinSrc = skinSrc;
 
-                // call databind so that any server logic in the skin is executed
-                ctlSkin.DataBind();
+                // Was: ctlSkin.DataBind(), which executed any server logic declared in the .ascx.
+                // A Blazor component's logic runs in its own lifecycle when it is rendered.
             }
             catch (Exception exc)
             {
-                // could not load user control
+                // could not load the skin component
                 var lex = new PageLoadException("Unhandled error loading page.", exc);
                 if (TabPermissionController.CanAdminPage())
                 {
-                    // only display the error to administrators
-                    var skinError = (Label)page.FindControl("SkinError");
-                    skinError.Text = string.Format(CultureInfo.CurrentCulture, Localization.GetString("SkinLoadError", Localization.GlobalResourceFile), skinPath, page.Server.HtmlEncode(exc.Message));
-                    skinError.Visible = true;
+                    // only display the error to administrators.
+                    // Was: the "SkinError" Label declared by Default.aspx. The page is a Blazor
+                    // layout now, so the error is published through IPageService, which the layout
+                    // renders.
+                    var pageService = Globals.GetCurrentServiceProvider().GetService<IPageService>();
+                    pageService?.AddMessage(new PageMessage(
+                        Localization.GetString("SkinLoadError.Title", Localization.GlobalResourceFile),
+                        string.Format(CultureInfo.CurrentCulture, Localization.GetString("SkinLoadError", Localization.GlobalResourceFile), skinPath, System.Net.WebUtility.HtmlEncode(exc.Message)),
+                        PageMessageType.Error,
+                        string.Empty,
+                        PagePriority.Default));
                 }
 
                 Exceptions.LogException(lex);
@@ -767,35 +839,30 @@ namespace DotNetNuke.UI.Skins
         private void InjectControlPanel()
         {
             // if querystring dnnprintmode=true, controlpanel will not be shown
-            if (this.Request.QueryString["dnnprintmode"] != "true" && !UrlUtils.InPopUp() && this.Request.QueryString["hidecommandbar"] != "true")
+            if (this.Request?.GetValue("dnnprintmode") != "true" && !UrlUtils.InPopUp() && this.Request?.GetValue("hidecommandbar") != "true")
             {
                 if (this.hostSettings.AllowControlPanelToDetermineVisibility || ControlPanelBase.IsPageAdminInternal() || ControlPanelBase.IsModuleAdminInternal())
                 {
                     // ControlPanel processing
                     var controlPanel = ControlUtilities.LoadControl<ControlPanelBase>(this, this.hostSettings.ControlPanel);
-                    var form = (HtmlForm)this.Parent.FindControl("Form");
 
                     if (controlPanel.IncludeInControlHierarchy)
                     {
                         // inject ControlPanel control into skin
                         if (this.ControlPanel == null || this.hostSettingsService.GetBoolean("IgnoreControlPanelWrapper", false))
                         {
-                            if (form != null)
-                            {
-                                form.Controls.AddAt(0, controlPanel);
-                            }
-                            else
-                            {
-                                this.Page.Controls.AddAt(0, controlPanel);
-                            }
+                            // Was: injected as the first control of the page's <form runat="server">
+                            // (or of the page itself). There is no server form on ASP.NET Core; the
+                            // equivalent top-of-page position is the first control of this skin.
+                            this.Controls.AddAt(0, controlPanel);
                         }
-                        else
+                        else if (this.ControlPanel is IDnnControl controlPanelPane)
                         {
-                            this.ControlPanel.Controls.Add(controlPanel);
+                            controlPanelPane.Controls.Add(controlPanel);
                         }
 
                         // register admin.css
-                        ClientResourceManager.RegisterAdminStylesheet(this.Page, Globals.HostPath + "admin.css");
+                        ClientResourceManager.RegisterAdminStylesheet(HttpContextSource.Current, Globals.ApplicationPath + "/portals/_default/admin.css");
                     }
                 }
             }
@@ -816,14 +883,16 @@ namespace DotNetNuke.UI.Skins
 
         private void LoadPanes()
         {
-            // iterate page controls
-            foreach (Control ctlControl in this.Controls)
+            // iterate the skin's controls
+            // Panes used to be runat="server" HTML elements inside the skin's .ascx; they are now
+            // DnnGenericControl instances declared by the skin component, and they still have to
+            // carry an ID.
+            foreach (var ctlControl in this.Controls.ToList())
             {
-                // Panes must be runat=server controls so they have to have an ID
-                if (ctlControl is HtmlContainerControl objPaneControl && !string.IsNullOrEmpty(objPaneControl.ID))
+                if (ctlControl is DnnGenericControl objPaneControl && !string.IsNullOrEmpty(objPaneControl.ID) && !string.IsNullOrEmpty(objPaneControl.Tag))
                 {
                     // load the skin panes
-                    switch (objPaneControl.TagName.ToLowerInvariant())
+                    switch (objPaneControl.Tag.ToLowerInvariant())
                     {
                         case "td":
                         case "div":
@@ -926,7 +995,7 @@ namespace DotNetNuke.UI.Skins
                 // check portal expiry date
                 if (!this.CheckExpired())
                 {
-                    if ((this.PortalSettings.ActiveTab.StartDate < DateAndTime.Now && this.PortalSettings.ActiveTab.EndDate > DateAndTime.Now) || TabPermissionController.CanAdminPage() || Globals.IsLayoutMode())
+                    if ((this.PortalSettings.ActiveTab.StartDate < DateTime.Now && this.PortalSettings.ActiveTab.EndDate > DateTime.Now) || TabPermissionController.CanAdminPage() || Globals.IsLayoutMode())
                     {
                         foreach (var objModule in PortalSettingsController.Instance().GetTabModules(this.PortalSettings))
                         {

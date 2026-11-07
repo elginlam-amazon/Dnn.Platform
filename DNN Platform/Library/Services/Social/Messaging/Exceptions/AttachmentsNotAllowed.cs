@@ -35,9 +35,13 @@ namespace DotNetNuke.Services.Social.Messaging.Exceptions
         /// <summary>Initializes a new instance of the <see cref="AttachmentsNotAllowed"/> class.</summary>
         /// <param name="info">The serialization info.</param>
         /// <param name="context">The streaming context.</param>
+#pragma warning disable SYSLIB0051 // Kept for API compatibility: the formatter-based
+// serialization constructor is part of this public exception type's surface, and 59
+// dependent projects compile against it. Nothing in the platform serializes it.
         public AttachmentsNotAllowed(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
         }
+        #pragma warning restore SYSLIB0051
     }
 }

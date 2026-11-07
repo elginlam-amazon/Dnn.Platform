@@ -8,6 +8,7 @@ namespace DotNetNuke.Tests.Mail
     using Dnn.GoogleMailAuthProvider.Components;
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
+    using DotNetNuke.Entities.Portals;
     using DotNetNuke.Services.Mail.OAuth;
     using Moq;
     using NUnit.Framework;
@@ -44,8 +45,16 @@ namespace DotNetNuke.Tests.Mail
             return new SmtpOAuthController(
                 new ISmtpOAuthProvider[]
                 {
-                    new GoogleMailOAuthProvider(Mock.Of<IHostSettingsService>(), Mock.Of<IPortalAliasService>()),
-                    new ExchangeOnlineOAuthProvider(Mock.Of<IHostSettingsService>(), Mock.Of<IPortalAliasService>()),
+                    new GoogleMailOAuthProvider(
+                        Mock.Of<IHostSettingsService>(),
+                        Mock.Of<IPortalAliasService>(),
+                        Mock.Of<IHostSettings>(),
+                        Mock.Of<IPortalController>()),
+                    new ExchangeOnlineOAuthProvider(
+                        Mock.Of<IHostSettingsService>(),
+                        Mock.Of<IPortalAliasService>(),
+                        Mock.Of<IHostSettings>(),
+                        Mock.Of<IPortalController>()),
                 });
         }
     }

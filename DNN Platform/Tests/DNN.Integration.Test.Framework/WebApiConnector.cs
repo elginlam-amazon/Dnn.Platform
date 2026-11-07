@@ -6,17 +6,16 @@ namespace DNN.Integration.Test.Framework
 {
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Cache;
     using System.Net.Http;
     using System.Net.Http.Headers;
+    using System.Net.Http.Json;
     using System.Text;
+    using System.Text.Json;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
-    using System.Web;
     using System.Xml;
     using System.Xml.Linq;
 
@@ -52,6 +51,17 @@ namespace DNN.Integration.Test.Framework
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 
         private static readonly Encoding Encoding = Encoding.UTF8;
+
+        /// <summary>
+        /// Serializer options for the JSON request bodies. The legacy
+        /// Microsoft.AspNet.WebApi.Client formatter serialized property names verbatim, so the
+        /// in-box System.Net.Http.Json default (camelCase, JsonSerializerDefaults.Web) is
+        /// overridden to keep the wire format identical.
+        /// </summary>
+        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = null,
+        };
 
         private string _userAgentValue;
         private int _userId;
@@ -102,7 +112,7 @@ namespace DNN.Integration.Test.Framework
 
         public string UserAgentValue
         {
-            get { return this._userAgentValue ?? (this._userAgentValue = ConfigurationManager.AppSettings["HttpUserAgent"] ?? DefaultUserAgent); }
+            get { return this._userAgentValue ?? (this._userAgentValue = AppConfigHelper.GetAppSetting("HttpUserAgent") ?? DefaultUserAgent); }
             set { this._userAgentValue = value; }
         }
 
@@ -142,15 +152,25 @@ namespace DNN.Integration.Test.Framework
                 try
                 {
                     var requestUriString = CombineUrlPath(this.Domain, LogoffPath);
-                    var httpWebRequest1 = (HttpWebRequest)WebRequest.Create(requestUriString);
-                    httpWebRequest1.Method = "GET";
-                    httpWebRequest1.KeepAlive = false;
-                    httpWebRequest1.CookieContainer = this._sessionCookiesContainer;
-                    httpWebRequest1.ReadWriteTimeout = 90;
-                    httpWebRequest1.UserAgent = this.UserAgentValue;
-                    using (httpWebRequest1.GetResponse())
+                    using (var handler = new HttpClientHandler
                     {
-                        // no need to read the response stream after we logoff
+                        ServerCertificateCustomValidationCallback = ServerCertificateValidation.AcceptAny ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator : null,
+                        CookieContainer = this._sessionCookiesContainer,
+                    })
+                    using (var client = new HttpClient(handler)
+                    {
+                        Timeout = this.Timeout,
+                    })
+                    using (var request = new HttpRequestMessage(HttpMethod.Get, requestUriString))
+                    {
+                        request.Headers.ConnectionClose = true; // was KeepAlive = false
+                        request.Headers.ExpectContinue = false;
+                        request.Headers.UserAgent.ParseAdd(this.UserAgentValue);
+
+                        // no need to read the response content after we logoff
+                        using (client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).Result)
+                        {
+                        }
                     }
                 }
                 finally
@@ -278,7 +298,7 @@ namespace DNN.Integration.Test.Framework
                 }
 
                 var requestUriString = CombineUrlPath(this.Domain, relativeUrl);
-                var result = client.PostAsJsonAsync(requestUriString, content).Result;
+                var result = client.PostAsJsonAsync(requestUriString, content, JsonOptions).Result;
                 return !waitHttpResponse
                     ? result
                     : EnsureSuccessResponse(result, "PostJson", requestUriString);
@@ -317,14 +337,14 @@ namespace DNN.Integration.Test.Framework
                 }
 
                 var requestUriString = CombineUrlPath(this.Domain, relativeUrl);
-                var result = client.PutAsJsonAsync(requestUriString, content).Result;
+                var result = client.PutAsJsonAsync(requestUriString, content, JsonOptions).Result;
                 return !waitHttpResponse
                     ? result
                     : EnsureSuccessResponse(result, "PutJson", requestUriString);
             }
         }
 
-        public HttpWebResponse PostUserForm(string relativeUrl, IDictionary<string, object> formFields,
+        public HttpResponseMessage PostUserForm(string relativeUrl, IDictionary<string, object> formFields,
             List<string> excludedInputPrefixes, bool checkUserLoggedIn = true, bool followRedirect = false)
         {
             if (checkUserLoggedIn)
@@ -334,6 +354,7 @@ namespace DNN.Integration.Test.Framework
 
             var clientHandler = new HttpClientHandler
             {
+                ServerCertificateCustomValidationCallback = ServerCertificateValidation.AcceptAny ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator : null,
                 CookieContainer = this._sessionCookiesContainer,
             };
 
@@ -345,6 +366,8 @@ namespace DNN.Integration.Test.Framework
                 Timeout = this.Timeout,
             })
             {
+                // replaces the global ServicePointManager.Expect100Continue = false
+                client.DefaultRequestHeaders.ExpectContinue = false;
                 inputFields = this.GetPageInputFields(client, relativeUrl);
             }
 
@@ -454,7 +477,7 @@ namespace DNN.Integration.Test.Framework
             return null;
         }
 
-        public HttpWebResponse MultipartFormDataPost(string relativeUrl, IDictionary<string, object> postParameters, IDictionary<string, string> headers = null, bool followRedirect = false)
+        public HttpResponseMessage MultipartFormDataPost(string relativeUrl, IDictionary<string, object> postParameters, IDictionary<string, string> headers = null, bool followRedirect = false)
         {
             var url = CombineUrlPath(this.Domain, relativeUrl);
             return this.MultipartFormDataPost(url, this.UserAgentValue, postParameters, headers, followRedirect);
@@ -620,7 +643,7 @@ namespace DNN.Integration.Test.Framework
         {
             var properties = from p in query.GetType().GetProperties()
                              where p.GetValue(query, null) != null
-                             select p.Name + "=" + HttpUtility.UrlEncode(p.GetValue(query, null).ToString());
+                             select p.Name + "=" + WebUtility.UrlEncode(p.GetValue(query, null).ToString());
 
             return string.Join("&", properties.ToArray());
         }
@@ -662,15 +685,24 @@ namespace DNN.Integration.Test.Framework
             }
         }
 
-        private void VerifyLogInCookie(HttpWebResponse httpResponse)
+        private void VerifyLogInCookie(HttpResponseMessage httpResponse)
         {
             var cookie = AppConfigHelper.LoginCookie;
-            var loginCookie = httpResponse.Cookies[cookie];
+            var setCookieHeader = httpResponse.Headers.TryGetValues("Set-Cookie", out var setCookieValues)
+                ? string.Join(",", setCookieValues)
+                : string.Empty;
+
+            // The HttpClientHandler feeds Set-Cookie into the shared session container, so the
+            // login cookie is looked up there first (equivalent to HttpWebResponse.Cookies),
+            // falling back to the raw Set-Cookie header.
+            var loginCookie = (object)this._sessionCookiesContainer.GetCookies(this.Domain)[cookie]
+                ?? (setCookieHeader.Contains(cookie + "=") ? setCookieHeader : null);
+
             if (loginCookie != null)
             {
                 this.IsLoggedIn = true;
-                this.ExtractVerificationCookie(httpResponse.Headers["Set-Cookie"] ?? string.Empty);
-                using (var rs = httpResponse.GetResponseStream())
+                this.ExtractVerificationCookie(setCookieHeader);
+                using (var rs = httpResponse.Content?.ReadAsStreamAsync().Result)
                 {
                     if (rs != null && httpResponse.StatusCode == HttpStatusCode.OK)
                     {
@@ -778,6 +810,7 @@ namespace DNN.Integration.Test.Framework
         {
             using (var clientHandler = new HttpClientHandler
             {
+                ServerCertificateCustomValidationCallback = ServerCertificateValidation.AcceptAny ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator : null,
                 AllowAutoRedirect = false,
             })
             using (var client = new HttpClient(clientHandler))
@@ -785,6 +818,9 @@ namespace DNN.Integration.Test.Framework
                 clientHandler.CookieContainer = this._sessionCookiesContainer;
                 client.BaseAddress = this.Domain;
                 client.Timeout = this.Timeout;
+
+                // replaces the global ServicePointManager.Expect100Continue = false
+                client.DefaultRequestHeaders.ExpectContinue = false;
 
                 var rqHeaders = client.DefaultRequestHeaders;
                 rqHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -828,6 +864,7 @@ namespace DNN.Integration.Test.Framework
         {
             var clientHandler = new HttpClientHandler
             {
+                ServerCertificateCustomValidationCallback = ServerCertificateValidation.AcceptAny ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator : null,
                 AllowAutoRedirect = autoRedirect,
                 CookieContainer = this._sessionCookiesContainer,
             };
@@ -838,6 +875,9 @@ namespace DNN.Integration.Test.Framework
                 BaseAddress = this.Domain,
                 Timeout = this.Timeout,
             };
+
+            // replaces the global ServicePointManager.Expect100Continue = false
+            client.DefaultRequestHeaders.ExpectContinue = false;
 
             if (string.IsNullOrEmpty(this._inputFieldVerificationToken))
             {
@@ -905,7 +945,7 @@ namespace DNN.Integration.Test.Framework
             return cachedPage != null ? cachedPage.InputFields : [];
         }
 
-        private HttpWebResponse MultipartFormDataPost(
+        private HttpResponseMessage MultipartFormDataPost(
             string postUrl, string userAgent, IDictionary<string, object> postParameters, IDictionary<string, string> headers = null, bool followRedirect = false)
         {
             var formDataBoundary = string.Format("----WebKitFormBoundary{0:X16}", DateTime.Now.Ticks);
@@ -914,47 +954,63 @@ namespace DNN.Integration.Test.Framework
             return this.PostForm(postUrl, userAgent, contentType, headers, formData, followRedirect);
         }
 
-        private HttpWebResponse PostForm(string postUrl, string userAgent, string contentType, IDictionary<string, string> headers, byte[] formData, bool followRedirect)
+        private HttpResponseMessage PostForm(string postUrl, string userAgent, string contentType, IDictionary<string, string> headers, byte[] formData, bool followRedirect)
         {
-            var request = WebRequest.Create(postUrl) as HttpWebRequest;
-
-            if (request == null)
+            // The handler and client are intentionally NOT disposed here: the returned
+            // HttpResponseMessage (and its content stream) is read by the caller, exactly as the
+            // legacy HttpWebResponse was. They are released when the response is disposed.
+            var handler = new HttpClientHandler
             {
-                throw new NullReferenceException("request is not a http request");
-            }
+                ServerCertificateCustomValidationCallback = ServerCertificateValidation.AcceptAny ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator : null,
+                AllowAutoRedirect = followRedirect,
+                CookieContainer = this._sessionCookiesContainer,
+            };
 
-            // Set up the request properties.
-            request.Method = "POST";
-            request.ContentType = contentType;
-            request.UserAgent = userAgent;
-            request.CookieContainer = this._sessionCookiesContainer;
-            request.ContentLength = formData.Length;
-            request.Headers.Add(RqVerifTokenNameNoUndescrores, this._inputFieldVerificationToken);
-            if (headers != null)
+            var client = new HttpClient(handler, disposeHandler: true)
             {
-                foreach (var h in headers)
+                Timeout = this.Timeout,
+            };
+
+            try
+            {
+                var request = new HttpRequestMessage(HttpMethod.Post, postUrl);
+
+                var content = new ByteArrayContent(formData);
+                content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
+                content.Headers.ContentLength = formData.Length;
+                request.Content = content;
+
+                var rqHeaders = request.Headers;
+                rqHeaders.UserAgent.ParseAdd(userAgent);
+                rqHeaders.Add(RqVerifTokenNameNoUndescrores, this._inputFieldVerificationToken ?? string.Empty);
+                if (headers != null)
                 {
-                    request.Headers.Add(h.Key, h.Value);
+                    foreach (var h in headers)
+                    {
+                        rqHeaders.Add(h.Key, h.Value);
+                    }
                 }
+
+                rqHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                rqHeaders.ConnectionClose = false; // was KeepAlive = true
+                rqHeaders.ExpectContinue = false;
+
+                // replaces RequestCachePolicy(RequestCacheLevel.NoCacheNoStore)
+                rqHeaders.CacheControl = new CacheControlHeaderValue
+                {
+                    NoCache = true,
+                    NoStore = true,
+                };
+
+                // You could add authentication here as well if needed:
+                // rqHeaders.Authorization = new AuthenticationHeaderValue("Basic",
+                //     Convert.ToBase64String(Encoding.UTF8.GetBytes("username" + ":" + "password")));
+                return client.SendAsync(request).Result;
             }
-
-            request.Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
-            request.KeepAlive = true;
-            request.ReadWriteTimeout = 90;
-            request.AllowAutoRedirect = followRedirect;
-            request.CachePolicy = new RequestCachePolicy(RequestCacheLevel.NoCacheNoStore);
-
-            // You could add authentication here as well if needed:
-            // request.PreAuthenticate = true;
-            // request.AuthenticationLevel = System.Net.Security.AuthenticationLevel.MutualAuthRequested;
-            // request.Headers.Add("Authorization", "Basic " +
-            //     Convert.ToBase64String(System.Text.Encoding.Default.GetBytes("username" + ":" + "password")));
-
-            // Send the form data to the request.
-            using (var requestStream = request.GetRequestStream())
+            catch
             {
-                requestStream.Write(formData, 0, formData.Length);
-                return request.GetResponse() as HttpWebResponse;
+                client.Dispose();
+                throw;
             }
         }
     }

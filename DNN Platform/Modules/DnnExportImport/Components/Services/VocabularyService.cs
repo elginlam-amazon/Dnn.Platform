@@ -8,6 +8,7 @@ namespace Dnn.ExportImport.Components.Services
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
+    using System.Text;
 
     using Dnn.ExportImport.Components.Common;
     using Dnn.ExportImport.Components.Dto;
@@ -22,6 +23,8 @@ namespace Dnn.ExportImport.Components.Services
     /// <summary>An export service for vocabularies.</summary>
     public class VocabularyService : BasePortableService
     {
+        private static readonly CompositeFormat TermCacheKeyFormat = CompositeFormat.Parse(DataCache.TermCacheKey);
+
         /// <inheritdoc />
         public override string Category => Constants.Category_Vocabularies;
 
@@ -291,7 +294,7 @@ namespace Dnn.ExportImport.Components.Services
                                 dataService.UpdateSimpleTerm(term, modifiedBy);
                             }
 
-                            DataCache.ClearCache(string.Format(CultureInfo.InvariantCulture, DataCache.TermCacheKey, term.TermId));
+                            DataCache.ClearCache(string.Format(CultureInfo.InvariantCulture, TermCacheKeyFormat, term.TermId));
                             this.Result.AddLogEntry("Updated taxonomy", other.Name);
                             break;
                         default:

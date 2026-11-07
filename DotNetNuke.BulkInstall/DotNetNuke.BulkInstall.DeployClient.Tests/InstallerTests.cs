@@ -153,7 +153,7 @@ public class InstallerTests
             null);
         var installer = CreateInstaller(handler);
 
-        var result = installer.UploadPackage(options, sessionId, new MemoryStream("XYZ"u8.ToArray()), @"modules\Jamestown_install_5.5.7.zip");
+        var result = installer.UploadPackage(options, sessionId, new MemoryStream("XYZ"u8.ToArray()), Path.Combine("modules", "Jamestown_install_5.5.7.zip"));
         await result.UploadTask;
 
         var formContent = handler.Request.ShouldNotBeNull().Content.ShouldBeOfType<MultipartFormDataContent>();
@@ -404,13 +404,18 @@ public class InstallerTests
 
         var buffer = new byte[500_000];
 
+        // The upload task starts inside UploadPackage, before the caller can subscribe to OnProgress.
+        // Gate the first read of the package stream so no progress is reported until the handler is attached,
+        // which makes the assertions below deterministic instead of racing the upload.
+        var subscribed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var upload = installer.UploadPackage(
             options,
             sessionId,
-            new MemoryStream(buffer),
+            new GatedStream(new MemoryStream(buffer), subscribed.Task),
             "Jamestown_install_5.5.7.zip");
 
         upload.OnProgress += (_, progress) => { progressResults.Add(progress); };
+        subscribed.SetResult();
         await upload.UploadTask;
 
         progressResults.Last().ShouldBe(1);
@@ -457,6 +462,79 @@ public class InstallerTests
             new HttpClient(untrustedCertificateMessageHandler),
             stopwatch ?? new TestStopwatch(),
             logger ?? new TestLogger());
+    }
+
+    /// <summary>A stream that delays its first read until <paramref name="gate"/> completes, so a caller can attach progress handlers first.</summary>
+    /// <param name="inner">The stream to read from.</param>
+    /// <param name="gate">The task that must complete before the first read is served.</param>
+    private sealed class GatedStream(Stream inner, Task gate) : Stream
+    {
+        private bool opened;
+
+        public override bool CanRead => inner.CanRead;
+
+        public override bool CanSeek => inner.CanSeek;
+
+        public override bool CanWrite => false;
+
+        public override long Length => inner.Length;
+
+        public override long Position
+        {
+            get => inner.Position;
+            set => inner.Position = value;
+        }
+
+        public override void Flush() => inner.Flush();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            this.WaitForGate();
+            return inner.Read(buffer, offset, count);
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (!this.opened)
+            {
+                this.opened = true;
+                await gate.ConfigureAwait(false);
+            }
+
+            return await inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            return await this.ReadAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        private void WaitForGate()
+        {
+            if (this.opened)
+            {
+                return;
+            }
+
+            this.opened = true;
+            gate.GetAwaiter().GetResult();
+        }
     }
 
     private class ThrowingMessageHandler(Exception exception) : HttpMessageHandler

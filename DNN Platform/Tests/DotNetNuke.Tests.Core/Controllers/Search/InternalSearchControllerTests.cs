@@ -69,7 +69,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
         private const int LanguageIdItIt = 3;
         private const int LanguageIdEsEs = 4;
 
-        private const string SearchIndexFolder = @"App_Data\InternalSearchTests";
+        private static readonly string SearchIndexFolder = Path.Combine("App_Data", "InternalSearchTests");
         private readonly double readerStaleTimeSpan = TimeSpan.FromMilliseconds(100).TotalSeconds;
         private FakeHostController fakeHostController;
         private Mock<CachingProvider> mockCachingProvider;

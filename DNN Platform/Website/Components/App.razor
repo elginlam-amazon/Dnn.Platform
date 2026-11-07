@@ -1,0 +1,59 @@
+@* The DNN host document. The portal skin (a LayoutComponentBase, e.g. ApertureLayout) renders
+   the page body; this component only owns the <html> document and the Blazor script. *@
+@using Microsoft.AspNetCore.Components.Endpoints
+@using Microsoft.AspNetCore.Http
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <HeadOutlet @rendermode="RenderModeForPage" />
+</head>
+<body>
+    <Routes @rendermode="RenderModeForPage" />
+
+    @* The keyed client script blocks, start-up scripts, script includes and hidden fields the DNN
+       Client API registered on this request's IClientApiPage. The WebForms page emitted these at
+       the end of its form (ForceProvider="DnnFormBottomProvider"), which is this position. It is
+       rendered after <Routes /> so that everything the page and its modules registered while they
+       rendered is included. *@
+    <ClientApiScripts />
+
+    @* The default theme's script. Blazor does not execute <script> elements rendered from inside a
+       component, so the theme's script tag belongs to this document (end of <body>, which is where
+       the legacy skin put it). *@
+    <script src="@Dnn.Skins.Aperture.ApertureThemeAssets.ScriptHref" defer></script>
+
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>
+
+@code {
+#nullable enable // the project does not enable nullable reference types, and the ?-annotated
+                 // render-mode property below would otherwise be CS8669 (an annotation outside a
+                 // #nullable context). Returning null is what makes [ExcludeFromInteractiveRouting]
+                 // effective, so the annotation is required, not cosmetic.
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    /// <summary>
+    /// Gets the render mode of the page being served: interactive server rendering for every DNN
+    /// page, and static server side rendering for the few components that opt out with
+    /// <c>[ExcludeFromInteractiveRouting]</c>.
+    /// </summary>
+    /// <remarks>
+    /// DNN is an interactive Blazor Server application, so this is <c>InteractiveServer</c> for
+    /// everything by default - no existing page changes behaviour. The opt-out exists because a
+    /// handful of migrated pages are NOT interactive UI at all but server side request handlers
+    /// that must read the live request and write a redirect or a start-up script to the response:
+    /// the Google Mail SMTP OAuth callback
+    /// (<c>Dnn.GoogleMailAuthProvider.Authorize</c>, the URL registered with Google) is one. In an
+    /// interactive circuit <c>HttpContext</c> is null and the response has already been sent, so
+    /// those pages have to render statically. Returning <see langword="null"/> here is what makes
+    /// <c>[ExcludeFromInteractiveRouting]</c> effective; without this seam the attribute is
+    /// silently ignored and the page is rendered interactively anyway.
+    /// </remarks>
+    private IComponentRenderMode? RenderModeForPage =>
+        this.HttpContext.AcceptsInteractiveRouting() ? InteractiveServer : null;
+}

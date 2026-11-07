@@ -29,8 +29,10 @@ public class ResourceFileException : Exception
     }
 
     /// <inheritdoc />
+#pragma warning disable SYSLIB0051 // Formatter-based serialization is obsolete; ctor retained for public surface compatibility.
     protected ResourceFileException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
     }
+#pragma warning restore SYSLIB0051
 }

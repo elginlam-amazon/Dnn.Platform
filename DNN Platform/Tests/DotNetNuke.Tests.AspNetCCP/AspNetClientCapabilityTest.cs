@@ -6,8 +6,6 @@ namespace DotNetNuke.Tests.AspNetClientCapabilityProviderTest
 {
     using System;
     using System.IO;
-    using System.Web;
-    using System.Web.Configuration;
 
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Providers.AspNetClientCapabilityProvider;
@@ -108,10 +106,12 @@ namespace DotNetNuke.Tests.AspNetClientCapabilityProviderTest
         [Test]
         public void AspNetClientCapability_IsMobile_Returns_True_For_SamsungGalaxyGTP1000()
         {
-            // var simulator = new Instance.Utilities.HttpSimulator.HttpSimulator("/", string.Empty);
-            // simulator.SetHeader("user-agent", samsungGalaxyTablet);
-            // simulator.SimulateRequest();
-            // var capabilities = new HttpCapabilitiesDefaultProvider().GetBrowserCapabilities(HttpContext.Current.Request);
+            // To exercise the same detection through a real request instead of a bare user agent,
+            // arrange an HTTP context double and go through the request-based seam:
+            // var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+            // context.Request.Headers.UserAgent = samsungGalaxyTablet;
+            // var capabilities = AspNetClientCapabilityProvider.GetBrowserCapabilities(
+            //     context.Request.Headers, context.Request.Headers.UserAgent.ToString());
 
             // Arrange
             var clientCapability = this._clientCapabilityProvider.GetClientCapability(samsungGalaxyTablet);

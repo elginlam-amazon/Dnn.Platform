@@ -10,8 +10,8 @@
         <url>https://dnncommunity.org</url>
         <email>info@dnncommunity.org</email>
       </owner>
-      <license src="License.txt"></license>
-      <releaseNotes src="ReleaseNotes.txt"></releaseNotes>
+      <license src="license.txt"></license>
+      <releaseNotes src="releaseNotes.txt"></releaseNotes>
       <azureCompatible>true</azureCompatible>
       <dependencies>
         <dependency type="CoreVersion">07.00.00</dependency>
@@ -30,7 +30,7 @@
                 <moduleControls>
                   <moduleControl>
                     <controlKey/>
-                    <controlSrc>DesktopModules/MemberDirectory/View.ascx</controlSrc>
+                    <controlSrc>DesktopModules/MemberDirectory/View.razor</controlSrc>
                     <supportsPopUps>True</supportsPopUps>
                     <supportsPartialRendering>True</supportsPartialRendering>
                     <controlTitle>Social Messaging View</controlTitle>
@@ -41,7 +41,7 @@
                   </moduleControl>
                   <moduleControl>
                     <controlKey>Settings</controlKey>
-                    <controlSrc>DesktopModules/MemberDirectory/Settings.ascx</controlSrc>
+                    <controlSrc>DesktopModules/MemberDirectory/Settings.razor</controlSrc>
                     <supportsPopUps>True</supportsPopUps>
                     <supportsPartialRendering>True</supportsPartialRendering>
                     <controlTitle>Settings</controlTitle>
@@ -75,13 +75,16 @@
         <component type="File">
           <files>
             <basePath>DesktopModules\MemberDirectory</basePath>
+            <!-- View.ascx / Settings.ascx are no longer shipped as files: they are Blazor
+                 components compiled into DotNetNuke.Modules.MemberDirectory.dll. The JS interop
+                 modules that replaced their inline <script> blocks are shipped instead. -->
             <file>
-              <name>View.ascx</name>
-              <sourceFileName>View.ascx</sourceFileName>
+              <name>memberDirectoryInterop.js</name>
+              <sourceFileName>Scripts\memberDirectoryInterop.js</sourceFileName>
             </file>
             <file>
-              <name>Settings.ascx</name>
-              <sourceFileName>Settings.ascx</sourceFileName>
+              <name>memberDirectorySettingsInterop.js</name>
+              <sourceFileName>Scripts\memberDirectorySettingsInterop.js</sourceFileName>
             </file>
           </files>
         </component>

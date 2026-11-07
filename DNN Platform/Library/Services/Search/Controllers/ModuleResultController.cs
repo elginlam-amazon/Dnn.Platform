@@ -9,7 +9,6 @@ namespace DotNetNuke.Services.Search.Controllers
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Modules;
@@ -24,12 +23,11 @@ namespace DotNetNuke.Services.Search.Controllers
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Security;
     using DotNetNuke.Security.Permissions;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Search.Entities;
-
+    using Localization = DotNetNuke.Services.Localization.Localization;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
-
-    using Localization = DotNetNuke.Services.Localization.Localization;
 
     /// <summary>Search Result Controller for Module Crawler.</summary>
     [Serializable]

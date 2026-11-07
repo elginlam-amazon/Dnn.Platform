@@ -6,8 +6,6 @@ namespace DotNetNuke.Tests.AspNetClientCapabilityProvider
 {
     using System;
     using System.IO;
-    using System.Linq;
-    using System.Web.Hosting;
 
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Providers.AspNetClientCapabilityProvider;
@@ -32,7 +30,9 @@ namespace DotNetNuke.Tests.AspNetClientCapabilityProvider
             MockComponentProvider.CreateEventLogController();
 
             // create the bin folder
-            var folderPath = HostingEnvironment.ApplicationPhysicalPath + "bin";
+            // On net48 this was rooted at HostingEnvironment.ApplicationPhysicalPath, which does
+            // not exist on modern .NET; the test host's own directory is the equivalent root.
+            var folderPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "bin");
             if (!Directory.Exists(folderPath))
             {
                 Directory.CreateDirectory(folderPath);
@@ -58,6 +58,20 @@ namespace DotNetNuke.Tests.AspNetClientCapabilityProvider
             // Act
             string nullClientCapabilityId = null;
             Assert.Throws<ArgumentException>(() => this._clientCapabilityProvider.GetClientCapabilityById(nullClientCapabilityId));
+        }
+
+        [Test]
+        public void AspNetClientCapabilityProvider_GetClientCapabilityById_ThrowsException_For_NonEmpty_ClientCapabilityId()
+        {
+            // Arrange
+            // Looking a device up by its identifier is deliberately not supported by this
+            // provider: it detects the device of the current request from its user agent and has
+            // no device database to query. A non-empty id gets past the argument guard and must
+            // reach that preserved "not supported" contract.
+            const string deviceId = "some-device";
+
+            // Act, Assert
+            Assert.Throws<InvalidOperationException>(() => this._clientCapabilityProvider.GetClientCapabilityById(deviceId));
         }
     }
 }

@@ -1,0 +1,22 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* Replaces paypalsubscription.aspx. The route is the LITERAL legacy URL, case for case: it is
+   configured externally (it is the URL a portal's subscription/cancellation links point at), so it
+   cannot be renamed. Blazor route matching is case insensitive, so every casing that resolved
+   before resolves now.
+
+   The page had no markup at all - paypalsubscription.aspx was a single @@ Page directive and the
+   code behind always ended in Response.Redirect - so this component renders nothing in the normal
+   flow. The whole of OnLoad lives in PayPalSubscription.razor.cs and finishes by navigating to the
+   built PayPal URL. The paragraph below is only reachable when the redirect itself failed (the
+   catch path of the original), which previously produced DNN's error page. *@
+
+@page "/admin/Sales/paypalsubscription.aspx"
+@namespace DotNetNuke.Modules.Admin.Sales
+
+@if (!string.IsNullOrEmpty(this.RedirectFailureMessage))
+{
+    <p class="NormalRed">@this.RedirectFailureMessage</p>
+}

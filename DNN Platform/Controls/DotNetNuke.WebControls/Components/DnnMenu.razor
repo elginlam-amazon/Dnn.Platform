@@ -1,0 +1,518 @@
+@* ---------------------------------------------------------------------------------------------
+    DnnMenu — the Blazor replacement of the DotNetNuke.UI.WebControls.DNNMenu server control.
+
+    Render mode: InteractiveServer. The menu handles @onclick, @onmouseover and @onmouseout, keeps
+    the open sub-menu state on the server and performs JS interop through DnnControlBase.
+
+    Ported from DNNMenu.cs: the state-bag/ClientProperty surface became [Parameter]s with the same
+    defaults, the MenuRenderMode variants are honoured below (Normal / NoTables / UnorderedList all
+    render the nested list markup of MenuNodeListWriter, DownLevel renders through the retained
+    DNNMenuWriter / MenuNodeWriter pair), Orientation and SubMenuOrientation drive the layout, the
+    DNNAnimation settings drive the sub-menu transition and the "Click" / "Checked" / "OnDemand"
+    branches of RaisePostBackEvent became the handlers raising DNNMenuNodeClickEventArgs /
+    DNNMenuEventArgs.
+
+    HttpContext is null over the circuit; the crawler / down-level decision comes from the
+    RenderMode and DownLevel parameters only.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+@inherits DnnControlBase
+@rendermode InteractiveServer
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+@if (this.UseWriterFallback)
+{
+    @((MarkupString)this.RenderDownLevel())
+}
+else
+{
+    <div class="@this.MenuBarClass" @ref="this.RootElementBinding">
+        <ul id="@this.ClientId" class="@this.CssClass" style="@this.RootListStyle">
+            @foreach (MenuNode node in this.Nodes)
+            {
+                <MenuNodeFragment Menu="this" Node="node" />
+            }
+        </ul>
+    </div>
+}
+
+@code {
+    private readonly HashSet<string> openNodes = new HashSet<string>(StringComparer.Ordinal);
+    private DNNMenu control;
+    private CancellationTokenSource hoverCancellation;
+
+    /// <summary>Gets or sets the nodes of the menu.</summary>
+    [Parameter]
+    public MenuNodeCollection MenuNodes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the legacy control used as the model of the menu.
+    /// </summary>
+    /// <remarks>
+    /// Hosts that already build a <see cref="DNNMenu"/> can hand it over; its nodes and styling are
+    /// then used and it is the object the retained HTML writers render in
+    /// <see cref="DNNMenu.MenuRenderMode.DownLevel"/>. When it is not supplied the component creates
+    /// one so that every <see cref="MenuNode"/> has an owning menu, as the WebForms control guaranteed.
+    /// </remarks>
+    [Parameter]
+    public DNNMenu Control { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the plain HTML fallback is forced.</summary>
+    [Parameter]
+    public bool DownLevel { get; set; }
+
+    /// <summary>Gets or sets how the menu renders itself.</summary>
+    [Parameter]
+    public DNNMenu.MenuRenderMode RenderMode { get; set; } = DNNMenu.MenuRenderMode.Normal;
+
+    /// <summary>Gets or sets the orientation of the menu bar.</summary>
+    [Parameter]
+    public Orientation Orientation { get; set; } = Orientation.Horizontal;
+
+    /// <summary>Gets or sets the orientation of the sub-menus.</summary>
+    [Parameter]
+    public Orientation SubMenuOrientation { get; set; } = Orientation.Vertical;
+
+    /// <summary>Gets or sets the CSS class of a root node.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class of a child node.</summary>
+    [Parameter]
+    public string DefaultChildNodeCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class applied while the pointer is over a node.</summary>
+    [Parameter]
+    public string DefaultNodeCssClassOver { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class applied to the selected node.</summary>
+    [Parameter]
+    public string DefaultNodeCssClassSelected { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class applied to the icon of a node.</summary>
+    [Parameter]
+    public string DefaultIconCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class of the menu bar.</summary>
+    [Parameter]
+    public string MenuBarCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class of an open menu.</summary>
+    [Parameter]
+    public string MenuCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the sub-menu arrow of a root node.</summary>
+    [Parameter]
+    public string RootArrowImage { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the sub-menu arrow of a child node.</summary>
+    [Parameter]
+    public string ChildArrowImage { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the images the nodes pick their icon from.</summary>
+    [Parameter]
+    public NodeImageCollection ImageList { get; set; }
+
+    /// <summary>Gets or sets the frame navigated when a node navigates.</summary>
+    [Parameter]
+    public string Target { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the delay, in milliseconds, before a sub-menu shows.</summary>
+    [Parameter]
+    public int MouseInDelay { get; set; } = 250;
+
+    /// <summary>Gets or sets the delay, in milliseconds, before a sub-menu hides.</summary>
+    [Parameter]
+    public int MouseOutDelay { get; set; } = 500;
+
+    /// <summary>Gets or sets a value indicating whether children are fetched on demand.</summary>
+    [Parameter]
+    public bool PopulateNodesFromClient { get; set; } = true;
+
+    /// <summary>Gets or sets the animation applied to showing and hiding the sub-menus.</summary>
+    [Parameter]
+    public DNNAnimation Animation { get; set; }
+
+    /// <summary>Occurs when a node of the menu is clicked.</summary>
+    /// <remarks>Replaces the <c>NodeClick</c> event raised from <c>RaisePostBackEvent</c>.</remarks>
+    [Parameter]
+    public EventCallback<DNNMenuNodeClickEventArgs> OnMenuClick { get; set; }
+
+    /// <summary>Occurs when the children of a node have to be supplied.</summary>
+    [Parameter]
+    public EventCallback<DNNMenuEventArgs> OnPopulateOnDemand { get; set; }
+
+    /// <summary>Gets the nodes rendered by the menu.</summary>
+    internal MenuNodeCollection Nodes => this.MenuNodes ?? this.Model.MenuNodes;
+
+    /// <summary>Gets the model carrying the styling and the node ownership.</summary>
+    internal DNNMenu Model => this.Control ?? this.control;
+
+    /// <summary>Gets the images the nodes pick their icon from.</summary>
+    internal NodeImageCollection Images => this.ImageList ?? this.Model.ImageList;
+
+    /// <summary>Gets the animation applied to the sub-menus.</summary>
+    internal DNNAnimation EffectiveAnimation => this.Animation ?? this.Model.Animation;
+
+    /// <summary>Gets a value indicating whether the retained HTML writers render the menu.</summary>
+    /// <remarks>
+    /// The writers emit Client API post-back hyperlinks, which need the page of the model control,
+    /// so the fallback is only taken when a page bound <see cref="Control"/> was supplied.
+    /// </remarks>
+    internal bool UseWriterFallback =>
+        (this.DownLevel || this.RenderMode == DNNMenu.MenuRenderMode.DownLevel)
+        && this.Control is not null
+        && this.Control.Page is not null;
+
+    /// <summary>Gets the duration, in milliseconds, of the sub-menu animation.</summary>
+    /// <remarks>
+    /// The client script derived the duration of the <c>dnn.motion</c> animation from
+    /// <see cref="DNNAnimation.Length"/> and <see cref="DNNAnimation.Interval"/>; the same product is
+    /// used here as the duration of the CSS transition that replaces it.
+    /// </remarks>
+    internal int AnimationDuration
+    {
+        get
+        {
+            var animation = this.EffectiveAnimation;
+            return animation is null
+                || animation.AnimationType == DotNetNuke.UI.Utilities.Animation.AnimationType.None
+                ? 0
+                : animation.Length * animation.Interval;
+        }
+    }
+
+    /// <summary>Gets the CSS class of the menu bar container.</summary>
+    private string MenuBarClass
+    {
+        get
+        {
+            var cssClass = "DNNMenu";
+            var selected = this.Nodes is null ? 0 : this.Nodes.FindSelectedNodes().Count;
+            if (selected == 0)
+            {
+                if (!string.IsNullOrEmpty(this.MenuBarCssClass))
+                {
+                    cssClass += " " + this.MenuBarCssClass;
+                }
+            }
+            else if (!string.IsNullOrEmpty(this.MenuCssClass))
+            {
+                cssClass += " " + this.MenuCssClass;
+            }
+
+            return cssClass;
+        }
+    }
+
+    /// <summary>Gets the layout of the root list, which follows <see cref="Orientation"/>.</summary>
+    private string RootListStyle => this.Orientation == Orientation.Horizontal
+        ? "display:flex;flex-direction:row;list-style:none;margin:0;padding:0"
+        : "display:flex;flex-direction:column;list-style:none;margin:0;padding:0";
+
+    /// <summary>Gets or sets the root element, exposing the protected base member to the markup.</summary>
+    private ElementReference RootElementBinding
+    {
+        get => this.RootElement;
+        set => this.RootElement = value;
+    }
+
+    /// <inheritdoc/>
+    protected override string ClientInitFunction => "initMenu";
+
+    /// <inheritdoc/>
+    protected override object ClientPropertySource => this.Model;
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        this.hoverCancellation?.Cancel();
+        this.hoverCancellation?.Dispose();
+        this.hoverCancellation = null;
+    }
+
+    /// <summary>Gets the layout of a sub-menu, which follows <see cref="SubMenuOrientation"/>.</summary>
+    /// <param name="isOpen">Whether the sub-menu is open.</param>
+    /// <returns>The inline style of the sub-menu list.</returns>
+    internal string GetSubMenuStyle(bool isOpen)
+    {
+        var direction = this.SubMenuOrientation == Orientation.Horizontal ? "row" : "column";
+        var style = "display:" + (isOpen ? "flex" : "none")
+            + ";flex-direction:" + direction
+            + ";list-style:none;margin:0;padding:0;position:absolute;z-index:1000";
+
+        var duration = this.AnimationDuration;
+        if (duration > 0)
+        {
+            // Replaces the dnn.motion animation the client script applied to the sub-menu.
+            style += ";transition:opacity " + duration.ToString(CultureInfo.InvariantCulture) + "ms"
+                + ";opacity:" + (isOpen ? "1" : "0");
+        }
+
+        return style;
+    }
+
+    /// <summary>Determines whether the sub-menu of the given node is open.</summary>
+    /// <param name="node">The node to inspect.</param>
+    /// <returns><see langword="true"/> when the sub-menu shows.</returns>
+    internal bool IsOpen(MenuNode node)
+    {
+        return node is not null && (this.openNodes.Contains(node.ID) || node.Selected);
+    }
+
+    /// <summary>Gets the CSS class the given node renders with.</summary>
+    /// <param name="node">The node to inspect.</param>
+    /// <returns>The CSS class of the node.</returns>
+    /// <remarks>Ported from <c>MenuNodeWriter.GetNodeCss</c>.</remarks>
+    internal string GetNodeCss(MenuNode node)
+    {
+        var cssClass = this.CssClass;
+        if (node.Level > 0)
+        {
+            cssClass = this.DefaultChildNodeCssClass;
+        }
+
+        if (!string.IsNullOrEmpty(node.CSSClass))
+        {
+            cssClass = node.CSSClass;
+        }
+
+        if (node.Selected)
+        {
+            cssClass = string.IsNullOrEmpty(node.CSSClassSelected)
+                ? cssClass + " " + this.DefaultNodeCssClassSelected
+                : cssClass + " " + node.CSSClassSelected;
+        }
+
+        return cssClass;
+    }
+
+    /// <summary>Gets the CSS class of the icon of the given node.</summary>
+    /// <param name="node">The node to inspect.</param>
+    /// <returns>The CSS class of the icon.</returns>
+    internal string GetIconCss(MenuNode node)
+    {
+        return !string.IsNullOrEmpty(node.CSSIcon) ? node.CSSIcon : this.DefaultIconCssClass;
+    }
+
+    /// <summary>Gets the icon of the given node.</summary>
+    /// <param name="node">The node to inspect.</param>
+    /// <returns>The URL of the icon, or an empty string.</returns>
+    internal string GetNodeImageUrl(MenuNode node)
+    {
+        if (!string.IsNullOrEmpty(node.Image))
+        {
+            return node.Image;
+        }
+
+        var images = this.Images;
+        if (node.ImageIndex <= -1 || images is null || images.Count <= node.ImageIndex)
+        {
+            return string.Empty;
+        }
+
+        var image = images[node.ImageIndex];
+        return image is null ? string.Empty : image.ImageUrl;
+    }
+
+    /// <summary>Gets the sub-menu arrow of the given node.</summary>
+    /// <param name="node">The node to inspect.</param>
+    /// <returns>The URL of the arrow, or an empty string.</returns>
+    /// <remarks>Ported from <c>MenuNodeListWriter.RenderNodeArrow</c>.</remarks>
+    internal string GetArrowImageUrl(MenuNode node)
+    {
+        if (!node.HasNodes && node.DNNNodes.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return node.Level == 0 ? this.RootArrowImage : this.ChildArrowImage;
+    }
+
+    /// <summary>
+    /// Handles a node being clicked, as the <c>Click</c> branch of <c>DNNMenu.RaisePostBackEvent</c>
+    /// and <see cref="MenuNode.Click"/> did.
+    /// </summary>
+    /// <param name="node">The node that was clicked.</param>
+    /// <returns>A task that completes once the handlers have run.</returns>
+    internal async Task NodeClickAsync(MenuNode node)
+    {
+        if (node is null)
+        {
+            return;
+        }
+
+        // MenuNode.Click toggled the selection and, down-level, deselected the siblings.
+        node.Selected = !node.Selected;
+        foreach (MenuNode selected in this.Nodes.FindSelectedNodes())
+        {
+            if (selected.Level >= node.Level && selected.ID != node.ID)
+            {
+                selected.Selected = false;
+            }
+        }
+
+        if (node.HasNodes || node.DNNNodes.Count > 0)
+        {
+            this.SetOpen(node, !this.openNodes.Contains(node.ID));
+            if (node.DNNNodes.Count == 0 && this.PopulateNodesFromClient)
+            {
+                await this.OnPopulateOnDemand.InvokeAsync(new DNNMenuEventArgs(node));
+            }
+        }
+
+        await this.OnMenuClick.InvokeAsync(new DNNMenuNodeClickEventArgs(node));
+
+        if (node.Enabled
+            && node.ClickAction == eClickAction.Navigate
+            && !string.IsNullOrEmpty(node.NavigateURL))
+        {
+            this.NavigationManager.NavigateTo(node.NavigateURL);
+        }
+    }
+
+    /// <summary>Opens the sub-menu of a node after <see cref="MouseInDelay"/>.</summary>
+    /// <param name="node">The node the pointer entered.</param>
+    /// <returns>A task that completes once the sub-menu has opened.</returns>
+    internal Task NodeMouseOverAsync(MenuNode node)
+    {
+        return this.ScheduleHoverAsync(node, true, this.MouseInDelay);
+    }
+
+    /// <summary>Closes the sub-menu of a node after <see cref="MouseOutDelay"/>.</summary>
+    /// <param name="node">The node the pointer left.</param>
+    /// <returns>A task that completes once the sub-menu has closed.</returns>
+    internal Task NodeMouseOutAsync(MenuNode node)
+    {
+        return this.ScheduleHoverAsync(node, false, this.MouseOutDelay);
+    }
+
+    /// <inheritdoc/>
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        // The nodes reach their styling through MenuNode.DNNMenu, so a model always has to exist.
+        this.control = new DNNMenu { ForceDownLevel = true };
+        this.ApplyParametersToModel();
+    }
+
+    /// <inheritdoc/>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        this.ApplyParametersToModel();
+    }
+
+    /// <inheritdoc/>
+    protected override Hashtable GetClientProperties()
+    {
+        // The original marshalled the animation settings alongside the menu's own properties.
+        var properties = base.GetClientProperties();
+        var animation = this.EffectiveAnimation;
+        if (animation is not null)
+        {
+            ScriptGenerator.GetMarshalledProperties(animation, properties);
+        }
+
+        return properties;
+    }
+
+    /// <summary>Records the open state of a node's sub-menu.</summary>
+    /// <param name="node">The node to change.</param>
+    /// <param name="isOpen">The state to apply.</param>
+    private void SetOpen(MenuNode node, bool isOpen)
+    {
+        if (isOpen)
+        {
+            this.openNodes.Add(node.ID);
+        }
+        else
+        {
+            this.openNodes.Remove(node.ID);
+        }
+    }
+
+    /// <summary>Applies an open state change after the configured delay.</summary>
+    /// <param name="node">The node to change.</param>
+    /// <param name="isOpen">The state to apply.</param>
+    /// <param name="delay">The delay, in milliseconds, to wait first.</param>
+    /// <returns>A task that completes once the state has been applied.</returns>
+    private async Task ScheduleHoverAsync(MenuNode node, bool isOpen, int delay)
+    {
+        if (node is null || (!node.HasNodes && node.DNNNodes.Count == 0))
+        {
+            return;
+        }
+
+        this.hoverCancellation?.Cancel();
+        this.hoverCancellation?.Dispose();
+        var cancellation = new CancellationTokenSource();
+        this.hoverCancellation = cancellation;
+
+        try
+        {
+            if (delay > 0)
+            {
+                await Task.Delay(delay, cancellation.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        this.SetOpen(node, isOpen);
+        this.StateHasChanged();
+    }
+
+    /// <summary>Copies the parameters of the component onto the model object.</summary>
+    private void ApplyParametersToModel()
+    {
+        var model = this.Model;
+        if (model is null)
+        {
+            return;
+        }
+
+        model.RenderMode = this.RenderMode;
+        model.Orientation = this.Orientation;
+        model.SubMenuOrientation = this.SubMenuOrientation;
+        model.CssClass = this.CssClass;
+        model.DefaultChildNodeCssClass = this.DefaultChildNodeCssClass;
+        model.DefaultNodeCssClassOver = this.DefaultNodeCssClassOver;
+        model.DefaultNodeCssClassSelected = this.DefaultNodeCssClassSelected;
+        model.DefaultIconCssClass = this.DefaultIconCssClass;
+        model.MenuBarCssClass = this.MenuBarCssClass;
+        model.MenuCssClass = this.MenuCssClass;
+        model.RootArrowImage = this.RootArrowImage;
+        model.ChildArrowImage = this.ChildArrowImage;
+        model.Target = this.Target;
+        model.MouseInDelay = this.MouseInDelay;
+        model.MouseOutDelay = this.MouseOutDelay;
+        model.PopulateNodesFromClient = this.PopulateNodesFromClient;
+    }
+
+    /// <summary>
+    /// Renders the menu through the retained HTML writers.
+    /// </summary>
+    /// <returns>The plain HTML markup of the menu.</returns>
+    /// <remarks>
+    /// This is the server rendered fallback the checklist keeps <see cref="DNNMenuWriter"/>,
+    /// <see cref="DNNMenuListWriter"/>, <see cref="DNNMenuUpLevelWriter"/>, <c>MenuNodeWriter</c> and
+    /// <c>MenuNodeListWriter</c> for: the model control picks the writer that matches its render mode
+    /// and walks the nodes through <see cref="MenuNode.Render(TextWriter)"/>.
+    /// </remarks>
+    private string RenderDownLevel()
+    {
+        var builder = new StringBuilder();
+        using (var writer = new StringWriter(builder, CultureInfo.InvariantCulture))
+        {
+            this.Control.RenderMode = DNNMenu.MenuRenderMode.DownLevel;
+            this.Control.RenderControl(writer);
+        }
+
+        return builder.ToString();
+    }
+}

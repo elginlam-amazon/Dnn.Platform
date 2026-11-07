@@ -1,0 +1,245 @@
+@* Ported from DnnCssInclude.ascx / DnnCssInclude.ascx.cs / DnnCssInclude.ascx.designer.cs — the
+   dnn:DnnCssInclude skin object.
+
+   The .ascx wrapped <dnn:DnnCssInclude runat="server"> from DotNetNuke.Web.Client and the
+   code-behind only forwarded properties to it. That control is a Tag Helper now
+   (DnnCssIncludeTagHelper) and @addTagHelper is INVALID in a Razor component document (RZ9978), so
+   this component performs the same registration directly through IClientResourceController.
+
+   *** ORDERING CONTRACT *** the Tag Helper constructor defaults are reproduced exactly:
+     * Priority      = (int)DotNetNuke.Web.Client.FileOrder.Css.DefaultPriority            == 100
+     * ForceProvider = ClientResourceProviders.DefaultCssProvider     == "DnnPageHeaderProvider"
+   One registration per instance, performed in OnLoad, so the registration SEQUENCE is the skin's
+   markup order and same-priority stylesheets keep their relative order — which is behaviour,
+   because a later stylesheet overrides an earlier one.
+
+   The font-extension branch of the Tag Helper (.eot/.woff/.woff2/.ttf/.svg/.otf register as a FONT
+   resource, everything else as a STYLESHEET with its media/preload) is preserved verbatim, as is
+   the CDF debug comment, emitted at this control's position in the markup.
+*@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.ClientResources
+@using DotNetNuke.Common
+@using DotNetNuke.Web.Client
+@using DotNetNuke.Web.Client.Cdf
+@using DotNetNuke.Web.Client.ResourceManager
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+@using Globals = DotNetNuke.Common.Globals
+
+@inject IClientResourceController ClientResourceController
+
+@if (this.Visible && this.cdfComment.Length > 0)
+{
+    @((MarkupString)this.cdfComment)
+}
+
+@code {
+    private IHostSettings hostSettings;
+
+    private bool registered;
+
+    private string cdfComment = string.Empty;
+
+    /// <summary>Gets or sets the media type of the stylesheet.</summary>
+    [Parameter]
+    public CssMediaType CssMedia { get; set; } = CssMediaType.None;
+
+    /// <summary>Gets the media attribute value handed to the resource, as the Web Forms control built it.</summary>
+    /// <remarks>
+    /// The Web Forms property kept a lower-cased STRING behind it, which started out empty and was
+    /// only written when the attribute was set; <c>CssMediaType.None</c> means "do not specify a
+    /// media type", so it maps back to the empty string the unset control passed to SetMedia.
+    /// A component parameter has to be an auto property, hence the split.
+    /// </remarks>
+    private string CssMediaValue =>
+        this.CssMedia == CssMediaType.None ? string.Empty : this.CssMedia.ToString().ToLowerInvariant();
+
+    /// <summary>Gets or sets the file path for the client resource to be included.</summary>
+    [Parameter]
+    public string FilePath { get; set; }
+
+    /// <summary>Gets or sets the path name alias for the client resource.</summary>
+    [Parameter]
+    public string PathNameAlias { get; set; }
+
+    /// <summary>Gets or sets the priority for the client resource. Resources with lower priority values are included before those with higher values.</summary>
+    [Parameter]
+    public int Priority { get; set; } = (int)DotNetNuke.Web.Client.FileOrder.Css.DefaultPriority;
+
+    /// <summary>Gets or sets a value indicating whether to add the HTML tag for this resource to the page output.</summary>
+    [Parameter]
+    public bool AddTag { get; set; }
+
+    /// <summary>Gets or sets the name of the resource.</summary>
+    [Parameter]
+    public string Name { get; set; }
+
+    /// <summary>Gets or sets the version of this resource if it is a named resource.</summary>
+    [Parameter]
+    public string Version { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether to force this version to be used.</summary>
+    [Parameter]
+    public bool ForceVersion { get; set; }
+
+    /// <summary>Gets or sets the provider to force for this resource.</summary>
+    [Parameter]
+    public string ForceProvider { get; set; } = ClientResourceProviders.DefaultCssProvider;
+
+    /// <summary>Gets or sets a value indicating whether to force this resource to be bundled. No longer supported.</summary>
+    [Obsolete("Deprecated in DotNetNuke 10.2.0. Bundling is no longer supported, there is no replacement within DNN for this functionality. Scheduled removal in v12.0.0.")]
+    [Parameter]
+    public bool ForceBundle { get; set; }
+
+    /// <summary>Gets or sets the CDN URL of the resource.</summary>
+    [Parameter]
+    public string CdnUrl { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether to render the <c>blocking</c> attribute.</summary>
+    [Parameter]
+    public bool Blocking { get; set; }
+
+    /// <summary>Gets or sets the integrity hash of the resource.</summary>
+    [Parameter]
+    public string Integrity { get; set; }
+
+    /// <summary>Gets or sets the value of the <c>crossorigin</c> attribute.</summary>
+    [Parameter]
+    public CrossOrigin CrossOrigin { get; set; }
+
+    /// <summary>Gets or sets the value of the <c>fetchpriority</c> attribute.</summary>
+    [Parameter]
+    public FetchPriority FetchPriority { get; set; }
+
+    /// <summary>Gets or sets the value of the <c>referrerpolicy</c> attribute.</summary>
+    [Parameter]
+    public ReferrerPolicy ReferrerPolicy { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the client resource should be preloaded.</summary>
+    [Parameter]
+    public bool Preload { get; set; }
+
+    /// <summary>Gets the additional attributes rendered onto the resource's HTML tag.</summary>
+    [Parameter]
+    public IDictionary<string, string> HtmlAttributes { get; set; } = new Dictionary<string, string>();
+
+    /// <summary>Gets or sets the <see cref="HtmlAttributes"/> for this resource via a string which is parsed.</summary>
+    /// <remarks>The syntax for the string must be: <c>key1:value1,key2:value2</c> etc.</remarks>
+    [Parameter]
+    public string HtmlAttributesAsString { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.hostSettings ??= Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.registered)
+        {
+            return;
+        }
+
+        this.registered = true;
+
+        // Ported from DnnCssIncludeTagHelper.Process (itself the port of the control's OnLoad).
+        var filePath = this.FilePath ?? string.Empty;
+        if (filePath.IndexOf('?') > 0)
+        {
+            filePath = filePath.Substring(0, filePath.IndexOf('?'));
+        }
+
+        var extension = ".css";
+        var hit = filePath.LastIndexOf('.');
+        if (hit > 0)
+        {
+            extension = filePath.Substring(hit).ToLowerInvariant();
+        }
+
+        switch (extension)
+        {
+            case ".eot":
+            case ".woff":
+            case ".woff2":
+            case ".ttf":
+            case ".svg":
+            case ".otf":
+                var font = this.ClientResourceController.CreateFont(this.FilePath, this.PathNameAlias);
+                if (this.Preload)
+                {
+                    font.SetPreload();
+                }
+
+                this.RegisterResource(font);
+                break;
+            default:
+                var stylesheet = this.ClientResourceController.CreateStylesheet(this.FilePath, this.PathNameAlias)
+                    .SetMedia(this.CssMediaValue);
+                if (this.Preload)
+                {
+                    stylesheet.SetPreload();
+                }
+
+                this.RegisterResource(stylesheet);
+                break;
+        }
+
+        // Ported from the control's Render.
+        if (this.AddTag || (this.hostSettings is not null && this.hostSettings.DebugMode))
+        {
+            this.cdfComment = string.Format(
+                CultureInfo.InvariantCulture,
+                "<!--CDF(Css|{0}|{1}|{2})-->",
+                this.FilePath,
+                this.ForceProvider,
+                this.Priority);
+        }
+        else
+        {
+            this.cdfComment = string.Empty;
+        }
+    }
+
+    /// <summary>Sets the common properties on the resource and registers it.</summary>
+    /// <param name="resource">The resource to register.</param>
+    /// <remarks>Ported from ClientResourceIncludeTagHelper.RegisterResource; the call order is the ordering contract.</remarks>
+    private void RegisterResource(IResource resource)
+    {
+        resource = resource
+            .SetNameAndVersion(this.Name, this.Version, this.ForceVersion)
+            .SetProvider(this.ForceProvider)
+            .SetPriority(this.Priority)
+            .SetCdnUrl(this.CdnUrl)
+            .SetIntegrity(this.Integrity)
+            .SetCrossOrigin(this.CrossOrigin)
+            .SetFetchPriority(this.FetchPriority)
+            .SetReferrerPolicy(this.ReferrerPolicy);
+        if (this.Blocking)
+        {
+            resource = resource.SetBlocking();
+        }
+
+        var attributes = this.HtmlAttributes ?? new Dictionary<string, string>();
+        ClientResourceAttributeParser.ParseInto(this.HtmlAttributesAsString, attributes);
+
+        foreach (var attribute in attributes)
+        {
+            resource.AddAttribute(attribute.Key, attribute.Value);
+        }
+
+        resource.Register();
+    }
+}

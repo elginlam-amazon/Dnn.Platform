@@ -1,0 +1,242 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Modules
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Security.Permissions.Controls
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+
+@*
+    Replaces admin/Modules/ModulePermissions.ascx + .cs + .designer.cs, element for element.
+
+    Control mapping:
+      - dnn:modulepermissionsgrid dgPermissions -> the already migrated
+        DotNetNuke.Security.Permissions.Controls.ModulePermissionsGrid, which is now a Blazor
+        component. It is REUSED as is: the grid - and therefore which role/user gets which
+        permission, how deny is handled and how the permission keys are parsed - is unchanged.
+        TabId and ModuleID are not Blazor parameters (setting ModuleID is what reads the
+        permissions out of the database), so they are assigned through @@ref in the phase that was
+        OnPreRender, followed by the grid's own DataBind().
+      - <div id="permissionsRow" runat="server"> -> the div whose rendering is gated by
+        permissionsRowVisible, which is computed from exactly the same two controllers.
+      - asp:LinkButton cmdUpdate -> the anchor whose @@onclick is OnUpdateClick, rendered only when
+        cmdUpdateVisible, which is computed from exactly the same two controllers.
+      - asp:HyperLink cancelHyperLink -> the anchor whose href is ReturnURL.
+      - <%=LocalizeString("Permissions")%> -> @@this.LocalizeText("Permissions"), the same DNN
+        resource lookup (kept on the DNN engine so per portal / host overrides from the Language
+        Editor still apply).
+
+    SECURITY - every guard is preserved with identical semantics:
+      - OnInit: ModulePermissionController.HasModuleAccess(SecurityAccessLevel.ViewPermissions,
+        string.Empty, Module) -> AccessDeniedURL redirect.
+      - cmdUpdate visibility: ModulePermissionController.HasModulePermission(
+        Module.ModulePermissions, "EDIT,MANAGE") || TabPermissionController.CanAddContentToPage().
+      - permissionsRow visibility: ModulePermissionController.CanAdminModule(Module) ||
+        TabPermissionController.CanAddContentToPage().
+      - the save still goes through ModulePermissionController.SaveModulePermissions.
+      - the moduleId sentinel stays -1 ("not set").
+
+    No @@rendermode directive on purpose: the component is a descendant of
+    <Routes @@rendermode="RenderModeForPage"> in Website/Components/App.razor (InteractiveServer),
+    which the permissions grid needs for its own interactive editing.
+*@
+
+<div class="dnnForm dnnModuleSettings dnnClear" id="dnnModulePermissions">
+    <div class="msPermissions dnnClear" id="msPermissions">
+        <div class="mspContent dnnClear">
+            <h2 id="dnnPanel-ModuleAdditionalPages" class="dnnFormSectionHead">@this.LocalizeText("Permissions")</h2>
+            <fieldset>
+                @if (this.permissionsRowVisible)
+                {
+                    <div id="permissionsRow">
+                        <ModulePermissionsGrid @ref="this.dgPermissions" />
+                    </div>
+                }
+            </fieldset>
+        </div>
+    </div>
+    <ul class="dnnActions dnnClear">
+        @if (this.cmdUpdateVisible)
+        {
+            <li><a id="cmdUpdate" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.OnUpdateClick" @onclick:preventDefault="true">@this.LocalizeText("cmdUpdate")</a></li>
+        }
+        <li><a id="cancelHyperLink" class="dnnSecondaryAction" href="@this.cancelUrl">@this.LocalizeText("cmdCancel")</a></li>
+    </ul>
+</div>
+
+@code {
+    private readonly INavigationManager navigationManager;
+
+    private int moduleId = -1;
+    private ModuleInfo module;
+    private ModulePermissionsGrid dgPermissions;
+    private string cancelUrl = string.Empty;
+
+    // The WebForms control computed these on the initial request only; the grid starts hidden and
+    // the update button starts hidden, which is the "no rights proven yet" state - never the
+    // permissive one.
+    private bool permissionsRowVisible;
+    private bool cmdUpdateVisible;
+    private bool initialBindDone;
+
+    /// <summary>Initializes a new instance of the <see cref="ModulePermissions"/> class.</summary>
+    /// <remarks>A Blazor component cannot take constructor parameters; the navigation manager is
+    /// resolved from the module's dependency provider, exactly as before.</remarks>
+    public ModulePermissions()
+    {
+        this.navigationManager = this.DependencyProvider.GetRequiredService<INavigationManager>();
+    }
+
+    /// <summary>Gets the navigation manager used for the redirects <c>Response.Redirect</c> issued.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    private ModuleInfo Module
+    {
+        get { return this.module ?? (this.module = ModuleController.Instance.GetModule(this.moduleId, this.TabId, false)); }
+    }
+
+    private string ReturnURL
+    {
+        get
+        {
+            return UrlUtils.ValidReturnUrl(this.Request?.GetValue("ReturnURL")) ?? this.navigationManager.NavigateURL();
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // The .resx of this control is App_LocalResources/ModulePermissions.ascx.resx.
+        this.LocalResourceFile = "~/admin/Modules/" + Localization.LocalResourceDirectory + "/ModulePermissions.ascx";
+
+        // get ModuleId
+        var moduleIdValue = this.GetQueryValue("ModuleId");
+        if (moduleIdValue != null)
+        {
+            this.moduleId = int.Parse(moduleIdValue);
+        }
+
+        // Verify that the current user has access to edit this module
+        if (!ModulePermissionController.HasModuleAccess(SecurityAccessLevel.ViewPermissions, string.Empty, this.Module))
+        {
+            this.Navigation.NavigateTo(DotNetNuke.Common.Globals.AccessDeniedURL(), forceLoad: true);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            this.cancelUrl = this.ReturnURL;
+
+            // Was the Page.IsPostBack == false guard.
+            if (!this.initialBindDone && this.Module != null)
+            {
+                this.cmdUpdateVisible = ModulePermissionController.HasModulePermission(this.Module.ModulePermissions, "EDIT,MANAGE") || TabPermissionController.CanAddContentToPage();
+                this.permissionsRowVisible = ModulePermissionController.CanAdminModule(this.Module) || TabPermissionController.CanAddContentToPage();
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The grid is a child component, so it only exists once this component has rendered; the two
+    /// properties the WebForms code behind assigned on the initial request are applied here, in the
+    /// phase that was OnPreRender. Assigning ModuleID is what loads the module's permissions.
+    /// </remarks>
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+
+        if (this.initialBindDone)
+        {
+            return;
+        }
+
+        this.initialBindDone = true;
+
+        try
+        {
+            if (this.dgPermissions == null)
+            {
+                return;
+            }
+
+            this.dgPermissions.TabId = this.PortalSettings.ActiveTab.TabID;
+            this.dgPermissions.ModuleID = this.moduleId;
+            this.dgPermissions.DataBind();
+
+            this.StateHasChanged();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Saves the edited permissions (was <c>cmdUpdate.Click</c>).</summary>
+    protected void OnUpdateClick()
+    {
+        try
+        {
+            // Was Page.IsValid: this form declares no validators, so it was always true.
+            this.Module.ModulePermissions.Clear();
+            this.Module.ModulePermissions.AddRange(this.dgPermissions.Permissions);
+
+            ModulePermissionController.SaveModulePermissions(this.Module);
+
+            // Navigate back to admin page
+            this.Navigation.NavigateTo(this.ReturnURL, forceLoad: true);
+        }
+        catch (NavigationException)
+        {
+            // The redirect above; during a static server render NavigateTo signals the response by
+            // throwing, which the WebForms Response.Redirect did by ending the response.
+            throw;
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Reads a query string value, from the captured request when there is one and from
+    /// the current URL otherwise (an interactive circuit has no <c>HttpContext</c>).</summary>
+    /// <param name="name">The query string key.</param>
+    /// <returns>The value, or <see langword="null"/> when the key is absent - the same
+    /// <c>Request.QueryString[key] != null</c> test the WebForms control made.</returns>
+    private string GetQueryValue(string name)
+    {
+        var request = this.Request;
+        if (request != null && request.Query.ContainsKey(name))
+        {
+            return request.Query[name].ToString();
+        }
+
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(this.Navigation.Uri).Query);
+        return query.TryGetValue(name, out var values) ? values.ToString() : null;
+    }
+}

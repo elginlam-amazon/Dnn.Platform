@@ -8,10 +8,8 @@ namespace Dnn.EditBar.UI.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Text;
     using System.Threading.Tasks;
-    using System.Web.Http;
 
     using Dnn.EditBar.UI.Helpers;
     using Dnn.EditBar.UI.Services.DTO;
@@ -24,6 +22,13 @@ namespace Dnn.EditBar.UI.Services
     using DotNetNuke.Services.Personalization;
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc;
+
+    // ValidateAntiForgeryToken is aliased to DNN's Web API attribute: Microsoft.AspNetCore.Mvc also
+    // declares a ValidateAntiForgeryTokenAttribute, and the alias keeps the original DNN attribute
+    // (the platform-wide precedent, e.g. DotNetNuke.Web's PageServiceController).
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [DnnPageEditor]
     public class CommonController : DnnApiController
@@ -43,23 +48,28 @@ namespace Dnn.EditBar.UI.Services
             this.personalizationController = personalizationController;
         }
 
+        /// <summary>Checks whether the current user is authorized to edit the current page.</summary>
+        /// <returns>A response with <c>{ success = bool }</c>.</returns>
         [HttpGet]
         [AllowAnonymous]
-        public HttpResponseMessage CheckAuthorized()
+        public IActionResult CheckAuthorized()
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { success = this.IsPageEditor() });
+            return this.Ok(new { success = this.IsPageEditor() });
         }
 
+        /// <summary>Gets a user setting.</summary>
+        /// <param name="key">The setting key.</param>
+        /// <returns>A response with the <see cref="UserSetting"/>, or <c>{ Value = false }</c> when unset.</returns>
         [HttpGet]
         [DnnPageEditor]
-        public HttpResponseMessage GetUserSetting(string key)
+        public IActionResult GetUserSetting(string key)
         {
             var personalization = this.personalizationController.LoadProfile(this.UserInfo.UserID, this.PortalSettings.PortalId);
             var value = personalization.Profile[key + this.PortalSettings.PortalId];
 
             if (value == null)
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Value = false });
+                return this.Ok(new { Value = false });
             }
 
             var userSetting = new UserSetting
@@ -68,20 +78,24 @@ namespace Dnn.EditBar.UI.Services
                 Value = value,
             };
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, userSetting);
+            return this.Ok(userSetting);
         }
 
+        /// <summary>Saves a user setting.</summary>
+        /// <param name="setting">The setting to save.</param>
+        /// <returns>An empty <c>200 OK</c> response.</returns>
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnPageEditor]
-        public HttpResponseMessage SetUserSetting(UserSetting setting)
+        public IActionResult SetUserSetting(UserSetting setting)
         {
             var personalization = this.personalizationController.LoadProfile(this.UserInfo.UserID, this.PortalSettings.PortalId);
             personalization.Profile[setting.Key + this.PortalSettings.PortalId] = setting.Value;
             personalization.IsModified = true;
             this.personalizationController.SaveProfile(personalization);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK);
+            // Preserves the legacy Request.CreateResponse(HttpStatusCode.OK) empty-body response.
+            return DnnApiResults.Response(HttpStatusCode.OK);
         }
 
         private static bool IsModuleAdmin(PortalSettings portalSettings)

@@ -6,7 +6,6 @@ namespace DotNetNuke.Tests.Integration.Modules.Journal
 {
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
     using System.Threading.Tasks;
 
     using DNN.Integration.Test.Framework;
@@ -26,9 +25,9 @@ namespace DotNetNuke.Tests.Integration.Modules.Journal
 
         public PostJournalTests()
         {
-            var url = ConfigurationManager.AppSettings["siteUrl"];
-            this._hostName = ConfigurationManager.AppSettings["hostUsername"];
-            this._hostPass = ConfigurationManager.AppSettings["hostPassword"];
+            var url = AppConfigHelper.SiteUrl;
+            this._hostName = AppConfigHelper.HostUserName;
+            this._hostPass = AppConfigHelper.HostPassword;
         }
 
         [OneTimeSetUp]

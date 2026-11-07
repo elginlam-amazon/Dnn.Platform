@@ -8,10 +8,12 @@ namespace DNNConnect.CKEditorProvider.Services
     /// <inheritdoc />
     public class CKEditorProviderRouteMapper : IServiceRouteMapper
     {
+        private static readonly string[] Namespaces = ["DNNConnect.CKEditorProvider.Services"];
+
         /// <inheritdoc />
         public void RegisterRoutes(IMapRoute mapRouteManager)
         {
-            mapRouteManager.MapHttpRoute("CKEditorProvider", "default", "{controller}/{action}", new[] { "DNNConnect.CKEditorProvider.Services" });
+            mapRouteManager.MapHttpRoute("CKEditorProvider", "default", "{controller}/{action}", Namespaces);
         }
     }
 }

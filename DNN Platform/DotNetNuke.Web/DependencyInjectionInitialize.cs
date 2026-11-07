@@ -4,76 +4,44 @@
 namespace DotNetNuke.Web
 {
     using System;
-    using System.Linq;
 
-    using DotNetNuke.DependencyInjection;
-    using DotNetNuke.DependencyInjection.Extensions;
-    using DotNetNuke.Instrumentation;
-    using DotNetNuke.Services.DependencyInjection;
+    using DotNetNuke.Common;
 
     using Microsoft.Extensions.DependencyInjection;
-    using Microsoft.Extensions.Logging;
 
-    /// <summary>Initializes the Dependency Injection container.</summary>
+    /// <summary>Exposes the application's service registrations for diagnostics.</summary>
+    /// <remarks>
+    /// <para>
+    /// This type used to BUILD A SECOND SERVICE PROVIDER: <c>BuildServiceProvider()</c> created a fresh
+    /// <see cref="ServiceCollection"/>, ran every <c>IDnnStartup</c> against it and built a provider which
+    /// the <c>DotNetNukeHttpApplication</c> static constructor then published as
+    /// <c>Globals.DependencyProvider</c>. The application therefore had two containers with two sets of
+    /// singletons.
+    /// </para>
+    /// <para>
+    /// There is now exactly ONE container: the host's, built by
+    /// <c>builder.Services.AddDnnPlatform(...)</c> in <c>Website/Program.cs</c>, which runs every
+    /// <c>IDnnStartup</c> (including this assembly's) against the HOST service collection.
+    /// </para>
+    /// </remarks>
     public static class DependencyInjectionInitialize
     {
-        private static readonly ILogger Logger = DnnLoggingController.GetLogger(typeof(DependencyInjectionInitialize));
-
-        /// <summary>Gets the service collection (for logging/diagnostics).</summary>
+        /// <summary>Gets the host's service collection (for logging/diagnostics, e.g. the Prompt <c>list-services</c> command).</summary>
         internal static IServiceCollection ServiceCollection { get; private set; }
 
-        /// <summary>Builds the service provider.</summary>
-        /// <returns>An <see cref="IServiceProvider"/> instance.</returns>
+        /// <summary>Gets the application's service provider.</summary>
+        /// <returns>The host's <see cref="IServiceProvider"/> — the single container.</returns>
+        [Obsolete("Deprecated in DotNetNuke 10.2.2. The host container is the only container; inject IServiceProvider or IServiceScopeFactory instead. Scheduled removal in v12.0.0.")]
         public static IServiceProvider BuildServiceProvider()
         {
-            var services = new ServiceCollection();
-            services.AddSingleton<IScopeAccessor, ScopeAccessor>();
-            ConfigureAllStartupServices(services);
+            return Globals.GetCurrentServiceProvider();
+        }
 
+        /// <summary>Publishes the host's service collection for diagnostics.</summary>
+        /// <param name="services">The host's service collection.</param>
+        internal static void RegisterServiceCollection(IServiceCollection services)
+        {
             ServiceCollection = services;
-            return services.BuildServiceProvider();
-        }
-
-        private static void ConfigureAllStartupServices(IServiceCollection services)
-        {
-            var allTypes = TypeExtensions.SafeGetTypes();
-            allTypes.LogOtherExceptions(Logger);
-            if (allTypes.LoadExceptions.Any())
-            {
-                var messageBuilder = allTypes.LoadExceptions.BuildLoaderExceptionsMessage();
-                Logger.DependencyInjectionInitializeAssembliesCouldNotBeLoaded(messageBuilder.ToString());
-            }
-
-            var startupTypes = allTypes.Types
-                .Where(
-                    type => typeof(IDnnStartup).IsAssignableFrom(type) &&
-                            type is { IsClass: true, IsAbstract: false });
-
-            var startupInstances = startupTypes.Select(CreateInstance).Where(x => x != null);
-            foreach (var startup in startupInstances)
-            {
-                try
-                {
-                    startup.ConfigureServices(services);
-                }
-                catch (Exception ex)
-                {
-                    Logger.DependencyInjectionInitializeUnableToConfigureServicesFor(ex, startup.GetType().FullName);
-                }
-            }
-        }
-
-        private static IDnnStartup CreateInstance(Type startupType)
-        {
-            try
-            {
-                return (IDnnStartup)Activator.CreateInstance(startupType);
-            }
-            catch (Exception ex)
-            {
-                Logger.DependencyInjectionInitializeUnableToInstantiateStartupCodeFor(ex, startupType.FullName);
-                return null;
-            }
         }
     }
 }

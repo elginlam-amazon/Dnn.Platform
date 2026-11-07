@@ -9,9 +9,8 @@ namespace DotNetNuke.Services.Search.Internals
     using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Net;
     using System.Text;
-    using System.Web;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
@@ -19,12 +18,13 @@ namespace DotNetNuke.Services.Search.Internals
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
     using DotNetNuke.Entities.Portals;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Scheduling;
     using DotNetNuke.Services.Search.Entities;
-    using Lucene.Net.Analysis;
-    using Lucene.Net.Analysis.Tokenattributes;
-
+    using Lucene.Net.Analysis.Core;
+    using Lucene.Net.Analysis.Miscellaneous;
+    using Lucene.Net.Analysis.TokenAttributes;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>An <see cref="ISearchHelper"/> implementation.</summary>
@@ -480,7 +480,7 @@ namespace DotNetNuke.Services.Search.Internals
         /// <returns>cleaned and pre-processed search phrase.</returns>
         public string RephraseSearchText(string searchPhrase, bool useWildCard, bool allowLeadingWildcard = false)
         {
-            searchPhrase = CleanSearchPhrase(HttpUtility.HtmlDecode(searchPhrase));
+            searchPhrase = CleanSearchPhrase(WebUtility.HtmlDecode(searchPhrase));
 
             if (!useWildCard && !searchPhrase.Contains("\""))
             {
@@ -741,16 +741,22 @@ namespace DotNetNuke.Services.Search.Internals
 
             var cleanedPhrase = searchPhrase.Trim('\0');
 
-            var asciiFilter = new ASCIIFoldingFilter(new WhitespaceTokenizer(new StringReader(cleanedPhrase)));
-
-            string space = string.Empty;
-            while (asciiFilter.IncrementToken())
+            using (var asciiFilter = new ASCIIFoldingFilter(new WhitespaceTokenizer(Constants.LuceneVersion, new StringReader(cleanedPhrase)), false))
             {
-                sb.AppendFormat(CultureInfo.InvariantCulture, "{0}{1}", space, asciiFilter.GetAttribute<ITermAttribute>().Term);
-                if (string.IsNullOrEmpty(space))
+                var termAttribute = asciiFilter.GetAttribute<ICharTermAttribute>();
+                asciiFilter.Reset();
+
+                string space = string.Empty;
+                while (asciiFilter.IncrementToken())
                 {
-                    space = " ";
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0}{1}", space, termAttribute.ToString());
+                    if (string.IsNullOrEmpty(space))
+                    {
+                        space = " ";
+                    }
                 }
+
+                asciiFilter.End();
             }
 
             return sb.ToString();

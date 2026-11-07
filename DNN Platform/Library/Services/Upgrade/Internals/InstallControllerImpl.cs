@@ -5,14 +5,15 @@ namespace DotNetNuke.Services.Upgrade.Internals
 {
     using System;
     using System.Data.Common;
-    using System.Data.SqlClient;
+    using Microsoft.Data.SqlClient;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Net;
     using System.Threading;
-    using System.Web;
     using System.Xml;
 
+    using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
     using DotNetNuke.Services.FileSystem;
@@ -489,7 +490,7 @@ namespace DotNetNuke.Services.Upgrade.Internals
             {
                 string downloadUrl = UpdateService.GetLanguageDownloadUrl(cultureCode);
 
-                string installFolder = HttpContext.Current.Server.MapPath("~/Install/language");
+                string installFolder = HttpContextSource.MapPath("~/Install/language");
 
                 // no need to download english, always there
                 if (cultureCode != "en-us" && !string.IsNullOrEmpty(downloadUrl))
@@ -560,8 +561,11 @@ namespace DotNetNuke.Services.Upgrade.Internals
         /// <inheritdoc />
         public CultureInfo GetCultureFromCookie()
         {
-            var langCookie = HttpContext.Current.Request.Cookies["language"];
-            var language = langCookie != null ? langCookie.Value : @"en-US";
+            // ASP.NET Core request cookies are a string dictionary rather than HttpCookie objects.
+            var request = HttpContextSource.Current?.Request;
+            var language = request != null && request.Cookies.TryGetValue("language", out var langCookie) && !string.IsNullOrEmpty(langCookie)
+                ? langCookie
+                : @"en-US";
             var culture = new CultureInfo(language);
             return culture;
         }
@@ -570,11 +574,28 @@ namespace DotNetNuke.Services.Upgrade.Internals
         public CultureInfo GetCultureFromBrowser()
         {
             CultureInfo culture = null;
-            foreach (string userLang in HttpContext.Current.Request.UserLanguages)
+
+            // Request.UserLanguages does not exist in ASP.NET Core; the Accept-Language header it
+            // was derived from does, and carries the same values in the same order.
+            var acceptLanguage = HttpContextSource.Current?.Request?.Headers.AcceptLanguage ?? default;
+            foreach (string headerValue in acceptLanguage)
             {
-                // split userlanguage by ";"... all but the first language will contain a preferrence index eg. ;q=.5
-                string language = userLang.Split(';')[0];
-                culture = new CultureInfo(language);
+                if (string.IsNullOrWhiteSpace(headerValue))
+                {
+                    continue;
+                }
+
+                foreach (var userLang in headerValue.Split(','))
+                {
+                    // split userlanguage by ";"... all but the first language will contain a preferrence index eg. ;q=.5
+                    string language = userLang.Split(';')[0].Trim();
+                    if (language.Length == 0 || language == "*")
+                    {
+                        continue;
+                    }
+
+                    culture = new CultureInfo(language);
+                }
             }
 
             return culture;
@@ -594,20 +615,21 @@ namespace DotNetNuke.Services.Upgrade.Internals
 
         private static CultureInfo GetCultureFromQs()
         {
-            if (HttpContext.Current == null || HttpContext.Current.Request["language"] == null)
+            // Request["key"] searched query string, form and cookies; HttpRequestExtensions.GetValue
+            // preserves that lookup order on ASP.NET Core.
+            var request = HttpContextSource.Current?.Request;
+            string language = request?.GetValue("language");
+            if (string.IsNullOrEmpty(language))
             {
                 return null;
             }
-
-            string language = HttpContext.Current.Request["language"];
             var culture = new CultureInfo(language);
             return culture;
         }
 
         private static void GetLanguagePack(string downloadUrl, string installFolder)
         {
-            string myfile = string.Empty;
-            WebResponse wr = Util.GetExternalRequest(
+            using var response = Util.GetExternalResponse(
                 downloadUrl,
                 null,
                 null,
@@ -620,12 +642,12 @@ namespace DotNetNuke.Services.Upgrade.Internals
                 false,
                 "DotNetNuke-Appgallery/1.0.0.0(Microsoft Windows NT 6.1.7600.0",
                 "wpi://2.1.0.0/Microsoft Windows NT 6.1.7600.0",
-                out myfile,
+                out _,
                 10000);
 
             // use fixed name for later installation
-            myfile = "installlanguage.resources";
-            Util.DeployExtension(wr, myfile, installFolder);
+            const string myfile = "installlanguage.resources";
+            Util.DeployExtension(response, myfile, installFolder);
         }
     }
 }

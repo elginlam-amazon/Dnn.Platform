@@ -4,8 +4,8 @@
 
 namespace DotNetNuke.Services.GeneratedImage.FilterTransform
 {
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
 
     /// <summary>Constrast ImageTransform class.</summary>
     public class ImageContrastTransform : ImageTransform
@@ -29,10 +29,14 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
         /// <summary>Processes an input image applying a contrast image transformation.</summary>
         /// <param name="image">Input image.</param>
         /// <returns>Image result after image transformation.</returns>
+        /// <remarks>
+        /// The contrast formula, the clamping and the original's side effect of rewriting
+        /// <see cref="Contrast"/> into its squared factor are all preserved; only the pixel access
+        /// moved from <c>Bitmap.GetPixel</c>/<c>SetPixel</c> to ImageSharp's pixel rows.
+        /// </remarks>
         public override Image ProcessImage(Image image)
         {
-            var temp = (Bitmap)image;
-            var bmap = (Bitmap)temp.Clone();
+            var bmap = image.CloneAs<Rgba32>();
             if (this.Contrast < -100)
             {
                 this.Contrast = -100;
@@ -45,62 +49,68 @@ namespace DotNetNuke.Services.GeneratedImage.FilterTransform
 
             this.Contrast = (100.0 + this.Contrast) / 100.0;
             this.Contrast *= this.Contrast;
-            Color c;
-            for (int i = 0; i < bmap.Width; i++)
+
+            var contrast = this.Contrast;
+            bmap.ProcessPixelRows(accessor =>
             {
-                for (int j = 0; j < bmap.Height; j++)
+                for (var j = 0; j < accessor.Height; j++)
                 {
-                    c = bmap.GetPixel(i, j);
-                    double pR = c.R / 255.0;
-                    pR -= 0.5;
-                    pR *= this.Contrast;
-                    pR += 0.5;
-                    pR *= 255;
-                    if (pR < 0)
+                    var row = accessor.GetRowSpan(j);
+                    for (var i = 0; i < row.Length; i++)
                     {
-                        pR = 0;
-                    }
+                        var c = row[i];
 
-                    if (pR > 255)
-                    {
-                        pR = 255;
-                    }
+                        double pR = c.R / 255.0;
+                        pR -= 0.5;
+                        pR *= contrast;
+                        pR += 0.5;
+                        pR *= 255;
+                        if (pR < 0)
+                        {
+                            pR = 0;
+                        }
 
-                    double pG = c.G / 255.0;
-                    pG -= 0.5;
-                    pG *= this.Contrast;
-                    pG += 0.5;
-                    pG *= 255;
-                    if (pG < 0)
-                    {
-                        pG = 0;
-                    }
+                        if (pR > 255)
+                        {
+                            pR = 255;
+                        }
 
-                    if (pG > 255)
-                    {
-                        pG = 255;
-                    }
+                        double pG = c.G / 255.0;
+                        pG -= 0.5;
+                        pG *= contrast;
+                        pG += 0.5;
+                        pG *= 255;
+                        if (pG < 0)
+                        {
+                            pG = 0;
+                        }
 
-                    double pB = c.B / 255.0;
-                    pB -= 0.5;
-                    pB *= this.Contrast;
-                    pB += 0.5;
-                    pB *= 255;
-                    if (pB < 0)
-                    {
-                        pB = 0;
-                    }
+                        if (pG > 255)
+                        {
+                            pG = 255;
+                        }
 
-                    if (pB > 255)
-                    {
-                        pB = 255;
-                    }
+                        double pB = c.B / 255.0;
+                        pB -= 0.5;
+                        pB *= contrast;
+                        pB += 0.5;
+                        pB *= 255;
+                        if (pB < 0)
+                        {
+                            pB = 0;
+                        }
 
-                    bmap.SetPixel(i, j, Color.FromArgb((byte)pR, (byte)pG, (byte)pB));
+                        if (pB > 255)
+                        {
+                            pB = 255;
+                        }
+
+                        row[i] = new Rgba32((byte)pR, (byte)pG, (byte)pB, byte.MaxValue);
+                    }
                 }
-            }
+            });
 
-            return (Bitmap)bmap.Clone();
+            return bmap;
         }
     }
 }

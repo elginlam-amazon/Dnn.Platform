@@ -7,11 +7,10 @@ namespace DotNetNuke.Web.Mvp
 
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.UI.Skins.Controls;
-    using WebFormsMvp;
 
     /// <summary>Represents a class that is a view for a module in a Web Forms Model-View-Presenter application.</summary>
     [DnnDeprecated(9, 2, 0, "Replace WebFormsMvp and DotNetNuke.Web.Mvp with MVC or SPA patterns instead")]
-    public partial interface IModuleViewBase : IView
+    public partial interface IModuleViewBase : IMvpView
     {
         /// <summary>An event which triggers when the module view initializes.</summary>
         event EventHandler Initialize;

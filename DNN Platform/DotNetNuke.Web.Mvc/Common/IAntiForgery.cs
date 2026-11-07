@@ -4,10 +4,18 @@
 
 namespace DotNetNuke.Web.Mvc.Common
 {
+    using System.Threading.Tasks;
+
+    /// <summary>Provides access to the DNN anti-forgery token configuration and validation.</summary>
     public interface IAntiForgery
     {
+        /// <summary>Gets the name of the cookie that carries the anti-forgery cookie token.</summary>
         string CookieName { get; }
 
-        void Validate(string cookieToken, string headerToken);
+        /// <summary>Validates the supplied anti-forgery token pair.</summary>
+        /// <param name="cookieToken">The cookie token.</param>
+        /// <param name="headerToken">The request (header/form) token.</param>
+        /// <returns>A task that completes when the token pair has been validated, and faults when validation fails.</returns>
+        Task ValidateAsync(string cookieToken, string headerToken);
     }
 }

@@ -4,14 +4,14 @@
 
 namespace DotNetNuke.Web.Api
 {
-    using System.Net.Http;
-
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Security;
     using DotNetNuke.Security.Permissions;
 
+    using Microsoft.AspNetCore.Http;
+
     /// <summary>Determines web API authorization based on module permissions.</summary>
-    public class DnnModuleAuthorizeAttribute : AuthorizeAttributeBase, IOverrideDefaultAuthLevel
+    public class DnnModuleAuthorizeAttribute : DnnAuthorizeBaseAttribute, IOverrideDefaultAuthLevel
     {
         /// <summary>Initializes a new instance of the <see cref="DnnModuleAuthorizeAttribute"/> class.</summary>
         public DnnModuleAuthorizeAttribute()
@@ -28,7 +28,7 @@ namespace DotNetNuke.Web.Api
         /// <inheritdoc />
         public override bool IsAuthorized(AuthFilterContext context)
         {
-            var activeModule = this.FindModuleInfo(context.ActionContext.Request);
+            var activeModule = this.FindModuleInfo(context?.Request);
 
             if (activeModule != null)
             {
@@ -41,9 +41,14 @@ namespace DotNetNuke.Web.Api
         /// <summary>Finds the module associated with the request.</summary>
         /// <param name="request">The web API request.</param>
         /// <returns>A <see cref="ModuleInfo"/> instance or <see langword="null"/>.</returns>
-        protected virtual ModuleInfo FindModuleInfo(HttpRequestMessage request)
+        /// <remarks>
+        /// The parameter was an <c>HttpRequestMessage</c> on net48; it is now the ASP.NET Core
+        /// <see cref="HttpRequest"/>. The module is still resolved through the registered
+        /// <c>ITabAndModuleInfoProvider</c> chain (<c>FindModuleInfo</c>), in the same probing order.
+        /// </remarks>
+        protected virtual ModuleInfo FindModuleInfo(HttpRequest request)
         {
-            return request.FindModuleInfo();
+            return request?.FindModuleInfo();
         }
     }
 }

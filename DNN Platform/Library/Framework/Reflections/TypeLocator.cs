@@ -7,8 +7,10 @@ namespace DotNetNuke.Framework.Reflections
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Reflection;
+    using System.Runtime.Loader;
 
     using DotNetNuke.Framework.Internal.Reflection;
 
@@ -50,13 +52,19 @@ namespace DotNetNuke.Framework.Reflections
         /// <inheritdoc />
         IEnumerable<IAssembly> IAssemblyLocator.Assemblies
         {
-            // this method is not readily testable as the assemblies in the current app domain
-            // will vary depending on the test runner and test configuration
+            // this method is not readily testable as the assemblies loaded into the default load
+            // context will vary depending on the test runner and test configuration
             get
             {
-                return from assembly in AppDomain.CurrentDomain.GetAssemblies()
-                    where CanScan(assembly)
-                    select new AssemblyWrapper(assembly);
+                // Was AppDomain.CurrentDomain.GetAssemblies(). There is a single AppDomain on modern
+                // .NET; the set of assemblies the host and its extensions have loaded is
+                // AssemblyLoadContext.Default.Assemblies. Materialized with ToList() because the
+                // collection is live and loading an extension assembly while scanning would otherwise
+                // invalidate the enumerator.
+                return AssemblyLoadContext.Default.Assemblies
+                    .Where(assembly => !assembly.IsDynamic && CanScan(assembly))
+                    .Select(assembly => (IAssembly)new AssemblyWrapper(assembly))
+                    .ToList();
             }
         }
 
@@ -82,6 +90,23 @@ namespace DotNetNuke.Framework.Reflections
                     // expose types in the exception
                     types = ex.Types ?? [];
                 }
+                catch (FileNotFoundException)
+                {
+                    // A dependency of the assembly is not deployed. On Linux the runtime reports this
+                    // instead of BadImageFormatException, so it must be tolerated or a single missing
+                    // optional dependency aborts the whole scan.
+                    continue;
+                }
+                catch (FileLoadException)
+                {
+                    // A dependency could not be loaded (version/identity mismatch).
+                    continue;
+                }
+                catch (BadImageFormatException)
+                {
+                    // Not a managed assembly, or built for another architecture.
+                    continue;
+                }
 
                 foreach (var type in types)
                 {
@@ -99,7 +124,7 @@ namespace DotNetNuke.Framework.Reflections
         private static bool CanScan(Assembly assembly)
         {
             // First eliminate by "class"
-            var assemblyName = assembly.FullName;
+            var assemblyName = assembly.FullName ?? string.Empty;
             bool canScan = !(assemblyName.StartsWith("clientdependency.core", StringComparison.OrdinalIgnoreCase)
                              || assemblyName.StartsWith("countrylistbox", StringComparison.OrdinalIgnoreCase)
                              || assemblyName.StartsWith("icsharpcode", StringComparison.OrdinalIgnoreCase)
@@ -117,7 +142,7 @@ namespace DotNetNuke.Framework.Reflections
             if (canScan)
             {
                 // Next eliminate specific assemblies
-                if (IgnoreAssemblies.Contains(assemblyName))
+                if (IgnoreAssemblies.Contains(assembly.GetName().Name ?? assemblyName))
                 {
                     canScan = false;
                 }

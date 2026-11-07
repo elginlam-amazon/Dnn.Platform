@@ -12,9 +12,9 @@ namespace Dnn.Modules.TelerikRemoval
     using DotNetNuke.Common.Extensions;
     using DotNetNuke.Entities;
     using DotNetNuke.Entities.Modules;
+    using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Maintenance.Telerik.Removal;
-    using DotNetNuke.Web;
 
     using Microsoft.Extensions.Logging;
 
@@ -62,8 +62,14 @@ namespace Dnn.Modules.TelerikRemoval
 
         private static IServiceProvider GetServiceProvider()
         {
+            // DependencyInjectionInitialize.BuildServiceProvider(), the second half of the original
+            // expression, is deprecated: there is now exactly one container, the host's, and
+            // DotNetNuke.Framework.ServiceLocator.ServiceProvider is the public accessor for it
+            // (the current request's services, falling back to the root provider when there is no
+            // request - which is this method's case, since UpgradeModule runs during application
+            // startup). The request-scope lookup is kept first, exactly as before.
             return HttpContextSource.Current?.GetScope()?.ServiceProvider ??
-                DependencyInjectionInitialize.BuildServiceProvider();
+                ServiceLocator.ServiceProvider;
         }
 
         private string GetHostSetting(string key)

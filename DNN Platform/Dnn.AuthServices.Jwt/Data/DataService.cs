@@ -6,7 +6,6 @@ namespace Dnn.AuthServices.Jwt.Data
 {
     using System;
     using System.Collections.Generic;
-    using System.Web.Caching;
 
     using Dnn.AuthServices.Jwt.Components.Entity;
 
@@ -19,6 +18,11 @@ namespace Dnn.AuthServices.Jwt.Data
     using DotNetNuke.Entities.Controllers;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Entities.Portals;
+
+    // Replaces System.Web.Caching, which does not exist on net10.0. DNN's own
+    // CacheItemPriority is the enum CacheItemArgs has always taken, and Default has the
+    // same meaning, so the 60-minute cache entry behaves identically.
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Log.EventLog;
 
     using Microsoft.Extensions.DependencyInjection;

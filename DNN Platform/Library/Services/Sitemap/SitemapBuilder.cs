@@ -10,13 +10,14 @@ namespace DotNetNuke.Services.Sitemap
     using System.IO;
     using System.Linq;
     using System.Text;
-    using System.Web;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Entities.Portals;
+
+    using Microsoft.AspNetCore.Http;
 
     using Localization = DotNetNuke.Services.Localization.Localization;
 
@@ -258,12 +259,12 @@ namespace DotNetNuke.Services.Sitemap
             writer.WriteEndElement();
         }
 
-        private static bool IsChildPortal(PortalSettings ps, HttpContext context)
+        private static bool IsChildPortal(PortalSettings ps, HttpRequest request)
         {
             bool isChild = false;
             string portalName = null;
             var arr = PortalAliasController.Instance.GetPortalAliasesByPortalId(ps.PortalId).ToList();
-            string serverPath = Globals.GetAbsoluteServerPath(context.Request);
+            string serverPath = Globals.GetAbsoluteServerPath(request);
 
             if (arr.Count > 0)
             {
@@ -352,6 +353,11 @@ namespace DotNetNuke.Services.Sitemap
         /// <param name="totalFiles">Number of files that are included in the sitemap index.</param>
         private void WriteSitemapIndex(TextWriter output, int totalFiles)
         {
+            // The sitemap index links are absolute, so they need the host of the current request.
+            // CurrentOrThrow (rather than a silent null guard) keeps the old behaviour of failing
+            // loudly when there is no request, as HttpContext.Current.Request did.
+            var request = HttpContextSource.CurrentOrThrow.Request;
+
             using var sitemapOutput = new StreamWriter($@"{this.portalSettings.HomeSystemDirectoryMapPath}Sitemap\{this.CacheFileName}", false, Encoding.UTF8);
 
             // Initialize writer
@@ -373,13 +379,15 @@ namespace DotNetNuke.Services.Sitemap
                     string url = null;
 
                     url = "~/Sitemap.aspx?i=" + index.ToString(CultureInfo.InvariantCulture);
-                    if (IsChildPortal(this.portalSettings, HttpContext.Current))
+                    if (IsChildPortal(this.portalSettings, request))
                     {
                         url += "&portalid=" + this.portalSettings.PortalId.ToString(CultureInfo.InvariantCulture);
                     }
 
                     writer.WriteStartElement("sitemap");
-                    writer.WriteElementString("loc", Globals.AddHTTP(HttpContext.Current.Request.Url.Host + Globals.ResolveUrl(url)));
+
+                    // Request.Url.Host becomes Request.Host.Host in ASP.NET Core (host, no port).
+                    writer.WriteElementString("loc", Globals.AddHTTP(request.Host.Host + Globals.ResolveUrl(url)));
                     writer.WriteElementString("lastmod", DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
                     writer.WriteEndElement();
                 }

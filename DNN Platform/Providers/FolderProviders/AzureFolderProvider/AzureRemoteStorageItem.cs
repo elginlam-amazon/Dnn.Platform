@@ -5,22 +5,22 @@
 namespace DotNetNuke.Providers.FolderProviders.AzureFolderProvider
 {
     using System;
-    using System.Web;
 
     using DotNetNuke.Providers.FolderProviders.Components;
 
+    /// <summary>A remote storage item backed by an <see cref="AzureBlob"/>.</summary>
     [Serializable]
     public class AzureRemoteStorageItem : IRemoteStorageItem
     {
         /// <inheritdoc />
-        public string Key
-        {
-            get
-            {
-                var path = this.Blob.RelativePath.Replace("+", "%2b");
-                return HttpUtility.UrlDecode(path);
-            }
-        }
+        /// <remarks>
+        /// The Azure implementation derived the relative path from the blob's percent-encoded
+        /// <c>Uri.AbsoluteUri</c> and therefore had to URL-decode it (pre-escaping "+" so a literal
+        /// plus survived). An Amazon S3 object key is returned already decoded, so decoding it again
+        /// would corrupt any key containing a literal "%" or "+" and make synchronization treat the
+        /// remote file as missing.
+        /// </remarks>
+        public string Key => this.Blob.RelativePath;
 
         /// <inheritdoc />
         public DateTime LastModified => this.Blob.LastModifiedUtc;

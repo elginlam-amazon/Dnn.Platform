@@ -5,9 +5,8 @@
 namespace Dnn.PersonaBar.UI.HttpModules
 {
     using System;
-    using System.Diagnostics.CodeAnalysis;
-    using System.Globalization;
-    using System.Web;
+    using System.Threading;
+    using System.Threading.Tasks;
 
     using Dnn.PersonaBar.Library.AppEvents;
     using Dnn.PersonaBar.Library.Common;
@@ -16,10 +15,21 @@ namespace Dnn.PersonaBar.UI.HttpModules
     using DotNetNuke.Instrumentation;
     using DotNetNuke.UI.Skins.EventListeners;
 
+    using Microsoft.Extensions.Hosting;
     using Microsoft.Extensions.Logging;
 
-    /// <summary>An <see cref="IHttpModule"/> which registers components for the Persona Bar.</summary>
-    public class PersonaBarModule : IHttpModule
+    /// <summary>An <see cref="IHostedService"/> which registers components for the Persona Bar.</summary>
+    /// <remarks>
+    /// Was an <c>IHttpModule</c> whose <c>Init(HttpApplication)</c> ran the application-start work
+    /// once (behind a double-checked lock, because ASP.NET creates one module instance per
+    /// <c>HttpApplication</c>) and whose <c>Dispose</c> raised the application-end event. ASP.NET
+    /// Core has no <c>IHttpModule</c> pipeline; a hosted service is the application-lifetime
+    /// equivalent, so <see cref="StartAsync"/> is the former <c>Init</c> and
+    /// <see cref="StopAsync"/> the former <c>Dispose</c>. The once-only guard is kept: although
+    /// the host resolves a hosted service a single time, <c>ApplicationStart</c> registers global
+    /// skin-event listeners that must never be added twice.
+    /// </remarks>
+    public class PersonaBarModule : IHostedService
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<PersonaBarModule>();
 
@@ -27,30 +37,33 @@ namespace Dnn.PersonaBar.UI.HttpModules
         private static bool hasAppStarted;
 
         /// <inheritdoc />
-        [SuppressMessage("Microsoft.Naming", "CA1725:ParameterNamesShouldMatchBaseDeclaration", Justification = "Breaking change")]
-        public void Init(HttpApplication application)
+        public Task StartAsync(CancellationToken cancellationToken)
         {
             if (hasAppStarted)
             {
-                return;
+                return Task.CompletedTask;
             }
 
             lock (LockAppStarted)
             {
                 if (hasAppStarted)
                 {
-                    return;
+                    return Task.CompletedTask;
                 }
 
                 ApplicationStart();
                 hasAppStarted = true;
             }
+
+            return Task.CompletedTask;
         }
 
         /// <inheritdoc />
-        public void Dispose()
+        public Task StopAsync(CancellationToken cancellationToken)
         {
             EventsController.Instance.ApplicationEndEvent();
+
+            return Task.CompletedTask;
         }
 
         private static void ApplicationStart()

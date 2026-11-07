@@ -2,9 +2,9 @@
 <Project ToolsVersion="4.0" DefaultTargets="Build" 
   xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
-    <RootDirectory>$(MSBuildProjectDirectory)\..\..\..</RootDirectory>
+    <RootDirectory>$(MSBuildProjectDirectory)/../../..</RootDirectory>
   </PropertyGroup>
-  <Import Project="..\..\..\DNN_Platform.build" />
+  <Import Project="../../../DNN_Platform.build" />
   <PropertyGroup>
     <Extension>zip</Extension>
     <DNNFileName>Journal</DNNFileName>
@@ -12,10 +12,31 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\Journal</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
-  <Import Project="$(BuildScriptsPath)\Module.Build"/>
+  <!-- The files on disk are Package.targets and Module.build; the lower-case "t"/"b" matters on
+       case-sensitive (Linux) file systems, where the old "Package.Targets" / "Module.Build"
+       spellings fail with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)/Package.targets" />
+  <Import Project="$(BuildScriptsPath)/Module.build" />
+  <!-- UpdateFiles runs between GetFiles and DebugProject/Package (see BuildScripts\Module.build's
+       CopyAndPackage dependency list), so it is where the migrated localization files are wired
+       in. The four .resx files moved from App_LocalResources\ to Resources\ (bytes unchanged),
+       but they must still be DEPLOYED at ~/DesktopModules/Journal/App_LocalResources/<name>.resx:
+       Components\Constants.cs (SharedResourcesPath), Components\JournalParser.cs (ResxPath) and
+       the Settings component's BindJournalTypes resolve SharedResources.resx by that literal
+       runtime path, and PortalModuleBase.LocalResourceFile derives View.resx / Settings.resx /
+       Edit.resx from the component type names in the same folder.
+       Package.targets zips @(Resources) relative to the project directory, so the items must
+       carry the App_LocalResources\ prefix; they are therefore staged into (and packaged from)
+       the generated App_LocalResources folder, which keeps both the Resources.zip layout and the
+       DebugProject copy byte- and path-identical to the net48 build. -->
   <Target Name="UpdateFiles">
     <ItemGroup>
+      <MigratedResourceFiles Include="Resources/*.resx" />
+    </ItemGroup>
+    <Copy SourceFiles="@(MigratedResourceFiles)" DestinationFolder="$(MSBuildProjectDirectory)\App_LocalResources" SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <ResourceFiles Include="App_LocalResources/*.resx" />
+      <Resources Include="App_LocalResources/*.resx" />
       <Resources Remove="web.config" />
     </ItemGroup>
   </Target>

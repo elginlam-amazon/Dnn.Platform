@@ -1,0 +1,45 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* Replaces Membership.ascx + Membership.ascx.cs + Membership.ascx.designer.cs.
+
+   <dnn:DnnFormEditor> is the real (already migrated) Blazor DnnFormEditor component, so the rendered
+   form is the same one. Its `Items` collection has a private setter and is populated imperatively by
+   the control itself, so the ten <dnn:DnnFormLiteralItem> declarations moved from this markup into
+   BuildFormItems() in Membership.razor.cs - same IDs, same DataFields, same ResourceKeys, same
+   order. FormMode="Short" is preserved here.
+
+   The five <asp:LinkButton>s keep their resource keys and their dnnSecondaryAction class; each one's
+   `Visible` is the state-transition guard computed in DataBind() and is rendered conditionally from
+   the same flag. CausesValidation="False" has no Blazor equivalent and needs none - there is no
+   validator group on this control. ViewStateMode="Disabled" is moot; there is no view state. *@
+
+@namespace DotNetNuke.Modules.Admin.Users
+@inherits DotNetNuke.Entities.Modules.UserModuleBase
+
+@using DotNetNuke.Web.UI.WebControls
+
+<DnnFormEditor @ref="this.membershipForm" FormMode="DnnFormMode.Short" />
+<ul id="actionsRow" class="dnnActions dnnClear">
+    @if (this.authorizeVisible)
+    {
+        <li><a id="cmdAuthorize" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CmdAuthorizeClick" @onclick:preventDefault="true">@this.LocalizeText("cmdAuthorize.Text")</a></li>
+    }
+    @if (this.unAuthorizeVisible)
+    {
+        <li><a id="cmdUnAuthorize" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CmdUnAuthorizeClick" @onclick:preventDefault="true">@this.LocalizeText("cmdUnAuthorize.Text")</a></li>
+    }
+    @if (this.unLockVisible)
+    {
+        <li><a id="cmdUnLock" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CmdUnLockClick" @onclick:preventDefault="true">@this.LocalizeText("cmdUnLock.Text")</a></li>
+    }
+    @if (this.passwordVisible)
+    {
+        <li><a id="cmdPassword" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CmdPasswordClick" @onclick:preventDefault="true">@this.LocalizeText("cmdPassword.Text")</a></li>
+    }
+    @if (this.toggleSuperuserVisible)
+    {
+        <li><a id="cmdToggleSuperuser" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.CmdToggleSuperuserClick" @onclick:preventDefault="true">@this.toggleSuperuserText</a></li>
+    }
+</ul>

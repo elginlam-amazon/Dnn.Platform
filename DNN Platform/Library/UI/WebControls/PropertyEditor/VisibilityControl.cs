@@ -9,8 +9,6 @@ namespace DotNetNuke.UI.WebControls
     using System.Globalization;
     using System.Linq;
     using System.Text;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -22,14 +20,30 @@ namespace DotNetNuke.UI.WebControls
     using DotNetNuke.Security.Roles;
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>The VisibilityControl control provides a base control for defining visibility options.</summary>
-    [ToolboxData("<{0}:VisibilityControl runat=server></{0}:VisibilityControl>")]
-    public class VisibilityControl : WebControl, IPostBackDataHandler, INamingContainer
+    /// <remarks>
+    /// <para>
+    /// The markup — the <c>dnnFormVisibility dnnDropdownSettings</c> container, the button/arrow and
+    /// the two <c>ul</c> lists of radios and checkboxes — is unchanged, including the form field
+    /// names, so <see cref="LoadPostData"/> (and the posted value shape it parses) is preserved.
+    /// </para>
+    /// <para>
+    /// The inline <c>visibleChange</c> script that showed the friends-and-groups list when the
+    /// matching radio was clicked is gone: the list's visibility is now rendered from the selected
+    /// visibility mode, which Blazor updates on every change. Inline scripts are not allowed in
+    /// Blazor components, and the behaviour does not need one.
+    /// </para>
+    /// </remarks>
+    public class VisibilityControl : PropertyEditorComponentBase
     {
         private readonly IApplicationStatusInfo appStatus;
         private readonly IEventLogger eventLogger;
+        private readonly NameValueCollection postValues = new NameValueCollection(StringComparer.Ordinal);
 
         /// <summary>Initializes a new instance of the <see cref="VisibilityControl"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IHostSettings. Scheduled removal in v12.0.0.")]
@@ -47,23 +61,38 @@ namespace DotNetNuke.UI.WebControls
             this.eventLogger = eventLogger ?? Globals.GetCurrentServiceProvider().GetRequiredService<IEventLogger>();
         }
 
+        /// <summary>Occurs when the visibility of the property has changed.</summary>
         public event PropertyChangedEventHandler VisibilityChanged;
+
+        /// <summary>Gets or sets a callback raised in addition to the <see cref="VisibilityChanged"/> event.</summary>
+        [Parameter]
+        public EventCallback<PropertyEditorEventArgs> VisibilityChangedCallback { get; set; }
 
         /// <summary>Gets or sets caption.</summary>
         /// <value>A string representing the Name of the property.</value>
+        [Parameter]
         public string Caption { get; set; }
 
         /// <summary>Gets or sets name is the name of the field as a string.</summary>
         /// <value>A string representing the Name of the property.</value>
+        [Parameter]
         public string Name { get; set; }
 
         /// <summary>Gets or sets the UserInfo object that represents the User whose profile is being displayed.</summary>
+        [Parameter]
         public UserInfo User { get; set; }
 
         /// <summary>Gets or sets stringValue is the value of the control expressed as a String.</summary>
         /// <value>A string representing the Value.</value>
+        [Parameter]
         public object Value { get; set; }
 
+        /// <summary>Gets the values that <see cref="LoadPostData"/> reads from.</summary>
+        /// <remarks>Replaces the <c>NameValueCollection</c> that Web Forms handed to
+        /// <c>IPostBackDataHandler.LoadPostData</c>; it is kept up to date as the user edits.</remarks>
+        protected NameValueCollection PostValues => this.postValues;
+
+        /// <summary>Gets or sets the visibility of the property.</summary>
         protected ProfileVisibility Visibility
         {
             get => this.Value as ProfileVisibility;
@@ -76,6 +105,8 @@ namespace DotNetNuke.UI.WebControls
         /// <returns><see langword="true"/> if the value has changed, otherwise <see langword="false"/>.</returns>
         public virtual bool LoadPostData(string postDataKey, NameValueCollection postCollection)
         {
+            ArgumentNullException.ThrowIfNull(postCollection);
+
             var dataChanged = false;
             var presentVisibility = this.Visibility.VisibilityMode;
             var postedValue = Convert.ToInt32(postCollection[postDataKey], CultureInfo.InvariantCulture);
@@ -141,160 +172,207 @@ namespace DotNetNuke.UI.WebControls
             JavaScript.RequestRegistration(this.appStatus, this.eventLogger, PortalSettings.Current, CommonJs.jQuery);
         }
 
-        /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
-        {
-            base.OnPreRender(e);
-
-            this.Page.RegisterRequiresPostBack(this);
-            this.Page.ClientScript.RegisterClientScriptBlock(this.GetType(), "visibleChange", "$(document).ready(function(){$('.dnnFormVisibility').on('click', 'input[type=radio]', function(){$(this).parent().parent().find('ul').hide();$(this).parent().next('ul').show();});});", true);
-        }
-
         /// <summary>OnVisibilityChanged runs when the Visibility has changed.  It raises the <see cref="VisibilityChanged"/> Event.</summary>
         /// <param name="e">The event arguments.</param>
         protected virtual void OnVisibilityChanged(PropertyEditorEventArgs e)
         {
-            if (this.VisibilityChanged != null)
+            this.VisibilityChanged?.Invoke(this, e);
+            if (this.VisibilityChangedCallback.HasDelegate)
             {
-                this.VisibilityChanged(this, e);
+                this.VisibilityChangedCallback.InvokeAsync(e);
             }
         }
 
-        /// <summary>Render renders the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void Render(HtmlTextWriter writer)
+        /// <inheritdoc />
+        protected override void RenderContent(RenderTreeBuilder builder)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
             // Render Div container
-            writer.AddAttribute(HtmlTextWriterAttribute.Class, "dnnFormVisibility dnnDropdownSettings");
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.RenderBeginTag(HtmlTextWriterTag.Div);
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "dnnFormVisibility dnnDropdownSettings");
+            builder.AddAttribute(2, "name", this.UniqueID);
 
             // Render dnnButtonDropdown
-            writer.AddAttribute(HtmlTextWriterAttribute.Class, "dnnButtonDropdown");
-            writer.RenderBeginTag(HtmlTextWriterTag.Div);
+            builder.OpenElement(3, "div");
+            builder.AddAttribute(4, "class", "dnnButtonDropdown");
 
             // Render dnnButton Icon
-            writer.AddAttribute(HtmlTextWriterAttribute.Class, "dnnButtonIcon");
-            writer.RenderBeginTag(HtmlTextWriterTag.Div);
-
-            ////writer.AddAttribute(HtmlTextWriterAttribute.Src, IconController.IconURL("Lock"));
-            ////writer.RenderBeginTag(HtmlTextWriterTag.Img);
-
-            // Close Image Tag
-            ////writer.RenderEndTag();
-
-            // Close dnnButtonIcon
-            writer.RenderEndTag();
+            builder.OpenElement(5, "div");
+            builder.AddAttribute(6, "class", "dnnButtonIcon");
+            builder.CloseElement();
 
             // render dnnButton Arrow
-            writer.AddAttribute(HtmlTextWriterAttribute.Class, "dnnButtonArrow");
-            writer.RenderBeginTag(HtmlTextWriterTag.Div);
-            writer.RenderEndTag();
+            builder.OpenElement(7, "div");
+            builder.AddAttribute(8, "class", "dnnButtonArrow");
+            builder.CloseElement();
 
             // Close dnnButton Dropdown
-            writer.RenderEndTag();
+            builder.CloseElement();
 
             // Render UL for radio Button List
-            ////writer.AddStyleAttribute(HtmlTextWriterStyle.Display, "none");
-            writer.AddAttribute(HtmlTextWriterAttribute.Class, "dnnButtonDropdown-ul");
+            builder.OpenElement(10, "ul");
+            builder.AddAttribute(11, "class", "dnnButtonDropdown-ul");
 
-            writer.RenderBeginTag(HtmlTextWriterTag.Ul);
+            this.RenderVisibility(builder, 20, "0", UserVisibilityMode.AllUsers, Localization.GetString("Public").Trim());
 
-            this.RenderVisibility(writer, "0", UserVisibilityMode.AllUsers, Localization.GetString("Public").Trim());
+            this.RenderVisibility(builder, 30, "1", UserVisibilityMode.MembersOnly, Localization.GetString("MembersOnly").Trim());
 
-            this.RenderVisibility(writer, "1", UserVisibilityMode.MembersOnly, Localization.GetString("MembersOnly").Trim());
+            this.RenderVisibility(builder, 40, "2", UserVisibilityMode.AdminOnly, Localization.GetString("AdminOnly").Trim());
 
-            this.RenderVisibility(writer, "2", UserVisibilityMode.AdminOnly, Localization.GetString("AdminOnly").Trim());
-
-            this.RenderVisibility(writer, "3", UserVisibilityMode.FriendsAndGroups, Localization.GetString("FriendsGroups").Trim());
+            this.RenderVisibility(builder, 50, "3", UserVisibilityMode.FriendsAndGroups, Localization.GetString("FriendsGroups").Trim());
 
             // Render UL for check Box List
-            writer.AddStyleAttribute(HtmlTextWriterStyle.Display, this.Visibility.VisibilityMode == UserVisibilityMode.FriendsAndGroups ? "block" : "none");
-            writer.RenderBeginTag(HtmlTextWriterTag.Ul);
+            builder.OpenElement(60, "ul");
+            builder.AddAttribute(
+                61,
+                "style",
+                this.Visibility.VisibilityMode == UserVisibilityMode.FriendsAndGroups ? "display:block;" : "display:none;");
 
-            this.RenderRelationships(writer);
-            this.RenderGroups(writer);
+            this.RenderRelationships(builder, 70);
+            this.RenderGroups(builder, 80);
 
             // Close UL
-            writer.RenderEndTag();
+            builder.CloseElement();
 
             // Close UL
-            writer.RenderEndTag();
+            builder.CloseElement();
 
             // Close Div
-            writer.RenderEndTag();
+            builder.CloseElement();
         }
 
-        private void RenderVisibility(HtmlTextWriter writer, string optionValue, UserVisibilityMode selectedVisibility, string optionText)
+        private void RenderVisibility(RenderTreeBuilder builder, int sequence, string optionValue, UserVisibilityMode selectedVisibility, string optionText)
         {
             // Render Li
-            writer.RenderBeginTag(HtmlTextWriterTag.Li);
+            builder.OpenElement(sequence, "li");
 
             // Render radio button
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "radio");
-            writer.AddAttribute("aria-label", this.ID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Value, optionValue);
+            builder.OpenElement(sequence + 1, "input");
+            builder.AddAttribute(sequence + 2, "type", "radio");
+            builder.AddAttribute(sequence + 3, "aria-label", this.ID);
+            builder.AddAttribute(sequence + 4, "name", this.UniqueID);
+            builder.AddAttribute(sequence + 5, "value", optionValue);
             if (this.Visibility.VisibilityMode == selectedVisibility)
             {
-                writer.AddAttribute(HtmlTextWriterAttribute.Checked, "checked");
+                builder.AddAttribute(sequence + 6, "checked", "checked");
             }
 
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.Write(optionText);
-            writer.RenderEndTag();
+            builder.AddAttribute(
+                sequence + 7,
+                "onchange",
+                EventCallback.Factory.Create<ChangeEventArgs>(this, () => this.OnModeSelected(selectedVisibility)));
+            builder.CloseElement();
+
+            builder.AddContent(sequence + 8, optionText);
 
             // Close Li
-            writer.RenderEndTag();
+            builder.CloseElement();
         }
 
-        private void RenderCheckboxItem(HtmlTextWriter writer, string prefix, string value, string text, bool selected)
+        private void RenderCheckboxItem(RenderTreeBuilder builder, int sequence, string prefix, string value, string text, bool selected)
         {
             // Render Li
-            writer.RenderBeginTag(HtmlTextWriterTag.Li);
+            builder.OpenElement(sequence, "li");
 
-            // Render radio button
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "checkbox");
-            writer.AddAttribute("aria-label", this.ID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID + prefix + value);
-            writer.AddAttribute(HtmlTextWriterAttribute.Value, value);
+            // Render check box
+            builder.OpenElement(sequence + 1, "input");
+            builder.AddAttribute(sequence + 2, "type", "checkbox");
+            builder.AddAttribute(sequence + 3, "aria-label", this.ID);
+            builder.AddAttribute(sequence + 4, "name", this.UniqueID + prefix + value);
+            builder.AddAttribute(sequence + 5, "value", value);
             if (selected)
             {
-                writer.AddAttribute(HtmlTextWriterAttribute.Checked, "checked");
+                builder.AddAttribute(sequence + 6, "checked", "checked");
             }
 
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.Write(text);
-            writer.RenderEndTag();
+            builder.AddAttribute(
+                sequence + 7,
+                "onchange",
+                EventCallback.Factory.Create<ChangeEventArgs>(this, args => this.OnMemberToggled(prefix, value, args)));
+            builder.CloseElement();
+
+            builder.AddContent(sequence + 8, text);
 
             // Close Li
-            writer.RenderEndTag();
+            builder.CloseElement();
         }
 
-        private void RenderGroups(HtmlTextWriter writer)
+        private void RenderGroups(RenderTreeBuilder builder, int sequence)
         {
+            builder.OpenRegion(sequence);
             foreach (var group in this.User.Social.Roles.Where((role) => role.SecurityMode != SecurityMode.SecurityRole))
             {
                 this.RenderCheckboxItem(
-                    writer,
+                    builder,
+                    0,
                     ":group_",
                     group.RoleID.ToString(CultureInfo.InvariantCulture),
                     group.RoleName,
                     this.Visibility.RoleVisibilities.Count(r => r.RoleID == group.RoleID) == 1);
             }
+
+            builder.CloseRegion();
         }
 
-        private void RenderRelationships(HtmlTextWriter writer)
+        private void RenderRelationships(RenderTreeBuilder builder, int sequence)
         {
+            builder.OpenRegion(sequence);
             foreach (var relationship in this.User.Social.Relationships)
             {
                 var selected = this.Visibility.RelationshipVisibilities.Count(r => r.RelationshipId == relationship.RelationshipId) == 1;
                 this.RenderCheckboxItem(
-                    writer,
+                    builder,
+                    0,
                     ":relationship_",
                     relationship.RelationshipId.ToString(CultureInfo.InvariantCulture),
                     relationship.Name,
                     selected);
+            }
+
+            builder.CloseRegion();
+        }
+
+        /// <summary>Records the selected visibility mode and applies it.</summary>
+        /// <param name="mode">The selected mode.</param>
+        /// <remarks>
+        /// This replaces the Web Forms postback: the posted values are assembled from the current
+        /// state of the control and handed to <see cref="LoadPostData"/>, which is where the posted
+        /// value shape is interpreted, so overrides of it keep working.
+        /// </remarks>
+        private void OnModeSelected(UserVisibilityMode mode)
+        {
+            this.PostValues[this.UniqueID] = ((int)mode).ToString(CultureInfo.InvariantCulture);
+            this.Commit();
+        }
+
+        private void OnMemberToggled(string prefix, string value, ChangeEventArgs args)
+        {
+            var key = this.UniqueID + prefix + value;
+            var isChecked = args?.Value is bool boolValue
+                ? boolValue
+                : !string.IsNullOrEmpty(args?.Value?.ToString());
+
+            // A checkbox only posted a value when it was checked, and LoadPostData tests for the
+            // presence of the key, so an unchecked box has to remove it again.
+            if (isChecked)
+            {
+                this.PostValues[key] = value;
+            }
+            else
+            {
+                this.PostValues.Remove(key);
+            }
+
+            this.PostValues[this.UniqueID] = ((int)UserVisibilityMode.FriendsAndGroups).ToString(CultureInfo.InvariantCulture);
+            this.Commit();
+        }
+
+        private void Commit()
+        {
+            if (this.LoadPostData(this.UniqueID, this.PostValues))
+            {
+                this.RaisePostDataChangedEvent();
             }
         }
     }

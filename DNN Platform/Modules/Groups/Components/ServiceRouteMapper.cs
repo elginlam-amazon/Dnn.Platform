@@ -4,16 +4,16 @@
 
 namespace DotNetNuke.Modules.Groups
 {
-    using System;
-
     using DotNetNuke.Web.Api;
 
     public class ServiceRouteMapper : IServiceRouteMapper
     {
+        private static readonly string[] RouteNamespaces = { "DotNetNuke.Modules.Groups" };
+
         /// <inheritdoc />
         public void RegisterRoutes(IMapRoute mapRouteManager)
         {
-            mapRouteManager.MapHttpRoute("SocialGroups", "default", "{controller}/{action}", new[] { "DotNetNuke.Modules.Groups" });
+            mapRouteManager.MapHttpRoute("SocialGroups", "default", "{controller}/{action}", RouteNamespaces);
         }
     }
 }

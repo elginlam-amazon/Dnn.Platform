@@ -5,6 +5,11 @@
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <NoWarn>CS1591</NoWarn>
+    <!-- The repository is reachable through two paths (a symlink and its target). MSBuild's
+         IncrementalClean then treats each project's reference assembly as orphaned and deletes
+         it mid-build, producing spurious CS0006 "Metadata file ... /ref/*.dll could not be
+         found" failures. Referencing the real output assemblies removes the contested artifact. -->
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
     <NoWarn Condition="$(MSBuildProjectName.Contains('.Test'))">SA0001,SA1600,$(NoWarn)</NoWarn>
   </PropertyGroup>
   <ItemGroup>

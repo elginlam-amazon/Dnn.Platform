@@ -30,9 +30,7 @@ namespace log4net.Core
     /// as that would require that the containing assembly is loaded.
     /// </summary>
     /// 
-#if !NETCF
     [Serializable]
-#endif
     public class MethodItem
     {
         /// <summary>constructs a method item for an unknown method.</summary>

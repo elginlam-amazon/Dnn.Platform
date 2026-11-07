@@ -30,11 +30,7 @@
 // by using the '*' as shown below:
 [assembly: System.Reflection.AssemblyVersion("3.0.2.0")]
 
-#if !NETCF
-#if !SSCLI
 [assembly: System.Reflection.AssemblyFileVersion("3.0.2.0")]
-#endif
-#endif
 
 //
 // Shared assembly settings

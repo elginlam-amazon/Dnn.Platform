@@ -5,18 +5,20 @@
 namespace DotNetNuke.Modules.Journal.Components;
 
 using System;
-using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Web;
 
+using DotNetNuke.Common;
 using DotNetNuke.Entities.Users;
 using DotNetNuke.Entities.Users.Social;
 using DotNetNuke.Services.Localization;
+
+using SixLabors.ImageSharp;
 
 /// <summary>Utilities for the journal module.</summary>
 public class Utilities
@@ -40,6 +42,13 @@ public class Utilities
     private static readonly Regex ResexRegex = new Regex("(\\{resx:.+?\\})", RegexOptions.Compiled);
 
     private static readonly Regex HtmlTextRegex = new Regex("<(.|\\n)*?>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Caches one <see cref="HttpClient"/> per credential so the credentialed path in
+    /// <see cref="GetPageFromURL"/> does not create a client (and therefore a connection pool)
+    /// per call, which would exhaust sockets.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HttpClient> CredentialedClients = new();
 
     /// <summary>Localizes a control.</summary>
     /// <param name="controlText">The text of the control to localize.</param>
@@ -83,8 +92,8 @@ public class Utilities
             return string.Empty;
         }
 
-        sText = HttpUtility.HtmlDecode(sText);
-        sText = HttpUtility.UrlDecode(sText);
+        sText = WebUtility.HtmlDecode(sText);
+        sText = WebUtility.UrlDecode(sText);
         sText = sText.Trim();
         if (string.IsNullOrEmpty(sText))
         {
@@ -92,7 +101,7 @@ public class Utilities
         }
 
         sText = HtmlTextRegex.Replace(sText, string.Empty);
-        return HttpUtility.HtmlEncode(sText);
+        return WebUtility.HtmlEncode(sText);
     }
 
     /// <summary>Determines whether two users are friends.</summary>
@@ -107,10 +116,9 @@ public class Utilities
 
     /// <summary>Gets an image from the specified URL.</summary>
     /// <param name="url">The URL of the image.</param>
-    /// <returns>The image as a Bitmap, or null if the image could not be retrieved.</returns>
-    internal static Bitmap GetImageFromURL(string url)
+    /// <returns>The image, or <see langword="null"/> if the image could not be retrieved.</returns>
+    internal static Image GetImageFromURL(string url)
     {
-        Bitmap bmp = null;
         try
         {
             if (!TryGetSafeUri(url, out var imageUri))
@@ -118,11 +126,18 @@ public class Utilities
                 return null;
             }
 
-            var myRequest = WebRequest.Create(imageUri);
-            myRequest.Proxy = null;
-            using var myResponse = myRequest.GetResponse();
-            using var myStream = myResponse.GetResponseStream();
-            var contentType = myResponse.ContentType;
+            // The DNN external-request HttpClient (IHttpClientFactory registration
+            // Globals.ExternalRequestHttpClientName) replaces WebRequest.Create and carries the
+            // host's request timeout, user agent and proxy configuration.
+            // Deliberate change from the legacy code's Proxy = null: the shared DNN external
+            // client applies the host's configured proxy, which is the behaviour the rest of
+            // the migrated platform has. Outbound fetches therefore follow host proxy policy
+            // instead of always going direct.
+            var client = Globals.GetExternalHttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Get, imageUri);
+            using var response = client.Send(request, HttpCompletionOption.ResponseHeadersRead);
+            using var myStream = response.Content.ReadAsStream();
+            var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
             var extension = string.Empty;
             if (contentType.Contains("png"))
             {
@@ -137,12 +152,12 @@ public class Utilities
                 extension = ".gif";
             }
 
-            if (!string.IsNullOrEmpty(extension) && myStream is not null)
+            if (string.IsNullOrEmpty(extension) || myStream is null)
             {
-                bmp = new Bitmap(myStream);
+                return null;
             }
 
-            return bmp;
+            return Image.Load(myStream);
         }
         catch
         {
@@ -209,8 +224,8 @@ public class Utilities
 
         if (!string.IsNullOrEmpty(link.Description))
         {
-            link.Description = HttpUtility.HtmlDecode(link.Description);
-            link.Description = HttpUtility.UrlDecode(link.Description);
+            link.Description = WebUtility.HtmlDecode(link.Description);
+            link.Description = WebUtility.UrlDecode(link.Description);
             link.Description = RemoveHTML(link.Description);
         }
 
@@ -254,7 +269,7 @@ public class Utilities
             var img = new ImageInfo { URL = imgSrc, };
             if (!imgList.Contains(imgSrc))
             {
-                var bmp = GetImageFromURL(imgSrc);
+                using var bmp = GetImageFromURL(imgSrc);
                 if (bmp != null)
                 {
                     if (bmp.Height > 25 & bmp.Height < 500 & bmp.Width > 25 & bmp.Width < 500)
@@ -282,8 +297,6 @@ public class Utilities
     /// <returns>The HTML content of the page as a string.</returns>
     internal static string GetPageFromURL(ref string url, string username, string password)
     {
-        var cookies = new CookieContainer();
-
         Uri pageUri;
         try
         {
@@ -296,30 +309,33 @@ public class Utilities
             return string.Empty;
         }
 
-        var webRequest = (HttpWebRequest)WebRequest.Create(pageUri);
-        webRequest.KeepAlive = false;
-        webRequest.Proxy = null;
-        webRequest.CookieContainer = cookies;
-        if (!string.IsNullOrEmpty(username) & !string.IsNullOrEmpty(password))
-        {
-            webRequest.Credentials = new NetworkCredential(username, password);
-        }
-
         var html = string.Empty;
         try
         {
-            var webResponse = (HttpWebResponse)webRequest.GetResponse();
-            if (webRequest.HaveResponse & webResponse.StatusCode == HttpStatusCode.OK)
+            // HttpClient replaces HttpWebRequest. KeepAlive=false becomes a Connection: close
+            // header, the CookieContainer round-trip is handled by the handler, and the proxy /
+            // timeout configuration comes from the DnnExternalRequest HttpClient registration.
+            // Deliberate change from the legacy code's Proxy = null: the shared DNN external
+            // client applies the host's configured proxy, which is the behaviour the rest of
+            // the migrated platform has. Outbound fetches therefore follow host proxy policy
+            // instead of always going direct.
+            // When credentials are supplied they go on a handler as a NetworkCredential with
+            // PreAuthenticate=false, which is what HttpWebRequest.Credentials did: the credentials
+            // are sent only in response to a challenge, and NTLM/Digest/Negotiate still work. A
+            // preemptive "Authorization: Basic" header would break both of those.
+            var client = string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password)
+                ? Globals.GetExternalHttpClient()
+                : GetCredentialedHttpClient(username, password);
+            using var request = new HttpRequestMessage(HttpMethod.Get, pageUri);
+            request.Headers.ConnectionClose = true;
+
+            using var response = client.Send(request, HttpCompletionOption.ResponseHeadersRead);
+            if (response.StatusCode == HttpStatusCode.OK)
             {
-                webResponse.Cookies = webRequest.CookieContainer.GetCookies(webRequest.RequestUri);
-                using var stream = webResponse.GetResponseStream();
+                using var stream = response.Content.ReadAsStream();
                 using var streamReader = new StreamReader(stream, Encoding.UTF8);
                 html = streamReader.ReadToEnd();
-                streamReader.Close();
-                stream.Close();
             }
-
-            webResponse.Close();
         }
         catch (Exception ex)
         {
@@ -327,6 +343,27 @@ public class Utilities
         }
 
         return html;
+    }
+
+    /// <summary>Gets a client that authenticates with the given credentials when challenged.</summary>
+    /// <param name="username">The user name to authenticate with.</param>
+    /// <param name="password">The password to authenticate with.</param>
+    /// <returns>A cached <see cref="HttpClient"/> for these credentials.</returns>
+    /// <remarks>
+    /// <see cref="HttpClientHandler.PreAuthenticate"/> is left <see langword="false"/>, so the
+    /// credentials are only sent after the server issues a challenge, and
+    /// <see cref="HttpClientHandler.Credentials"/> supports NTLM, Digest and Negotiate, exactly as
+    /// <c>HttpWebRequest.Credentials</c> did.
+    /// </remarks>
+    private static HttpClient GetCredentialedHttpClient(string username, string password)
+    {
+        return CredentialedClients.GetOrAdd(
+            $"{username}\n{password}",
+            _ => new HttpClient(new HttpClientHandler
+            {
+                Credentials = new NetworkCredential(username, password),
+                PreAuthenticate = false,
+            }));
     }
 
     private static bool TryGetSafeUri(string input, out Uri uri)

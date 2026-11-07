@@ -18,16 +18,11 @@
 // limitations under the License.
 // 
 
-#if NET_2_0 // really only because netstandard doesn't understand Assembly.GetCallingAssembly()
 using System;
 using System.Xml;
-using System.Collections;
 using System.IO;
 using System.Reflection;
-using System.Threading;
 
-using log4net.Appender;
-using log4net.Util;
 using log4net.Repository;
 
 namespace log4net.Config
@@ -157,11 +152,10 @@ namespace log4net.Config
         /// <code lang="C#">
         /// using log4net.Config;
         /// using System.IO;
-        /// using System.Configuration;
         /// 
         /// ...
         /// 
-        /// DOMConfigurator.Configure(new FileInfo(ConfigurationSettings.AppSettings["log4net-config-file"]));
+        /// DOMConfigurator.Configure(new FileInfo(Path.Combine(AppContext.BaseDirectory, "log4net.config")));
         /// </code>
         /// <para>
         /// In the <c>.config</c> file, the path to the log4net can be specified like this :
@@ -230,11 +224,10 @@ namespace log4net.Config
         /// <code lang="C#">
         /// using log4net.Config;
         /// using System.IO;
-        /// using System.Configuration;
         /// 
         /// ...
         /// 
-        /// DOMConfigurator.Configure(new FileInfo(ConfigurationSettings.AppSettings["log4net-config-file"]));
+        /// DOMConfigurator.Configure(new FileInfo(Path.Combine(AppContext.BaseDirectory, "log4net.config")));
         /// </code>
         /// <para>
         /// In the <c>.config</c> file, the path to the log4net can be specified like this :
@@ -278,8 +271,6 @@ namespace log4net.Config
         {
             XmlConfigurator.Configure(repository, configStream);
         }
-
-#if (!NETCF && !SSCLI)
 
         /// <summary>
         /// Configures log4net using the file specified, monitors the file for changes 
@@ -342,7 +333,5 @@ namespace log4net.Config
         {
             XmlConfigurator.ConfigureAndWatch(repository, configFile);
         }
-#endif
     }
 }
-#endif // NET_2_0

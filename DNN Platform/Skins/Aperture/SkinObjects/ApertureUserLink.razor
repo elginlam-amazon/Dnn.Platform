@@ -1,0 +1,38 @@
+@* Replacement for the dnn:User skin object (~/Admin/Skins/user.ascx), used by partials/_header.ascx.
+   user.ascx renders a registration link for anonymous visitors and the current user's display name
+   linking to their profile once authenticated. The registration link is omitted when the host
+   reports no registration URL, matching the control's behaviour on portals with registration off. *@
+@inject IApertureSkinContext SkinContext
+
+<AuthorizeView>
+    <Authorized>
+        <a class="aperture-user" href="@this.links.ProfileHref">@DisplayNameOf(context)</a>
+    </Authorized>
+    <NotAuthorized>
+        @if (this.links.RegisterHref.Length > 0)
+        {
+            <a class="aperture-user" href="@this.links.RegisterHref">Register</a>
+        }
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private ApertureUserLinks links;
+
+    /// <inheritdoc />
+    protected override async Task OnInitializedAsync()
+    {
+        this.links = await this.SkinContext.GetUserLinksAsync();
+    }
+
+    /// <summary>
+    /// Resolves the name to display for an authenticated user, preferring the host-supplied display
+    /// name and falling back to the authenticated identity name.
+    /// </summary>
+    /// <param name="state">The current authentication state supplied by <c>AuthorizeView</c>.</param>
+    /// <returns>The name to render.</returns>
+    private string DisplayNameOf(AuthenticationState state)
+        => this.links.DisplayName.Length > 0
+            ? this.links.DisplayName
+            : state.User.Identity?.Name ?? string.Empty;
+}

@@ -5,9 +5,9 @@ namespace DotNetNuke.Services.Exceptions
 {
     using System;
     using System.Runtime.Serialization;
-    using System.Web;
     using System.Xml.Serialization;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.UserRequest;
 
@@ -50,6 +50,7 @@ namespace DotNetNuke.Services.Exceptions
         /// <summary>Initializes a new instance of the <see cref="SecurityException"/> class.</summary>
         /// <param name="info">The serialization info.</param>
         /// <param name="context">The streaming context.</param>
+#pragma warning disable SYSLIB0051 // Formatter-based serialization is obsolete; ctor retained for public surface compatibility.
         protected SecurityException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
@@ -57,6 +58,7 @@ namespace DotNetNuke.Services.Exceptions
             this.ip = info.GetString("m_IP");
             this.querystring = info.GetString("m_Querystring");
         }
+#pragma warning restore SYSLIB0051
 
         [XmlElement("IP")]
         public string IP
@@ -82,14 +84,17 @@ namespace DotNetNuke.Services.Exceptions
             try
             {
                 var userRequestIpAddressController = UserRequestIPAddressController.Instance;
-                var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress(new HttpRequestWrapper(HttpContext.Current.Request));
+
+                // The HttpRequestWrapper/HttpRequestBase indirection no longer exists; the
+                // controller's ambient overload reads the current request directly.
+                var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress();
 
                 if (ipAddress != null)
                 {
                     this.ip = ipAddress;
                 }
 
-                this.querystring = HttpContext.Current.Request.MapPath(this.Querystring, HttpContext.Current.Request.ApplicationPath, false);
+                this.querystring = HttpContextSource.MapPath(this.Querystring);
             }
             catch (Exception exc)
             {

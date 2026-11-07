@@ -5,8 +5,6 @@ namespace DotNetNuke.Services.Search.Internals
 {
     using System.Diagnostics.CodeAnalysis;
 
-    using Version = Lucene.Net.Util.Version;
-
     /// <summary>Constants.</summary>
     internal static class Constants
     {
@@ -103,6 +101,6 @@ namespace DotNetNuke.Services.Search.Internals
         };
 
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
-        internal static Version LuceneVersion = Version.LUCENE_30;
+        internal static Lucene.Net.Util.LuceneVersion LuceneVersion = Lucene.Net.Util.LuceneVersion.LUCENE_48;
     }
 }

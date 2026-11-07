@@ -1,0 +1,225 @@
+﻿@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Groups
+@inherits DotNetNuke.Modules.Groups.GroupsModuleBase
+
+@*
+    No per-page @rendermode is declared on purpose. This component is a descendant of
+    <Routes @rendermode="InteractiveServer"> in the host document (Website/Components/App.razor),
+    so its @onclick/@onchange handlers are interactive without — and must not repeat — a
+    per-page directive. This is the convention the already-migrated DNNConnect.CKE and DDRMenu
+    components follow.
+*@
+
+@using System.Threading.Tasks
+@using DotNetNuke.Framework
+@using Microsoft.JSInterop
+
+@*
+    Replaces List.ascx and List.ascx.cs.
+
+    Control mapping:
+
+      asp:Panel panelSearch (DefaultButton="btnSearch") -> the <div> below, rendered only when
+                                                    GroupListSearchEnabled, exactly as Page_Load's
+                                                    panelSearch.Visible assignment did. The
+                                                    DefaultButton behaviour (Enter submits the
+                                                    search) is the @onkeypress handler on the text
+                                                    box, which is what WebForms emitted client
+                                                    script for.
+      asp:TextBox txtFilter                      -> <input type="text"> bound to this.filter.
+      asp:LinkButton btnSearch (SearchButton)    -> an anchor with an @onclick handler, which is
+                                                    the canonical LinkButton mapping.
+      asp:RequiredFieldValidator reqSearch       -> the "GroupSearch.Required" message, shown by
+                                                    the same validation the "searchGroups"
+                                                    validation group performed before the postback
+                                                    (btnSearch_Click's "if (!Page.IsValid) return").
+      dnn:GroupListControl ctlGroupList          -> the migrated <GroupListControl /> component.
+                                                    Its template properties are strings rather than
+                                                    RenderFragments because they are token
+                                                    substitution DATA fed to GroupViewParser, so
+                                                    the <itemtemplate> inner property becomes the
+                                                    verbatim string literal below, character for
+                                                    character.
+
+    The inline <script> block (the join-group handlers) moved to js/groupListInterop.js, because a
+    Blazor render cannot execute a <script> element it writes.
+*@
+
+<div class="dnnForm dnnClear dnnGroupDirectory">
+    <div class="dgdMainContent">
+
+        @if (this.searchEnabled)
+        {
+            <div id="panelSearch" class="dnnFormItem dnnClear" style="width:450px;">
+                <input type="text" id="txtFilter" class="dnnFixedSizeComboBox" value="@this.filter" @onchange="@(e => this.filter = e.Value?.ToString())" @onkeypress="this.FilterKeyPress" />
+                <a id="btnSearch" href="#" class="dnnPrimaryAction" @onclick="this.SearchClick" @onclick:preventDefault="true">@this.LocalizeText("SearchButton")</a>
+                <a href="@this.GetClearFilterUrl()">clear</a>
+                @if (this.showSearchRequired)
+                {
+                    <span id="reqSearch" class="dnnFormMessage dnnFormError">@this.LocalizeText("GroupSearch.Required")</span>
+                }
+            </div>
+        }
+
+        @if (this.CanCreate)
+        {
+            <a href="@this.GetCreateUrl()" class="dnnPrimaryAction createGroup">@this.LocalizeText("CreateNewGroup")</a>
+        }
+
+        <GroupListControl ItemsPerRow="1"
+                          ItemTemplate="@this.itemTemplate"
+                          HeaderTemplate=""
+                          FooterTemplate=""
+                          RowHeaderTemplate=""
+                          RowFooterTemplate=""
+                          TabId="@this.TabId"
+                          GroupViewTabId="@this.GroupViewTabId"
+                          RoleGroupId="@this.DefaultRoleGroupId"
+                          PageSize="@this.GroupListPageSize"
+                          DisplayCurrentUserGroups="@this.GroupListUserGroupsOnly"
+                          SearchFilter="@this.GroupListFilter"
+                          SortField="@this.sortField"
+                          SortDirection="@this.sortDirection"
+                          CurrentUser="@this.UserInfo"
+                          PortalSettings="@this.PortalSettings" />
+
+    </div>
+</div>
+
+@code {
+    /// <summary>The &lt;itemtemplate&gt; of the dnn:GroupListControl instance in List.ascx, verbatim.</summary>
+    private const string InlineItemTemplate = @"
+                <div class=""dgdGroupQuickInfoWrap dnnClear"">
+                    <div class=""dgdAvatar dnnLeft""><a href=""[groupviewurl]""><img src=""[groupitem:PhotoURL]"" alt=""[groupitem:GroupName]"" /></a></div>
+                    <div class=""dgdGroupQuickInfo dnnRight"">
+                        <h3><a href=""[groupviewurl]"" title=""[groupitem:GroupName]"">[groupitem:GroupName]</a></h3>
+                        <p>[groupitem:GroupDescription]</p>
+                        <ul>
+                            <li class=""posts-icn"">[groupitem:stat_status] {resx:posts}</li>
+                            <li class=""member-icn"">[groupitem:UserCount] {resx:members}</li>
+                            <li class=""photo-icn"">[groupitem:stat_photo] {resx:photos}</li>
+                            <li class=""docs-icn"">[groupitem:stat_file] {resx:documents}</li>
+                            <li class=""join-group-icn""><a href=""#"" title="""" id=""groupJoin-[groupitem:RoleId]"" class=""dnnTertiaryAction"" groupid=""[groupitem:RoleId]"" groupViewTabId =""[GroupViewTabId]"">{resx:Join}</a></li>
+                        </ul>
+                    </div>
+                </div>
+";
+
+    private string itemTemplate = InlineItemTemplate;
+    private string sortField = "rolename";
+    private string sortDirection = "asc";
+    private string filter = string.Empty;
+    private bool searchEnabled;
+    private bool showSearchRequired;
+
+    /// <summary>Gets or sets the navigation manager the search URL is composed with.</summary>
+    /// <remarks>This is the original public <c>_navigationManager</c> property, which stays part of the type's surface.</remarks>
+    [SuppressMessage("StyleCop.CSharp.NamingRules", "SA1300:ElementMustBeginWithUpperCaseLetter", Justification = "Breaking Change")]
+#pragma warning disable CS3008 // Identifier beginning with an underscore is not CLS-compliant
+    [Inject]
+    public INavigationManager _navigationManager { get; set; }
+#pragma warning restore CS3008 // Identifier beginning with an underscore is not CLS-compliant
+
+    /// <summary>Gets or sets the web API service framework the anti forgery support is requested from.</summary>
+    [Inject]
+    protected IServicesFramework ServicesFrameworkInstance { get; set; }
+
+    /// <summary>Gets or sets the JavaScript runtime the join handlers are wired through.</summary>
+    [Inject]
+    protected IJSRuntime JsRuntime { get; set; }
+
+    /// <inheritdoc />
+    /// <remarks>This is Page_Load of List.ascx.cs; every assignment onto ctlGroupList is now a parameter of the GroupListControl component above.</remarks>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        this.ServicesFrameworkInstance.RequestAjaxAntiForgerySupport();
+
+        this.searchEnabled = this.GroupListSearchEnabled;
+
+        this.sortField = this.GroupListSortField;
+        this.sortDirection = this.GroupListSortDirection;
+
+        if (!string.IsNullOrEmpty(this.GroupListSortField))
+        {
+            this.sortField = this.GroupListSortField;
+        }
+
+        if (!string.IsNullOrEmpty(this.GroupListSortDirection))
+        {
+            this.sortDirection = this.GroupListSortDirection;
+        }
+
+        if (!string.IsNullOrEmpty(this.GroupListTemplate))
+        {
+            this.itemTemplate = this.GroupListTemplate;
+        }
+
+        if (!string.IsNullOrEmpty(this.GroupListFilter))
+        {
+            this.filter = this.GroupListFilter;
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Runs the join client script the original emitted inline.</remarks>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender)
+        {
+            return;
+        }
+
+        IJSObjectReference module;
+        try
+        {
+            module = await this.JsRuntime.InvokeAsync<IJSObjectReference>(
+                "import", Globals.ResolveUrl(Constants.ModulePath + "js/groupListInterop.js"));
+        }
+        catch (JSException)
+        {
+            // the extension's assets are not reachable; the list degrades to plain markup.
+            return;
+        }
+
+        await module.InvokeVoidAsync(
+            "initGroupList",
+            new
+            {
+                moduleId = this.ModuleId,
+                pendingText = this.LocalizeText("Pending"),
+            });
+    }
+
+    /// <summary>Submits the search when Enter is pressed, which is what the panel's DefaultButton did.</summary>
+    /// <param name="args">The keyboard event args.</param>
+    private void FilterKeyPress(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            this.SearchClick();
+        }
+    }
+
+    /// <summary>Applies the search filter.</summary>
+    /// <remarks>This is btnSearch_Click of List.ascx.cs; Response.Redirect becomes a forced navigation.</remarks>
+    private void SearchClick()
+    {
+        // The "searchGroups" validation group held a single RequiredFieldValidator on txtFilter;
+        // this is that validator plus btnSearch_Click's "if (!this.Page.IsValid) return".
+        this.showSearchRequired = string.IsNullOrWhiteSpace(this.filter);
+        if (this.showSearchRequired)
+        {
+            return;
+        }
+
+        this.Navigation.NavigateTo(
+            this._navigationManager.NavigateURL(this.TabId, string.Empty, "filter=" + this.filter.Trim()),
+            forceLoad: true);
+    }
+}

@@ -7,7 +7,6 @@ namespace DotNetNuke.UI
     using System.Collections;
     using System.Collections.Generic;
     using System.Globalization;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common.Utilities;
@@ -19,6 +18,7 @@ namespace DotNetNuke.UI
     using DotNetNuke.Services.Localization;
     using DotNetNuke.UI.Containers;
     using DotNetNuke.UI.Modules;
+    using DotNetNuke.UI.Utilities;
     using DotNetNuke.UI.WebControls;
 
     public class Navigation
@@ -78,7 +78,7 @@ namespace DotNetNuke.UI
         /// <param name="objControl">ActionControl to base actions off of.</param>
         /// <returns>DNNNode.</returns>
         /// <remarks>Primary purpose of this is to obtain the DNNNode needed for the events exposed by the NavigationProvider.</remarks>
-        public static DNNNode GetActionNode(string strID, string strNamespace, ModuleAction objActionRoot, Control objControl)
+        public static DNNNode GetActionNode(string strID, string strNamespace, ModuleAction objActionRoot, IClientApiControl objControl)
         {
             DNNNodeCollection objNodes = GetActionNodes(objActionRoot, objControl, -1);
             DNNNode objNode = objNodes.FindNode(strID);
@@ -95,7 +95,7 @@ namespace DotNetNuke.UI
         /// <param name="objActionRoot">Root module action.</param>
         /// <param name="objControl">ActionControl to base actions off of.</param>
         /// <returns>A new <see cref="DNNNodeCollection"/>.</returns>
-        public static DNNNodeCollection GetActionNodes(ModuleAction objActionRoot, Control objControl)
+        public static DNNNodeCollection GetActionNodes(ModuleAction objActionRoot, IClientApiControl objControl)
         {
             return GetActionNodes(objActionRoot, objControl, -1);
         }
@@ -108,9 +108,9 @@ namespace DotNetNuke.UI
         /// <param name="objControl">ActionControl to base actions off of.</param>
         /// <param name="intDepth">How many levels deep should be populated.</param>
         /// <returns>A new <see cref="DNNNodeCollection"/>.</returns>
-        public static DNNNodeCollection GetActionNodes(ModuleAction objActionRoot, Control objControl, int intDepth)
+        public static DNNNodeCollection GetActionNodes(ModuleAction objActionRoot, IClientApiControl objControl, int intDepth)
         {
-            var objCol = new DNNNodeCollection(objControl.ClientID);
+            var objCol = new DNNNodeCollection(objControl.ClientId);
 
             if (objControl is IActionControl objActionControl)
             {
@@ -140,7 +140,7 @@ namespace DotNetNuke.UI
         /// <param name="objControl">ActionControl to base actions off of.</param>
         /// <param name="intDepth">How many levels deep should be populated.</param>
         /// <returns>A <see cref="DNNNodeCollection"/>.</returns>
-        public static DNNNodeCollection GetActionNodes(ModuleAction objActionRoot, DNNNode objRootNode, Control objControl, int intDepth)
+        public static DNNNodeCollection GetActionNodes(ModuleAction objActionRoot, DNNNode objRootNode, IClientApiControl objControl, int intDepth)
         {
             DNNNodeCollection objCol = objRootNode.ParentNode.DNNNodes;
             var objActionControl = objControl as IActionControl;

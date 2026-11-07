@@ -5,7 +5,6 @@ namespace DotNetNuke.Entities.Host
 {
     using System;
     using System.Net;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -16,9 +15,10 @@ namespace DotNetNuke.Entities.Host
         public virtual string GetServerUrl()
         {
             var domainName = string.Empty;
-            if (HttpContext.Current != null)
+            var currentRequest = HttpContextSource.Current?.Request;
+            if (currentRequest != null)
             {
-                domainName = Globals.GetDomainName(HttpContext.Current.Request);
+                domainName = Globals.GetDomainName(currentRequest);
 
                 if (domainName.Contains("/", StringComparison.Ordinal))
                 {

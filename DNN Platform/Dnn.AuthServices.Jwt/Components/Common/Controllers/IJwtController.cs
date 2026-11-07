@@ -4,9 +4,9 @@
 
 namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
 {
-    using System.Net.Http;
-
     using Dnn.AuthServices.Jwt.Components.Entity;
+
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Controls JWT features.</summary>
     public interface IJwtController
@@ -17,23 +17,23 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
         /// <summary>Validates the JWT token for the request.</summary>
         /// <param name="request">The current HTTP request.</param>
         /// <returns>Returns the UserName if the token is valid or null if not.</returns>
-        string ValidateToken(HttpRequestMessage request);
+        string ValidateToken(HttpRequest request);
 
         /// <summary>Logs the user out.</summary>
         /// <param name="request">The current HTTP request.</param>
         /// <returns>A value indicating whether the logout attempt succeeded.</returns>
-        bool LogoutUser(HttpRequestMessage request);
+        bool LogoutUser(HttpRequest request);
 
         /// <summary>Logs the user in.</summary>
         /// <param name="request">The current HTTP request.</param>
         /// <param name="loginData">The login information, <see cref="LoginData"/>.</param>
         /// <returns><see cref="LoginResultData"/>.</returns>
-        LoginResultData LoginUser(HttpRequestMessage request, LoginData loginData);
+        LoginResultData LoginUser(HttpRequest request, LoginData loginData);
 
         /// <summary>Attempts to renew a JWT token.</summary>
         /// <param name="request">The current HTTP request.</param>
         /// <param name="renewalToken">The JWT renewal token.</param>
         /// <returns><see cref="LoginResultData"/>.</returns>
-        LoginResultData RenewToken(HttpRequestMessage request, string renewalToken);
+        LoginResultData RenewToken(HttpRequest request, string renewalToken);
     }
 }

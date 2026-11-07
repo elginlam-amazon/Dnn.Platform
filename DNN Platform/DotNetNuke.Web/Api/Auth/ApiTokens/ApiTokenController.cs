@@ -7,12 +7,10 @@ namespace DotNetNuke.Web.Api.Auth.ApiTokens
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Reflection;
     using System.Security.Cryptography;
     using System.Text;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -25,7 +23,7 @@ namespace DotNetNuke.Web.Api.Auth.ApiTokens
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Web.Api.Auth.ApiTokens.Models;
     using DotNetNuke.Web.Api.Auth.ApiTokens.Repositories;
-
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -40,6 +38,7 @@ namespace DotNetNuke.Web.Api.Auth.ApiTokens
         private readonly IApiTokenRepository apiTokenRepository;
         private readonly IEventLogger eventLogger;
         private readonly IHostSettings hostSettings;
+        private readonly IHttpContextAccessor httpContextAccessor;
 
         /// <summary>Initializes a new instance of the <see cref="ApiTokenController"/> class.</summary>
         /// <param name="apiTokenRepository">The API token repository.</param>
@@ -55,10 +54,21 @@ namespace DotNetNuke.Web.Api.Auth.ApiTokens
         /// <param name="eventLogger">The event logger.</param>
         /// <param name="hostSettings">The host settings.</param>
         public ApiTokenController(IApiTokenRepository apiTokenRepository, IEventLogger eventLogger, IHostSettings hostSettings)
+            : this(apiTokenRepository, eventLogger, hostSettings, null)
+        {
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="ApiTokenController"/> class.</summary>
+        /// <param name="apiTokenRepository">The API token repository.</param>
+        /// <param name="eventLogger">The event logger.</param>
+        /// <param name="hostSettings">The host settings.</param>
+        /// <param name="httpContextAccessor">The HTTP context accessor, which replaces <c>HttpContext.Current</c>.</param>
+        public ApiTokenController(IApiTokenRepository apiTokenRepository, IEventLogger eventLogger, IHostSettings hostSettings, IHttpContextAccessor httpContextAccessor)
         {
             this.apiTokenRepository = apiTokenRepository ?? Globals.GetCurrentServiceProvider().GetRequiredService<IApiTokenRepository>();
             this.eventLogger = eventLogger ?? Globals.GetCurrentServiceProvider().GetRequiredService<IEventLogger>();
             this.hostSettings = hostSettings ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
+            this.httpContextAccessor = httpContextAccessor ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHttpContextAccessor>();
         }
 
         /// <inheritdoc />
@@ -67,7 +77,7 @@ namespace DotNetNuke.Web.Api.Auth.ApiTokens
         private static Abstractions.Portals.IPortalSettings PortalSettings => PortalController.Instance.GetCurrentSettings();
 
         /// <inheritdoc />
-        public (ApiToken Token, UserInfo User) ValidateToken(HttpRequestMessage request)
+        public (ApiToken Token, UserInfo User) ValidateToken(HttpRequest request)
         {
             if (!ApiTokenAuthMessageHandler.IsEnabled)
             {
@@ -75,20 +85,25 @@ namespace DotNetNuke.Web.Api.Auth.ApiTokens
                 return (null, null);
             }
 
-            var authorization = ValidateAuthHeader(request?.Headers.Authorization);
+            var authorization = ValidateAuthHeader(ParseAuthorizationHeader(request));
             return string.IsNullOrEmpty(authorization) ? (null, null) : this.ValidateAuthorizationValue(authorization);
         }
 
         /// <inheritdoc />
         public void SetApiTokenForRequest(ApiToken token)
         {
-            HttpContext.Current.Items["ApiToken"] = token;
+            var httpContext = this.httpContextAccessor?.HttpContext;
+            if (httpContext != null)
+            {
+                httpContext.Items["ApiToken"] = token;
+            }
         }
 
         /// <inheritdoc />
         public ApiToken GetCurrentThreadApiToken()
         {
-            if (HttpContext.Current != null && HttpContext.Current.Items["ApiToken"] is ApiToken token)
+            var httpContext = this.httpContextAccessor?.HttpContext;
+            if (httpContext != null && httpContext.Items.TryGetValue("ApiToken", out var value) && value is ApiToken token)
             {
                 return token;
             }
@@ -219,6 +234,19 @@ namespace DotNetNuke.Web.Api.Auth.ApiTokens
             return authorization;
         }
 
+        /// <summary>Parses the <c>Authorization</c> header of an ASP.NET Core request.</summary>
+        /// <remarks>Replaces <c>HttpRequestMessage.Headers.Authorization</c>, which is a client-side type in ASP.NET Core.</remarks>
+        private static AuthenticationHeaderValue ParseAuthorizationHeader(HttpRequest request)
+        {
+            var header = request?.Headers[Microsoft.Net.Http.Headers.HeaderNames.Authorization].ToString();
+            if (string.IsNullOrEmpty(header))
+            {
+                return null;
+            }
+
+            return AuthenticationHeaderValue.TryParse(header, out var authorization) ? authorization : null;
+        }
+
         private static string EncodeBase64(byte[] data)
         {
             return Convert.ToBase64String(data).TrimEnd('=');
@@ -226,8 +254,7 @@ namespace DotNetNuke.Web.Api.Auth.ApiTokens
 
         private static string GetHashedStr(string data)
         {
-            using var hasher = SHA384.Create();
-            return EncodeBase64(hasher.ComputeHash(TextEncoder.GetBytes(data)));
+            return EncodeBase64(SHA384.HashData(TextEncoder.GetBytes(data)));
         }
 
         private (ApiToken Token, UserInfo User) ValidateAuthorizationValue(string authorization)

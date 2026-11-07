@@ -3,8 +3,9 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Common.Utilities
 {
-    using System.Data.SqlClient;
     using System.Text;
+
+    using Microsoft.Data.SqlClient;
 
     /// <summary>The SqlUtils class provides Shared/Static methods for working with SQL Server related code.</summary>
     public class SqlUtils

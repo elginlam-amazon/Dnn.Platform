@@ -12,8 +12,42 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\RazorModules\RazorHost</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
-  <Import Project="$(BuildScriptsPath)\Module.Build"/>
+  <!-- The files on disk are Package.targets and Module.build; the lower-case "t"/"b" matters on
+       case-sensitive (Linux) file systems, where the old "Package.Targets" / "Module.Build"
+       spellings fail with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
+  <Import Project="$(BuildScriptsPath)\Module.build" />
+  <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="CopyBin;GetFiles;UpdateFiles;DebugProject;Package" />
+  <Target Name="GetFiles">
+    <ItemGroup>
+      <TextFiles Include="*.txt" Exclude="license.txt;releaseNotes.txt" />
+      <!-- The view, edit, add, create-module and settings controls are now Blazor components
+           compiled into the assembly, so no *.ascx is packaged as loose content any more. -->
+      <ResourceFiles Include="Resources/*.resx" />
+      <CssFiles Include="module.css" />
+      <!-- The 20 sample razor scripts stay loose .cshtml content: DotNetNuke.Web.Razor compiles
+           them at runtime on first use, which is the whole point of the Razor Host module. -->
+      <Scripts Include="Scripts/*.cshtml" />
+      <SharedScripts Include="Scripts/Shared/*.cshtml" />
+      <Resources Include="@(TextFiles);@(ResourceFiles);@(CssFiles);@(Scripts);@(SharedScripts);" />
+    </ItemGroup>
+  </Target>
+  <Target Name="CopyBin">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).dll" DestinationFolder="$(WebsitePath)/bin" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).pdb" DestinationFolder="$(WebsitePath)/bin" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).xml" DestinationFolder="$(WebsitePath)/bin" />
+  </Target>
+  <Target Name="DebugProject" Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <Copy SourceFiles="@(TextFiles)" DestinationFolder="$(ModuleFolderName)" />
+    <Copy SourceFiles="@(CssFiles)" DestinationFolder="$(ModuleFolderName)" />
+    <!-- @(ResourceFiles) is now Resources\*.resx; the flat Copy lands them in
+         DesktopModules\RazorModules\RazorHost\App_LocalResources as AddScript.resx /
+         CreateModule.resx / EditScript.resx / RazorHost.resx / Settings.resx, which is the name
+         ModuleUserControlBase.LocalResourceFile derives from the component type name. -->
+    <Copy SourceFiles="@(ResourceFiles)" DestinationFolder="$(ModuleFolderName)\App_LocalResources" />
+    <Copy SourceFiles="@(Scripts)" DestinationFolder="$(ModuleFolderName)\Scripts" />
+    <Copy SourceFiles="@(SharedScripts)" DestinationFolder="$(ModuleFolderName)\Scripts\Shared" />
+  </Target>
   <Target Name="UpdateFiles">
     <ItemGroup>
       <Resources Remove="web.config" />

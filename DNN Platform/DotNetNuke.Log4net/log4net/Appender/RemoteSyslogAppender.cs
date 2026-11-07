@@ -314,11 +314,7 @@ namespace log4net.Appender
                     // Grab as a byte array
                     buffer = this.Encoding.GetBytes(builder.ToString());
 
-#if NET_4_5 || NETSTANDARD
                     this.Client.SendAsync(buffer, buffer.Length, this.RemoteEndPoint).Wait();
-#else
-                    this.Client.Send(buffer, buffer.Length, this.RemoteEndPoint);
-#endif
                 }
             }
             catch (Exception e)

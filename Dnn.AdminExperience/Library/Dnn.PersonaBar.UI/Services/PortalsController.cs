@@ -7,8 +7,6 @@ namespace Dnn.PersonaBar.UI.Services
     using System;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -17,7 +15,8 @@ namespace Dnn.PersonaBar.UI.Services
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Localization;
-
+    using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     /// <summary>Service to perform portal operations.</summary>
@@ -31,7 +30,7 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="addAll">Add all portals item in list.</param>
         /// <returns>List of portals.</returns>
         [HttpGet]
-        public HttpResponseMessage GetPortals(bool addAll = false)
+        public IActionResult GetPortals(bool addAll = false)
         {
             try
             {
@@ -63,12 +62,12 @@ namespace Dnn.PersonaBar.UI.Services
                     TotalResults = availablePortals.Count,
                 };
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, response);
+                return this.Ok(response);
             }
             catch (Exception exc)
             {
                 Logger.PortalsControllerGetPortalsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
     }

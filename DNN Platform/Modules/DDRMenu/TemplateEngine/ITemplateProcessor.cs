@@ -4,12 +4,15 @@
 
 namespace DotNetNuke.Web.DDRMenu.TemplateEngine
 {
-    using System.Web.UI;
+    using System.IO;
 
     internal interface ITemplateProcessor
     {
         bool LoadDefinition(TemplateDefinition baseDefinition);
 
-        void Render(object source, HtmlTextWriter htmlWriter, TemplateDefinition liveDefinition);
+        // The sink was an HtmlTextWriter, which has no .NET equivalent. Every processor only ever
+        // writes an accumulated HTML string, so the contract is a plain TextWriter; the hosting
+        // component renders what was written as markup.
+        void Render(object source, TextWriter writer, TemplateDefinition liveDefinition);
     }
 }

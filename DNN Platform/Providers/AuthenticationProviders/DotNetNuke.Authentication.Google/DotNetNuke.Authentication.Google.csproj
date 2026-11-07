@@ -1,153 +1,89 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
   <PropertyGroup>
-    <Deterministic>true</Deterministic>
-  </PropertyGroup>
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>
-    </ProductVersion>
-    <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{0304B44C-EA08-434E-A368-65F619FC67A5}</ProjectGuid>
-    <ProjectTypeGuids>{349c5851-65df-11da-9384-00065b846f21};{fae04ec0-301f-11d3-bf4b-00c04f79efbc}</ProjectTypeGuids>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <!-- The net48 project wrote straight to bin\ and Provider.build copies the assembly from
+         there, so the framework sub-folder is suppressed to keep that layout. -->
+    <OutputPath>bin</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>DotNetNuke.Authentication.Google</RootNamespace>
     <AssemblyName>DotNetNuke.Authentication.Google</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <UseIISExpress>false</UseIISExpress>
-    <TargetFrameworkProfile />
-    <FileUpgradeFlags>
-    </FileUpgradeFlags>
-    <OldToolsVersion>4.0</OldToolsVersion>
-    <UpgradeBackupLocation />
-    <IISExpressSSLPort />
-    <IISExpressAnonymousAuthentication />
-    <IISExpressWindowsAuthentication />
-    <IISExpressUseClassicPipelineMode />
-    <UseGlobalApplicationHostFile />
-    <Use64BitIISExpress />
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>SA1600,CA1305</WarningsNotAsErrors>
+    <!-- CA1305 is reported only in PRE-EXISTING code this migration did not change: the
+         untouched Convert.ToInt32(tokenDictionary["expires_in"]) /
+         Convert.ToString(tokenDictionary["access_token"]) calls in
+         Components/GoogleClient.cs GetExpiry/GetToken. Retargeting net48 -> net10.0 newly
+         enables this analyzer wave; adding a format provider there would be a behavioral edit
+         to the OAuth token parsing path, which this migration must preserve byte-for-byte, so
+         it is recorded as follow-up code-quality debt instead. This matches the convention
+         already set by the migrated DotNetNuke.Library and DotNetNuke.Authentication.Facebook.
+         Compiler diagnostics (CS*) deliberately remain errors. -->
+    <!-- Replaces the per-configuration <DocumentationFile>bin\...XML</DocumentationFile>; the
+         generated file is bin/DotNetNuke.Authentication.Google.xml, which is what
+         Provider.build copies to the website. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- SolutionInfo.cs (linked below) carries the company/product/copyright/trademark/version
+         attributes, as it did on net48. The remaining four attributes the deleted
+         Properties/AssemblyInfo.cs declared (title, description, ComVisible and the original
+         typelib Guid) are preserved in AssemblyInfo.cs in this folder. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- This is a Razor Class Library of Blazor components, not an MVC view assembly. -->
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\DotNetNuke.Authentication.Google.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\DotNetNuke.Authentication.Google.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
   </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Runtime.Serialization" />
-    <Reference Include="System.ServiceModel.Web" />
-    <Reference Include="System.Web.ApplicationServices" />
-    <Reference Include="System.Web.DynamicData" />
-    <Reference Include="System.Web.Entity" />
-    <Reference Include="System" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Web.Extensions" />
-    <Reference Include="System.Xml" />
-    <Reference Include="System.Configuration" />
-    <Reference Include="System.Web.Services" />
-    <Reference Include="System.Xml.Linq" />
+    <!-- Login.razor and Settings.razor take their Microsoft.AspNetCore.Components types from
+         the shared framework. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
   <ItemGroup>
-    <Compile Include="..\..\..\..\SolutionInfo.cs">
-      <Link>SolutionInfo.cs</Link>
-    </Compile>
-    <Compile Include="Components\GoogleClient.cs" />
-    <Compile Include="Components\GoogleUserData.cs" />
-    <Compile Include="Login.ascx.cs">
-      <DependentUpon>Login.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="Login.ascx.designer.cs">
-      <DependentUpon>Login.ascx</DependentUpon>
-    </Compile>
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Settings.ascx.cs">
-      <DependentUpon>Settings.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="Settings.ascx.designer.cs">
-      <DependentUpon>Settings.ascx</DependentUpon>
-    </Compile>
+    <ProjectReference Include="..\..\..\Library\DotNetNuke.Library.csproj" Private="false" />
   </ItemGroup>
+
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Library\DotNetNuke.Library.csproj">
-      <Project>{6b29aded-7b56-4484-bea5-c0e09079535b}</Project>
-      <Name>DotNetNuke.Library</Name>
-      <Private>False</Private>
-    </ProjectReference>
+    <AdditionalFiles Include="..\..\..\..\stylecop.json" Link="stylecop.json" />
+    <Compile Include="..\..\..\..\SolutionInfo.cs" Link="SolutionInfo.cs" />
   </ItemGroup>
+
+  <!-- Resources/Login.resx and Resources/Settings.resx are the migrated App_LocalResources
+       files. Provider.build packages them into the extension's App_LocalResources folder as
+       Login.resx / Settings.resx, which is the name PortalModuleBase.LocalResourceFile now
+       derives from the component type name, so the components' LocalizeText calls resolve the
+       same keys as the WebForms LocalizeString calls did - including portal-level and
+       language-pack overrides, which only the deployed files provide. The SDK's default
+       EmbeddedResource glob also compiles them into the assembly, which makes the shipped
+       English text self-contained. -->
+
   <ItemGroup>
-    <Content Include="App_LocalResources\Login.ascx.resx">
-      <SubType>Designer</SubType>
-    </Content>
+    <!-- DNN extension package content (see Provider.build). -->
     <Content Include="Images\google_16X16.jpg" />
     <Content Include="Images\google_32X32.jpg" />
     <Content Include="license.txt" />
-    <Content Include="Login.ascx" />
     <Content Include="releasenotes.txt" />
-    <Content Include="Settings.ascx" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="App_LocalResources\Settings.ascx.resx">
-      <SubType>Designer</SubType>
-    </Content>
-  </ItemGroup>
-  <ItemGroup>
-    <AdditionalFiles Include="..\..\..\..\stylecop.json">
-      <Link>stylecop.json</Link>
-    </AdditionalFiles>
-    <None Include="Google_Auth.dnn" />
     <Content Include="Provider.build" />
+    <None Include="Google_Auth.dnn" />
   </ItemGroup>
-  <PropertyGroup>
-    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
-    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
-  </PropertyGroup>
-  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
-  <Import Project="$(VSToolsPath)\WebApplications\Microsoft.WebApplication.targets" Condition="'$(VSToolsPath)' != ''" />
-  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v10.0\WebApplications\Microsoft.WebApplication.targets" Condition="false" />
-  <ProjectExtensions>
-    <VisualStudio>
-      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
-        <WebProjectProperties>
-          <UseIIS>False</UseIIS>
-          <AutoAssignPort>True</AutoAssignPort>
-          <DevelopmentServerPort>26658</DevelopmentServerPort>
-          <DevelopmentServerVPath>/</DevelopmentServerVPath>
-          <IISUrl>
-          </IISUrl>
-          <NTLMAuthentication>False</NTLMAuthentication>
-          <UseCustomServer>True</UseCustomServer>
-          <CustomServerUrl>http://localhost/DNN_Platform</CustomServerUrl>
-          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
-        </WebProjectProperties>
-      </FlavorProperties>
-    </VisualStudio>
-  </ProjectExtensions>
+
   <Import Project="Provider.build" />
 </Project>

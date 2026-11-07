@@ -1,0 +1,62 @@
+@* Licensed to the .NET Foundation under one or more agreements.
+   The .NET Foundation licenses this file to you under the MIT license.
+   See the LICENSE file in the project root for more information *@
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@using DotNetNuke.Services.Syndication
+@attribute [System.CLSCompliant(false)]
+@inject RssHttpHandlerHelper ChannelLinkHelper
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+@* Replaces the RssHyperLink WebForms server control (System.Web.UI.WebControls.HyperLink). *@
+<a href="@this.navigateUrl" @attributes="this.AdditionalAttributes">@this.Text</a>
+
+<HeadContent>
+    <link rel="alternate" type="application/rss+xml" title="@this.LinkTitle" href="@this.navigateUrl" />
+</HeadContent>
+
+@code {
+    private string navigateUrl = string.Empty;
+
+    /// <summary>Gets or sets the path of the feed endpoint which the link points at.</summary>
+    [Parameter]
+    public string HandlerPath { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the link text.</summary>
+    [Parameter]
+    public string Text { get; set; } = "RSS";
+
+    /// <summary>Gets or sets the channel name.</summary>
+    [Parameter]
+    public string ChannelName { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the current user's name is passed to the feed endpoint.</summary>
+    [Parameter]
+    public bool IncludeUserName { get; set; }
+
+    /// <summary>Gets or sets any additional attributes to render on the anchor element.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object> AdditionalAttributes { get; set; }
+
+    private string LinkTitle => string.IsNullOrEmpty(this.ChannelName) ? this.Text : this.ChannelName;
+
+    /// <inheritdoc />
+    protected override async Task OnParametersSetAsync()
+    {
+        // compute the URL to include the optional user name and channel name
+        var channel = this.ChannelName ?? string.Empty;
+        var user = string.Empty;
+
+        if (this.IncludeUserName)
+        {
+            // HttpContext.User is not available over the SignalR circuit, so the identity comes
+            // from the authentication state provider instead.
+            var authenticationState = await this.AuthenticationStateProvider.GetAuthenticationStateAsync();
+            user = authenticationState.User.Identity?.Name ?? string.Empty;
+        }
+
+        this.navigateUrl = this.ChannelLinkHelper.GenerateChannelLink(this.HandlerPath, channel, user);
+    }
+}

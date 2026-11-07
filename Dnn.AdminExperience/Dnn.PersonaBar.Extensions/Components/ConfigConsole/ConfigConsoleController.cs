@@ -418,7 +418,7 @@ namespace Dnn.PersonaBar.ConfigConsole.Components
                         }
 
                         // try incremental delay; maybe the file lock is released by then
-                        Thread.Sleep((int)(Multiplier * (MaxRetries - retry + 1)) * 1000);
+                        await Task.Delay((int)(Multiplier * (MaxRetries - retry + 1)) * 1000);
                     }
                 }
 

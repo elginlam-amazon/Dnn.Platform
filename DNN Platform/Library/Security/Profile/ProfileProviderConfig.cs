@@ -8,7 +8,11 @@ namespace DotNetNuke.Security.Profile
     /// <summary>The ProfileProviderConfig class provides a wrapper to the Profile providers configuration.</summary>
     public class ProfileProviderConfig
     {
-        private static readonly ProfileProvider ProfileProvider = ProfileProvider.Instance();
+        /// <summary>Gets the configured provider.</summary>
+        /// <remarks>Resolved on each access so that the dependency-injection container
+        /// is used once the application has started, rather than captured at type
+        /// initialization time.</remarks>
+        private static ProfileProvider ProfileProvider => ProfileProvider.Instance();
 
         /// <summary>Gets a value indicating whether the Provider Properties can be edited.</summary>
         [Browsable(false)]

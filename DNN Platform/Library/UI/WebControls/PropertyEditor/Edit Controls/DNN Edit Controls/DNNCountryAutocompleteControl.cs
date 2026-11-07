@@ -5,8 +5,7 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Linq;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
@@ -20,9 +19,35 @@ namespace DotNetNuke.UI.WebControls
     using DotNetNuke.Services.ClientDependency;
     using DotNetNuke.Web.Client.ResourceManager;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
     using Microsoft.Extensions.DependencyInjection;
 
-    [ToolboxData("<{0}:DnnCountryAutocompleteControl runat=server></{0}:DnnCountryAutocompleteControl>")]
+    /// <summary>
+    /// Lets the user type a country name, looking the matching countries up as they type.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The <c>TextBox</c>/<c>HiddenField</c> child controls are now rendered directly, keeping their
+    /// <c>{ID}_name</c> and <c>{ID}_id</c> identifiers and their <c>data-*</c> attributes so that
+    /// <c>dnn.CountriesRegions.js</c> — which provides the autocomplete and writes the resolved
+    /// country id into the hidden field — keeps working unchanged. Both inputs also raise the value
+    /// change natively, so the editor still works without the script.
+    /// </para>
+    /// <para>
+    /// The country code lookup still uses <see cref="CountryLookup"/> from the <c>CountryListBox</c>
+    /// Razor Class Library. The drop-down flavour of this editor is
+    /// <see cref="DNNCountryEditControl"/>, which renders the <see cref="CountryListBox"/> component
+    /// itself.
+    /// </para>
+    /// <para>
+    /// The coupled region control used to be located by walking the page's control tree. There is no
+    /// control tree on ASP.NET Core, so the link is now explicit through
+    /// <see cref="CoupledRegionControl"/>, which <see cref="ProfileEditorControl"/> assigns when it
+    /// pairs the country and region editors of a category.
+    /// </para>
+    /// </remarks>
     public class DnnCountryAutocompleteControl : EditControl
     {
         private readonly IServicesFramework servicesFramework;
@@ -31,9 +56,6 @@ namespace DotNetNuke.UI.WebControls
         private readonly IApplicationStatusInfo appStatus;
         private readonly IEventLogger eventLogger;
         private readonly IPortalController portalController;
-
-        private TextBox countryName;
-        private HiddenField countryId;
 
         /// <summary>Initializes a new instance of the <see cref="DnnCountryAutocompleteControl"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IServicesFramework. Scheduled removal in v12.0.0.")]
@@ -65,7 +87,6 @@ namespace DotNetNuke.UI.WebControls
             this.appStatus = appStatus ?? Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
             this.eventLogger = eventLogger ?? Globals.GetCurrentServiceProvider().GetRequiredService<IEventLogger>();
             this.portalController = portalController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IPortalController>();
-            this.Init += this.DnnCountryRegionControl_Init;
         }
 
         /// <summary>Initializes a new instance of the <see cref="DnnCountryAutocompleteControl"/> class.</summary>
@@ -100,15 +121,12 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <inheritdoc />
-        public override string EditControlClientId
-        {
-            get
-            {
-                this.EnsureChildControls();
-                return this.CountryName.ClientID;
-            }
-        }
+        public override string EditControlClientId => this.ClientID + "_name";
 
+        /// <summary>Gets or sets the region editor whose list is driven by the selected country.</summary>
+        public DNNRegionEditControl CoupledRegionControl { get; set; }
+
+        /// <summary>Gets the old value expressed as a string.</summary>
         protected string OldStringValue => Convert.ToString(this.OldValue, CultureInfo.InvariantCulture);
 
         /// <inheritdoc />
@@ -131,35 +149,29 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
-        private TextBox CountryName
+        /// <summary>Gets the country name rendered into the autocomplete input.</summary>
+        private string CountryText
         {
             get
             {
-                if (this.countryName == null)
+                if (!string.IsNullOrEmpty(this.StringValue) && int.TryParse(this.StringValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var countryId))
                 {
-                    this.countryName = new TextBox();
+                    var entry = this.listController.GetListEntryInfo(countryId);
+                    if (entry != null)
+                    {
+                        return entry.Text;
+                    }
                 }
 
-                return this.countryName;
-            }
-        }
-
-        private HiddenField CountryId
-        {
-            get
-            {
-                if (this.countryId == null)
-                {
-                    this.countryId = new HiddenField();
-                }
-
-                return this.countryId;
+                return this.StringValue;
             }
         }
 
         /// <inheritdoc />
         public override bool LoadPostData(string postDataKey, System.Collections.Specialized.NameValueCollection postCollection)
         {
+            ArgumentNullException.ThrowIfNull(postCollection);
+
             bool dataChanged = false;
             string presentValue = this.StringValue;
             string postedValue = postCollection[postDataKey + "_id"];
@@ -183,21 +195,15 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void CreateChildControls()
+        protected override void OnInit(EventArgs e)
         {
-            base.CreateChildControls();
+            base.OnInit(e);
 
-            this.CountryName.ControlStyle.CopyFrom(this.ControlStyle);
-            this.CountryName.ID = this.ID + "_name";
-            this.CountryName.Attributes.Add("data-name", this.Name);
-            this.CountryName.Attributes.Add("data-list", "Country");
-            this.CountryName.Attributes.Add("data-category", this.Category);
-            this.CountryName.Attributes.Add("data-editor", "DnnCountryAutocompleteControl");
-            this.CountryName.Attributes.Add("data-required", this.Required.ToString().ToLowerInvariant());
-            this.Controls.Add(this.CountryName);
-
-            this.CountryId.ID = this.ID + "_id";
-            this.Controls.Add(this.CountryId);
+            this.servicesFramework.RequestAjaxAntiForgerySupport();
+            this.clientResourceController.RegisterScript("~/resources/Shared/components/CountriesRegions/dnn.CountriesRegions.js");
+            this.clientResourceController.CreateStylesheet("~/resources/Shared/components/CountriesRegions/dnn.CountriesRegions.css").SetPriority(FileOrder.Css.FeatureCss).Register();
+            JavaScript.RequestRegistration(this.appStatus, this.eventLogger, this.portalController.GetCurrentSettings(), CommonJs.jQuery);
+            JavaScript.RequestRegistration(this.appStatus, this.eventLogger, this.portalController.GetCurrentSettings(), CommonJs.jQueryUI);
         }
 
         /// <inheritdoc />
@@ -206,57 +212,82 @@ namespace DotNetNuke.UI.WebControls
             base.OnPreRender(e);
 
             this.LoadControls();
-
-            if (this.Page != null & this.EditMode == PropertyEditorMode.Edit)
-            {
-                this.Page.RegisterRequiresPostBack(this);
-                this.Page.RegisterRequiresPostBack(this.CountryId);
-            }
         }
 
         /// <inheritdoc />
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            this.RenderChildren(writer);
+            ArgumentNullException.ThrowIfNull(builder);
+
+            // The country name the autocomplete operates on.
+            builder.OpenElement(0, "input");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddAttribute(5, "type", "text");
+            builder.AddAttribute(6, "id", this.ClientID + "_name");
+            builder.AddAttribute(7, "name", this.UniqueID + "_name");
+            builder.AddAttribute(8, "value", this.CountryText);
+            builder.AddAttribute(9, "data-name", this.Name);
+            builder.AddAttribute(10, "data-list", "Country");
+            builder.AddAttribute(11, "data-category", this.Category);
+            builder.AddAttribute(12, "data-editor", "DnnCountryAutocompleteControl");
+            builder.AddAttribute(13, "data-required", this.Required.ToString().ToLowerInvariant());
+            builder.AddAttribute(14, "aria-label", this.Name);
+            builder.AddAttribute(15, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnCountryNameChanged));
+            builder.CloseElement();
+
+            // The hidden field holding the resolved country id, which is the stored value.
+            builder.OpenElement(20, "input");
+            builder.AddAttribute(21, "type", "hidden");
+            builder.AddAttribute(22, "id", this.ClientID + "_id");
+            builder.AddAttribute(23, "name", this.UniqueID + "_id");
+            builder.AddAttribute(24, "value", this.StringValue);
+            builder.AddAttribute(25, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnCountryIdChanged));
+            builder.CloseElement();
         }
 
-        private void DnnCountryRegionControl_Init(object sender, EventArgs e)
-        {
-            this.servicesFramework.RequestAjaxAntiForgerySupport();
-            this.clientResourceController.RegisterScript("~/Resources/Shared/components/CountriesRegions/dnn.CountriesRegions.js");
-            this.clientResourceController.CreateStylesheet("~/Resources/Shared/components/CountriesRegions/dnn.CountriesRegions.css").SetPriority(FileOrder.Css.FeatureCss).Register();
-            JavaScript.RequestRegistration(this.appStatus, this.eventLogger, this.portalController.GetCurrentSettings(), CommonJs.jQuery);
-            JavaScript.RequestRegistration(this.appStatus, this.eventLogger, this.portalController.GetCurrentSettings(), CommonJs.jQueryUI);
-        }
-
+        /// <summary>Points the coupled region editor at the region list of the selected country.</summary>
+        /// <remarks>Replaces the <c>LoadControls</c> method, which assigned the text of the
+        /// <c>TextBox</c>, the value of the <c>HiddenField</c> (now both rendered directly) and the
+        /// <c>ParentKey</c> of the region control it found in the page's control tree.</remarks>
         private void LoadControls()
         {
-            this.CountryName.Text = this.StringValue;
-            string countryCode = CountryLookup.CodeByName(this.StringValue);
-            if (!string.IsNullOrEmpty(this.StringValue) && int.TryParse(this.StringValue, out var countryId))
+            var regionControl = this.CoupledRegionControl;
+            if (regionControl == null)
             {
-                var c = this.listController.GetListEntryInfo(countryId);
-                this.CountryName.Text = c.Text;
-                countryCode = c.Value;
+                return;
             }
 
-            this.CountryId.Value = this.StringValue;
-
-            var regionControl2 = ControlUtilities.FindFirstDescendent<DNNRegionEditControl>(this.Page, c => this.IsCoupledRegionControl(c));
-            regionControl2?.ParentKey = "Country." + countryCode;
-        }
-
-        private bool IsCoupledRegionControl(Control ctr)
-        {
-            if (ctr is DNNRegionEditControl regionEditControl)
+            string countryCode = CountryLookup.CodeByName(this.StringValue);
+            if (!string.IsNullOrEmpty(this.StringValue) && int.TryParse(this.StringValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var countryId))
             {
-                if (regionEditControl.Category == this.Category)
+                var entry = this.listController.GetListEntryInfo(countryId);
+                if (entry != null)
                 {
-                    return true;
+                    countryCode = entry.Value;
                 }
             }
 
-            return false;
+            regionControl.ParentKey = "Country." + countryCode;
+        }
+
+        private void OnCountryIdChanged(ChangeEventArgs args)
+        {
+            this.SetPostValue("_id", args?.Value?.ToString());
+            this.CommitPostData();
+        }
+
+        private void OnCountryNameChanged(ChangeEventArgs args)
+        {
+            // Without the autocomplete script the user types a name, so resolve it to the list entry
+            // id that is stored, exactly as the script does before writing the hidden field.
+            var countryName = args?.Value?.ToString();
+            var entry = string.IsNullOrEmpty(countryName)
+                ? null
+                : this.listController.GetListEntryInfoItems("Country")
+                    .FirstOrDefault(item => string.Equals(item.Text, countryName, StringComparison.OrdinalIgnoreCase));
+
+            this.SetPostValue("_id", entry == null ? string.Empty : entry.EntryID.ToString(CultureInfo.InvariantCulture));
+            this.CommitPostData();
         }
     }
 }

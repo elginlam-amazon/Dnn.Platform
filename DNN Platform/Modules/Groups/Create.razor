@@ -1,0 +1,420 @@
+﻿@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Groups
+@inherits DotNetNuke.Modules.Groups.GroupsModuleBase
+
+@*
+    No per-page @rendermode is declared on purpose. This component is a descendant of
+    <Routes @rendermode="InteractiveServer"> in the host document (Website/Components/App.razor),
+    so its @onclick/@onchange handlers are interactive without — and must not repeat — a
+    per-page directive. This is the convention the already-migrated DNNConnect.CKE and DDRMenu
+    components follow.
+*@
+
+@using System.Collections.Generic
+@using System.Globalization
+@using System.IO
+@using System.Threading.Tasks
+@using DotNetNuke.Abstractions.Security.Permissions
+@using DotNetNuke.Data
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.FileSystem
+
+@*
+    Replaces Create.ascx and Create.ascx.cs.
+
+    Control mapping (the markup is otherwise the original one for one):
+
+      asp:TextBox txtGroupName / txtDescription  -> <input type="text"> / <textarea> bound to
+                                                    this.groupName / this.description.
+      asp:RequiredFieldValidator reqGroupName    -> the "GroupName.Required" message below, shown
+                                                    by Validate() (ValidationGroup
+                                                    "CreateGroupWizard" was only ever validated by
+                                                    btnCreate, so the group collapses into that
+                                                    one call).
+      asp:RegularExpressionValidator valGroupName-> the "GroupName.Invalid" message, with the exact
+                                                    same ValidationExpression; the WebForms
+                                                    validator anchored the expression, so
+                                                    Regex.IsMatch is applied to "^(...)$".
+      asp:Label lblInvalidGroupName              -> the "GroupNameDuplicate" message, shown by
+                                                    Create_Click when the role name is taken.
+      asp:FileUpload inpFile                     -> <InputFile>, whose IBrowserFile replaces
+                                                    HttpPostedFile (Size for ContentLength,
+                                                    Name for FileName, OpenReadStream for
+                                                    InputStream).
+      asp:RadioButton rdAccessTypePublic/Private -> one radio pair on the same name, with the
+                                                    public one checked by default as before.
+      asp:CheckBox chkMemberApproved             -> a checkbox; the inline jQuery that showed and
+                                                    hid #trMem when the access type changed is the
+                                                    @if below (a Blazor render cannot execute a
+                                                    <script> it writes, and this is state the
+                                                    component already owns).
+      asp:LinkButton btnCreate / btnCancel       -> anchors with @onclick handlers, which is the
+                                                    canonical LinkButton mapping; btnCancel had
+                                                    CausesValidation="False", so Cancel_Click does
+                                                    not validate. The jQuery that disabled the
+                                                    primary action after a successful client
+                                                    validation is the this.submitting flag.
+
+    The nine services the original resolved through its three constructors are injected as
+    properties: Blazor activates components through a parameterless constructor, so [Inject] is the
+    constructor injection equivalent and resolves from the same container DependencyProvider used.
+*@
+
+@if (this.CanCreate)
+{
+    <div class="dnnForm  DnnModule-groupsWizard">
+        <div class="content">
+            <fieldset class="group-wizard-step-1 wizardGroup" id="step1">
+                <h2 class="WizardStepTitle">
+                    <strong>@this.LocalizeText("CreateGroup.Text")</strong>
+                </h2>
+                <div class="wizardStepBody">
+                    <div class="dnnFormItem">
+                        <div class="dnnLabel">
+                            <label>
+                                <span class="dnnFormRequired">@this.LocalizeText("GroupName.Text")</span>
+                            </label>
+                        </div>
+                        <input type="text" id="txtGroupName" maxlength="50" value="@this.groupName" @onchange="@(e => this.groupName = e.Value?.ToString())" />
+                        @if (this.showNameRequired)
+                        {
+                            <span id="reqGroupName" class="dnnFormMessage dnnFormError">@this.LocalizeText("GroupName.Required")</span>
+                        }
+                        @if (this.showNameInvalid)
+                        {
+                            <span id="valGroupName" class="dnnFormMessage dnnFormError">@this.LocalizeHtml("GroupName.Invalid")</span>
+                        }
+                        @if (this.showNameDuplicate)
+                        {
+                            <span id="lblInvalidGroupName" class="dnnFormMessage dnnFormError">@this.LocalizeText("GroupNameDuplicate")</span>
+                        }
+                    </div>
+                    <!--close dnnFormItem-->
+                    <div class="dnnFormItem">
+                        <div class="dnnLabel">
+                            <label>
+                                <span>@this.LocalizeText("Description.Text")</span>
+                            </label>
+                        </div>
+                        <textarea id="txtDescription" cols="20" rows="2" @bind="this.description"></textarea>
+                    </div>
+                    <!--close dnnFormItem-->
+                    <div class="dnnFormItem">
+                        <div class="dnnLabel">
+                            <label>
+                                <span>@this.LocalizeText("GroupPicture.Text")</span>
+                            </label>
+                        </div>
+                        <div class="thumb">
+                            <span>
+                                <img src="@(this.ImagesUrl)sample-group-profile.jpg" alt="Group Thumbnail" />
+                            </span>
+                            <p>@this.LocalizeText("GroupPicture.Help")</p>
+                            <br />
+                            <InputFile id="inpFile" OnChange="this.FileSelected" />
+                        </div>
+                    </div>
+                    <!--close dnnFormItem-->
+                    <hr />
+                    <div class="dnnFormItem">
+                        <div class="dnnLabel">
+                            <label>
+                                <span>@this.LocalizeText("Accessibility.Text")</span>
+                            </label>
+                        </div>
+                        <table>
+                            <tr>
+                                <td>
+                                    <input type="radio" name="AccessType" id="rdAccessTypePublic" checked="@this.accessTypePublic" @onchange="@(() => this.accessTypePublic = true)" />
+                                    <label>@this.LocalizeText("Public.Text")</label>
+                                    <span>@this.LocalizeText("Public.Help")</span>
+                                </td>
+                            </tr>
+                            @if (this.accessTypePublic)
+                            {
+                                <tr id="trMem">
+                                    <td>
+                                        <div style="margin-left:16px;font-size:11px;">
+                                            <input type="checkbox" id="chkMemberApproved" checked="@this.memberApproved" @onchange="@(e => this.memberApproved = (bool)e.Value)" />
+                                            <label>@this.LocalizeHtml("MembersMustBeApproved")</label>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                            <tr>
+                                <td>
+                                    <input type="radio" name="AccessType" id="rdAccessTypePrivate" checked="@(!this.accessTypePublic)" @onchange="@(() => this.accessTypePublic = false)" />
+                                    <label>@this.LocalizeText("Private.Text")</label>
+                                    <span>@this.LocalizeText("Private.Help")</span>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <!--close dnnFormItem-->
+                    <ul class="dnnActions dnnClear">
+                        <li>
+                            <a id="btnCreate" href="#" class="dnnPrimaryAction" disabled="@this.submitting" @onclick="this.CreateClickAsync" @onclick:preventDefault="true">@this.LocalizeWithFallback("CreateGroupButton", "Create Group")</a>
+                        </li>
+                        <li>
+                            <a id="btnCancel" href="#" class="dnnSecondaryAction" @onclick="this.CancelClick" @onclick:preventDefault="true">@this.LocalizeWithFallback("Cancel", "Cancel")</a>
+                        </li>
+                    </ul>
+                    <!--close dnnActions-->
+                </div>
+                <!--close wizardStepBody-->
+            </fieldset>
+        </div>
+        <!--close content-->
+    </div>
+    <!--close dnnForm DnnModule-Groups-Creation-->
+}
+
+@code {
+    /// <summary>The ValidationExpression of the original valGroupName RegularExpressionValidator, anchored the way the WebForms validator anchored it.</summary>
+    private const string GroupNamePattern = @"^(?:[^&\$\+,/?~#<>\(\)¿¡«»!\.:\*'\[\]]*)$";
+
+    private string groupName = string.Empty;
+    private string description = string.Empty;
+    private bool accessTypePublic = true;
+    private bool memberApproved;
+    private bool showNameRequired;
+    private bool showNameInvalid;
+    private bool showNameDuplicate;
+    private bool submitting;
+    private IBrowserFile selectedFile;
+
+    /// <summary>Gets or sets the navigation manager the group listing and group view URLs are composed with.</summary>
+    [Inject]
+    protected INavigationManager DnnNavigationManager { get; set; }
+
+    /// <summary>Gets or sets the file manager the group image is stored through.</summary>
+    [Inject]
+    protected IFileManager FileManagerInstance { get; set; }
+
+    /// <summary>Gets or sets the folder manager the group's image folder is created through.</summary>
+    [Inject]
+    protected IFolderManager FolderManagerInstance { get; set; }
+
+    /// <summary>Gets or sets the content type manager the uploaded image's content type is resolved through.</summary>
+    [Inject]
+    protected IFileContentTypeManager FileContentTypeManagerInstance { get; set; }
+
+    /// <summary>Gets or sets the role controller the group (role) is created through.</summary>
+    [Inject]
+    protected IRoleController RoleControllerInstance { get; set; }
+
+    /// <summary>Gets or sets the application status the client resource registration is performed against.</summary>
+    [Inject]
+    protected IApplicationStatusInfo AppStatus { get; set; }
+
+    /// <summary>Gets or sets the event logger the client resource registration logs through.</summary>
+    [Inject]
+    protected IEventLogger EventLogger { get; set; }
+
+    /// <summary>Gets or sets the data provider the module permissions are read through.</summary>
+    [Inject]
+    protected DataProvider DataProviderInstance { get; set; }
+
+    /// <summary>Gets or sets the host settings the user lookup and the notifications are performed against.</summary>
+    [Inject]
+    protected IHostSettings HostSettingsInstance { get; set; }
+
+    /// <summary>Gets the URL of the module's Images folder.</summary>
+    /// <remarks>Replaces <c>Page.ResolveUrl("~/DesktopModules/SocialGroups/Images/")</c>.</remarks>
+    private string ImagesUrl => Globals.ResolveUrl("~/DesktopModules/SocialGroups/Images/");
+
+    /// <inheritdoc />
+    /// <remarks>This is Page_Load of Create.ascx.cs.</remarks>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        JavaScript.RequestRegistration(this.AppStatus, this.EventLogger, this.PortalSettings, CommonJs.DnnPlugins);
+    }
+
+    /// <summary>Gets the localized text of a resource key, falling back to the literal text the WebForms control declared.</summary>
+    /// <param name="key">The resource key.</param>
+    /// <param name="fallback">The literal <c>Text</c> the control declared.</param>
+    /// <returns>The text to render.</returns>
+    private string LocalizeWithFallback(string key, string fallback)
+    {
+        var text = this.LocalizeText(key);
+        return string.IsNullOrEmpty(text) ? fallback : text;
+    }
+
+    /// <summary>Captures the file the user picked.</summary>
+    /// <param name="args">The change event args.</param>
+    /// <remarks>Replaces <c>inpFile.PostedFile</c>, which WebForms populated on postback.</remarks>
+    private void FileSelected(InputFileChangeEventArgs args)
+    {
+        this.selectedFile = args.FileCount > 0 ? args.File : null;
+    }
+
+    /// <summary>Validates the group name the way the two validators of the "CreateGroupWizard" group did.</summary>
+    /// <returns><see langword="true"/> when the page is valid.</returns>
+    private bool Validate()
+    {
+        var name = this.groupName ?? string.Empty;
+
+        // IsNullOrWhiteSpace (not IsNullOrEmpty) is the faithful RequiredFieldValidator
+        // behavior: EvaluateIsValid compares GetControlValidationValue(...).Trim() against
+        // InitialValue.Trim(), so a whitespace-only name was rejected in the original too.
+        this.showNameRequired = string.IsNullOrWhiteSpace(name);
+        this.showNameInvalid = !this.showNameRequired
+            && !System.Text.RegularExpressions.Regex.IsMatch(name, GroupNamePattern);
+
+        return !this.showNameRequired && !this.showNameInvalid;
+    }
+
+    /// <summary>Returns to the group listing without creating anything.</summary>
+    /// <remarks>This is Cancel_Click of Create.ascx.cs.</remarks>
+    private void CancelClick()
+    {
+        var groupListingUrl = this.DnnNavigationManager.NavigateURL(this.TabId);
+        this.Navigation.NavigateTo(groupListingUrl, forceLoad: true);
+    }
+
+    /// <summary>Creates the group.</summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>
+    /// This is Create_Click of Create.ascx.cs, unchanged except that the image upload is awaited
+    /// (IBrowserFile only exposes its content asynchronously) and the trailing
+    /// Response.Redirect becomes a forced navigation.
+    /// </remarks>
+    private async Task CreateClickAsync()
+    {
+        this.showNameDuplicate = false;
+        if (!this.Validate())
+        {
+            return;
+        }
+
+        this.submitting = true;
+
+        var ps = DotNetNuke.Security.PortalSecurity.Instance;
+#pragma warning disable CS0618 // Type or member is obsolete
+        this.groupName = ps.InputFilter(this.groupName, DotNetNuke.Security.PortalSecurity.FilterFlag.NoScripting);
+        this.groupName = ps.InputFilter(this.groupName, DotNetNuke.Security.PortalSecurity.FilterFlag.NoMarkup);
+
+        this.description = ps.InputFilter(this.description ?? string.Empty, DotNetNuke.Security.PortalSecurity.FilterFlag.NoScripting);
+        this.description = ps.InputFilter(this.description, DotNetNuke.Security.PortalSecurity.FilterFlag.NoMarkup);
+#pragma warning restore CS0618 // Type or member is obsolete
+
+        if (this.RoleControllerInstance.GetRoleByName(this.PortalId, this.groupName) != null)
+        {
+            this.showNameDuplicate = true;
+            this.submitting = false;
+            return;
+        }
+
+        var modRoles = new List<RoleInfo>();
+        var modUsers = new List<UserInfo>();
+        foreach (IPermissionInfo modulePermissionInfo in ModulePermissionController.GetModulePermissions(this.ModuleId, this.TabId))
+        {
+            if (modulePermissionInfo.PermissionKey == "MODGROUP" && modulePermissionInfo.AllowAccess)
+            {
+                if (modulePermissionInfo.RoleId > int.Parse(Globals.glbRoleNothing, CultureInfo.InvariantCulture))
+                {
+                    modRoles.Add(this.RoleControllerInstance.GetRoleById(this.PortalId, modulePermissionInfo.RoleId));
+                }
+                else if (modulePermissionInfo.UserId > Null.NullInteger)
+                {
+                    modUsers.Add(UserController.GetUserById(this.HostSettingsInstance, this.PortalId, modulePermissionInfo.UserId));
+                }
+            }
+        }
+
+        var roleInfo = new RoleInfo
+        {
+            PortalID = this.PortalId,
+            RoleName = this.groupName,
+            Description = this.description,
+            SecurityMode = SecurityMode.SocialGroup,
+            Status = RoleStatus.Approved,
+            IsPublic = this.accessTypePublic,
+        };
+        RoleStatus userRoleStatus;
+        if (this.GroupModerationEnabled)
+        {
+            roleInfo.Status = RoleStatus.Pending;
+            userRoleStatus = RoleStatus.Pending;
+        }
+        else
+        {
+            userRoleStatus = RoleStatus.Approved;
+        }
+
+        var objModulePermissions = new ModulePermissionCollection(CBO.FillCollection(this.DataProviderInstance.GetModulePermissionsByModuleID(this.ModuleId, -1), typeof(ModulePermissionInfo)));
+        if (ModulePermissionController.HasModulePermission(objModulePermissions, "MODGROUP"))
+        {
+            roleInfo.Status = RoleStatus.Approved;
+            userRoleStatus = RoleStatus.Approved;
+        }
+
+        var roleGroupId = this.DefaultRoleGroupId;
+        if (roleGroupId < Null.NullInteger)
+        {
+            roleGroupId = Null.NullInteger;
+        }
+
+        roleInfo.RoleGroupID = roleGroupId;
+
+        roleInfo.RoleID = this.RoleControllerInstance.AddRole(roleInfo);
+        roleInfo = this.RoleControllerInstance.GetRoleById(this.PortalId, roleInfo.RoleID);
+
+        var groupUrl = this.DnnNavigationManager.NavigateURL(this.GroupViewTabId, string.Empty, $"groupid={roleInfo.RoleID}");
+        if (groupUrl.StartsWith("http://") || groupUrl.StartsWith("https://"))
+        {
+            const int startIndex = 8; // length of https://
+            groupUrl = groupUrl.Substring(groupUrl.IndexOf("/", startIndex, StringComparison.InvariantCultureIgnoreCase));
+        }
+
+        roleInfo.Settings.Add("URL", groupUrl);
+        roleInfo.Settings.Add("GroupCreatorName", this.UserInfo.DisplayName);
+        roleInfo.Settings.Add("ReviewMembers", this.memberApproved.ToString());
+
+        this.RoleControllerInstance.UpdateRoleSettings(roleInfo, true);
+        if (this.selectedFile is { Size: > 0 })
+        {
+            var groupFolder = this.FolderManagerInstance.GetFolder(this.PortalSettings.PortalId, $"Groups/{roleInfo.RoleID}") ??
+                              this.FolderManagerInstance.AddFolder(this.PortalSettings.PortalId, $"Groups/{roleInfo.RoleID}");
+            var fileName = Path.GetFileName(this.selectedFile.Name);
+            using (var content = new MemoryStream())
+            {
+                using (var upload = this.selectedFile.OpenReadStream(long.MaxValue))
+                {
+                    await upload.CopyToAsync(content);
+                }
+
+                content.Position = 0;
+                var fileInfo = this.FileManagerInstance.AddFile(groupFolder, fileName, content, true, false, this.FileContentTypeManagerInstance.GetContentType(Path.GetExtension(fileName)));
+                roleInfo.IconFile = $"FileID={fileInfo.FileId}";
+            }
+
+            this.RoleControllerInstance.UpdateRole(roleInfo);
+        }
+
+        var notifications = new Notifications(this.HostSettingsInstance);
+
+        this.RoleControllerInstance.AddUserRole(this.PortalId, this.UserId, roleInfo.RoleID, userRoleStatus, true, Null.NullDate, Null.NullDate);
+        if (roleInfo.Status == RoleStatus.Pending)
+        {
+            // Send notification to Group Moderators to approve/reject group.
+            notifications.AddGroupNotification(Constants.GroupPendingNotification, this.GroupViewTabId, this.ModuleId, roleInfo, this.UserInfo, modRoles, modUsers);
+        }
+        else
+        {
+            // Send notification to Group Moderators informing of new group.
+            notifications.AddGroupNotification(Constants.GroupCreatedNotification, this.GroupViewTabId, this.ModuleId, roleInfo, this.UserInfo, modRoles, modUsers);
+
+            // Add entry to journal.
+            GroupUtilities.CreateJournalEntry(roleInfo, this.UserInfo);
+        }
+
+        var groupListingUrl = this.DnnNavigationManager.NavigateURL(this.TabId);
+        this.Navigation.NavigateTo(groupListingUrl, forceLoad: true);
+    }
+}

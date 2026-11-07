@@ -1,0 +1,147 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DNNConnect.CKEditorProvider.Controls
+
+@*
+    Replaces the two <asp:TreeView> instances this extension used (the Browser's folder tree and
+    page tree, and the EditorConfigManager's portal/tab/module tree). ASP.NET Core and the
+    migrated platform offer no TreeView replacement, so the control is owned by this project.
+
+    The node graph is the POCO model in DNNConnect.CKEditorProvider.Helper.DnnTreeNode, which the
+    pages (and TreeViewHelper<T>) build exactly as they built TreeNode graphs before. Expansion
+    state lives on the node, which is what ExpandDepth seeded on the WebForms control, so a
+    re-render of this recursive component keeps the tree open where the user left it.
+
+    No @rendermode is declared on purpose: this is a library component placed inside the pages
+    that own the render mode (Browser.razor / EditorConfigManager.razor). Declaring a render mode
+    on a child of an already-interactive component is an error at runtime.
+*@
+
+@if (this.Nodes != null && this.Nodes.Count > 0)
+{
+    <ul class="@this.ListCssClass">
+        @foreach (var node in this.Nodes.ToList())
+        {
+            <li class="@(node.HasChildNodes ? "dnnTreeBranch" : "dnnTreeLeaf")">
+                @if (node.HasChildNodes && this.ShowExpandCollapse)
+                {
+                    <a class="dnnTreeToggle"
+                       href="javascript:void(0);"
+                       title="@(node.Expanded ? "Collapse" : "Expand")"
+                       @onclick="@(() => this.ToggleNode(node))"
+                       @onclick:preventDefault="true">@(node.Expanded ? "-" : "+")</a>
+                }
+                else if (this.ShowExpandCollapse)
+                {
+                    <span class="dnnTreeToggle dnnTreeTogglePlaceHolder"></span>
+                }
+                <a class="@this.NodeCssClass(node)"
+                   href="@(string.IsNullOrEmpty(node.NavigateUrl) ? "javascript:void(0);" : node.NavigateUrl)"
+                   title="@node.ToolTip"
+                   @onclick="@(() => this.SelectNodeAsync(node))"
+                   @onclick:preventDefault="@string.IsNullOrEmpty(node.NavigateUrl)">
+                    @if (!string.IsNullOrEmpty(node.ImageUrl))
+                    {
+                        <img class="dnnTreeNodeImage" src="@node.ImageUrl" alt="" />
+                    }
+                    <span class="dnnTreeNodeText">@node.Text</span>
+                </a>
+                @if (node.HasChildNodes && node.Expanded)
+                {
+                    <DnnTreeView Nodes="node.ChildNodes"
+                                 Depth="this.Depth + 1"
+                                 ExpandDepth="this.ExpandDepth"
+                                 SelectedValue="this.SelectedValue"
+                                 ShowExpandCollapse="this.ShowExpandCollapse"
+                                 CssClass="@this.CssClass"
+                                 OnNodeClick="this.OnNodeClick" />
+                }
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private bool expansionSeeded;
+
+    /// <summary>Gets or sets the nodes rendered at this level of the tree.</summary>
+    [Parameter]
+    public IList<DnnTreeNode> Nodes { get; set; }
+
+    /// <summary>Gets or sets the zero based depth of this level, used by the recursion.</summary>
+    [Parameter]
+    public int Depth { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of levels expanded when the tree is first rendered, or a negative
+    /// value to expand everything.
+    /// </summary>
+    /// <remarks>Replaces <c>TreeView.ExpandDepth</c>.</remarks>
+    [Parameter]
+    public int ExpandDepth { get; set; } = -1;
+
+    /// <summary>Gets or sets the value of the node rendered as selected.</summary>
+    /// <remarks>Replaces <c>TreeView.SelectedValue</c>.</remarks>
+    [Parameter]
+    public string SelectedValue { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the expand/collapse affordance renders.</summary>
+    /// <remarks>Replaces <c>TreeView.ShowExpandCollapse</c>.</remarks>
+    [Parameter]
+    public bool ShowExpandCollapse { get; set; } = true;
+
+    /// <summary>Gets or sets the CSS class of the tree's root list.</summary>
+    [Parameter]
+    public string CssClass { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a node is clicked.</summary>
+    /// <remarks>Replaces <c>TreeView.SelectedNodeChanged</c>/the node's post back click.</remarks>
+    [Parameter]
+    public EventCallback<DnnTreeNode> OnNodeClick { get; set; }
+
+    private string ListCssClass =>
+        this.Depth == 0
+            ? string.Join(" ", new[] { "dnnTreeView", this.CssClass }.Where(c => !string.IsNullOrEmpty(c)))
+            : "dnnTreeViewChildren";
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        // ExpandDepth was applied once, when the WebForms TreeView was data bound. The same is
+        // done here, and only for the level this instance renders, so a node the user collapsed
+        // is not forced open again on the next render.
+        if (!this.expansionSeeded && this.Nodes != null)
+        {
+            this.expansionSeeded = true;
+            foreach (var node in this.Nodes)
+            {
+                if (this.ExpandDepth < 0 || this.Depth < this.ExpandDepth)
+                {
+                    node.Expanded = true;
+                }
+            }
+        }
+    }
+
+    private string NodeCssClass(DnnTreeNode node)
+    {
+        var selected = node.Selected
+                       || (!string.IsNullOrEmpty(this.SelectedValue)
+                           && string.Equals(node.Value, this.SelectedValue, StringComparison.Ordinal));
+        return selected ? "dnnTreeNode dnnTreeNodeSelected" : "dnnTreeNode";
+    }
+
+    private void ToggleNode(DnnTreeNode node)
+    {
+        node.Expanded = !node.Expanded;
+    }
+
+    private Task SelectNodeAsync(DnnTreeNode node)
+    {
+        node.Expanded = node.HasChildNodes ? true : node.Expanded;
+        return this.OnNodeClick.HasDelegate ? this.OnNodeClick.InvokeAsync(node) : Task.CompletedTask;
+    }
+}

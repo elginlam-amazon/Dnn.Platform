@@ -4,10 +4,13 @@
 
 namespace DotNetNuke.Web.Api
 {
-    using System.Web.Http.Routing;
-    using System.Web.Routing;
-
-    /// <summary>Extension methods for <see cref="Route"/> and <see cref="IHttpRoute"/>.</summary>
+    /// <summary>Extension methods to read and write the DNN route metadata (name, controller namespaces).</summary>
+    /// <remarks>
+    /// The legacy versions of these methods hung off <c>System.Web.Routing.Route</c>/<c>IHttpRoute</c> and
+    /// used their <c>DataTokens</c>. The ASP.NET Core equivalent of a route's data tokens is the endpoint
+    /// metadata, which is populated from <see cref="DnnServiceRoute.DataTokens"/> when the route is mapped
+    /// by <c>ServicesRoutingManager.MapRoutes</c>.
+    /// </remarks>
     public static class RouteExtensions
     {
         private const string NamespaceKey = "namespaces";
@@ -16,31 +19,15 @@ namespace DotNetNuke.Web.Api
         /// <summary>Get the name of the route.</summary>
         /// <param name="route">The route.</param>
         /// <returns>Route name.</returns>
-        public static string GetName(this Route route)
+        public static string GetName(this DnnServiceRoute route)
         {
-            return (string)route.DataTokens[NameKey];
-        }
-
-        /// <summary>Get the name of the route.</summary>
-        /// <param name="route">The route.</param>
-        /// <returns>Route name.</returns>
-        public static string GetName(this IHttpRoute route)
-        {
-            return (string)route.DataTokens[NameKey];
+            return route.DataTokens.TryGetValue(NameKey, out var name) ? (string)name : null;
         }
 
         /// <summary>Set the namespaces for the route.</summary>
         /// <param name="route">The route.</param>
         /// <param name="namespaces">The namespaces.</param>
-        internal static void SetNameSpaces(this Route route, string[] namespaces)
-        {
-            route.DataTokens[NamespaceKey] = namespaces;
-        }
-
-        /// <summary>Set the namespaces for the route.</summary>
-        /// <param name="route">The route.</param>
-        /// <param name="namespaces">The namespaces.</param>
-        internal static void SetNameSpaces(this IHttpRoute route, string[] namespaces)
+        internal static void SetNameSpaces(this DnnServiceRoute route, string[] namespaces)
         {
             route.DataTokens[NamespaceKey] = namespaces;
         }
@@ -48,33 +35,18 @@ namespace DotNetNuke.Web.Api
         /// <summary>Get Namespaces that are searched for controllers for this route.</summary>
         /// <param name="route">The route.</param>
         /// <returns>Namespaces.</returns>
-        internal static string[] GetNameSpaces(this Route route)
+        internal static string[] GetNameSpaces(this DnnServiceRoute route)
         {
-            return (string[])route.DataTokens[NamespaceKey];
-        }
-
-        /// <summary>Get Namespaces that are searched for controllers for this route.</summary>
-        /// <param name="route">The route.</param>
-        /// <returns>Namespaces.</returns>
-        internal static string[] GetNameSpaces(this IHttpRoute route)
-        {
-            return (string[])route.DataTokens[NamespaceKey];
+            return route.DataTokens.TryGetValue(NamespaceKey, out var namespaces) ? (string[])namespaces : null;
         }
 
         /// <summary>Set the name for the route.</summary>
         /// <param name="route">The route.</param>
         /// <param name="name">The name.</param>
-        internal static void SetName(this Route route, string name)
+        internal static void SetName(this DnnServiceRoute route, string name)
         {
             route.DataTokens[NameKey] = name;
-        }
-
-        /// <summary>Set the name for the route.</summary>
-        /// <param name="route">The route.</param>
-        /// <param name="name">The name.</param>
-        internal static void SetName(this IHttpRoute route, string name)
-        {
-            route.DataTokens[NameKey] = name;
+            route.Name = name;
         }
     }
 }

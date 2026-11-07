@@ -3,14 +3,21 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.Syndication
 {
+    using System;
     using System.Diagnostics.CodeAnalysis;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
 
+    using Microsoft.AspNetCore.Http;
+
     /// <summary>An HTTP handler for generating an RSS feed.</summary>
+    /// <remarks>
+    /// This used to derive from an <c>IHttpHandler</c> base registered in <c>web.config</c> for
+    /// <c>RSS.aspx</c>. In ASP.NET Core the request is dispatched from an endpoint; see
+    /// <c>RssEndpoint.MapDnnRss</c>.
+    /// </remarks>
     public class SyndicationHandlerBase : GenericRssHttpHandlerBase
     {
         private int moduleId = Null.NullInteger;
@@ -26,9 +33,9 @@ namespace DotNetNuke.Services.Syndication
         {
             get
             {
-                if (this.tabId == Null.NullInteger && this.Request.QueryString["tabid"] != null)
+                if (this.tabId == Null.NullInteger && TryGetQueryValue(this.Request, "tabid", out var rawTabId))
                 {
-                    if (!int.TryParse(this.Request.QueryString["tabid"], out this.tabId))
+                    if (!int.TryParse(rawTabId, out this.tabId))
                     {
                         this.tabId = Null.NullInteger;
                     }
@@ -43,9 +50,9 @@ namespace DotNetNuke.Services.Syndication
         {
             get
             {
-                if (this.moduleId == Null.NullInteger && this.Request.QueryString["moduleid"] != null)
+                if (this.moduleId == Null.NullInteger && TryGetQueryValue(this.Request, "moduleid", out var rawModuleId))
                 {
-                    if (!int.TryParse(this.Request.QueryString["moduleid"], out this.moduleId))
+                    if (!int.TryParse(rawModuleId, out this.moduleId))
                     {
                         this.moduleId = Null.NullInteger;
                     }
@@ -56,7 +63,30 @@ namespace DotNetNuke.Services.Syndication
         }
 
         /// <summary>Gets the HTTP request.</summary>
+        /// <remarks>
+        /// Returns the request of the context the handler is processing (<see langword="null"/>
+        /// before the handler has been initialized), rather than the old
+        /// <c>HttpContext.Current.Request</c>.
+        /// </remarks>
+        [CLSCompliant(false)]
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
-        public HttpRequest Request => HttpContext.Current.Request;
+        public HttpRequest Request => this.Context?.Request;
+
+        /// <summary>Reads a query string value, treating a missing key the same way the old <c>Request.QueryString[key] != null</c> check did.</summary>
+        /// <param name="request">The request, which may be <see langword="null"/>.</param>
+        /// <param name="key">The query string key.</param>
+        /// <param name="value">The raw value, when present.</param>
+        /// <returns><see langword="true"/> when the key was present on the query string.</returns>
+        private static bool TryGetQueryValue(HttpRequest request, string key, out string value)
+        {
+            if (request is not null && request.Query.TryGetValue(key, out var values))
+            {
+                value = values.ToString();
+                return true;
+            }
+
+            value = null;
+            return false;
+        }
     }
 }

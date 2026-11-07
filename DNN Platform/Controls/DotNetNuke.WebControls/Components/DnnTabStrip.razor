@@ -1,0 +1,238 @@
+@* ---------------------------------------------------------------------------------------------
+    DnnTabStrip — the Blazor replacement of the DotNetNuke.UI.WebControls.DNNTabStrip control.
+
+    Render mode: InteractiveServer. The strip owns the @onclick of every tab label and keeps the
+    selected-tab state on the server, so it cannot render statically.
+
+    Ported from DNNTabStrip.cs: RenderContents (the label container before or after the content
+    container, following TabAlignment, and the per-tab content render decision made from
+    eTabRenderMode / IsPostBack / IsSelected) and the RaisePostBackEvent "OnDemand" branch, which
+    selected the posted tab and is now the SelectTabAsync handler raising OnTabClick and
+    SelectedIndexChanged.
+
+    The children register themselves through the CascadingValue below, which replaces the
+    INamingContainer / AddParsedSubObject child collection of the WebForms control.
+    HttpContext is null over the circuit: no client variable or post-back data is read here.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+@inherits DnnControlBase
+@rendermode InteractiveServer
+
+<div id="@this.ClientId" class="@this.CssClass" @ref="this.RootElementBinding">
+    <CascadingValue Value="this" IsFixed="true">
+        @if (this.TabAlignment is Alignment.Top or Alignment.Left)
+        {
+            @this.RenderLabels
+        }
+
+        <div id="@(this.ClientId + "_c")" class="@this.CssContentContainer">
+            @this.ChildContent
+        </div>
+
+        @if (this.TabAlignment is Alignment.Bottom or Alignment.Right)
+        {
+            @this.RenderLabels
+        }
+    </CascadingValue>
+</div>
+
+@code {
+    private readonly List<DnnTab> registeredTabs = new List<DnnTab>();
+    private int selectedIndex;
+    private bool labelsNeedRefresh;
+
+    /// <summary>Gets or sets the tabs of the strip.</summary>
+    [Parameter]
+    public RenderFragment ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets the legacy control used as the source of the marshalled client properties.
+    /// </summary>
+    /// <remarks>Optional; only needed by hosts that still drive <c>dnn.controls.initTabStrip</c>.</remarks>
+    [Parameter]
+    public DNNTabStrip Control { get; set; }
+
+    /// <summary>Gets or sets how the content of the tabs reaches the browser.</summary>
+    [Parameter]
+    public DNNTabStrip.eTabRenderMode TabRenderMode { get; set; } = DNNTabStrip.eTabRenderMode.CallBack;
+
+    /// <summary>Gets or sets the edge the tab labels are rendered along.</summary>
+    [Parameter]
+    public Alignment TabAlignment { get; set; } = Alignment.Top;
+
+    /// <summary>Gets or sets the index of the selected tab.</summary>
+    [Parameter]
+    public int SelectedIndex { get; set; }
+
+    /// <summary>Occurs when the index of the selected tab changes.</summary>
+    [Parameter]
+    public EventCallback<int> SelectedIndexChanged { get; set; }
+
+    /// <summary>Occurs when a tab label is clicked.</summary>
+    /// <remarks>Replaces the <c>OnDemand</c> post back of the WebForms control.</remarks>
+    [Parameter]
+    public EventCallback<DnnTab> OnTabClick { get; set; }
+
+    /// <summary>Gets or sets the CSS class of the strip.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class of the container holding the tab labels.</summary>
+    [Parameter]
+    public string CssTabContainer { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class of the container holding the tab contents.</summary>
+    [Parameter]
+    public string CssContentContainer { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class the content container of a tab falls back to.</summary>
+    [Parameter]
+    public string DefaultContainerCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the appearance the labels of the tabs fall back to.</summary>
+    [Parameter]
+    public DNNTabLabel DefaultLabel { get; set; } = new DNNTabLabel();
+
+    /// <summary>Gets or sets the image shown while a tab is loading.</summary>
+    [Parameter]
+    public string WorkImage { get; set; } = string.Empty;
+
+    /// <summary>Gets the tabs that registered themselves with the strip.</summary>
+    /// <remarks>Replaces <see cref="TabStripTabCollection"/>, which wrapped the child controls.</remarks>
+    public IReadOnlyList<DnnTab> Tabs => this.registeredTabs;
+
+    /// <summary>Gets the selected tab.</summary>
+    public DnnTab SelectedTab => this.CurrentIndex >= 0 && this.CurrentIndex < this.registeredTabs.Count
+        ? this.registeredTabs[this.CurrentIndex]
+        : null;
+
+    /// <summary>Gets the index of the selected tab.</summary>
+    internal int CurrentIndex => this.selectedIndex;
+
+    /// <summary>Gets or sets the root element, exposing the protected base member to the markup.</summary>
+    private ElementReference RootElementBinding
+    {
+        get => this.RootElement;
+        set => this.RootElement = value;
+    }
+
+    /// <summary>Gets the label container and the labels of every registered tab.</summary>
+    /// <remarks>Ported from <c>DNNTabStrip.RenderTabs</c>.</remarks>
+    private RenderFragment RenderLabels => @<div id="@(this.ClientId + "_lc")" class="@this.CssTabContainer">
+        @foreach (var tab in this.registeredTabs)
+        {
+            @tab.LabelContent
+        }
+    </div>;
+
+    /// <inheritdoc/>
+    protected override string ClientInitFunction => "initTabStrip";
+
+    /// <inheritdoc/>
+    protected override object ClientPropertySource => this.Control;
+
+    /// <summary>Registers a tab with the strip.</summary>
+    /// <param name="tab">The tab to register.</param>
+    /// <remarks>
+    /// Replaces the child-control collection of the WebForms control: a <see cref="DnnTab"/> adds
+    /// itself from its own initialization through the cascaded strip. The labels are rendered from
+    /// this list, which is only complete once the children have rendered, hence the extra render
+    /// pass requested here.
+    /// </remarks>
+    internal void RegisterTab(DnnTab tab)
+    {
+        if (tab is null || this.registeredTabs.Contains(tab))
+        {
+            return;
+        }
+
+        this.registeredTabs.Add(tab);
+        this.labelsNeedRefresh = true;
+
+        // The first registered tab is the selected one, as SelectedIndex defaulted to 0.
+        if (this.registeredTabs.Count == 1)
+        {
+            this.selectedIndex = this.SelectedIndex;
+        }
+    }
+
+    /// <summary>Unregisters a tab that is being disposed.</summary>
+    /// <param name="tab">The tab to unregister.</param>
+    internal void UnregisterTab(DnnTab tab)
+    {
+        if (tab is not null && this.registeredTabs.Remove(tab))
+        {
+            this.labelsNeedRefresh = true;
+        }
+    }
+
+    /// <summary>Determines whether the given tab is the selected one.</summary>
+    /// <param name="tab">The tab to inspect.</param>
+    /// <returns><see langword="true"/> when the tab is selected.</returns>
+    internal bool IsSelected(DnnTab tab)
+    {
+        return tab is not null && ReferenceEquals(tab, this.SelectedTab);
+    }
+
+    /// <summary>
+    /// Selects a tab, as the <c>OnDemand</c> branch of <c>DNNTabStrip.RaisePostBackEvent</c> did.
+    /// </summary>
+    /// <param name="tab">The tab to select.</param>
+    /// <returns>A task that completes once the handlers have run.</returns>
+    internal async Task SelectTabAsync(DnnTab tab)
+    {
+        if (tab is null || !tab.Enabled)
+        {
+            return;
+        }
+
+        var index = this.registeredTabs.IndexOf(tab);
+        if (index < 0)
+        {
+            return;
+        }
+
+        // The WebForms strip remembered which tabs had already been rendered so that a PostBack or
+        // CallBack tab kept its content after it had been fetched once.
+        tab.MarkRendered();
+
+        if (index != this.selectedIndex)
+        {
+            this.selectedIndex = index;
+            this.SelectedIndex = index;
+            await this.SelectedIndexChanged.InvokeAsync(index);
+        }
+
+        await tab.RaiseSetupDefaultsAsync();
+        await this.OnTabClick.InvokeAsync(tab);
+        this.StateHasChanged();
+    }
+
+    /// <inheritdoc/>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        if (this.SelectedIndex != this.selectedIndex
+            && this.SelectedIndex >= 0
+            && (this.registeredTabs.Count == 0 || this.SelectedIndex < this.registeredTabs.Count))
+        {
+            this.selectedIndex = this.SelectedIndex;
+        }
+    }
+
+    /// <inheritdoc/>
+    protected override void OnAfterRender(bool firstRender)
+    {
+        base.OnAfterRender(firstRender);
+
+        if (!this.labelsNeedRefresh)
+        {
+            return;
+        }
+
+        // The children have registered by now, so the label container can be rendered completely.
+        this.labelsNeedRefresh = false;
+        this.StateHasChanged();
+    }
+}

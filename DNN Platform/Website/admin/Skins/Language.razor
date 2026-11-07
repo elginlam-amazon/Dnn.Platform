@@ -1,0 +1,56 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+@rendermode InteractiveServer
+
+@*
+    Replaces language.ascx. The four designer controls map as follows:
+      litCommonHeaderTemplate / litCommonFooterTemplate (asp:Literal) -> CommonHeaderMarkup /
+        CommonFooterMarkup, rendered as markup (a Literal does not encode) and only when set
+        (Literal.Visible).
+      selectCulture (asp:DropDownList AutoPostBack="true") -> the <select> below. The WebForms
+        auto-postback that redirected to the selected culture's URL becomes @@onchange ->
+        SelectCultureChangedAsync, which is why this component is interactive.
+      rptLanguages (asp:Repeater with Item/AlternatingItem/Header/Separator/Footer templates) ->
+        RepeaterMarkup, assembled in Language.razor.cs with exactly the template selection rules
+        rptLanguages_ItemDataBound applied.
+
+    The locale list is permission filtered in Language.razor.cs (content localization +
+    PortalSecurity.IsInRoles(administrators), locale.IsPublished, the per-locale
+    DefaultTranslatorRoles setting, and TabPermissionController.CanViewPage on the localized page).
+    That filter is unchanged - an unpublished or unviewable culture stays hidden from visitors and is
+    only offered to administrators/translators, which is the edit-mode branch this skin object has.
+*@
+
+@if (!this.Visible)
+{
+    return;
+}
+
+@if (this.CommonHeaderVisible)
+{
+    @((MarkupString)(this.CommonHeaderMarkup ?? string.Empty))
+}
+
+@if (this.SelectCultureVisible)
+{
+    <select id="selectCulture" class="@(string.IsNullOrEmpty(this.CssClass) ? "NormalTextBox" : this.CssClass)" @onchange="this.SelectCultureChangedAsync">
+        @foreach (var item in this.CultureItems)
+        {
+            <option value="@item.Value" selected="@(item.Value == this.SelectedCulture)">@item.Text</option>
+        }
+    </select>
+}
+
+@if (this.RepeaterVisible)
+{
+    @((MarkupString)(this.RepeaterMarkup ?? string.Empty))
+}
+
+@if (this.CommonFooterVisible)
+{
+    @((MarkupString)(this.CommonFooterMarkup ?? string.Empty))
+}

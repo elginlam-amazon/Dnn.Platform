@@ -10,9 +10,12 @@ namespace DotNetNuke.Modules.Journal
 
     public class JournalRouteMapper : IServiceRouteMapper
     {
+        /// <summary>The namespaces the Journal service route resolves controllers from.</summary>
+        private static readonly string[] ControllerNamespaces = { "DotNetNuke.Modules.Journal" };
+
         public void RegisterRoutes(IMapRoute mapRouteManager)
         {
-            mapRouteManager.MapHttpRoute("Journal", "default", "{controller}/{action}", new[] { "DotNetNuke.Modules.Journal" });
+            mapRouteManager.MapHttpRoute("Journal", "default", "{controller}/{action}", ControllerNamespaces);
         }
     }
 }

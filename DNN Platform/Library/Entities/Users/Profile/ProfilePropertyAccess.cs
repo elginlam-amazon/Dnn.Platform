@@ -11,7 +11,7 @@ namespace DotNetNuke.Entities.Users
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Web;
+    using System.Net;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
@@ -26,7 +26,6 @@ namespace DotNetNuke.Entities.Users
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security;
     using DotNetNuke.Services.Tokens;
-
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>Provides access to profile properties.</summary>
@@ -185,11 +184,11 @@ namespace DotNetNuke.Entities.Users
                     case "richtext":
                         var objSecurity = PortalSecurity.Instance;
 #pragma warning disable CS0618 // Type or member is obsolete
-                        result = PropertyAccess.FormatString(objSecurity.InputFilter(HttpUtility.HtmlDecode(property.PropertyValue), PortalSecurity.FilterFlag.NoScripting), formatString);
+                        result = PropertyAccess.FormatString(objSecurity.InputFilter(WebUtility.HtmlDecode(property.PropertyValue), PortalSecurity.FilterFlag.NoScripting), formatString);
 #pragma warning restore CS0618 // Type or member is obsolete
                         break;
                     default:
-                        result = HttpUtility.HtmlEncode(PropertyAccess.FormatString(property.PropertyValue, formatString));
+                        result = WebUtility.HtmlEncode(PropertyAccess.FormatString(property.PropertyValue, formatString));
                         break;
                 }
             }

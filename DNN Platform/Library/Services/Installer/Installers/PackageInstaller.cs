@@ -16,7 +16,6 @@ namespace DotNetNuke.Services.Installer.Installers
     using DotNetNuke.Services.Installer.Dependencies;
     using DotNetNuke.Services.Installer.Packages;
 
-    using SchwabenCode.QuickIO;
 
     /// <summary>The PackageInstaller class is an Installer for Packages.</summary>
     public class PackageInstaller : ComponentInstallerBase
@@ -556,8 +555,15 @@ namespace DotNetNuke.Services.Installer.Installers
             {
                 return FileSystemUtils.ReadFile(this.Package.InstallerInfo.TempInstallFolder + @"\" + source);
             }
-            catch (PathNotFoundException)
+            catch (FileNotFoundException)
             {
+                this.Log.AddFailure($"Unable to read {source}, file not found");
+                return null;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // System.IO.File.OpenText (used by FileSystemUtils.ReadFile) reports a missing
+                // directory separately, where QuickIO raised a single PathNotFoundException.
                 this.Log.AddFailure($"Unable to read {source}, file not found");
                 return null;
             }

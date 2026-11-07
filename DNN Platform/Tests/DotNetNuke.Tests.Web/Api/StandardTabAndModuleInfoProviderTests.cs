@@ -8,14 +8,15 @@ namespace DotNetNuke.Tests.Web.Api
     using System.Collections.Generic;
     using System.Data;
     using System.Globalization;
-    using System.Net.Http;
-    using System.Web;
 
     using DotNetNuke.Data;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Tests.Utilities.Mocks;
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Http;
+
     using Moq;
     using NUnit.Framework;
 
@@ -82,9 +83,9 @@ namespace DotNetNuke.Tests.Web.Api
         public void ValidTabAndModuleIdLoadsActiveModule()
         {
             // Arrange
-            var request = new HttpRequestMessage();
-            request.Headers.Add("tabid", ValidTabId.ToString(CultureInfo.InvariantCulture));
-            request.Headers.Add("moduleid", ValidModuleId.ToString(CultureInfo.InvariantCulture));
+            var request = CreateRequest();
+            request.Headers["tabid"] = ValidTabId.ToString(CultureInfo.InvariantCulture);
+            request.Headers["moduleid"] = ValidModuleId.ToString(CultureInfo.InvariantCulture);
 
             // Act
             ModuleInfo returnedModuleInfo;
@@ -102,8 +103,8 @@ namespace DotNetNuke.Tests.Web.Api
         public void ExistingMonikerValueInHeaderShouldFindTheCorrectModuleInfo()
         {
             // Arrange
-            var request = new HttpRequestMessage();
-            request.Headers.Add("X-DNN-MONIKER", MonikerSettingValue);
+            var request = CreateRequest();
+            request.Headers["X-DNN-MONIKER"] = MonikerSettingValue;
 
             // Act
             ModuleInfo returnedModuleInfo;
@@ -121,9 +122,11 @@ namespace DotNetNuke.Tests.Web.Api
         public void ExistingMonikerValueInQueryStringShouldFindTheCorrectModuleInfo()
         {
             // Arrange
-            var request = new HttpRequestMessage();
-            request.RequestUri = new Uri(
-                "http://mysite.lvh.me/API/internalservices/controlbar/ToggleUserMode?moniker=" + HttpUtility.UrlEncode(MonikerSettingValue));
+            var request = CreateRequest();
+            request.Scheme = "http";
+            request.Host = new HostString("mysite.lvh.me");
+            request.Path = "/API/internalservices/controlbar/ToggleUserMode";
+            request.QueryString = QueryString.Create("moniker", MonikerSettingValue);
 
             // Act
             ModuleInfo returnedModuleInfo;
@@ -141,8 +144,8 @@ namespace DotNetNuke.Tests.Web.Api
         public void NonExistingMonikerValueShouldFailToReturnResult()
         {
             // Arrange
-            var request = new HttpRequestMessage();
-            request.Headers.Add("X-DNN-MONIKER", "This moniker does not exist");
+            var request = CreateRequest();
+            request.Headers["X-DNN-MONIKER"] = "This moniker does not exist";
 
             // Act
             ModuleInfo returnedModuleInfo;
@@ -160,7 +163,7 @@ namespace DotNetNuke.Tests.Web.Api
         public void MissingAllHeadersShouldFailToReturnResult()
         {
             // Arrange
-            var request = new HttpRequestMessage();
+            var request = CreateRequest();
 
             // Act
             ModuleInfo returnedModuleInfo;
@@ -179,8 +182,8 @@ namespace DotNetNuke.Tests.Web.Api
         {
             // Arrange
             // no tabid
-            var request = new HttpRequestMessage();
-            request.Headers.Add("moduleid", ValidModuleId.ToString(CultureInfo.InvariantCulture));
+            var request = CreateRequest();
+            request.Headers["moduleid"] = ValidModuleId.ToString(CultureInfo.InvariantCulture);
 
             // Act
             ModuleInfo returnedModuleInfo;
@@ -201,8 +204,8 @@ namespace DotNetNuke.Tests.Web.Api
         {
             // Arrange
             // no moduleid
-            var request = new HttpRequestMessage();
-            request.Headers.Add("tabid", ValidTabId.ToString(CultureInfo.InvariantCulture));
+            var request = CreateRequest();
+            request.Headers["tabid"] = ValidTabId.ToString(CultureInfo.InvariantCulture);
 
             // Act
             ModuleInfo returnedModuleInfo;
@@ -221,9 +224,10 @@ namespace DotNetNuke.Tests.Web.Api
         public void TabIdInHeaderTakesPriority()
         {
             // Arrange
-            var request = new HttpRequestMessage();
-            request.Headers.Add("tabid", ValidTabId.ToString(CultureInfo.InvariantCulture));
-            request.RequestUri = new Uri(string.Format("http://foo.com?{0}={1}", "tabid", ValidTabId + 1));
+            var request = CreateRequest();
+            request.Headers["tabid"] = ValidTabId.ToString(CultureInfo.InvariantCulture);
+            request.Host = new HostString("foo.com");
+            request.QueryString = QueryString.Create("tabid", (ValidTabId + 1).ToString(CultureInfo.InvariantCulture));
 
             // Act
             int tabId;
@@ -241,9 +245,10 @@ namespace DotNetNuke.Tests.Web.Api
         public void ModuleIdInHeaderTakesPriority()
         {
             // Arrange
-            var request = new HttpRequestMessage();
-            request.Headers.Add("moduleid", ValidTabId.ToString(CultureInfo.InvariantCulture));
-            request.RequestUri = new Uri(string.Format("http://foo.com?{0}={1}", "moduleid", ValidTabId + 1));
+            var request = CreateRequest();
+            request.Headers["moduleid"] = ValidTabId.ToString(CultureInfo.InvariantCulture);
+            request.Host = new HostString("foo.com");
+            request.QueryString = QueryString.Create("moduleid", (ValidTabId + 1).ToString(CultureInfo.InvariantCulture));
 
             // Act
             int moduleId;
@@ -264,8 +269,8 @@ namespace DotNetNuke.Tests.Web.Api
         public void TabIdInHeaderAllowsTabIdToBeFound(string headerName)
         {
             // Arrange
-            var request = new HttpRequestMessage();
-            request.Headers.Add(headerName, ValidTabId.ToString(CultureInfo.InvariantCulture));
+            var request = CreateRequest();
+            request.Headers[headerName] = ValidTabId.ToString(CultureInfo.InvariantCulture);
 
             // Act
             int tabId;
@@ -286,8 +291,8 @@ namespace DotNetNuke.Tests.Web.Api
         public void ModuleIdInHeaderAllowsModuleIdToBeFound(string headerName)
         {
             // Arrange
-            var request = new HttpRequestMessage();
-            request.Headers.Add(headerName, ValidModuleId.ToString(CultureInfo.InvariantCulture));
+            var request = CreateRequest();
+            request.Headers[headerName] = ValidModuleId.ToString(CultureInfo.InvariantCulture);
 
             // Act
             int moduleId;
@@ -308,8 +313,8 @@ namespace DotNetNuke.Tests.Web.Api
         public void MonikerInHeaderAllowsModuleToBeFound(string headerName)
         {
             // Arrange
-            var request = new HttpRequestMessage();
-            request.Headers.Add(headerName, MonikerSettingValue);
+            var request = CreateRequest();
+            request.Headers[headerName] = MonikerSettingValue;
 
             // Act
             int moduleId;
@@ -330,10 +335,9 @@ namespace DotNetNuke.Tests.Web.Api
         public void TabIdInQueryStringAllowsTabIdToBeFound(string paramName)
         {
             // Arrange
-            var request = new HttpRequestMessage
-            {
-                RequestUri = new Uri(string.Format("http://foo.com?{0}={1}", paramName, ValidTabId)),
-            };
+            var request = CreateRequest();
+            request.Host = new HostString("foo.com");
+            request.QueryString = QueryString.Create(paramName, ValidTabId.ToString(CultureInfo.InvariantCulture));
 
             // Act
             int tabId;
@@ -354,10 +358,9 @@ namespace DotNetNuke.Tests.Web.Api
         public void ModuleIdInQueryStringAllowsModuleIdToBeFound(string paramName)
         {
             // Arrange
-            var request = new HttpRequestMessage
-            {
-                RequestUri = new Uri(string.Format("http://foo.com?{0}={1}", paramName, ValidModuleId)),
-            };
+            var request = CreateRequest();
+            request.Host = new HostString("foo.com");
+            request.QueryString = QueryString.Create(paramName, ValidModuleId.ToString(CultureInfo.InvariantCulture));
 
             // Act
             int moduleId;
@@ -378,7 +381,7 @@ namespace DotNetNuke.Tests.Web.Api
 
             // Act
             int tabId;
-            var result = new StandardTabAndModuleInfoProvider().TryFindTabId(new HttpRequestMessage(), out tabId);
+            var result = new StandardTabAndModuleInfoProvider().TryFindTabId(CreateRequest(), out tabId);
 
             using (Assert.EnterMultipleScope())
             {
@@ -395,7 +398,7 @@ namespace DotNetNuke.Tests.Web.Api
 
             // Act
             int moduleId;
-            var result = new StandardTabAndModuleInfoProvider().TryFindModuleId(new HttpRequestMessage(), out moduleId);
+            var result = new StandardTabAndModuleInfoProvider().TryFindModuleId(CreateRequest(), out moduleId);
 
             using (Assert.EnterMultipleScope())
             {
@@ -403,6 +406,17 @@ namespace DotNetNuke.Tests.Web.Api
                 Assert.That(result, Is.False);
                 Assert.That(moduleId, Is.EqualTo(-1));
             }
+        }
+
+        /// <summary>
+        /// Creates the request under test. Replaces <c>new HttpRequestMessage()</c>: the provider now
+        /// reads an ASP.NET Core server-side <see cref="HttpRequest"/>, whose headers and query string
+        /// carry what the legacy <c>Headers</c> collection and <c>RequestUri.Query</c> carried.
+        /// </summary>
+        /// <returns>The <see cref="HttpRequest"/> of a new <see cref="DefaultHttpContext"/>.</returns>
+        private static HttpRequest CreateRequest()
+        {
+            return new DefaultHttpContext().Request;
         }
 
         private static IDataReader GetPortalsCallBack(string culture)

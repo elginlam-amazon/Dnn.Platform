@@ -5,16 +5,17 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
     using Microsoft.Extensions.Logging;
 
     /// <summary>The TrueFalseEditControl control provides a standard UI component for editing true/false (boolean) properties.</summary>
-    [ToolboxData("<{0}:TrueFalseEditControl runat=server></{0}:TrueFalseEditControl>")]
     public class TrueFalseEditControl : EditControl
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<TrueFalseEditControl>();
@@ -98,37 +99,34 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <summary>RenderEditMode renders the Edit mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "radio");
-            if (this.BooleanValue)
+            ArgumentNullException.ThrowIfNull(builder);
+
+            this.RenderOption(builder, 0, "True", this.BooleanValue, Localization.GetString("True", Localization.SharedResourceFile));
+            this.RenderOption(builder, 20, "False", !this.BooleanValue, Localization.GetString("False", Localization.SharedResourceFile));
+        }
+
+        private void RenderOption(RenderTreeBuilder builder, int sequence, string optionValue, bool isChecked, string optionText)
+        {
+            builder.OpenElement(sequence, "input");
+            builder.AddAttribute(sequence + 1, "type", "radio");
+            if (isChecked)
             {
-                writer.AddAttribute(HtmlTextWriterAttribute.Checked, "checked");
+                builder.AddAttribute(sequence + 2, "checked", "checked");
             }
 
-            writer.AddAttribute(HtmlTextWriterAttribute.Value, "True");
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.RenderEndTag();
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.RenderBeginTag(HtmlTextWriterTag.Span);
-            writer.Write(Localization.GetString("True", Localization.SharedResourceFile));
-            writer.RenderEndTag();
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "radio");
-            if (!this.BooleanValue)
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Checked, "checked");
-            }
+            builder.AddAttribute(sequence + 3, "value", optionValue);
+            builder.AddAttribute(sequence + 4, "name", this.UniqueID);
+            builder.AddAttribute(sequence + 5, "aria-label", this.Name);
+            builder.AddAttribute(sequence + 6, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnInputChanged));
+            builder.CloseElement();
 
-            writer.AddAttribute(HtmlTextWriterAttribute.Value, "False");
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.RenderEndTag();
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.RenderBeginTag(HtmlTextWriterTag.Span);
-            writer.Write(Localization.GetString("False", Localization.SharedResourceFile));
-            writer.RenderEndTag();
+            builder.OpenElement(sequence + 10, "span");
+            this.AddStyleAttributes(builder, sequence + 11);
+            builder.AddContent(sequence + 15, optionText);
+            builder.CloseElement();
         }
     }
 }

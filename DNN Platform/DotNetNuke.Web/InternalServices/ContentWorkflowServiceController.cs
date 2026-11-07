@@ -8,8 +8,6 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Web.Http;
 
 using DotNetNuke.Common;
 using DotNetNuke.Entities.Content;
@@ -22,8 +20,14 @@ using DotNetNuke.Internal.SourceGenerators;
 using DotNetNuke.Services.Exceptions;
 using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
-
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+
+// Disambiguates the DNN services framework anti-forgery filter from the same-named
+// Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+// bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+// bypass list fed by the authentication handlers and the iframe relaxation the upload flow needs.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>An API controller for managing content moving through its workflow.</summary>
 /// <param name="contentController">The content controller.</param>
@@ -50,7 +54,7 @@ public partial class ContentWorkflowServiceController(IContentController content
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnDeprecated(10, 3, 3, "Use overload taking NotificationRequest")]
-    public partial HttpResponseMessage Reject(NotificationDTO postData)
+    public partial IActionResult Reject(NotificationDTO postData)
         => this.Reject(postData?.ToNotificationRequest());
 
     /// <summary>Rejects a workflow.</summary>
@@ -58,7 +62,7 @@ public partial class ContentWorkflowServiceController(IContentController content
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage Reject(NotificationRequest requestBody)
+    public IActionResult Reject(NotificationRequest requestBody)
     {
         try
         {
@@ -67,7 +71,7 @@ public partial class ContentWorkflowServiceController(IContentController content
             {
                 if (string.IsNullOrEmpty(notification.Context))
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                    return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
                 }
 
                 var parameters = notification.Context.Split(':');
@@ -81,7 +85,7 @@ public partial class ContentWorkflowServiceController(IContentController content
                 };
                 this.workflowEngine.DiscardState(stateTransaction);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
             }
         }
         catch (Exception exc)
@@ -89,7 +93,7 @@ public partial class ContentWorkflowServiceController(IContentController content
             Exceptions.LogException(exc);
         }
 
-        return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "unable to process notification");
+        return DnnApiResults.Error(HttpStatusCode.InternalServerError, "unable to process notification");
     }
 
     /// <summary>Approves a workflow.</summary>
@@ -98,7 +102,7 @@ public partial class ContentWorkflowServiceController(IContentController content
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnDeprecated(10, 3, 3, "Use overload taking NotificationRequest")]
-    public partial HttpResponseMessage Approve(NotificationDTO postData)
+    public partial IActionResult Approve(NotificationDTO postData)
         => this.Approve(postData?.ToNotificationRequest());
 
     /// <summary>Approves a workflow.</summary>
@@ -106,7 +110,7 @@ public partial class ContentWorkflowServiceController(IContentController content
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage Approve(NotificationRequest requestBody)
+    public IActionResult Approve(NotificationRequest requestBody)
     {
         try
         {
@@ -115,7 +119,7 @@ public partial class ContentWorkflowServiceController(IContentController content
             {
                 if (string.IsNullOrEmpty(notification.Context))
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                    return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
                 }
 
                 string[] parameters = notification.Context.Split(':');
@@ -129,7 +133,7 @@ public partial class ContentWorkflowServiceController(IContentController content
                 };
                 this.workflowEngine.CompleteState(stateTransaction);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success", });
             }
         }
         catch (Exception exc)
@@ -137,83 +141,83 @@ public partial class ContentWorkflowServiceController(IContentController content
             Exceptions.LogException(exc);
         }
 
-        return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "unable to process notification");
+        return DnnApiResults.Error(HttpStatusCode.InternalServerError, "unable to process notification");
     }
 
     /// <summary>Complete a workflow state for the current page.</summary>
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage CompleteState()
+    public IActionResult CompleteState()
     {
         try
         {
             this.workflowEngine.CompleteState(this.BuildStateTransaction());
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success" });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success" });
         }
         catch (Exception exc)
         {
             Exceptions.LogException(exc);
         }
 
-        return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "unable to process notification");
+        return DnnApiResults.Error(HttpStatusCode.InternalServerError, "unable to process notification");
     }
 
     /// <summary>Discards a workflow state for the current page.</summary>
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage DiscardState()
+    public IActionResult DiscardState()
     {
         try
         {
             this.workflowEngine.DiscardState(this.BuildStateTransaction());
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success" });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success" });
         }
         catch (Exception exc)
         {
             Exceptions.LogException(exc);
         }
 
-        return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "unable to process notification");
+        return DnnApiResults.Error(HttpStatusCode.InternalServerError, "unable to process notification");
     }
 
     /// <summary>Complete a workflow for the current page.</summary>
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage CompleteWorkflow()
+    public IActionResult CompleteWorkflow()
     {
         try
         {
             this.workflowEngine.CompleteWorkflow(this.BuildStateTransaction());
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success" });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success" });
         }
         catch (Exception exc)
         {
             Exceptions.LogException(exc);
         }
 
-        return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "unable to process notification");
+        return DnnApiResults.Error(HttpStatusCode.InternalServerError, "unable to process notification");
     }
 
     /// <summary>Discards a workflow for the current page.</summary>
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage DiscardWorkflow()
+    public IActionResult DiscardWorkflow()
     {
         try
         {
             this.workflowEngine.DiscardWorkflow(this.BuildStateTransaction());
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success" });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Result = "success" });
         }
         catch (Exception exc)
         {
             Exceptions.LogException(exc);
         }
 
-        return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "unable to process notification");
+        return DnnApiResults.Error(HttpStatusCode.InternalServerError, "unable to process notification");
     }
 
     private StateTransaction BuildStateTransaction()

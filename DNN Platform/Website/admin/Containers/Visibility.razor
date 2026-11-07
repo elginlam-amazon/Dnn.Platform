@@ -1,0 +1,362 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Containers
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using System.Collections.Generic
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI
+@using DotNetNuke.UI.Utilities
+
+@using Globals = DotNetNuke.Common.Globals
+
+@*
+    Replaces visibility.ascx + Visibility.ascx.cs + Visibility.ascx.designer.cs.
+
+    Handles collapsing and expanding modules if personalization of the module container and title is
+    allowed for that module.
+
+    *** PER-USER PERSISTENCE - UNCHANGED ***
+    The min/max state is persisted by DNNClientAPI, which this control drives with
+    DNNClientAPI.MinMaxPersistanceType.Cookie exactly as the WebForms version did. The key is
+    therefore produced by DNNClientAPI (Library/UI/Utilities/DNNClientAPI.cs) and is byte identical:
+      * the cookie            "_Module" + ModuleId + "_Visible"
+      * the client variables  "containerid_" + contentClientId, "cookieid_" + contentClientId
+                              (whose value is "_Module" + ModuleId + "_Visible"),
+                              "min_icon_" + ModuleId, "max_icon_" + ModuleId
+      * the default-minimized flag "__dnn_" + ModuleId + ":defminimized"
+    Nothing in this file builds or rewrites a key; the read is DNNClientAPI.MinMaxContentVisibile(..)
+    (the ContentVisible getter below), the write is its value-taking overload (the ContentVisible
+    setter, reached from ToggleContentVisibility).
+
+    The WebForms markup was <asp:LinkButton ID="cmdVisibility"><asp:Image ID="imgVisibility"/>
+    </asp:LinkButton>. DNNClientAPI writes the min/max behaviour onto those two controls as markup
+    attributes (onclick / title on the button, src / alt / title on its first child image - see
+    SetMinMaxProperties), so the two controls are kept as the attribute carriers below and their
+    bags are splatted onto the <a>/<img> this control renders. That is what keeps the client side
+    __dnn_ContainerMaxMin_OnClick handler - the handler that writes the cookie above - wired up.
+
+    The LinkButton's server Click handler is preserved as the public ToggleContentVisibility()
+    method: a skin object cannot opt into @@rendermode InteractiveServer (its ModuleControl is set by
+    the skinning engine, not passed as a serializable parameter, so an interactive copy would have
+    none), and the min/max round trip is client side anyway - it is the client handler registered by
+    DNNClientAPI that toggles the pane and persists the cookie under the key above.
+
+    Page.IsPostBack has no equivalent; the only thing the original's post-back branch did was repeat
+    the VisibilityState.None guard, so the guards below simply run on every load (they are idempotent).
+*@
+
+@if (this.Visible && this.cmdVisible)
+{
+    <a id="@this.cmdVisibility.ClientId" href="#" @attributes="this.ButtonAttributes">
+        <img id="@this.imgVisibility.ClientId" @attributes="this.ImageAttributes" />
+    </a>
+}
+
+@code {
+    private readonly DnnGenericControl cmdVisibility = new DnnGenericControl("a") { ID = "cmdVisibility" };
+
+    private readonly DnnGenericControl imgVisibility = new DnnGenericControl("img") { ID = "imgVisibility" };
+
+    private IDnnControl pnlModuleContent;
+
+    private bool cmdEnabled = true;
+
+    private bool cmdVisible = true;
+
+    /// <summary>Gets the local resource file of this control.</summary>
+    public string ResourceFile
+    {
+        get
+        {
+            return Localization.GetResourceFile(this, "Visibility.ascx");
+        }
+    }
+
+    /// <summary>Gets or sets the number of animation frames of the min/max animation.</summary>
+    [Parameter]
+    public int AnimationFrames { get; set; } = 5;
+
+    /// <summary>Gets or sets the border width of the min/max button.</summary>
+    /// <remarks>Was <c>cmdVisibility.BorderWidth = Unit.Parse(this.BorderWidth)</c>; <c>Unit</c> is a
+    /// <c>System.Web.UI.WebControls</c> type, so the value is written as the CSS it rendered.</remarks>
+    [Parameter]
+    public string BorderWidth { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the module content is visible.</summary>
+    /// <remarks>Unchanged: both the read and the write go through DNNClientAPI with
+    /// <see cref="DNNClientAPI.MinMaxPersistanceType.Cookie"/>, which owns the persistence key.</remarks>
+    public bool ContentVisible
+    {
+        get
+        {
+            switch (this.ModuleControl.ModuleContext.Configuration.Visibility)
+            {
+                case VisibilityState.Maximized:
+                case VisibilityState.Minimized:
+                    return DNNClientAPI.MinMaxContentVisibile(
+                        this.cmdVisibility,
+                        this.ModuleControl.ModuleContext.ModuleId,
+                        this.ModuleControl.ModuleContext.Configuration.Visibility == VisibilityState.Minimized,
+                        DNNClientAPI.MinMaxPersistanceType.Cookie);
+                default:
+                    return true;
+            }
+        }
+
+        set
+        {
+            DNNClientAPI.MinMaxContentVisibile(
+                this.cmdVisibility,
+                this.ModuleControl.ModuleContext.ModuleId,
+                this.ModuleControl.ModuleContext.Configuration.Visibility == VisibilityState.Minimized,
+                DNNClientAPI.MinMaxPersistanceType.Cookie,
+                value);
+        }
+    }
+
+    // TODO can this be renamed with a capital M
+    // ReSharper disable once InconsistentNaming
+    /// <summary>Gets or sets the minimize icon, relative to the container path.</summary>
+    [Parameter]
+    public string minIcon { get; set; }
+
+    /// <summary>Gets or sets the maximize icon, relative to the container path.</summary>
+    [Parameter]
+    public string MaxIcon { get; set; }
+
+    /// <summary>Gets the attributes DNNClientAPI wrote onto the min/max button.</summary>
+    /// <remarks>
+    /// This is the WebForms LinkButton's attribute bag: it carries the client side
+    /// <c>onclick</c> (<c>__dnn_ContainerMaxMin_OnClick</c>), the localized <c>title</c> and, for
+    /// the personalization persistence type, the <c>min_icon</c>/<c>max_icon</c> hints.
+    /// </remarks>
+    private IReadOnlyDictionary<string, object> ButtonAttributes
+    {
+        get
+        {
+            var attributes = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var attribute in this.cmdVisibility.Attributes)
+            {
+                attributes[attribute.Key] = attribute.Value;
+            }
+
+            var style = this.BorderWidthStyle;
+            if (!string.IsNullOrEmpty(style))
+            {
+                attributes["style"] = style;
+            }
+
+            if (!this.cmdEnabled)
+            {
+                attributes["disabled"] = "disabled";
+            }
+
+            return attributes;
+        }
+    }
+
+    /// <summary>Gets the attributes DNNClientAPI wrote onto the min/max image.</summary>
+    private IReadOnlyDictionary<string, object> ImageAttributes
+    {
+        get
+        {
+            var attributes = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var attribute in this.imgVisibility.Attributes)
+            {
+                attributes[attribute.Key] = attribute.Value;
+            }
+
+            return attributes;
+        }
+    }
+
+    private string BorderWidthStyle =>
+        string.IsNullOrEmpty(this.BorderWidth)
+            ? null
+            : "border-width:" + (char.IsDigit(this.BorderWidth[this.BorderWidth.Length - 1]) ? this.BorderWidth + "px" : this.BorderWidth) + ";";
+
+    private string MinIconLoc
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(this.minIcon))
+            {
+                return this.ModulePath + this.minIcon;
+            }
+
+            return Globals.ApplicationPath + "/images/min.gif"; // is ~/ the same as ApplicationPath in all cases?
+        }
+    }
+
+    private string MaxIconLoc
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(this.MaxIcon))
+            {
+                return this.ModulePath + this.MaxIcon;
+            }
+
+            return Globals.ApplicationPath + "/images/max.gif"; // is ~/ the same as ApplicationPath in all cases?
+        }
+    }
+
+    /// <summary>Gets the module content pane this control collapses and expands.</summary>
+    /// <remarks>Was <c>(Panel)this.Parent.FindControl("ModuleContent")</c>; a WebForms
+    /// <c>Panel</c> is an <see cref="IDnnControl"/> in the migrated skinning tree.</remarks>
+    private IDnnControl ModuleContent
+    {
+        get
+        {
+            if (this.pnlModuleContent == null)
+            {
+                var objCtl = this.Parent?.FindControl("ModuleContent");
+                if (objCtl != null)
+                {
+                    this.pnlModuleContent = (IDnnControl)objCtl;
+                }
+            }
+
+            return this.pnlModuleContent;
+        }
+    }
+
+    private string ModulePath
+    {
+        get
+        {
+            return this.ModuleControl.ModuleContext.Configuration.ContainerPath.Substring(0, this.ModuleControl.ModuleContext.Configuration.ContainerPath.LastIndexOf("/", StringComparison.Ordinal) + 1);
+        }
+    }
+
+    /// <summary>Toggles the visibility of the module content, persisting the new state.</summary>
+    /// <remarks>
+    /// Was the <c>cmdVisibility.Click</c> handler. The persistence it performs is the
+    /// <see cref="ContentVisible"/> setter, i.e. DNNClientAPI's cookie under the key documented at
+    /// the top of this file.
+    /// </remarks>
+    public void ToggleContentVisibility()
+    {
+        try
+        {
+            if (this.ModuleContent != null)
+            {
+                if (this.ModuleContent.Visible)
+                {
+                    this.ContentVisible = false;
+                }
+                else
+                {
+                    this.ContentVisible = true;
+                }
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // The button and its image are part of this control's tree so that DNNClientAPI can reach
+        // the page through them (IClientApiControl.Page walks the parent chain) and so that
+        // SetMinMaxProperties finds the image as the button's first child, exactly as the WebForms
+        // LinkButton/Image nesting did.
+        if (!this.cmdVisibility.Controls.Contains(this.imgVisibility))
+        {
+            this.cmdVisibility.Controls.Add(this.imgVisibility);
+        }
+
+        if (!this.Controls.Contains(this.cmdVisibility))
+        {
+            this.Controls.Add(this.cmdVisibility);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            if (this.ModuleControl.ModuleContext.Configuration != null)
+            {
+                // check if Personalization is allowed
+                if (this.ModuleControl.ModuleContext.Configuration.Visibility == VisibilityState.None)
+                {
+                    this.cmdEnabled = false;
+                    this.cmdVisible = false;
+                }
+
+                if (this.ModuleControl.ModuleContext.Configuration.Visibility == VisibilityState.Minimized)
+                {
+                    // if visibility is set to minimized, then the client needs to set the cookie for maximized only and delete the cookie for minimized,
+                    // instead of the opposite.  We need to notify the client of this
+                    ClientAPI.RegisterClientVariable(this.Page, "__dnn_" + this.ModuleControl.ModuleContext.ModuleId + ":defminimized", "true", true);
+                }
+
+                if (!Globals.IsAdminControl())
+                {
+                    if (this.cmdEnabled)
+                    {
+                        if (this.ModuleContent != null)
+                        {
+                            // EnableMinMax now done in prerender
+                        }
+                        else
+                        {
+                            this.Visible = false;
+                        }
+                    }
+                }
+                else
+                {
+                    this.Visible = false;
+                }
+            }
+            else
+            {
+                this.Visible = false;
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+        if (this.ModuleContent != null && this.ModuleControl != null && !Globals.IsAdminControl())
+        {
+            switch (this.ModuleControl.ModuleContext.Configuration.Visibility)
+            {
+                case VisibilityState.Maximized:
+                case VisibilityState.Minimized:
+                    DNNClientAPI.EnableMinMax(
+                        this.cmdVisibility,
+                        this.ModuleContent,
+                        this.ModuleControl.ModuleContext.ModuleId,
+                        this.ModuleControl.ModuleContext.Configuration.Visibility == VisibilityState.Minimized,
+                        this.MinIconLoc,
+                        this.MaxIconLoc,
+                        DNNClientAPI.MinMaxPersistanceType.Cookie,
+                        this.AnimationFrames);
+                    break;
+            }
+        }
+    }
+}

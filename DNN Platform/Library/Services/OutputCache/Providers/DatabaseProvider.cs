@@ -5,11 +5,12 @@
 namespace DotNetNuke.Services.OutputCache.Providers
 {
     using System;
+    using System.Buffers;
     using System.Data;
     using System.Globalization;
     using System.IO;
     using System.Text;
-    using System.Web;
+    using Microsoft.AspNetCore.Http;
 
     using DotNetNuke.Data;
 
@@ -108,7 +109,7 @@ namespace DotNetNuke.Services.OutputCache.Providers
                         return false;
                     }
 
-                    context.Response.BinaryWrite(Encoding.Default.GetBytes(dr["Data"].ToString()));
+                    context.Response.BodyWriter.Write(new ReadOnlySpan<byte>(Encoding.UTF8.GetBytes(dr["Data"].ToString())));
                     return true;
                 }
             }

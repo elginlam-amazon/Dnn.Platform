@@ -6,14 +6,14 @@ namespace DotNetNuke.Services.OutputCache.Providers
 {
     using System;
     using System.IO;
-    using System.Web;
-    using System.Web.Caching;
+
+    using DotNetNuke.Services.Cache;
 
     /// <summary>FileResponseFilter implements <see cref="OutputCacheResponseFilter"/> to capture the response into memory.</summary>
     public class MemoryResponseFilter : OutputCacheResponseFilter
     {
         ////Private _content As StringBuilder
-        private static System.Web.Caching.Cache runtimeCache;
+        private static DnnCacheStore runtimeCache;
 
         /// <summary>Initializes a new instance of the <see cref="MemoryResponseFilter"/> class.</summary>
         /// <param name="itemId">The tab ID.</param>
@@ -33,14 +33,14 @@ namespace DotNetNuke.Services.OutputCache.Providers
             this.CaptureStream = new MemoryStream();
         }
 
-        protected static System.Web.Caching.Cache Cache
+        protected static DnnCacheStore Cache
         {
             get
             {
                 // create singleton of the cache object
                 if (runtimeCache == null)
                 {
-                    runtimeCache = HttpRuntime.Cache;
+                    runtimeCache = DnnCacheStore.Instance;
                 }
 
                 return runtimeCache;
@@ -50,7 +50,7 @@ namespace DotNetNuke.Services.OutputCache.Providers
         /// <inheritdoc />
         protected override void AddItemToCache(int itemId, string output)
         {
-            Cache.Insert(this.CacheKey, output, null, DateTime.UtcNow.Add(this.CacheDuration), System.Web.Caching.Cache.NoSlidingExpiration, CacheItemPriority.Default, null);
+            Cache.Insert(this.CacheKey, output, null, DateTime.UtcNow.Add(this.CacheDuration), DnnCacheStore.NoSlidingExpiration, CacheItemPriority.Default, null);
         }
 
         /// <inheritdoc />

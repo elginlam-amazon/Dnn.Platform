@@ -1,0 +1,23 @@
+@* Recursive level renderer for the footer menu. Direct port of the
+   @helper RenderPages(IEnumerable<MenuNode> pages) block in menus/footer/RazorMenu.cshtml.
+   Unlike the desktop template this one renders no drop-down caret. *@
+
+@foreach (var node in this.Pages)
+{
+    <li class="@(node.Selected ? "selected" : string.Empty)">
+        <a href="@(node.Enabled ? node.Href : "javascript:void(0);")" target="@node.Target">@node.Text</a>
+        @if (node.HasChildren)
+        {
+            <ul>
+                <FooterMenuItems Pages="node.Children" />
+            </ul>
+        }
+    </li>
+}
+
+@code {
+    /// <summary>Gets or sets the nodes to render at this level of the menu.</summary>
+    [Parameter]
+    [EditorRequired]
+    public IReadOnlyList<ApertureMenuNode> Pages { get; set; } = [];
+}

@@ -6,33 +6,48 @@ namespace DotNetNuke.UI.WebControls
     using System;
     using System.Collections.Specialized;
     using System.ComponentModel;
-    using System.Drawing;
-    using System.Drawing.Drawing2D;
     using System.Globalization;
+    using System.Linq;
+    using System.Numerics;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.Caching;
-    using System.Web.Security;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Portals;
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Controllers;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Security.Authentication;
     using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
     using Microsoft.Extensions.Logging;
 
-    using Image = System.Web.UI.WebControls.Image;
+    using SixLabors.Fonts;
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.Drawing;
+    using SixLabors.ImageSharp.Drawing.Processing;
+    using SixLabors.ImageSharp.PixelFormats;
+    using SixLabors.ImageSharp.Processing;
+
+    using Image = SixLabors.ImageSharp.Image;
 
     /// <summary>The CaptchaControl control provides a Captcha Challenge control.</summary>
-    [ToolboxData("<{0}:CaptchaControl Runat=\"server\" CaptchaHeight=\"100px\" CaptchaWidth=\"300px\" />")]
-    public partial class CaptchaControl : WebControl, INamingContainer, IPostBackDataHandler
+    /// <remarks>
+    /// Was a <c>WebControl</c> implementing <c>IPostBackDataHandler</c> that rendered itself onto an
+    /// <c>HtmlTextWriter</c> and drew its image with <c>System.Drawing</c>. It is now a
+    /// <see cref="DnnComponentBase"/> that renders the same markup through the render tree and draws
+    /// with SixLabors.ImageSharp. The challenge text, which used to travel in encrypted view state,
+    /// lives in a field now (view state is gone); it is still the cache entry keyed by
+    /// <see cref="DataCache.CaptchaCacheKey"/> that decides whether an answer is valid, and the
+    /// image URL still carries the challenge in a data-protected ticket.
+    /// </remarks>
+    public partial class CaptchaControl : DnnComponentBase
     {
         internal const string KEY = "captcha";
         private const int EXPIRATIONDEFAULT = 120;
@@ -68,7 +83,6 @@ namespace DotNetNuke.UI.WebControls
         private bool isValid;
         private string renderUrl = RENDERURLDEFAULT;
         private string userText = string.Empty;
-        private Image image;
 
         /// <summary>Initializes a new instance of the <see cref="CaptchaControl"/> class.</summary>
         public CaptchaControl()
@@ -83,11 +97,9 @@ namespace DotNetNuke.UI.WebControls
         /// </summary>
         public event ServerValidateEventHandler UserValidated;
 
-        /// <summary>Gets and sets the BackGroundColor.</summary>
+        /// <summary>Gets the Style to use for the Error Message.</summary>
         [Browsable(true)]
         [Category("Appearance")]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [TypeConverter(typeof(ExpandableObjectConverter))]
         [Description("Set the Style for the Error Message Control.")]
         public Style ErrorStyle => this.errorStyle;
 
@@ -99,14 +111,14 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>Gets the Style to use for the Text Box.</summary>
         [Browsable(true)]
         [Category("Appearance")]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [TypeConverter(typeof(ExpandableObjectConverter))]
         [Description("Set the Style for the Text Box Control.")]
         public Style TextBoxStyle => this.textBoxStyle;
 
         /// <summary>Gets or sets the BackGroundColor.</summary>
+        /// <remarks>Was a <c>System.Drawing.Color</c>; it is a <see cref="SixLabors.ImageSharp.Color"/> now.</remarks>
         [Category("Appearance")]
         [Description("The Background Color to use for the Captcha Image.")]
+        [Parameter]
         public Color BackGroundColor
         {
             get => this.backGroundColor;
@@ -116,6 +128,7 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>Gets or sets the BackGround Image.</summary>
         [Category("Appearance")]
         [Description("A Background Image to use for the Captcha Image.")]
+        [Parameter]
         public string BackGroundImage
         {
             get => this.backGroundImage;
@@ -126,6 +139,7 @@ namespace DotNetNuke.UI.WebControls
         [Category("Behavior")]
         [DefaultValue(CHARSDEFAULT)]
         [Description("Characters used to render CAPTCHA text. A character will be picked randomly from the string.")]
+        [Parameter]
         public string CaptchaChars
         {
             get => this.captchaChars;
@@ -135,6 +149,7 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>Gets or sets the height of the Captcha image.</summary>
         [Category("Appearance")]
         [Description("Height of Captcha Image.")]
+        [Parameter]
         public Unit CaptchaHeight
         {
             get => this.captchaHeight;
@@ -145,6 +160,7 @@ namespace DotNetNuke.UI.WebControls
         [Category("Behavior")]
         [DefaultValue(LENGTHDEFAULT)]
         [Description("Number of CaptchaChars used in the CAPTCHA text")]
+        [Parameter]
         public int CaptchaLength
         {
             get => this.captchaLength;
@@ -154,30 +170,25 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>Gets or sets the width of the Captcha image.</summary>
         [Category("Appearance")]
         [Description("Width of Captcha Image.")]
+        [Parameter]
         public Unit CaptchaWidth
         {
             get => this.captchaWidth;
             set => this.captchaWidth = value;
         }
 
-        /// <summary>Gets or sets a value indicating whether the Viewstate is enabled.</summary>
-        [Browsable(false)]
-        public override bool EnableViewState
-        {
-            get => base.EnableViewState;
-            set => base.EnableViewState = value;
-        }
-
         /// <summary>Gets or sets the ErrorMessage to display if the control is invalid.</summary>
         [Category("Behavior")]
         [Description("The Error Message to display if invalid.")]
         [DefaultValue("")]
+        [Parameter]
         public string ErrorMessage { get; set; }
 
         /// <summary>Gets or sets the Expiration time in seconds.</summary>
         [Category("Behavior")]
         [Description("The duration of time (seconds) a user has before the challenge expires.")]
         [DefaultValue(EXPIRATIONDEFAULT)]
+        [Parameter]
         public int Expiration
         {
             get => this.expiration;
@@ -188,6 +199,7 @@ namespace DotNetNuke.UI.WebControls
         [Category("Behavior")]
         [Description("The URL used to render the image to the client.")]
         [DefaultValue(RENDERURLDEFAULT)]
+        [Parameter]
         public string RenderUrl
         {
             get => this.renderUrl;
@@ -198,9 +210,36 @@ namespace DotNetNuke.UI.WebControls
         [Category("Captcha")]
         [DefaultValue("Enter the code shown above:")]
         [Description("Instructional text displayed next to CAPTCHA image.")]
+        [Parameter]
         public string Text { get; set; }
 
-        private static bool IsDesignMode => HttpContext.Current == null;
+        /// <summary>Gets or sets the tool tip of the image.</summary>
+        /// <remarks>Replaces <c>WebControl.ToolTip</c>.</remarks>
+        [Parameter]
+        public string ToolTip { get; set; }
+
+        /// <summary>Gets or sets the width of the answer text box.</summary>
+        /// <remarks>Replaces <c>WebControl.Width</c>.</remarks>
+        [Parameter]
+        public Unit Width { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the answer text box is enabled.</summary>
+        /// <remarks>Replaces <c>WebControl.Enabled</c>.</remarks>
+        [Parameter]
+        public bool Enabled { get; set; } = true;
+
+        /// <summary>Gets or sets the access key of the answer text box.</summary>
+        /// <remarks>Replaces <c>WebControl.AccessKey</c>.</remarks>
+        [Parameter]
+        public string AccessKey { get; set; }
+
+        /// <summary>Gets or sets the tab index of the answer text box.</summary>
+        /// <remarks>Replaces <c>WebControl.TabIndex</c>.</remarks>
+        [Parameter]
+        public short TabIndex { get; set; }
+
+        /// <inheritdoc />
+        protected override string TagName => null;
 
         /// <summary>LoadPostData loads the Post Back Data and determines whether the value has change.</summary>
         /// <param name="postDataKey">A key to the PostBack Data to load.</param>
@@ -208,6 +247,8 @@ namespace DotNetNuke.UI.WebControls
         /// <returns>Always <see langword="false"/>.</returns>
         public virtual bool LoadPostData(string postDataKey, NameValueCollection postCollection)
         {
+            ArgumentNullException.ThrowIfNull(postCollection);
+
             this.userText = postCollection[postDataKey];
             this.Validate(this.userText);
             if (!this.isValid && !string.IsNullOrEmpty(this.userText))
@@ -247,65 +288,42 @@ namespace DotNetNuke.UI.WebControls
 
         /// <summary>GenerateImage generates the Captcha Image.</summary>
         /// <param name="encryptedText">The Encrypted Text to display.</param>
-        /// <returns>A <see cref="Bitmap"/> instance.</returns>
-        internal static Bitmap GenerateImage(string encryptedText)
+        /// <returns>The image, or <see langword="null"/> when the ticket could not be read.</returns>
+        /// <remarks>Was a <c>System.Drawing.Bitmap</c>; it is an ImageSharp <see cref="Image"/> now.</remarks>
+        internal static Image GenerateImage(string encryptedText)
         {
             string encodedText = Decrypt(encryptedText);
-            Bitmap bmp = null;
+            Image bmp = null;
             string[] settings = Regex.Split(encodedText, separator);
             try
             {
                 int width;
                 int height;
-                if (int.TryParse(settings[0], out width) && int.TryParse(settings[1], out height))
+                if (settings.Length > 3 && int.TryParse(settings[0], out width) && int.TryParse(settings[1], out height))
                 {
                     string text = settings[2];
                     string backgroundImage = settings[3];
 
-                    Graphics g;
-                    Brush b = new SolidBrush(Color.LightGray);
-                    Brush b1 = new SolidBrush(Color.Black);
-                    if (string.IsNullOrEmpty(backgroundImage))
-                    {
-                        bmp = CreateImage(width, height);
-                    }
-                    else
-                    {
-                        bmp = (Bitmap)System.Drawing.Image.FromFile(HttpContext.Current.Request.MapPath(backgroundImage));
-                    }
+                    // the generated background is light gray text, a supplied one gets black text
+                    var brush = string.IsNullOrEmpty(backgroundImage)
+                        ? Brushes.Solid(Color.LightGray)
+                        : Brushes.Solid(Color.Black);
 
-                    g = Graphics.FromImage(bmp);
-                    GraphicsPath textPath = CreateText(text, width, height, g);
-                    if (string.IsNullOrEmpty(backgroundImage))
-                    {
-                        g.FillPath(b, textPath);
-                    }
-                    else
-                    {
-                        g.FillPath(b1, textPath);
-                    }
+                    bmp = string.IsNullOrEmpty(backgroundImage)
+                        ? CreateImage(width, height)
+                        : Image.Load(HttpContextSource.MapPath(backgroundImage));
+
+                    DrawText(bmp, text, width, height, brush);
                 }
             }
             catch (Exception exc)
             {
                 Exceptions.LogException(exc);
+                bmp?.Dispose();
+                bmp = null;
             }
 
             return bmp;
-        }
-
-        /// <inheritdoc />
-        protected override void CreateChildControls()
-        {
-            base.CreateChildControls();
-
-            if (this.CaptchaWidth.IsEmpty || this.CaptchaWidth.Type != UnitType.Pixel || this.CaptchaHeight.IsEmpty || this.CaptchaHeight.Type != UnitType.Pixel)
-            {
-                throw new InvalidOperationException("Must specify size of control in pixels.");
-            }
-
-            this.image = new Image { BorderColor = this.BorderColor, BorderStyle = this.BorderStyle, BorderWidth = this.BorderWidth, ToolTip = this.ToolTip, EnableViewState = false };
-            this.Controls.Add(this.image);
         }
 
         /// <summary>Gets the next Captcha.</summary>
@@ -341,41 +359,23 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void LoadViewState(object savedState)
+        /// <remarks>
+        /// This is the body of the WebForms <c>OnPreRender</c> override, minus
+        /// <c>Page.RegisterRequiresViewStateEncryption()</c>: there is no view state to encrypt any
+        /// more, and the challenge never reaches the client in the clear — it travels in the
+        /// data-protected ticket on the image URL, see <see cref="GetUrl"/>.
+        /// </remarks>
+        protected override void OnLoad(EventArgs e)
         {
-            if (savedState != null)
+            base.OnLoad(e);
+
+            if (this.CaptchaWidth.IsEmpty || this.CaptchaWidth.Type != UnitType.Pixel || this.CaptchaHeight.IsEmpty || this.CaptchaHeight.Type != UnitType.Pixel)
             {
-                // Load State from the array of objects that was saved at SaveViewState.
-                var myState = (object[])savedState;
-
-                // Load the ViewState of the Base Control
-                if (myState[0] != null)
-                {
-                    base.LoadViewState(myState[0]);
-                }
-
-                // Load the CAPTCHA Text from the ViewState
-                if (myState[1] != null)
-                {
-                    this.captchaText = Convert.ToString(myState[1], CultureInfo.InvariantCulture);
-                }
+                throw new InvalidOperationException("Must specify size of control in pixels.");
             }
 
-            ////var cacheKey = string.Format(CultureInfo.InvariantCulture, DataCache.CaptchaCacheKey, masterPortalId);
-            // _CaptchaText
-        }
-
-        /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
-        {
             // Generate Random Challenge Text
             this.captchaText = this.GetNextCaptcha();
-
-            // Enable Viewstate Encryption
-            this.Page.RegisterRequiresViewStateEncryption();
-
-            // Call Base Class method
-            base.OnPreRender(e);
         }
 
         /// <summary>
@@ -392,139 +392,125 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void Render(HtmlTextWriter writer)
+        protected override void RenderContents(RenderTreeBuilder builder, ref int sequence)
         {
-            this.ControlStyle.AddAttributesToRender(writer);
+            ArgumentNullException.ThrowIfNull(builder);
 
-            // Render outer <div> Tag
-            writer.AddAttribute("class", "dnnLeft");
-            writer.RenderBeginTag(HtmlTextWriterTag.Div);
-
-            // Render image <img> Tag
-            writer.AddAttribute(HtmlTextWriterAttribute.Src, this.GetUrl());
-            writer.AddAttribute(HtmlTextWriterAttribute.Border, "0");
-            if (!string.IsNullOrEmpty(this.ToolTip))
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Alt, this.ToolTip);
-            }
-            else
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Alt, Localization.GetString("CaptchaAlt.Text", Localization.SharedResourceFile));
-            }
-
-            writer.RenderBeginTag(HtmlTextWriterTag.Img);
-            writer.RenderEndTag();
-
-            // Render Help Text
-            if (!string.IsNullOrEmpty(this.Text))
-            {
-                writer.RenderBeginTag(HtmlTextWriterTag.Div);
-                writer.Write(this.Text);
-                writer.RenderEndTag();
-            }
-
-            // Render text box <input> Tag
-            this.TextBoxStyle.AddAttributesToRender(writer);
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "text");
-            writer.AddAttribute(HtmlTextWriterAttribute.Style, "width:" + this.Width);
-            writer.AddAttribute(HtmlTextWriterAttribute.Maxlength, this.captchaText.Length.ToString(CultureInfo.InvariantCulture));
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            if (!string.IsNullOrEmpty(this.AccessKey))
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Accesskey, this.AccessKey);
-            }
-
-            if (!this.Enabled)
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Disabled, "disabled");
-            }
-
-            if (this.TabIndex > 0)
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Tabindex, this.TabIndex.ToString(CultureInfo.InvariantCulture));
-            }
-
-            if (this.userText == this.captchaText)
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Value, this.userText);
-            }
-            else
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Value, string.Empty);
-            }
-
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.RenderEndTag();
-
-            // Render error message
-            if (!this.IsValid && this.Page.IsPostBack && !string.IsNullOrEmpty(this.userText))
-            {
-                this.ErrorStyle.AddAttributesToRender(writer);
-                writer.RenderBeginTag(HtmlTextWriterTag.Span);
-                writer.Write(this.ErrorMessage);
-                writer.RenderEndTag();
-            }
-
-            // Render </div>
-            writer.RenderEndTag();
-        }
-
-        /// <inheritdoc />
-        protected override object SaveViewState()
-        {
-            var baseState = base.SaveViewState();
-            var allStates = new object[2];
-            allStates[0] = baseState;
             if (string.IsNullOrEmpty(this.captchaText))
             {
                 this.captchaText = this.GetNextCaptcha();
             }
 
-            allStates[1] = this.captchaText;
+            // Render outer <div> Tag
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "dnnLeft");
 
-            return allStates;
+            // Render image <img> Tag
+            builder.OpenElement(sequence++, "img");
+            builder.AddAttribute(sequence++, "src", this.GetUrl());
+            builder.AddAttribute(sequence++, "border", "0");
+            builder.AddAttribute(
+                sequence++,
+                "alt",
+                string.IsNullOrEmpty(this.ToolTip)
+                    ? Localization.GetString("CaptchaAlt.Text", Localization.SharedResourceFile)
+                    : this.ToolTip);
+            builder.CloseElement();
+
+            // Render Help Text
+            if (!string.IsNullOrEmpty(this.Text))
+            {
+                builder.OpenElement(sequence++, "div");
+                builder.AddMarkupContent(sequence++, this.Text);
+                builder.CloseElement();
+            }
+
+            // Render text box <input> Tag
+            builder.OpenElement(sequence++, "input");
+            this.TextBoxStyle.AddAttributesToRender(builder, sequence);
+            sequence += 2;
+            builder.AddAttribute(sequence++, "type", "text");
+            builder.AddAttribute(sequence++, "style", "width:" + this.Width);
+            builder.AddAttribute(sequence++, "maxlength", this.captchaText.Length.ToString(CultureInfo.InvariantCulture));
+            builder.AddAttribute(sequence++, "name", this.UniqueId);
+            if (!string.IsNullOrEmpty(this.AccessKey))
+            {
+                builder.AddAttribute(sequence++, "accesskey", this.AccessKey);
+            }
+
+            if (!this.Enabled)
+            {
+                builder.AddAttribute(sequence++, "disabled", "disabled");
+            }
+
+            if (this.TabIndex > 0)
+            {
+                builder.AddAttribute(sequence++, "tabindex", this.TabIndex.ToString(CultureInfo.InvariantCulture));
+            }
+
+            builder.AddAttribute(sequence++, "value", this.userText == this.captchaText ? this.userText : string.Empty);
+            builder.AddAttribute(sequence++, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.AnswerChanged));
+            builder.CloseElement();
+
+            // Render error message
+            if (!this.IsValid && !string.IsNullOrEmpty(this.userText))
+            {
+                builder.OpenElement(sequence++, "span");
+                this.ErrorStyle.AddAttributesToRender(builder, sequence);
+                sequence += 2;
+                builder.AddMarkupContent(sequence++, this.ErrorMessage);
+                builder.CloseElement();
+            }
+
+            // Render </div>
+            builder.CloseElement();
+
+            base.RenderContents(builder, ref sequence);
         }
 
         /// <summary>Creates the Image.</summary>
         /// <param name="width">The width of the image.</param>
         /// <param name="height">The height of the image.</param>
-        private static Bitmap CreateImage(int width, int height)
+        private static Image<Rgba32> CreateImage(int width, int height)
         {
-            var bmp = new Bitmap(width, height);
-            Graphics g;
-            var rect = new Rectangle(0, 0, width, height);
-            var rectF = new RectangleF(0, 0, width, height);
+            var bmp = new Image<Rgba32>(width, height);
+            var rect = new RectangularPolygon(0, 0, width, height);
 
-            g = Graphics.FromImage(bmp);
+            var angle = Convert.ToSingle(Rand.NextDouble()) * 360f;
+            var radians = angle * (float)Math.PI / 180f;
+            var start = new PointF(0, 0);
+            var end = new PointF(
+                width * (float)Math.Cos(radians),
+                height * (float)Math.Sin(radians));
+            var brush = new LinearGradientBrush(
+                start,
+                end,
+                GradientRepetitionMode.None,
+                new ColorStop(0f, Color.FromRgb((byte)Rand.Next(224), (byte)Rand.Next(224), (byte)Rand.Next(224))),
+                new ColorStop(1f, Color.FromRgb((byte)Rand.Next(224), (byte)Rand.Next(224), (byte)Rand.Next(224))));
 
-            Brush b = new LinearGradientBrush(
-                rect,
-                Color.FromArgb(Rand.Next(224), Rand.Next(224), Rand.Next(224)),
-                Color.FromArgb(Rand.Next(224), Rand.Next(224), Rand.Next(224)),
-                Convert.ToSingle(Rand.NextDouble()) * 360,
-                false);
-            g.FillRectangle(b, rectF);
+            bmp.Mutate(ctx => ctx.Fill(brush, rect));
 
-            AddNoise(g, width, height);
+            AddNoise(bmp, width, height);
 
             if (Rand.Next(2) == 1)
             {
-                DistortImage(ref bmp, Rand.Next(5, 20));
+                DistortImage(bmp, Rand.Next(5, 20));
             }
             else
             {
-                DistortImage(ref bmp, -Rand.Next(5, 20));
+                DistortImage(bmp, -Rand.Next(5, 20));
             }
 
             return bmp;
         }
 
-        private static void AddNoise(Graphics g, int width, int height)
+        private static void AddNoise(Image image, int width, int height)
         {
             Random rand = new Random();
             int numDots = rand.Next(width * height / 50, width * height / 25);
 
-            using (Pen pen = new Pen(Color.Black, 1))
+            image.Mutate(ctx =>
             {
                 for (int i = 0; i < numDots; i++)
                 {
@@ -533,21 +519,28 @@ namespace DotNetNuke.UI.WebControls
 
                     // Choose random brightness for noise
                     int brightness = rand.Next(40, 240);
-                    pen.Color = Color.FromArgb(rand.Next(40, 100), brightness, brightness, brightness);
+                    var color = Color.FromRgba((byte)brightness, (byte)brightness, (byte)brightness, (byte)rand.Next(40, 100));
 
-                    g.DrawRectangle(pen, x, y, 1, 1); // Draw tiny noise dot
+                    ctx.Fill(color, new RectangularPolygon(x, y, 1, 1)); // Draw tiny noise dot
                 }
-            }
+            });
         }
 
-        /// <summary>Creates the Text.</summary>
+        /// <summary>Draws the Text onto the image.</summary>
+        /// <param name="image">The image to draw onto.</param>
         /// <param name="text">The text to display.</param>
         /// <param name="width">The width of the image.</param>
         /// <param name="height">The height of the image.</param>
-        /// <param name="g">Graphic draw context.</param>
-        private static GraphicsPath CreateText(string text, int width, int height, Graphics g)
+        /// <param name="brush">The brush the glyphs are filled with.</param>
+        /// <remarks>
+        /// Replaces <c>CreateText</c>, which built a <c>GraphicsPath</c> the caller then filled. With
+        /// ImageSharp the glyphs are drawn straight onto the image, so the per-character jitter and
+        /// rotation are applied through the drawing transform. The perspective warp the original
+        /// applied to the whole text path (<c>GraphicsPath.Warp</c>) has no ImageSharp equivalent;
+        /// the per-character rotation, the jitter, the noise and the random lines all remain.
+        /// </remarks>
+        private static void DrawText(Image image, string text, int width, int height, Brush brush)
         {
-            var textPath = new GraphicsPath();
             var maxFontSize = height * 1f;
             var minFontSize = height * 0.8f;
             float leftMargin = 10;
@@ -565,13 +558,13 @@ namespace DotNetNuke.UI.WebControls
                     var emSize = maxFontSize;
 
                     Font f;
-                    SizeF charSize;
+                    FontRectangle charSize;
 
                     // Find the largest font size that fits within the available space
                     do
                     {
-                        f = new Font(ff, emSize, FontStyle.Bold);
-                        charSize = g.MeasureString(c.ToString(), f);
+                        f = ff.CreateFont(emSize, FontStyle.Bold);
+                        charSize = TextMeasurer.MeasureSize(c.ToString(), new TextOptions(f));
                         emSize -= 1;
                     }
                     while ((charSize.Width > charSpacing || charSize.Height > height) && emSize > minFontSize);
@@ -591,49 +584,36 @@ namespace DotNetNuke.UI.WebControls
                     float rotationAngle = RandomJitter(-15, 15, rand);
                     float charCenterX = charX + (charSize.Width / 2);
                     float charCenterY = yOffset + (charSize.Height / 2);
-                    using (Matrix transform = new Matrix())
-                    {
-                        transform.Translate(charCenterX, charCenterY);
-                        transform.Rotate(rotationAngle);
-                        transform.Translate(-charCenterX, -charCenterY);
+                    var transform = Matrix3x2.CreateRotation(
+                        rotationAngle * (float)Math.PI / 180f,
+                        new Vector2(charCenterX, charCenterY));
 
-                        GraphicsPath charPath = new GraphicsPath();
-                        charPath.AddString(
-                            c.ToString(),
-                            f.FontFamily,
-                            (int)f.Style,
-                            f.Size,
-                            new PointF(charX, yOffset),
-                            new StringFormat());
-
-                        // Apply transformation only to the character, not the entire path
-                        charPath.Transform(transform);
-                        textPath.AddPath(charPath, false);
-                    }
-
-                    f.Dispose();
+                    var glyph = c.ToString();
+                    var font = f;
+                    image.Mutate(ctx => ctx.DrawText(
+                        new DrawingOptions { Transform = transform },
+                        glyph,
+                        font,
+                        brush,
+                        new PointF(charX, yOffset)));
 
                     // Move X position for the next character
                     xOffset += charSpacing;
                 }
 
-                WarpText(ref textPath, new Rectangle(0, 0, width, height));
-                DrawRandomLines(g, width, height, rand);
+                DrawRandomLines(image, width, height, rand);
             }
             catch (Exception exc)
             {
                 Logger.CaptchaControlCreateTextException(exc);
             }
-
-            return textPath;
         }
 
-        private static void DrawRandomLines(Graphics g, int width, int height, Random rand)
+        private static void DrawRandomLines(Image image, int width, int height, Random rand)
         {
             int numLines = rand.Next(3, 7);
-            using (Pen pen = new Pen(Color.Empty))
+            image.Mutate(ctx =>
             {
-                pen.DashStyle = (DashStyle)rand.Next(0, 4);
                 for (int i = 0; i < numLines; i++)
                 {
                     int x1 = rand.Next(0, width);
@@ -642,16 +622,15 @@ namespace DotNetNuke.UI.WebControls
                     int y2 = rand.Next(0, height);
 
                     // Generate a color with random transparency
-                    pen.Color = Color.FromArgb(
-                        rand.Next(100, 200), // Opacity
-                        rand.Next(150, 200), // Red
-                        rand.Next(150, 200), // Green
-                        rand.Next(150, 200)); // Blue
-                    pen.Width = rand.Next(1, 3);
+                    var color = Color.FromRgba(
+                        (byte)rand.Next(150, 200), // Red
+                        (byte)rand.Next(150, 200), // Green
+                        (byte)rand.Next(150, 200), // Blue
+                        (byte)rand.Next(100, 200)); // Opacity
 
-                    g.DrawLine(pen, x1, y1, x2, y2);
+                    ctx.DrawLine(color, rand.Next(1, 3), new PointF(x1, y1), new PointF(x2, y2));
                 }
-            }
+            });
         }
 
         private static float RandomJitter(float min, float max, Random rand)
@@ -661,13 +640,16 @@ namespace DotNetNuke.UI.WebControls
 
         /// <summary>Decrypts the CAPTCHA Text.</summary>
         /// <param name="encryptedContent">The encrypted text.</param>
+        /// <remarks>
+        /// Replaces <c>FormsAuthentication.Decrypt</c> with the platform's data-protected ticket.
+        /// </remarks>
         private static string Decrypt(string encryptedContent)
         {
             string decryptedText = string.Empty;
             try
             {
-                FormsAuthenticationTicket ticket = FormsAuthentication.Decrypt(encryptedContent);
-                if (!ticket.Expired)
+                DnnAuthenticationTicket ticket = AuthenticationCookieService.Current.Unprotect(encryptedContent);
+                if (ticket != null && !ticket.Expired)
                 {
                     decryptedText = ticket.UserData;
                 }
@@ -683,29 +665,31 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>DistortImage distorts the captcha image.</summary>
         /// <param name="b">The Image to distort.</param>
         /// <param name="distortion">Distortion.</param>
-        private static void DistortImage(ref Bitmap b, double distortion)
+        private static void DistortImage(Image<Rgba32> b, double distortion)
         {
             int width = b.Width;
             int height = b.Height;
 
-            var copy = (Bitmap)b.Clone();
-            for (int y = 0; y <= height - 1; y++)
+            using (var copy = b.Clone())
             {
-                for (int x = 0; x <= width - 1; x++)
+                for (int y = 0; y <= height - 1; y++)
                 {
-                    int newX = Convert.ToInt32(x + (distortion * Math.Sin(Math.PI * y / 64.0)));
-                    int newY = Convert.ToInt32(y + (distortion * Math.Cos(Math.PI * x / 64.0)));
-                    if (newX < 0 || newX >= width)
+                    for (int x = 0; x <= width - 1; x++)
                     {
-                        newX = 0;
-                    }
+                        int newX = Convert.ToInt32(x + (distortion * Math.Sin(Math.PI * y / 64.0)));
+                        int newY = Convert.ToInt32(y + (distortion * Math.Cos(Math.PI * x / 64.0)));
+                        if (newX < 0 || newX >= width)
+                        {
+                            newX = 0;
+                        }
 
-                    if (newY < 0 || newY >= height)
-                    {
-                        newY = 0;
-                    }
+                        if (newY < 0 || newY >= height)
+                        {
+                            newY = 0;
+                        }
 
-                    b.SetPixel(x, y, copy.GetPixel(newX, newY));
+                        b[x, y] = copy[newX, newY];
+                    }
                 }
             }
         }
@@ -713,73 +697,70 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>Encrypts the CAPTCHA Text.</summary>
         /// <param name="content">The text to encrypt.</param>
         /// <param name="expiration">The time the ticket expires.</param>
+        /// <remarks>
+        /// Replaces <c>FormsAuthentication.Encrypt</c> with the platform's data-protected ticket.
+        /// </remarks>
         private static string Encrypt(string content, DateTime expiration)
         {
-            var ticket = new FormsAuthenticationTicket(1, HttpContext.Current.Request.UserHostAddress, DateTime.Now, expiration, false, content);
-            return FormsAuthentication.Encrypt(ticket);
+            var request = HttpContextSource.Current?.Request;
+            var ticket = new DnnAuthenticationTicket
+            {
+                Version = 1,
+                Name = request?.HttpContext?.Connection?.RemoteIpAddress?.ToString() ?? string.Empty,
+                IssueDate = DateTime.Now,
+                Expiration = expiration,
+                IsPersistent = false,
+                UserData = content,
+            };
+
+            return AuthenticationCookieService.Current.Protect(ticket);
         }
 
         /// <summary>GetFont gets a random font to use for the Captcha Text.</summary>
+        /// <remarks>
+        /// Replaces <c>new System.Drawing.FontFamily(name)</c> with the ImageSharp font collection.
+        /// The original list of families is tried first; when none of them is installed any
+        /// installed family is used, because a captcha without text would let every bot through.
+        /// </remarks>
         private static FontFamily GetFont()
         {
-            FontFamily font = null;
-            while (font == null)
+            var installed = SystemFonts.Families.ToList();
+            if (installed.Count == 0)
             {
-                try
-                {
-                    font = new FontFamily(FontFamilies[Rand.Next(FontFamilies.Length)]);
-                }
-                catch (Exception exc)
-                {
-                    Logger.CaptchaControlGetFontException(exc);
-
-                    font = null;
-                }
+                throw new InvalidOperationException(
+                    "No font is installed on this machine, so the CAPTCHA image cannot be drawn. Install a font package (for example 'dejavu-fonts' or 'mscorefonts') on the server.");
             }
 
-            return font;
+            var candidates = FontFamilies
+                .Where(name => SystemFonts.Collection.TryGet(name, out _))
+                .ToList();
+            if (candidates.Count > 0)
+            {
+                return SystemFonts.Get(candidates[Rand.Next(candidates.Count)]);
+            }
+
+            Logger.LogWarning(
+                "None of the CAPTCHA font families is installed; falling back to an installed font. Install a font package providing one of: {Families}.",
+                string.Join(", ", FontFamilies));
+            return installed[Rand.Next(installed.Count)];
         }
 
-        /// <summary>Generates a random point.</summary>
-        /// <param name="xmin">The minimum x value.</param>
-        /// <param name="xmax">The maximum x value.</param>
-        /// <param name="ymin">The minimum y value.</param>
-        /// <param name="ymax">The maximum y value.</param>
-        private static PointF RandomPoint(int xmin, int xmax, int ymin, int ymax)
+        private void AnswerChanged(ChangeEventArgs args)
         {
-            return new PointF(Rand.Next(xmin, xmax), Rand.Next(ymin, ymax));
-        }
-
-        /// <summary>Warps the Text.</summary>
-        /// <param name="textPath">The Graphics Path for the text.</param>
-        /// <param name="rect">a rectangle which defines the image.</param>
-        private static void WarpText(ref GraphicsPath textPath, Rectangle rect)
-        {
-            int intWarpDivisor;
-            var rectF = new RectangleF(0, 0, rect.Width, rect.Height);
-
-            intWarpDivisor = Rand.Next(4, 6);
-
-            int intHrange = Convert.ToInt32(rect.Height / intWarpDivisor);
-            int intWrange = Convert.ToInt32(rect.Width / intWarpDivisor);
-
-            PointF p1 = RandomPoint(0, intWrange, 0, intHrange);
-            PointF p2 = RandomPoint(rect.Width - (intWrange - Convert.ToInt32(p1.X)), rect.Width, 0, intHrange);
-            PointF p3 = RandomPoint(0, intWrange, rect.Height - (intHrange - Convert.ToInt32(p1.Y)), rect.Height);
-            PointF p4 = RandomPoint(rect.Width - (intWrange - Convert.ToInt32(p3.X)), rect.Width, rect.Height - (intHrange - Convert.ToInt32(p2.Y)), rect.Height);
-
-            var points = new[] { p1, p2, p3, p4 };
-            var m = new Matrix();
-            m.Translate(0, 0);
-            textPath.Warp(points, rectF, m, WarpMode.Perspective, 0);
+            this.userText = args?.Value?.ToString() ?? string.Empty;
+            this.Validate(this.userText);
+            if (!this.isValid && !string.IsNullOrEmpty(this.userText))
+            {
+                this.captchaText = this.GetNextCaptcha();
+            }
         }
 
         /// <summary>Builds the URL for the Handler.</summary>
         private string GetUrl()
         {
-            var url = this.ResolveUrl(this.RenderUrl);
+            var url = Globals.ResolveUrl(this.RenderUrl);
             var encryptedTicket = Encrypt(this.EncodeTicket(), DateTime.Now.AddSeconds(this.Expiration));
-            url += $"?{KEY}={encryptedTicket}";
+            url += $"?{KEY}={Uri.EscapeDataString(encryptedTicket)}";
 
             // Append the Alias to the url so that it doesn't lose track of the alias it's currently on
             var portalSettings = PortalSettings.Current;

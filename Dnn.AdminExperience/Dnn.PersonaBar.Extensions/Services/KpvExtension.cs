@@ -5,6 +5,7 @@ namespace Dnn.PersonaBar.SiteSettings.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
 
     using Dnn.PersonaBar.SiteSettings.Services.Dto;
@@ -16,7 +17,11 @@ namespace Dnn.PersonaBar.SiteSettings.Services
         {
             var appPath = Globals.ApplicationMapPath;
             var appPathLen = appPath.Length;
-            if (!appPath.EndsWith(@"\", StringComparison.Ordinal))
+            // The application map path may use either separator depending on the host OS, so test for both
+            // before accounting for the separator that follows the application path in each entry's value.
+            if (appPath.Length == 0 ||
+                (appPath[appPath.Length - 1] != Path.DirectorySeparatorChar &&
+                 appPath[appPath.Length - 1] != Path.AltDirectorySeparatorChar))
             {
                 appPathLen++;
             }

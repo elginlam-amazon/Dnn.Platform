@@ -1,0 +1,230 @@
+@* Ported from logo.ascx / Logo.ascx.cs / Logo.ascx.designer.cs — the dnn:LOGO skin object.
+
+   The WebForms control was an <asp:HyperLink> containing an <asp:Image> and an <asp:Literal>:
+     * hypLogo  -> the <a> below (NavigateUrl/ToolTip/CssClass/aria-label),
+     * imgLogo  -> the <img> below (ImageUrl/AlternateText/CssClass/BorderWidth),
+     * litLogo  -> the inlined SVG markup (InjectSvg), emitted as a MarkupString.
+   Image.Visible/Literal.Visible became the two booleans the OnLoad port computes, so exactly one
+   of the two branches renders — the same mutually exclusive behaviour as the original.
+
+   This is NOT superseded by Dnn.Skins.Aperture's ApertureLogoLink: that component is theme private
+   (it depends on IApertureSkinContext and hard-codes the aperture-logo classes), while this skin
+   object is the platform-wide dnn:LOGO every theme can instantiate, with its BorderWidth,
+   CssClass, LinkCssClass and InjectSvg settings (admin/Skins/Logo.xml).
+*@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using System.Globalization
+@using System.Linq
+@using System.Xml
+@using System.Xml.Linq
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Portals
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Services.FileSystem
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+@using Exceptions = DotNetNuke.Services.Exceptions.Exceptions
+@using FileInfo = DotNetNuke.Services.FileSystem.FileInfo
+@using Globals = DotNetNuke.Common.Globals
+
+@if (this.Visible)
+{
+    @* <asp:HyperLink ID="hypLogo" runat="server"> *@
+    <a href="@this.navigateUrl"
+       title="@this.PortalSettings.PortalName"
+       aria-label="@this.PortalSettings.PortalName"
+       class="@NullIfEmpty(this.LinkCssClass)">
+        @if (this.litLogoVisible)
+        {
+            @* <asp:Literal ID="litLogo"> — the inlined <svg> document. *@
+            @((MarkupString)this.litLogoText)
+        }
+        else if (this.imgLogoVisible)
+        {
+            @* <asp:Image ID="imgLogo"> *@
+            <img src="@this.imageUrl"
+                 alt="@this.PortalSettings.PortalName"
+                 class="@NullIfEmpty(this.CssClass)"
+                 style="@NullIfEmpty(this.borderWidthStyle)" />
+        }
+    </a>
+}
+
+@code {
+    // The designer fields that only carried a Visible flag and a value survive as component state.
+    private bool litLogoVisible;
+    private bool imgLogoVisible;
+    private string litLogoText = string.Empty;
+    private string imageUrl = string.Empty;
+    private string borderWidthStyle = string.Empty;
+    private string navigateUrl = string.Empty;
+
+    private INavigationManager navigationManager;
+    private IHostSettings hostSettings;
+
+    /// <summary>Gets or sets the width of the border around the image.</summary>
+    [Parameter]
+    public string BorderWidth { get; set; }
+
+    /// <summary>Gets or sets the CSS class for the hyperlink.</summary>
+    [Parameter]
+    public string LinkCssClass { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether to inject the SVG content inline instead of wrapping it in an img tag.</summary>
+    [Parameter]
+    public bool InjectSvg { get; set; }
+
+    private IPortalAliasInfo CurrentPortalAlias => this.PortalSettings.PortalAlias;
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // Was constructor injection; a Blazor component may not take constructor parameters, so the
+        // services are resolved from the current service provider exactly as the WebForms
+        // parameterless constructor did.
+        this.navigationManager ??= Globals.GetCurrentServiceProvider().GetRequiredService<INavigationManager>();
+        this.hostSettings ??= Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        try
+        {
+            if (!string.IsNullOrEmpty(this.BorderWidth))
+            {
+                // Was imgLogo.BorderWidth = Unit.Parse(this.BorderWidth), which rendered
+                // style="border-width:Npx". Unit does not exist outside WebForms, so the same
+                // declaration is written directly, keeping the WebForms default unit (pixels) for a
+                // bare number.
+                this.borderWidthStyle = "border-width:" + FormatUnit(this.BorderWidth);
+            }
+
+            this.litLogoVisible = false;
+            this.imgLogoVisible = false;
+            if (!string.IsNullOrEmpty(this.PortalSettings.LogoFile))
+            {
+                var fileInfo = this.GetLogoFileInfo();
+                if (fileInfo != null)
+                {
+                    if (this.InjectSvg && "svg".Equals(fileInfo.Extension, StringComparison.OrdinalIgnoreCase))
+                    {
+                        this.litLogoText = this.GetSvgContent(fileInfo);
+                        this.litLogoVisible = !string.IsNullOrEmpty(this.litLogoText);
+                    }
+
+                    if (this.litLogoVisible == false)
+                    {
+                        string imageUrl = FileManager.Instance.GetUrl(fileInfo);
+                        if (!string.IsNullOrEmpty(imageUrl))
+                        {
+                            this.imageUrl = imageUrl;
+                            this.imgLogoVisible = true;
+                        }
+                    }
+                }
+            }
+
+            if (this.PortalSettings.HomeTabId != -1)
+            {
+                this.navigateUrl = this.navigationManager.NavigateURL(this.PortalSettings.HomeTabId);
+            }
+            else
+            {
+                this.navigateUrl = Globals.AddHTTP(this.CurrentPortalAlias.HttpAlias);
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    private static string NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
+
+    private static string FormatUnit(string value) =>
+        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+            ? number.ToString(CultureInfo.InvariantCulture) + "px"
+            : value;
+
+    private IFileInfo GetLogoFileInfo()
+    {
+        string cacheKey = string.Format(CultureInfo.InvariantCulture, DataCache.PortalCacheKey, this.PortalSettings.PortalId, this.PortalSettings.CultureCode) + "LogoFile";
+
+        return CBO.GetCachedObject<FileInfo>(
+            this.hostSettings,
+            new CacheItemArgs(cacheKey, DataCache.PortalCacheTimeOut, DataCache.PortalCachePriority),
+            this.GetLogoFileInfoCallBack);
+    }
+
+    private IFileInfo GetLogoFileInfoCallBack(CacheItemArgs itemArgs)
+    {
+        return FileManager.Instance.GetFile(this.PortalSettings.PortalId, this.PortalSettings.LogoFile);
+    }
+
+    private string GetSvgContent(IFileInfo svgFile)
+    {
+        var cacheKey = string.Format(CultureInfo.InvariantCulture, DataCache.PortalCacheKey, this.PortalSettings.PortalId, this.PortalSettings.CultureCode) + "LogoSvg";
+        return CBO.GetCachedObject<string>(
+            this.hostSettings,
+            new CacheItemArgs(cacheKey, DataCache.PortalCacheTimeOut, DataCache.PortalCachePriority, svgFile),
+            (_) =>
+            {
+                try
+                {
+                    XDocument svgDocument;
+                    using (var fileContent = FileManager.Instance.GetFileContent(svgFile))
+                    {
+                        svgDocument = XDocument.Load(fileContent);
+                    }
+
+                    var svgXmlNode = svgDocument.Descendants()
+                        .SingleOrDefault(x => x.Name.LocalName.Equals("svg", StringComparison.Ordinal));
+                    if (svgXmlNode == null)
+                    {
+                        throw new InvalidFileContentException("The svg file has no svg node.");
+                    }
+
+                    if (!string.IsNullOrEmpty(this.CssClass))
+                    {
+                        // Append the css class.
+                        var classes = svgXmlNode.Attribute("class")?.Value;
+                        svgXmlNode.SetAttributeValue("class", string.IsNullOrEmpty(classes) ? this.CssClass : $"{classes} {this.CssClass}");
+                    }
+
+                    if (svgXmlNode.Descendants().FirstOrDefault(x => x.Name.LocalName.Equals("title", StringComparison.Ordinal)) == null)
+                    {
+                        // Add the title for ADA compliance. Was litLogo.ClientID, which is the
+                        // client identifier of this control now that the literal is gone.
+                        var ns = svgXmlNode.GetDefaultNamespace();
+                        var titleNode = new XElement(
+                            ns + "title",
+                            new XAttribute("id", this.ClientId),
+                            this.PortalSettings.PortalName);
+
+                        svgXmlNode.AddFirst(titleNode);
+
+                        // Link the title to the svg node.
+                        svgXmlNode.SetAttributeValue("aria-labelledby", this.ClientId);
+                    }
+
+                    // Ensure we have the image role for ADA Compliance
+                    svgXmlNode.SetAttributeValue("role", "img");
+
+                    return svgDocument.ToString();
+                }
+                catch (XmlException ex)
+                {
+                    throw new InvalidFileContentException("Invalid SVG file: " + ex.Message);
+                }
+            });
+    }
+}

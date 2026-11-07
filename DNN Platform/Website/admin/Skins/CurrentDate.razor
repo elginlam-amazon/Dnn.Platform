@@ -1,0 +1,41 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* The dnn:CURRENTDATE skin object (was currentdate.ascx + CurrentDate.ascx.cs).
+   Renders the <asp:Label id="lblDate" cssclass="SkinObject"> of the original markup. The culture
+   source is unchanged: both ToString(DateFormat) and ToLongDateString() format with the ambient
+   CultureInfo.CurrentCulture that DNN's request localization sets, and the instant is the current
+   user's local time (UserInfo.LocalTime(), i.e. the user's own time zone). *@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+@using System
+@using DotNetNuke.Entities.Users
+@using Microsoft.AspNetCore.Components
+
+@if (this.Visible)
+{
+    <span class="@this.DateCssClass">@this.text</span>
+}
+
+@code {
+    private string text;
+
+    /// <summary>Gets or sets the .NET date format string used to render the date.</summary>
+    [Parameter]
+    public string DateFormat { get; set; }
+
+    /// <summary>Gets the CSS class of the date, which defaults to the markup's "SkinObject".</summary>
+    private string DateCssClass => string.IsNullOrEmpty(this.CssClass) ? "SkinObject" : this.CssClass;
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        var user = UserController.Instance.GetCurrentUserInfo();
+        this.text = !string.IsNullOrEmpty(this.DateFormat)
+            ? user.LocalTime().ToString(this.DateFormat)
+            : user.LocalTime().ToLongDateString();
+    }
+}

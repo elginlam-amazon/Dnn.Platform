@@ -1,0 +1,928 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Admin.Users
+@inherits DotNetNuke.Entities.Modules.UserUserControlBase
+
+@using System
+@using System.Collections
+@using System.Globalization
+@using System.Linq
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.ClientResources
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Abstractions.Security.Permissions
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Data
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Security.Membership
+@using DotNetNuke.Services.ClientDependency
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Website
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Logging
+
+@*
+    Replaces User.ascx, User.ascx.cs and User.ascx.designer.cs.
+
+    Control mapping:
+      dnn:DnnFormEditor userForm with its DnnFormLiteralItem/DnnFormTextBoxItem items
+                                      -> the hand written form items below. Each item kept its
+                                         DataField (the UserInfo property it reads and writes),
+                                         its Required flag and its ValidationExpression, which are
+                                         evaluated by Validate()/ValidateForm() instead of by the
+                                         WebForms validators.
+      dnn:DnnComboBox cboSites        -> the <select> of the portals the user belongs to.
+      asp:Panel pnlAddUser            -> the @if (this.AddUser) block.
+      asp:CheckBox chkAuthorize/chkNotify/chkRandom -> checkboxes bound to the same fields.
+      asp:TextBox txtPassword/txtConfirm/txtQuestion/txtAnswer -> inputs bound to the same fields.
+      asp:CompareValidator ComparePasswordsValidator -> the passwordsMismatch message.
+      asp:LinkButton cmdUpdate/cmdDelete/cmdRemove/cmdRestore -> anchors with @onclick handlers.
+
+    The password strength / password comparer client scripts the original registered in
+    OnPreRender are registered through IClientResourceController in OnPreRender here, and the two
+    jQuery bootstrap calls are invoked with IJSRuntime after the first render (a Blazor component
+    may not emit a <script> block).
+*@
+
+<div class="@this.FormCssClass">
+    @if (this.userNameReadOnlyVisible)
+    {
+        <div class="dnnFormItem">
+            <div class="dnnLabel"><label><span>@this.LocalizeText("Username")</span></label></div>
+            <span id="userNameReadOnly">@this.User.Username</span>
+        </div>
+    }
+    @if (this.userNameVisible)
+    {
+        <div class="dnnFormItem">
+            <div class="dnnLabel"><label><span class="dnnFormRequired">@this.LocalizeText("Username")</span></label></div>
+            <input type="text" id="userName" value="@this.User.Username" @onchange="@(e => this.User.Username = e.Value?.ToString())" />
+            @if (this.showUserNameRequired)
+            {
+                <span class="dnnFormMessage dnnFormError">@this.LocalizeText("Username.Required")</span>
+            }
+            @if (this.showUserNameInvalid)
+            {
+                <span class="dnnFormMessage dnnFormError">@this.LocalizeText("Username.RegExError")</span>
+            }
+        </div>
+    }
+    @if (this.renameUserNameVisible)
+    {
+        <div class="dnnFormItem">
+            <div class="dnnLabel"><label><span>@this.LocalizeText("Username")</span></label></div>
+            <input type="text" id="renameUserName" @bind="this.renameUserName" />
+        </div>
+    }
+    @if (this.firstNameVisible)
+    {
+        <div class="dnnFormItem">
+            <div class="dnnLabel"><label><span class="dnnFormRequired">@this.LocalizeText("FirstName")</span></label></div>
+            <input type="text" id="firstName" value="@this.User.FirstName" @onchange="@(e => this.User.FirstName = e.Value?.ToString())" />
+            @if (this.showFirstNameRequired)
+            {
+                <span class="dnnFormMessage dnnFormError">@this.LocalizeText("FirstName.Required")</span>
+            }
+        </div>
+    }
+    @if (this.lastNameVisible)
+    {
+        <div class="dnnFormItem">
+            <div class="dnnLabel"><label><span class="dnnFormRequired">@this.LocalizeText("LastName")</span></label></div>
+            <input type="text" id="lastName" value="@this.User.LastName" @onchange="@(e => this.User.LastName = e.Value?.ToString())" />
+            @if (this.showLastNameRequired)
+            {
+                <span class="dnnFormMessage dnnFormError">@this.LocalizeText("LastName.Required")</span>
+            }
+        </div>
+    }
+    @if (this.displayNameVisible)
+    {
+        <div class="dnnFormItem">
+            <div class="dnnLabel"><label><span class="dnnFormRequired">@this.LocalizeText("DisplayName")</span></label></div>
+            <input type="text" id="displayName" value="@this.User.DisplayName" @onchange="@(e => this.User.DisplayName = e.Value?.ToString())" />
+            @if (this.showDisplayNameRequired)
+            {
+                <span class="dnnFormMessage dnnFormError">@this.LocalizeText("DisplayName.Required")</span>
+            }
+        </div>
+    }
+    @if (this.displayNameReadOnlyVisible)
+    {
+        <div class="dnnFormItem">
+            <div class="dnnLabel"><label><span>@this.LocalizeText("DisplayName")</span></label></div>
+            <span id="displayNameReadOnly">@this.User.DisplayName</span>
+        </div>
+    }
+    <div class="dnnFormItem">
+        <div class="dnnLabel"><label><span class="dnnFormRequired">@this.LocalizeText("Email")</span></label></div>
+        <input type="text" id="email" value="@this.User.Email" @onchange="@(e => this.User.Email = e.Value?.ToString())" />
+        @if (this.showEmailRequired)
+        {
+            <span class="dnnFormMessage dnnFormError">@this.LocalizeText("Email.Required")</span>
+        }
+        @if (this.showEmailInvalid)
+        {
+            <span class="dnnFormMessage dnnFormError">@this.LocalizeText("Email.RegExError")</span>
+        }
+    </div>
+</div>
+
+@if (this.renameUserPortalsVisible)
+{
+    <div class="dnnFormGroup dnnFormItem dnnFormShort" id="renameUserPortals">
+        <div class="dnnLabel"><label><span id="numSites">@this.numSites</span></label></div>
+        @if (this.cboSitesVisible)
+        {
+            <select id="cboSites" style="width: 100px;">
+                @foreach (var portalName in this.sites)
+                {
+                    <option value="@portalName">@portalName</option>
+                }
+            </select>
+        }
+    </div>
+}
+
+@if (this.AddUser)
+{
+    <div id="pnlAddUser" class="@this.AddUserCssClass">
+        @if (this.authorizeNotifyVisible)
+        {
+            <div id="AuthorizeNotify">
+                <div class="dnnFormItem">
+                    <div class="dnnLabel"><label for="chkAuthorize"><span>@this.LocalizeText("plAuthorize")</span></label></div>
+                    <input type="checkbox" id="chkAuthorize" checked="@this.authorize" @onchange="@(e => this.authorize = (bool)e.Value)" />
+                </div>
+                <div class="dnnFormItem">
+                    <div class="dnnLabel"><label for="chkNotify"><span>@this.LocalizeText("plNotify")</span></label></div>
+                    <input type="checkbox" id="chkNotify" checked="@this.notify" @onchange="@(e => this.notify = (bool)e.Value)" />
+                </div>
+            </div>
+        }
+        @if (this.ShowPassword)
+        {
+            <div id="Password">
+                <div class="dnnFormItem">
+                    <div class="dnnLabel"></div>
+                    <p class="dnnLeft" style="margin-top: 15px; font-weight: bold">
+                        <span id="lblPasswordHelp">@this.passwordHelp</span>
+                    </p>
+                </div>
+                @if (this.randomRowVisible)
+                {
+                    <div id="randomRow" class="dnnFormItem">
+                        <div class="dnnLabel"><label for="chkRandom"><span>@this.LocalizeText("plRandom")</span></label></div>
+                        <input type="checkbox" id="chkRandom" checked="@this.random" @onchange="@(e => this.random = (bool)e.Value)" />
+                    </div>
+                }
+                <div class="dnnFormItem">
+                    <div class="dnnLabel"><label for="txtPassword"><span class="dnnFormRequired">@this.LocalizeText("plPassword")</span></label></div>
+                    <div id="passwordContainer" class="@this.passwordContainerCssClass">
+                        <input type="password" id="txtPassword" size="12" maxlength="39" autocomplete="off" class="@this.passwordCssClass" @bind="this.password" />
+                    </div>
+                </div>
+                <div class="dnnFormItem">
+                    <div class="dnnLabel"><label for="txtConfirm"><span class="dnnFormRequired">@this.LocalizeText("plConfirm")</span></label></div>
+                    <input type="password" id="txtConfirm" size="12" maxlength="39" class="@this.confirmCssClass" @bind="this.passwordConfirm" />
+                    @if (this.showPasswordsMismatch)
+                    {
+                        <span class="dnnFormMessage dnnFormError">@this.LocalizeText("ComparePasswordsValidator.ErrorMessage")</span>
+                    }
+                </div>
+                @if (this.questionRowVisible)
+                {
+                    <div id="questionRow" class="dnnFormItem">
+                        <div class="dnnLabel"><label for="txtQuestion"><span class="dnnFormRequired">@this.LocalizeText("plQuestion")</span></label></div>
+                        <input type="text" id="txtQuestion" size="25" maxlength="256" @bind="this.passwordQuestion" />
+                    </div>
+                }
+                @if (this.answerRowVisible)
+                {
+                    <div id="answerRow" class="dnnFormItem">
+                        <div class="dnnLabel"><label for="txtAnswer"><span class="dnnFormRequired">@this.LocalizeText("plAnswer")</span></label></div>
+                        <input type="text" id="txtAnswer" size="25" maxlength="128" @bind="this.passwordAnswer" />
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@if (this.ShowUpdate)
+{
+    <ul id="actionsRow" class="dnnActions dnnClear">
+        <li><a id="cmdUpdate" class="dnnPrimaryAction" href="#" @onclick="this.CmdUpdateClick" @onclick:preventDefault="true">@this.updateText</a></li>
+        @if (this.cmdDeleteVisible)
+        {
+            <li><a id="cmdDelete" class="dnnSecondaryAction" href="#" @onclick="this.CmdDeleteClick" @onclick:preventDefault="true">@this.deleteText</a></li>
+        }
+        @if (this.cmdRemoveVisible)
+        {
+            <li><a id="cmdRemove" class="dnnSecondaryAction" href="#" @onclick="this.CmdRemoveClick" @onclick:preventDefault="true">@this.LocalizeText("cmdRemove")</a></li>
+        }
+        @if (this.cmdRestoreVisible)
+        {
+            <li><a id="cmdRestore" class="dnnSecondaryAction" href="#" @onclick="this.CmdRestoreClick" @onclick:preventDefault="true">@this.LocalizeText("cmdRestore")</a></li>
+        }
+    </ul>
+}
+
+@code {
+    private static readonly ILogger Logger = DnnLoggingController.GetLogger<User>();
+
+    private const string PasswordStrengthCssClass = "password-strength";
+
+    private bool userNameVisible;
+    private bool userNameReadOnlyVisible;
+    private bool renameUserNameVisible;
+    private bool renameUserPortalsVisible;
+    private bool cboSitesVisible;
+    private bool firstNameVisible;
+    private bool lastNameVisible;
+    private bool displayNameVisible;
+    private bool displayNameReadOnlyVisible;
+    private bool authorizeNotifyVisible = true;
+    private bool randomRowVisible = true;
+    private bool questionRowVisible;
+    private bool answerRowVisible;
+    private bool cmdDeleteVisible;
+    private bool cmdRemoveVisible;
+    private bool cmdRestoreVisible;
+
+    private bool showUserNameRequired;
+    private bool showUserNameInvalid;
+    private bool showFirstNameRequired;
+    private bool showLastNameRequired;
+    private bool showDisplayNameRequired;
+    private bool showEmailRequired;
+    private bool showEmailInvalid;
+    private bool showPasswordsMismatch;
+
+    private bool authorize = true;
+    private bool notify = true;
+    private bool random;
+    private string password = string.Empty;
+    private string passwordConfirm = string.Empty;
+    private string passwordQuestion = string.Empty;
+    private string passwordAnswer = string.Empty;
+    private string passwordHelp = string.Empty;
+    private string renameUserName = string.Empty;
+    private string numSites = string.Empty;
+    private string updateText = string.Empty;
+    private string deleteText = string.Empty;
+    private string deleteConfirmText = string.Empty;
+    private string passwordContainerCssClass = string.Empty;
+    private string passwordCssClass = string.Empty;
+    private string confirmCssClass = "password-confirm";
+    private string userFormCssClass = string.Empty;
+    private string addUserCssClass = "dnnForm dnnFormPassword";
+    private string userNameValidator;
+    private string emailValidator;
+    private System.Collections.Generic.List<string> sites = new();
+    private bool showPassword = true;
+    private bool showUpdate = true;
+    private bool dataBound;
+
+    /// <summary>Gets or sets the host settings.</summary>
+    [Inject]
+    protected IHostSettings HostSettingsInstance { get; set; }
+
+    /// <summary>Gets or sets the JavaScript library helper.</summary>
+    [Inject]
+    protected IJavaScriptLibraryHelper JavaScriptHelper { get; set; }
+
+    /// <summary>Gets or sets the portal controller.</summary>
+    [Inject]
+    protected IPortalController PortalControllerInstance { get; set; }
+
+    /// <summary>Gets or sets the data provider.</summary>
+    [Inject]
+    protected DataProvider DataProviderInstance { get; set; }
+
+    /// <summary>Gets or sets the client resources controller.</summary>
+    [Inject]
+    protected IClientResourceController ClientResources { get; set; }
+
+    /// <summary>Gets or sets the event logger.</summary>
+    [Inject]
+    protected IEventLogger EventLoggerInstance { get; set; }
+
+    /// <summary>Gets or sets the permission definition service.</summary>
+    [Inject]
+    protected IPermissionDefinitionService PermissionDefinitions { get; set; }
+
+    /// <summary>Gets or sets the JavaScript runtime the password client scripts are invoked with.</summary>
+    [Inject]
+    protected Microsoft.JSInterop.IJSRuntime JsRuntime { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a user has been created (replaces the UserCreateCompleted event for markup consumers).</summary>
+    [Parameter]
+    public EventCallback<UserCreatedEventArgs> UserCreateCompletedCallback { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a user has been deleted.</summary>
+    [Parameter]
+    public EventCallback<UserDeletedEventArgs> UserDeletedCallback { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a user has been removed.</summary>
+    [Parameter]
+    public EventCallback<UserRemovedEventArgs> UserRemovedCallback { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a user has been restored.</summary>
+    [Parameter]
+    public EventCallback<UserRestoredEventArgs> UserRestoredCallback { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a user has been updated.</summary>
+    [Parameter]
+    public EventCallback UserUpdateCompletedCallback { get; set; }
+
+    /// <summary>Gets or sets the callback raised when updating a user failed.</summary>
+    [Parameter]
+    public EventCallback<UserUpdateErrorArgs> UserUpdateErrorCallback { get; set; }
+
+    /// <summary>Gets a value indicating whether the User is valid.</summary>
+    public bool IsValid => this.Validate();
+
+    /// <summary>Gets or sets the create status of the last create attempt.</summary>
+    public UserCreateStatus CreateStatus { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the Password section is displayed.</summary>
+    public bool ShowPassword
+    {
+        get => this.showPassword;
+        set => this.showPassword = value;
+    }
+
+    /// <summary>Gets or sets a value indicating whether the Update button is displayed.</summary>
+    public bool ShowUpdate
+    {
+        get => this.showUpdate;
+        set => this.showUpdate = value;
+    }
+
+    /// <summary>Gets or sets user Form's css class.</summary>
+    public string CssClass
+    {
+        get
+        {
+            return this.addUserCssClass;
+        }
+
+        set
+        {
+            this.userFormCssClass = string.IsNullOrEmpty(this.userFormCssClass) ? value : string.Format("{0} {1}", this.userFormCssClass, value);
+            this.addUserCssClass = string.IsNullOrEmpty(this.addUserCssClass) ? value : string.Format("{0} {1}", this.addUserCssClass, value);
+        }
+    }
+
+    /// <summary>Gets the css class of the user form.</summary>
+    protected string FormCssClass => this.userFormCssClass;
+
+    /// <summary>Gets the css class of the add user panel.</summary>
+    protected string AddUserCssClass => this.addUserCssClass;
+
+    /// <summary>CreateUser creates a new user in the Database.</summary>
+    public void CreateUser()
+    {
+        // Update DisplayName to conform to Format
+        this.UpdateDisplayName();
+
+        if (this.IsRegister)
+        {
+            this.User.Membership.Approved = this.PortalSettings.UserRegistration == (int)DotNetNuke.Common.Globals.PortalRegistrationType.PublicRegistration;
+        }
+        else
+        {
+            // Set the Approved status from the value in the Authorized checkbox
+            this.User.Membership.Approved = this.authorize;
+        }
+
+        var user = this.User;
+
+        // make sure username is set in UseEmailAsUserName" mode
+        if (PortalController.GetPortalSettingAsBoolean(this.PortalControllerInstance, "Registration_UseEmailAsUserName", this.PortalId, false))
+        {
+            user.Username = this.User.Email;
+            this.User.Username = this.User.Email;
+        }
+
+        var createStatus = UserController.CreateUser(ref user);
+
+        var args = (createStatus == UserCreateStatus.Success)
+                                        ? new UserCreatedEventArgs(this.User) { Notify = this.notify }
+                                        : new UserCreatedEventArgs(null);
+        args.CreateStatus = createStatus;
+        this.OnUserCreated(args);
+        this.OnUserCreateCompleted(args);
+        this.UserCreateCompletedCallback.InvokeAsync(args);
+    }
+
+    /// <summary>DataBind binds the data to the controls.</summary>
+    /// <remarks>
+    /// This is DataBind of User.ascx.cs. The "if (Page.IsPostBack == false)" guards become the
+    /// this.dataBound flag: a Blazor component keeps its state between interactions, so the parts
+    /// that ran only on the first request run exactly once here too.
+    /// </remarks>
+    public void DataBind()
+    {
+        if (!this.dataBound)
+        {
+            string confirmString = Localization.GetString("DeleteItem");
+            if (this.IsUser)
+            {
+                confirmString = this.LocalizeText("ConfirmUnRegister");
+            }
+
+            this.deleteConfirmText = confirmString;
+            this.random = false;
+        }
+
+        this.cmdDeleteVisible = false;
+        this.cmdRemoveVisible = false;
+        this.cmdRestoreVisible = false;
+        if (!this.AddUser)
+        {
+            var deletePermitted = (this.User.UserID != this.PortalSettings.AdministratorId) && !(this.IsUser && this.User.IsSuperUser);
+            if (deletePermitted)
+            {
+                if (this.User.IsDeleted)
+                {
+                    this.cmdRemoveVisible = true;
+                    this.cmdRestoreVisible = true;
+                }
+                else
+                {
+                    this.cmdDeleteVisible = true;
+                }
+            }
+        }
+
+        this.updateText = this.LocalizeText(this.IsUser ? "Register" : "CreateUser");
+        this.deleteText = this.LocalizeText(this.IsUser ? "UnRegister" : "Delete");
+        if (this.AddUser)
+        {
+            if (this.IsRegister)
+            {
+                this.authorizeNotifyVisible = false;
+                this.randomRowVisible = false;
+                if (this.ShowPassword)
+                {
+                    this.questionRowVisible = MembershipProviderConfig.RequiresQuestionAndAnswer;
+                    this.answerRowVisible = MembershipProviderConfig.RequiresQuestionAndAnswer;
+                    this.passwordHelp = this.LocalizeText("PasswordHelpUser");
+                }
+            }
+            else
+            {
+                this.passwordHelp = this.LocalizeText("PasswordHelpAdmin");
+            }
+        }
+
+        bool disableUsername = PortalController.GetPortalSettingAsBoolean(this.PortalControllerInstance, "Registration_UseEmailAsUserName", this.PortalId, false);
+
+        // only show username row once UseEmailAsUserName is disabled in site settings
+        if (disableUsername)
+        {
+            this.userNameReadOnlyVisible = false;
+            this.userNameVisible = false;
+        }
+        else
+        {
+            this.userNameReadOnlyVisible = !this.AddUser;
+            this.userNameVisible = this.AddUser;
+        }
+
+        if (this.CanUpdateUsername() && !disableUsername)
+        {
+            this.renameUserNameVisible = true;
+
+            this.userNameVisible = false;
+            this.userNameReadOnlyVisible = false;
+
+            ArrayList portals = PortalController.GetPortalsByUser(this.DataProviderInstance, this.User.UserID);
+            if (portals.Count > 1)
+            {
+                this.numSites = string.Format(CultureInfo.CurrentCulture, this.LocalizeText("UpdateUserName"), portals.Count.ToString());
+                this.cboSitesVisible = true;
+                // cboSites was bound with DataMember/DataTextField "PortalName".
+                this.sites = portals.Cast<PortalInfo>().Select(portal => portal.PortalName).ToList();
+
+                this.renameUserPortalsVisible = true;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(this.PortalSettings.Registration.UserNameValidator))
+        {
+            this.userNameValidator = this.PortalSettings.Registration.UserNameValidator;
+        }
+
+        if (!string.IsNullOrEmpty(this.PortalSettings.Registration.EmailValidator))
+        {
+            this.emailValidator = this.PortalSettings.Registration.EmailValidator;
+        }
+
+        if (!string.IsNullOrEmpty(this.PortalSettings.Registration.DisplayNameFormat))
+        {
+            if (this.AddUser)
+            {
+                this.displayNameReadOnlyVisible = false;
+                this.displayNameVisible = false;
+            }
+            else
+            {
+                this.displayNameReadOnlyVisible = true;
+                this.displayNameVisible = false;
+            }
+
+            this.firstNameVisible = true;
+            this.lastNameVisible = true;
+        }
+        else
+        {
+            this.displayNameReadOnlyVisible = false;
+            this.displayNameVisible = true;
+            this.firstNameVisible = false;
+            this.lastNameVisible = false;
+        }
+
+        if (!this.dataBound)
+        {
+            this.renameUserName = this.User.Username;
+            this.dataBound = true;
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        // The four LinkButton Click handlers are the @onclick handlers in the markup above.
+        this.DataBind();
+    }
+
+    /// <inheritdoc />
+    protected override void OnPreRender(EventArgs e)
+    {
+        this.ClientResources.RegisterScript("~/resources/Shared/scripts/dnn.jquery.extensions.js");
+        this.ClientResources.RegisterScript("~/resources/Shared/scripts/dnn.jquery.tooltip.js");
+        this.ClientResources.RegisterScript("~/resources/Shared/scripts/dnn.PasswordStrength.js");
+        this.ClientResources.RegisterScript("~/desktopmodules/Admin/Security/Scripts/dnn.PasswordComparer.js");
+
+        this.ClientResources.RegisterStylesheet("~/resources/Shared/stylesheets/dnn.PasswordStrength.css", FileOrder.Css.ResourceCss);
+
+        this.JavaScriptHelper.RequestRegistration(CommonJs.DnnPlugins);
+
+        base.OnPreRender(e);
+
+        if (this.HostSettingsInstance.EnableStrengthMeter)
+        {
+            this.passwordContainerCssClass = "password-strength-container";
+            this.passwordCssClass = PasswordStrengthCssClass;
+            this.confirmCssClass = string.Format("{0} checkStength", this.confirmCssClass);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The two startup scripts the original registered with ScriptManager/ClientScript are invoked
+    /// here, the only place a component may call into JavaScript.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender)
+        {
+            return;
+        }
+
+        if (this.HostSettingsInstance.EnableStrengthMeter)
+        {
+            var options = new DotNetNuke.Web.UI.WebControls.DnnPaswordStrengthOptions();
+            await this.JsRuntime.InvokeVoidAsync("dnn.initializePasswordStrength", "." + PasswordStrengthCssClass, options);
+        }
+
+        var confirmPasswordOptions = new DotNetNuke.Web.UI.WebControls.DnnConfirmPasswordOptions()
+        {
+            FirstElementSelector = "#passwordContainer input[type=password]",
+            SecondElementSelector = ".password-confirm",
+            ContainerSelector = ".dnnFormPassword",
+            UnmatchedCssClass = "unmatched",
+            MatchedCssClass = "matched",
+        };
+
+        await this.JsRuntime.InvokeVoidAsync("dnn.initializePasswordComparer", confirmPasswordOptions);
+    }
+
+    /// <summary>
+    /// method checks to see if its allowed to change the username
+    /// valid if a host, or an admin where the username is in only 1 portal.
+    /// </summary>
+    /// <returns><see langword="true"/> if the user can update their username, otherwise <see langword="false"/>.</returns>
+    private bool CanUpdateUsername()
+    {
+        // do not allow for non-logged in users
+        if (this.Request.IsAuthenticated() == false || this.AddUser)
+        {
+            return false;
+        }
+
+        // can only update username if a host/admin and account being managed is not a superuser
+        if (UserController.Instance.GetCurrentUserInfo().IsSuperUser)
+        {
+            // only allow updates for non-superuser accounts
+            if (this.User.IsSuperUser == false)
+            {
+                return true;
+            }
+        }
+
+        // if an admin, check if the user is only within this portal
+        if (UserController.Instance.GetCurrentUserInfo().IsInRole(this.PortalSettings.AdministratorRoleName))
+        {
+            // only allow updates for non-superuser accounts
+            if (this.User.IsSuperUser)
+            {
+                return false;
+            }
+
+            if (PortalController.GetPortalsByUser(this.DataProviderInstance, this.User.UserID).Count == 1)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void UpdateDisplayName()
+    {
+        // Update DisplayName to conform to Format
+        if (!string.IsNullOrEmpty(this.PortalSettings.Registration.DisplayNameFormat))
+        {
+            this.User.UpdateDisplayName(this.PortalSettings.Registration.DisplayNameFormat);
+        }
+    }
+
+    /// <summary>Evaluates the form items the DnnFormEditor validated (Required and ValidationExpression).</summary>
+    /// <returns><see langword="true"/> when every visible item is valid.</returns>
+    private bool ValidateForm()
+    {
+        this.showUserNameRequired = this.userNameVisible && string.IsNullOrWhiteSpace(this.User.Username);
+        this.showUserNameInvalid = this.userNameVisible
+            && !this.showUserNameRequired
+            && !string.IsNullOrEmpty(this.userNameValidator)
+            && !System.Text.RegularExpressions.Regex.IsMatch(this.User.Username ?? string.Empty, this.userNameValidator);
+
+        this.showFirstNameRequired = this.firstNameVisible && string.IsNullOrWhiteSpace(this.User.FirstName);
+        this.showLastNameRequired = this.lastNameVisible && string.IsNullOrWhiteSpace(this.User.LastName);
+        this.showDisplayNameRequired = this.displayNameVisible && string.IsNullOrWhiteSpace(this.User.DisplayName);
+
+        this.showEmailRequired = string.IsNullOrWhiteSpace(this.User.Email);
+        this.showEmailInvalid = !this.showEmailRequired
+            && !string.IsNullOrEmpty(this.emailValidator)
+            && !System.Text.RegularExpressions.Regex.IsMatch(this.User.Email ?? string.Empty, this.emailValidator);
+
+        this.showPasswordsMismatch = this.AddUser && this.ShowPassword && !this.random
+            && !string.Equals(this.password, this.passwordConfirm, StringComparison.Ordinal);
+
+        return !this.showUserNameRequired
+               && !this.showUserNameInvalid
+               && !this.showFirstNameRequired
+               && !this.showLastNameRequired
+               && !this.showDisplayNameRequired
+               && !this.showEmailRequired
+               && !this.showEmailInvalid
+               && !this.showPasswordsMismatch;
+    }
+
+    /// <summary>Validate validates the User.</summary>
+    private bool Validate()
+    {
+        // Check User Editor
+        bool isValid = this.ValidateForm();
+
+        // Check Password is valid
+        if (this.AddUser && this.ShowPassword)
+        {
+            this.CreateStatus = UserCreateStatus.AddUser;
+            if (!this.random)
+            {
+                // 1. Check Password is Valid
+                if (this.CreateStatus == UserCreateStatus.AddUser && !UserController.ValidatePassword(this.password))
+                {
+                    this.CreateStatus = UserCreateStatus.InvalidPassword;
+                }
+
+                if (this.CreateStatus == UserCreateStatus.AddUser)
+                {
+                    this.User.Membership.Password = this.password;
+                }
+            }
+            else
+            {
+                // Generate a random password for the user
+                this.User.Membership.Password = UserController.GeneratePassword();
+            }
+
+            // Check Question/Answer
+            if (this.CreateStatus == UserCreateStatus.AddUser && MembershipProviderConfig.RequiresQuestionAndAnswer)
+            {
+                if (string.IsNullOrEmpty(this.passwordQuestion))
+                {
+                    // Invalid Question
+                    this.CreateStatus = UserCreateStatus.InvalidQuestion;
+                }
+                else
+                {
+                    this.User.Membership.PasswordQuestion = this.passwordQuestion;
+                }
+
+                if (this.CreateStatus == UserCreateStatus.AddUser)
+                {
+                    if (string.IsNullOrEmpty(this.passwordAnswer))
+                    {
+                        // Invalid Question
+                        this.CreateStatus = UserCreateStatus.InvalidAnswer;
+                    }
+                    else
+                    {
+                        this.User.Membership.PasswordAnswer = this.passwordAnswer;
+                    }
+                }
+            }
+
+            if (this.CreateStatus != UserCreateStatus.AddUser)
+            {
+                isValid = false;
+            }
+        }
+
+        return isValid;
+    }
+
+    /// <summary>cmdDelete_Click runs when the delete Button is clicked.</summary>
+    /// <remarks>
+    /// The original markup carried <c>onclick="return confirm('…')"</c> alongside the server-side
+    /// click handler. A Razor component cannot declare both a literal <c>onclick</c> attribute and
+    /// <c>@onclick</c> on one element (RZ10008), so the confirmation prompt moved here. It runs
+    /// AFTER the authorization check and before any state change, so declining aborts the delete
+    /// and an unauthorized caller is still rejected without being prompted at all.
+    /// </remarks>
+    private async Task CmdDeleteClick()
+    {
+        if (!this.IsUserOrAdmin)
+        {
+            return;
+        }
+
+        if (!await this.JsRuntime.InvokeAsync<bool>("confirm", this.deleteConfirmText))
+        {
+            return;
+        }
+
+        string name = this.User.Username;
+        int id = this.UserId;
+        UserInfo user = this.User;
+        if (UserController.DeleteUser(this.EventLoggerInstance, ref user, true, false))
+        {
+            var args = new UserDeletedEventArgs(id, name);
+            this.OnUserDeleted(args);
+            await this.UserDeletedCallback.InvokeAsync(args);
+        }
+        else
+        {
+            var args = new UserUpdateErrorArgs(id, name, "UserDeleteError");
+            this.OnUserDeleteError(args);
+            await this.UserUpdateErrorCallback.InvokeAsync(args);
+        }
+    }
+
+    private async Task CmdRestoreClick()
+    {
+        if (this.IsUserOrAdmin == false)
+        {
+            return;
+        }
+
+        var name = this.User.Username;
+        var id = this.UserId;
+
+        var userInfo = this.User;
+        if (UserController.RestoreUser(this.EventLoggerInstance, this.PermissionDefinitions, ref userInfo))
+        {
+            var args = new UserRestoredEventArgs(id, name);
+            this.OnUserRestored(args);
+            await this.UserRestoredCallback.InvokeAsync(args);
+        }
+        else
+        {
+            var args = new UserUpdateErrorArgs(id, name, "UserRestoreError");
+            this.OnUserRestoreError(args);
+            await this.UserUpdateErrorCallback.InvokeAsync(args);
+        }
+    }
+
+    private async Task CmdRemoveClick()
+    {
+        if (this.IsUserOrAdmin == false)
+        {
+            return;
+        }
+
+        var name = this.User.Username;
+        var id = this.UserId;
+
+        if (UserController.RemoveUser(this.User))
+        {
+            var args = new UserRemovedEventArgs(id, name);
+            this.OnUserRemoved(args);
+            await this.UserRemovedCallback.InvokeAsync(args);
+        }
+        else
+        {
+            var args = new UserUpdateErrorArgs(id, name, "UserRemoveError");
+            this.OnUserRemoveError(args);
+            await this.UserUpdateErrorCallback.InvokeAsync(args);
+        }
+    }
+
+    /// <summary>cmdUpdate_Click runs when the Update Button is clicked.</summary>
+    private async Task CmdUpdateClick()
+    {
+        if (this.IsUserOrAdmin == false)
+        {
+            return;
+        }
+
+        if (this.AddUser)
+        {
+            if (this.IsValid)
+            {
+                this.CreateUser();
+                DataCache.ClearPortalUserCountCache(this.PortalId);
+            }
+        }
+        else
+        {
+            if (this.ValidateForm() && (this.User != null))
+            {
+                if (this.User.UserID == this.PortalSettings.AdministratorId)
+                {
+                    // Clear the Portal Cache
+                    DataCache.ClearPortalUserCountCache(this.UserPortalID);
+                }
+
+                try
+                {
+                    // Update DisplayName to conform to Format
+                    this.UpdateDisplayName();
+
+                    // either update the username or update the user details
+                    if (this.CanUpdateUsername() && !this.PortalSettings.Registration.UseEmailAsUserName)
+                    {
+                        UserController.ChangeUsername(this.User.UserID, this.renameUserName);
+                    }
+
+                    // DNN-5874 Check if unique display name is required
+                    if (this.PortalSettings.Registration.RequireUniqueDisplayName)
+                    {
+                        var usersWithSameDisplayName = (System.Collections.Generic.List<UserInfo>)MembershipProvider.Instance().GetUsersBasicSearch(this.PortalId, 0, 2, "DisplayName", true, "DisplayName", this.User.DisplayName);
+                        if (usersWithSameDisplayName.Any(user => user.UserID != this.User.UserID))
+                        {
+                            DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, this.LocalizeText("DisplayNameNotUnique"), DotNetNuke.UI.Skins.Controls.ModuleMessage.ModuleMessageType.RedError);
+                            return;
+                        }
+                    }
+
+                    UserController.UpdateUser(this.EventLoggerInstance, this.UserPortalID, this.User);
+
+                    if (this.PortalSettings.Registration.UseEmailAsUserName && (!string.Equals(this.User.Username, this.User.Email, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        UserController.ChangeUsername(this.User.UserID, this.User.Email);
+                    }
+
+                    this.OnUserUpdated(EventArgs.Empty);
+                    this.OnUserUpdateCompleted(EventArgs.Empty);
+                    await this.UserUpdateCompletedCallback.InvokeAsync();
+                }
+                catch (Exception exc)
+                {
+                    Logger.UserUpdateException(exc);
+
+                    var args = new UserUpdateErrorArgs(this.User.UserID, this.User.Username, "EmailError");
+                    this.OnUserUpdateError(args);
+                    await this.UserUpdateErrorCallback.InvokeAsync(args);
+                }
+            }
+        }
+    }
+}

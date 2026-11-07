@@ -4,12 +4,13 @@
 
 namespace DotNetNuke.Tests.Web.Api
 {
-    using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Threading;
 
     using DotNetNuke.Web.Api.Auth;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Net.Http.Headers;
+
     using NUnit.Framework;
 
     [TestFixture]
@@ -19,71 +20,71 @@ namespace DotNetNuke.Tests.Web.Api
         public void SetsWwwAuthenticateHeaderOn401()
         {
             // Arrange
-            var response = new HttpResponseMessage(HttpStatusCode.Unauthorized) { RequestMessage = new HttpRequestMessage() };
+            var context = new DefaultHttpContext();
+            context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
 
             // Act
             var handler = new BasicAuthMessageHandler(true, false);
-            handler.OnOutboundResponse(response, CancellationToken.None);
+            handler.OnSendResponse(context);
 
-            using (Assert.EnterMultipleScope())
-            {
-                // Assert
-                Assert.That(response.Headers.WwwAuthenticate.First().Scheme, Is.EqualTo("Basic"));
-                Assert.That(response.Headers.WwwAuthenticate.First().Parameter, Is.EqualTo("realm=\"DNNAPI\""));
-            }
+            // Assert
+            Assert.That(
+                context.Response.Headers[HeaderNames.WWWAuthenticate].ToString(),
+                Is.EqualTo("Basic realm=\"DNNAPI\""));
         }
 
         [Test]
         public void OmitsWwwAuthenticateHeaderOn401FromXmlHttpRequest()
         {
             // Arrange
-            var response = new HttpResponseMessage(HttpStatusCode.Unauthorized)
-            { RequestMessage = new HttpRequestMessage() };
-            response.RequestMessage.Headers.Add("X-REQUESTED-WITH", "XmlHttpRequest");
+            var context = new DefaultHttpContext();
+            context.Request.Headers["X-REQUESTED-WITH"] = "XmlHttpRequest";
+            context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
 
             // Act
             var handler = new BasicAuthMessageHandler(true, false);
-            handler.OnOutboundResponse(response, CancellationToken.None);
+            handler.OnSendResponse(context);
 
             // Assert
-            Assert.That(response.Headers.WwwAuthenticate, Is.Empty);
+            Assert.That(context.Response.Headers.ContainsKey(HeaderNames.WWWAuthenticate), Is.False);
         }
 
         [Test]
         public void MissingXmlHttpRequestValueDoesntThrowNullException()
         {
             // Arrange
-            var response = new HttpResponseMessage(HttpStatusCode.Unauthorized) { RequestMessage = new HttpRequestMessage() };
-            response.RequestMessage.Headers.Add("X-REQUESTED-WITH", string.Empty);
+            var context = new DefaultHttpContext();
+            context.Request.Headers["X-REQUESTED-WITH"] = string.Empty;
+            context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
 
             // Act
             var handler = new BasicAuthMessageHandler(true, false);
-            handler.OnOutboundResponse(response, CancellationToken.None);
+            handler.OnSendResponse(context);
 
-            using (Assert.EnterMultipleScope())
-            {
-                // Assert
-                Assert.That(response.Headers.WwwAuthenticate.First().Scheme, Is.EqualTo("Basic"));
-                Assert.That(response.Headers.WwwAuthenticate.First().Parameter, Is.EqualTo("realm=\"DNNAPI\""));
-            }
+            // Assert
+            Assert.That(
+                context.Response.Headers[HeaderNames.WWWAuthenticate].ToString(),
+                Is.EqualTo("Basic realm=\"DNNAPI\""));
         }
 
         [Test]
         public void ResponseWithNullRequestReturnsUnauthorized()
         {
             // Arrange
-            var response = new HttpResponseMessage(HttpStatusCode.Unauthorized) { RequestMessage = null };
+            // The legacy test set HttpResponseMessage.RequestMessage to null. An ASP.NET Core
+            // HttpContext always carries a request, so the equivalent is a response with no
+            // request-side setup at all: the challenge must still be emitted.
+            var context = new DefaultHttpContext();
+            context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
 
             // Act
             var handler = new BasicAuthMessageHandler(true, false);
-            handler.OnOutboundResponse(response, CancellationToken.None);
+            handler.OnSendResponse(context);
 
-            using (Assert.EnterMultipleScope())
-            {
-                // Assert
-                Assert.That(response.Headers.WwwAuthenticate.First().Scheme, Is.EqualTo("Basic"));
-                Assert.That(response.Headers.WwwAuthenticate.First().Parameter, Is.EqualTo("realm=\"DNNAPI\""));
-            }
+            // Assert
+            Assert.That(
+                context.Response.Headers[HeaderNames.WWWAuthenticate].ToString(),
+                Is.EqualTo("Basic realm=\"DNNAPI\""));
         }
 
         // todo unit test actual authentication code

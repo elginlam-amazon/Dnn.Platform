@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -10,6 +10,19 @@
     <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <LangVersion>latest</LangVersion>
+    <RootNamespace>Dnn.Skins.Aperture</RootNamespace>
+    <AssemblyName>Dnn.Skins.Aperture</AssemblyName>
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
+    <StaticWebAssetBasePath>_content/Dnn.Skins.Aperture</StaticWebAssetBasePath>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="..\..\..\stylecop.json" Link="stylecop.json" />
+  </ItemGroup>
 
 </Project>

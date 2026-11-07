@@ -1,0 +1,641 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DNNConnect.CKEditorProvider
+@inherits DotNetNuke.UI.DnnComponentBase
+
+@using DNNConnect.CKEditorProvider.Controls
+@using DotNetNuke.Services.Localization
+
+@*
+    This is CKEditorOptions.ascx, markup element for markup element.
+
+    * The three <asp:UpdatePanel>s are gone: an interactive-server component re-renders the parts
+      of the tree that changed, which is what their conditional partial rendering did. The
+      <asp:ScriptManager> dependency (Sys.WebForms.PageRequestManager) disappears with them; the
+      client side set-up the inline script ran on every end-request now runs from
+      OnAfterRenderAsync through js/optionsInterop.js.
+    * The two <asp:GridView>s with their four <asp:TemplateField>s are plain tables over the two
+      row models (toolbar per role, upload size limit per role) - the canonical Blazor replacement
+      for a GridView whose templates hold one control each.
+    * The <asp:CheckBoxList>, the <asp:RadioButtonList>, the drop downs, the text boxes and the
+      check boxes are bound directly to the component state that replaced the designer fields.
+    * The four <asp:HiddenField>s are hidden inputs whose element ids still contain the strings
+      js/Options.js selects on ([id*="CKEditor_Options_LastTabId"], [id*="Options_ToolbarSet"]).
+    * The five <dnn:url> instances are the Controls/UrlControl.razor component.
+    * The 67 <asp:Label>s read their text from the same Localization.GetString(...) calls, which
+      SetLanguage() performs into the fields bound below.
+
+    The toolbar editor repeaters, the action buttons and the two dialog "now" buttons are the
+    command path (checklist tasks 38/39) and are rendered below; every piece of the original
+    markup has a counterpart here.
+*@
+
+@if (this.Visible)
+{
+<div id="SettingsBox">
+    <h2>
+        CKEditor Provider <span id="lblSettings">@((MarkupString)(this.lblSettings ?? string.Empty))</span>
+    </h2>
+
+    @* <asp:HiddenField id="LastTabId" Value="1" /> - js/Options.js stores the active tab in it. *@
+    <input type="hidden" id="CKEditor_Options_LastTabId" value="@this.lastTabId" @onchange="@(e => this.lastTabId = e.Value?.ToString())" />
+
+    <div id="CKEditor_Options_pnlEditor" class="dnnForm">
+        <div class="SettingsHeader">
+            <div class="dnnFormItem">
+                @if (this.lblSetForVisible)
+                {
+                    <span id="lblSetFor" class="dnnLabel">@this.lblSetFor</span>
+                }
+                @if (this.rBlSetModeVisible)
+                {
+                    <div id="rBlSetMode">
+                        @for (var index = 0; index < this.setModeItems.Count; index++)
+                        {
+                            var itemIndex = index;
+                            var item = this.setModeItems[index];
+                            <label>
+                                <input type="radio"
+                                       name="rBlSetMode"
+                                       value="@item.Value"
+                                       checked="@(this.setModeSelectedIndex == itemIndex)"
+                                       @onchange="@(() => this.SetModeSelectedIndexChanged(itemIndex))" />@item.Text
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <ul class="dnnAdminTabNav dnnClear">
+            <li><a href="#dnnMainSettings"><span id="lblMainSet">@this.lblMainSet</span></a></li>
+            <li><a href="#dnnFileBrowserSettings"><span id="lblBrowsSec">@this.lblBrowsSec</span></a></li>
+            <li><a href="#dnnCustomToolbars"><span id="lblCustomToolbars">@this.lblCustomToolbars</span></a></li>
+            <li><a href="#dnnEditorConfig"><span id="lblEditorConfig">@this.lblEditorConfig</span></a></li>
+            @if (this.infoTabVisible)
+            {
+                <li id="InfoTabLi"><a href="#dnnAbout"><span id="lblHeader">@this.lblHeader</span></a></li>
+            }
+        </ul>
+
+        <div id="dnnMainSettings">
+            <h2 id="Panel-Common" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeString("Common.SectionName")Common</a></h2>
+            <fieldset>
+                <div class="dnnFormItem">
+                    <span id="lblBlanktext" class="dnnLabel">@this.lblBlanktext</span>
+                    <input type="text" id="txtBlanktext" title="@this.txtBlanktextToolTip" @bind="this.txtBlanktext" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblSkin" class="dnnLabel">@this.lblSkin</span>
+                    <select id="ddlSkin" class="dnnDropDownList" @bind="this.ddlSkin">
+                        @foreach (var item in this.ddlSkinItems)
+                        {
+                            <option value="@item.Value">@item.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblWidth" class="dnnLabel">@this.lblWidth</span>
+                    <input type="text" id="txtWidth" class="settingValueInputNumeric" @bind="this.txtWidth" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblHeight" class="dnnLabel">@this.lblHeight</span>
+                    <input type="text" id="txtHeight" class="settingValueInputNumeric" @bind="this.txtHeight" />
+                </div>
+            </fieldset>
+
+            <h2 id="Panel-Toolbars" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeString("Toolbars.SeectionName")<span id="lblToolbars">@this.lblToolbars</span></a></h2>
+            <fieldset>
+                @* <asp:GridView id="gvToolbars"> with the role name and the toolbar drop down templates. *@
+                <table id="gvToolbars">
+                    <thead>
+                        <tr>
+                            <th><span id="lblRole" style="display:none">@this.lblRole</span></th>
+                            <th><span id="lblSelToolb" style="display:none">@this.lblSelToolb</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in this.toolbarRoleRows)
+                        {
+                            var currentRow = row;
+                            <tr>
+                                <td><span class="dnnLabel">@currentRow.RoleName</span></td>
+                                <td>
+                                    <select class="dnnDropDownList"
+                                            value="@currentRow.SelectedToolbar"
+                                            @onchange="@(e => currentRow.SelectedToolbar = e.Value?.ToString())">
+                                        @foreach (var toolbar in this.availableToolbarNames)
+                                        {
+                                            <option value="@toolbar.Value">@toolbar.Text</option>
+                                        }
+                                    </select>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </fieldset>
+
+            <h2 id="Panel-Configuration" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeString("Configuration.SeectionName")Configuration</a></h2>
+            <fieldset>
+                <div class="dnnFormItem">
+                    <span id="lblCustomConfig" class="dnnLabel">@this.lblCustomConfig</span>
+                    <UrlControl @ref="this.configUrlControl"
+                                FileFilter="js"
+                                PortalId="@this.urlControlPortalId"
+                                Url="@this.configUrl"
+                                UrlChanged="@(value => this.configUrl = value)" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="CodeMirrorLabel" class="dnnLabel">@this.codeMirrorLabel</span>
+                    <select id="CodeMirrorTheme" @bind="this.codeMirrorTheme">
+                        @foreach (var item in this.codeMirrorThemeItems)
+                        {
+                            <option value="@item.Value">@item.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblInjectSyntaxJs" class="dnnLabel">@this.lblInjectSyntaxJs</span>
+                    <input type="checkbox" id="InjectSyntaxJs" @bind="this.injectSyntaxJs" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblCssurl" class="dnnLabel">@this.lblCssurl</span>
+                    <UrlControl @ref="this.cssUrlControl"
+                                FileFilter="css"
+                                PortalId="@this.urlControlPortalId"
+                                Url="@this.cssUrl"
+                                UrlChanged="@(value => this.cssUrl = value)" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblTemplFiles" class="dnnLabel">@this.lblTemplFiles</span>
+                    <UrlControl @ref="this.templateUrlControl"
+                                FileFilter="xml,js"
+                                PortalId="@this.urlControlPortalId"
+                                Url="@this.templateUrl"
+                                UrlChanged="@(value => this.templateUrl = value)" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="CustomJsFileLabel" class="dnnLabel">@this.customJsFileLabel</span>
+                    <UrlControl @ref="this.customJsFileControl"
+                                FileFilter="js"
+                                PortalId="@this.urlControlPortalId"
+                                Url="@this.customJsFile"
+                                UrlChanged="@(value => this.customJsFile = value)" />
+                </div>
+            </fieldset>
+        </div>
+
+        <div id="dnnFileBrowserSettings">
+            <h2 id="Panel-FileBrowser" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeString("FileBrowser.SeectionName")File Browser Settings</a></h2>
+            <fieldset>
+                <div class="dnnFormItem">
+                    <span id="lblBrowser" class="dnnLabel">@this.lblBrowser</span>
+                    <select id="ddlBrowser" class="DefaultDropDown" @bind="this.ddlBrowser">
+                        @foreach (var item in this.ddlBrowserItems)
+                        {
+                            <option value="@item.Value">@item.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblImageButton" class="dnnLabel">@this.lblImageButton</span>
+                    <select id="ddlImageButton" class="DefaultDropDown" @bind="this.ddlImageButton">
+                        @foreach (var item in this.ddlImageButtonItems)
+                        {
+                            <option value="@item.Value">@item.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblBrowAllowFollowPerms" class="dnnLabel">@this.lblBrowAllowFollowPerms</span>
+                    <input type="checkbox" id="BrowAllowFollowPerms" @bind="this.browAllowFollowPerms" />
+                    <label for="BrowAllowFollowPerms">@this.browAllowFollowPermsText</label>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblBrowAllow" class="dnnLabel">@this.lblBrowAllow</span>
+                    <div id="chblBrowsGr">
+                        @foreach (var role in this.browserRoles)
+                        {
+                            var currentRole = role;
+                            <label>
+                                <input type="checkbox"
+                                       value="@currentRole.Value"
+                                       checked="@currentRole.Selected"
+                                       disabled="@(!currentRole.Enabled)"
+                                       @onchange="@(e => currentRole.Selected = e.Value is bool flag && flag)" />@currentRole.Text
+                            </label>
+                        }
+                    </div>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="HostBrowserRootFolder" class="dnnLabel">@this.hostBrowserRootFolderLabel</span>
+                    <input type="text" id="HostBrowserRootDir" readonly="@this.hostBrowserRootDirReadOnly" @bind="this.hostBrowserRootDir" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="BrowserRootFolder" class="dnnLabel">@this.browserRootFolderLabel</span>
+                    <select id="BrowserRootDir" class="DefaultDropDown" @bind="this.browserRootDir">
+                        @foreach (var item in this.folderItems)
+                        {
+                            <option value="@item.Value">@item.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="HostBrowserRootFolderForImg" class="dnnLabel">@this.hostBrowserRootFolderForImgLabel</span>
+                    <input type="text" id="HostBrowserRootDirForImg" readonly="@this.hostBrowserRootDirForImgReadOnly" @bind="this.hostBrowserRootDirForImg" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="BrowserRootFolderForImg" class="dnnLabel">@this.browserRootFolderForImgLabel</span>
+                    <select id="BrowserRootDirForImg" class="DefaultDropDown" @bind="this.browserRootDirForImg">
+                        @foreach (var item in this.folderItems)
+                        {
+                            <option value="@item.Value">@item.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblBrowserDirs" class="dnnLabel">@this.lblBrowserDirs</span>
+                    <input type="checkbox" id="cbBrowserDirs" @bind="this.cbBrowserDirs" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="HostUploadFolderLabel" class="dnnLabel">@this.hostUploadFolderLabel</span>
+                    <input type="text" id="HostUploadDir" readonly="@this.hostUploadDirReadOnly" @bind="this.hostUploadDir" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="UploadFolderLabel" class="dnnLabel">@this.uploadFolderLabel</span>
+                    <select id="UploadDir" class="DefaultDropDown" @bind="this.uploadDir">
+                        @foreach (var item in this.folderItems)
+                        {
+                            <option value="@item.Value">@item.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="HostUploadFolderLabelForImg" class="dnnLabel">@this.hostUploadFolderLabelForImg</span>
+                    <input type="text" id="HostUploadDirForImg" readonly="@this.hostUploadDirForImgReadOnly" @bind="this.hostUploadDirForImg" />
+                </div>
+                <div class="dnnFormItem" id="UploadDirForImgOption">
+                    <span id="UploadFolderLabelForImg" class="dnnLabel">@this.uploadFolderLabelForImg</span>
+                    <select id="UploadDirForImg" class="DefaultDropDown" @bind="this.uploadDirForImg">
+                        @foreach (var item in this.folderItems)
+                        {
+                            <option value="@item.Value">@item.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="OverrideFileOnUploadLabel" class="dnnLabel">@this.overrideFileOnUploadLabel</span>
+                    <input type="checkbox" id="OverrideFileOnUpload" @bind="this.overrideFileOnUpload" />
+                </div>
+            </fieldset>
+
+            <h2 id="Panel-UploadFileLimits" class="dnnFormSectionHead">
+                <a href="" class="dnnSectionExpanded">
+                    @this.LocalizeString("UploadFileLimits.SeectionName")
+                    <span id="UploadFileLimitLabel">@this.uploadFileLimitLabel</span>
+                </a>
+            </h2>
+            <fieldset>
+                @* <asp:GridView id="UploadFileLimits"> with the role name and the size limit templates. *@
+                <table id="UploadFileLimits">
+                    <thead>
+                        <tr>
+                            <th><span style="display:none">@this.lblRole</span></th>
+                            <th><span id="SizeLimitLabel" style="display:none">@this.sizeLimitLabel</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in this.uploadSizeRows)
+                        {
+                            var currentRow = row;
+                            <tr>
+                                <td><span class="dnnLabel">@currentRow.RoleName</span></td>
+                                <td>
+                                    <input type="text"
+                                           class="settingValueInputNumeric"
+                                           value="@currentRow.SizeLimit"
+                                           @onchange="@(e => currentRow.SizeLimit = e.Value?.ToString())" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <div class="dnnFormItem">
+                    <span id="lblResizeWidthUpload" class="dnnLabel">@this.lblResizeWidthUpload</span>
+                    <input type="text" id="txtResizeWidthUpload" class="settingValueInputNumeric" @bind="this.txtResizeWidthUpload" />px
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblResizeHeightUpload" class="dnnLabel">@this.lblResizeHeightUpload</span>
+                    <input type="text" id="txtResizeHeightUpload" class="settingValueInputNumeric" @bind="this.txtResizeHeightUpload" />px
+                </div>
+            </fieldset>
+
+            <h2 id="Panel-FileBrowserDefaults" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeString("FileBrowserDefaults.SeectionName")Default Settings</a></h2>
+            <fieldset>
+                <div class="dnnFormItem">
+                    <span id="lblResizeWidth" class="dnnLabel">@this.lblResizeWidth</span>
+                    <input type="text" id="txtResizeWidth" class="settingValueInputNumeric" @bind="this.txtResizeWidth" />px
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblResizeHeight" class="dnnLabel">@this.lblResizeHeight</span>
+                    <input type="text" id="txtResizeHeight" class="settingValueInputNumeric" @bind="this.txtResizeHeight" />px
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblUseAnchorSelector" class="dnnLabel">@this.lblUseAnchorSelector</span>
+                    <input type="checkbox" id="UseAnchorSelector" @bind="this.useAnchorSelector" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblShowPageLinksTabFirst" class="dnnLabel">@this.lblShowPageLinksTabFirst</span>
+                    <input type="checkbox" id="ShowPageLinksTabFirst" @bind="this.showPageLinksTabFirst" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="FileListViewModeLabel" class="dnnLabel">@this.fileListViewModeLabel</span>
+                    <select id="FileListViewMode" @bind="this.fileListViewMode">
+                        @foreach (var item in this.fileListViewModeItems)
+                        {
+                            <option value="@item.Value">@item.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="FileListPageSizeLabel" class="dnnLabel">@this.fileListPageSizeLabel</span>
+                    <input type="text" id="FileListPageSize" class="settingValueInputNumeric" @bind="this.fileListPageSize" />
+                </div>
+                <div class="dnnFormItem">
+                    <span id="DefaultLinkModeLabel" class="dnnLabel">@this.defaultLinkModeLabel</span>
+                    <select id="DefaultLinkMode" @bind="this.defaultLinkMode">
+                        @foreach (var item in this.defaultLinkModeItems)
+                        {
+                            <option value="@item.Value">@item.Text</option>
+                        }
+                    </select>
+                </div>
+            </fieldset>
+        </div>
+
+        <div id="dnnCustomToolbars">
+            <div class="dnnFormItem">
+                <span id="lblToolbarList" class="dnnLabel">@this.lblToolbarList</span>
+                <select id="dDlCustomToolbars" @bind="this.customToolbar">
+                    @foreach (var item in this.availableToolbarNames)
+                    {
+                        <option value="@item.Value">@item.Text</option>
+                    }
+                </select>
+                @* <asp:ImageButton id="iBEdit"> / id="iBDelete" (IbEditClick / IbDeleteClick). *@
+                <input type="image" id="iBEdit" class="DefaultButton" src="@this.EditToolbarImageUrl"
+                       alt="@this.EditToolbarText" title="@this.EditToolbarText" @onclick="this.IbEditClick" />
+                <input type="image" id="iBDelete" class="DefaultButton" src="@this.DeleteToolbarImageUrl"
+                       alt="@this.DeleteToolbarText" title="@this.DeleteToolbarText" @onclick="this.IbDeleteClick" />
+            </div>
+            <div class="dnnFormItem">
+                <span id="lblToolbName" class="dnnLabel">@this.lblToolbName</span>
+                <input type="text" id="dnnTxtToolBName" disabled="@(!this.toolbarNameEnabled)" @bind="this.toolbarName" />
+                @* <asp:ImageButton id="iBAdd"> / id="iBCancel" (IbAddClick / IbCancelClick). The
+                   image and the alternate text switch between add.gif/AddToolbar.Text and
+                   save.gif/SaveToolbar.Text exactly as the original reassigned them. *@
+                @if (this.AddToolbarVisible)
+                {
+                    <input type="image" id="iBAdd" class="DefaultButton" src="@this.AddToolbarImageUrl"
+                           alt="@this.AddOrSaveToolbarText" title="@this.AddOrSaveToolbarText" @onclick="this.IbAddClick" />
+                }
+                @if (this.cancelToolbarVisible)
+                {
+                    <input type="image" id="iBCancel" class="DefaultButton" src="@this.CancelToolbarImageUrl"
+                           alt="@this.CancelToolbarText" title="@this.CancelToolbarText" @onclick="this.IbCancelClick" />
+                }
+            </div>
+            <table>
+                <tr>
+                    <td class="settingValueColumn">
+                        <strong><span id="lblToolbSet">@this.lblToolbSet</span></strong><br />
+                        @* <asp:Repeater ID="AvailableToolbarButtons"> - the drag source js/Options.js sorts. *@
+                        <ul class="availableButtons sortable">
+                            @foreach (var availableButton in this.availableButtonRows)
+                            {
+                                <li class="ui-state-default ui-corner-all@(availableButton.Button == "-" ? " separator" : string.Empty)">
+                                    <img alt="@availableButton.Button" class="itemIcon" src="@this.ToolbarIconUrl(availableButton.Icon)" />&nbsp;
+                                    <span class="item">@availableButton.Button</span>
+                                </li>
+                            }
+                        </ul>
+                    </td>
+                    <td style="vertical-align: top">
+                        <strong><span id="ToolbarGroupsLabel">@this.toolbarGroupsLabel</span></strong><br />
+                        @* <asp:HiddenField ID="ToolbarSet"> - js/Options.js serializes the groups into it. *@
+                        <input type="hidden" id="CKEditor_Options_ToolbarSet" value="@this.toolbarSetValue" @onchange="@(e => this.toolbarSetValue = e.Value?.ToString())" />
+                        @* <asp:Repeater ID="ToolbarGroupsRepeater"> with the nested ToolbarButtonsRepeater. *@
+                        <ul class="groups">
+                            @foreach (var group in this.toolbarGroupRows)
+                            {
+                                <li class="groupItem@(group.GroupName == "rowBreak" ? " rowBreakItem" : string.Empty)">
+                                    <span class="ui-icon ui-icon-cancel" title="Delete this Toolbar Group"></span>
+                                    <span class="ui-icon ui-icon-arrowthick-2-n-s"></span>
+                                    <input type="hidden" class="GroupListItem" value="@group.GroupName" />
+                                    <p class="rowBreakLabel">@this.LocalizeString("RowBreak.Text")</p>
+                                    <a class="groupName" title="@this.LocalizeString("EditGroupName.Text")">@group.GroupName</a>
+                                    <input type="text" class="groupEdit" /><div class="ui-state-default ui-corner-all saveGroupName"><span class="ui-icon ui-icon-check" title="@this.LocalizeString("SaveGroupName.Text")"></span></div>
+                                    <ul class="groupButtons">
+                                        @foreach (var groupButton in group.Buttons)
+                                        {
+                                            <li class="@GroupButtonCssClass(groupButton)">
+                                                <span class="ui-icon ui-icon-cancel" title="@this.LocalizeString("DeleteToolbarButton.Text")"></span>
+                                                <img alt="@groupButton.Button" class="itemIcon" src="@this.ToolbarIconUrl(groupButton.Button == "/" ? "PageBreak.png" : groupButton.Icon)" />&nbsp;
+                                                <span class="item">@groupButton.Button</span>
+                                            </li>
+                                        }
+                                    </ul>
+                                    <div style="clear:both"></div>
+                                </li>
+                            }
+                        </ul>
+                        <div class="ui-state-default ui-corner-all createGroupButton" id="createGroup" title="@this.LocalizeString("CreateGroupTitle.Text")">
+                            <span class="ui-icon ui-icon-document" style="display:inline-block"></span>
+                            <span id="CreateGroupLabel">Create New Group</span>
+                        </div>
+                        <div class="ui-state-default ui-corner-all addRowBreakButton" id="addRowBreak" title="@this.LocalizeString("AddRowBreakTitle.Text")">
+                            <span class="ui-icon ui-icon-grip-dotted-horizontal" style="display:inline-block"></span>
+                            <span id="AddRowBreakLabel">Add Row Break</span>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+            <div class="dnnFormItem">
+                <span id="lblToolbarPriority" class="dnnLabel">@this.lblToolbarPriority</span>
+                <select id="dDlToolbarPrio" @bind="this.toolbarPriority">
+                    @foreach (var item in this.toolbarPriorityItems)
+                    {
+                        <option value="@item.Value" disabled="@(!item.Enabled)">@item.Text</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div id="dnnEditorConfig">
+            <span id="EditorConfigWarning" class="dnnFormMessage dnnFormWarning">@this.editorConfigWarning</span>
+            <div id="EditorConfigHolder">
+                @* This is RenderEditorConfigSettings(): one dnnFormItem per EditorConfig property,
+                   in the order SettingsUtil.GetEditorConfigProperties() returns them, with the
+                   CodeMirror and WordCount sub settings rendered as their own items. *@
+                @foreach (var setting in this.editorConfigSettings)
+                {
+                    var currentSetting = setting;
+                    <div class="dnnFormItem">
+                        <span class="dnnLabel">@currentSetting.Label</span>
+                        @switch (currentSetting.Kind)
+                        {
+                            case EditorConfigSettingKind.MultiLineText:
+                                <textarea id="@currentSetting.Name"
+                                          class="settingValueInput"
+                                          rows="5"
+                                          title="@currentSetting.ToolTip"
+                                          @onchange="@(e => currentSetting.StringValue = e.Value?.ToString())">@currentSetting.StringValue</textarea>
+                                break;
+                            case EditorConfigSettingKind.Numeric:
+                                <input type="text"
+                                       id="@currentSetting.Name"
+                                       class="settingValueInputNumeric"
+                                       title="@currentSetting.ToolTip"
+                                       value="@currentSetting.StringValue"
+                                       @onchange="@(e => currentSetting.StringValue = e.Value?.ToString())" />
+                                break;
+                            case EditorConfigSettingKind.Boolean:
+                                <input type="checkbox"
+                                       id="@currentSetting.Name"
+                                       title="@currentSetting.ToolTip"
+                                       checked="@currentSetting.BoolValue"
+                                       @onchange="@(e => currentSetting.BoolValue = e.Value is bool flag && flag)" />
+                                break;
+                            case EditorConfigSettingKind.Select:
+                                <select id="@currentSetting.Name"
+                                        title="@currentSetting.ToolTip"
+                                        value="@currentSetting.StringValue"
+                                        @onchange="@(e => currentSetting.StringValue = e.Value?.ToString())">
+                                    @foreach (var option in currentSetting.Options)
+                                    {
+                                        <option value="@option.Value">@option.Text</option>
+                                    }
+                                </select>
+                                break;
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div id="dnnAbout">
+            @if (this.infoTabHolderVisible)
+            {
+                <ul>
+                    <li><span id="ProviderVersion">@((MarkupString)(this.providerVersion ?? string.Empty))</span></li>
+                    <li><span id="lblPortal">@((MarkupString)(this.lblPortal ?? string.Empty))</span></li>
+                    <li><span id="lblPage">@((MarkupString)(this.lblPage ?? string.Empty))</span></li>
+                    <li><span id="lblModType">@((MarkupString)(this.lblModType ?? string.Empty))</span></li>
+                    <li><span id="lblModName">@((MarkupString)(this.lblModName ?? string.Empty))</span></li>
+                    <li><span id="lblModInst">@((MarkupString)(this.lblModInst ?? string.Empty))</span></li>
+                    <li><span id="lblUName">@((MarkupString)(this.lblUName ?? string.Empty))</span></li>
+                </ul>
+            }
+        </div>
+    </div>
+
+    @* The two <ul class="dnnActions"> bars of the original: the OK button plus the
+       window.close() cancel link, then the copy/delete links and the two dialog openers
+       js/Options.js turns into jQuery UI dialogs. *@
+    <ul class="dnnActions dnnClear">
+        <li><button type="button" id="btnOk" class="dnnPrimaryAction" @onclick="this.OkClick">@this.OkText</button></li>
+        <li>
+            @if (!this.IsHostMode)
+            {
+                <a href="#" onclick="window.close();" class="dnnSecondaryAction">@this.LocalizeString("btnCancel.Text")</a>
+            }
+        </li>
+    </ul>
+
+    <ul class="dnnActions dnnClear">
+        @if (this.CopyToAllChildVisible)
+        {
+            <li>
+                <a href="#" id="CopyToAllChild" class="dnnSecondaryAction copyButton"
+                   title="@this.CopyToAllChildToolTip"
+                   disabled="@(!this.CopyToAllChildEnabled)"
+                   @onclick="this.CopyToAllChildClick" @onclick:preventDefault="true">@this.CopyToAllChildText</a>
+            </li>
+        }
+        @if (this.RemoveAllVisible)
+        {
+            <li>
+                <a href="#" id="lnkRemoveAll" class="dnnSecondaryAction removeButton"
+                   title="@this.RemoveAllToolTip"
+                   @onclick="this.RemoveAllClick" @onclick:preventDefault="true">@this.RemoveAllText</a>
+            </li>
+        }
+        @if (this.RemoveChildVisible)
+        {
+            <li>
+                <a href="#" id="lnkRemoveChild" class="removeButton dnnSecondaryAction"
+                   title="@this.RemoveChildToolTip"
+                   disabled="@(!this.RemoveChildEnabled)"
+                   @onclick="this.RemoveChildClick" @onclick:preventDefault="true">@this.RemoveChildText</a>
+            </li>
+        }
+        <li>
+            <a href="#" id="lnkRemove" class="dnnSecondaryAction removeButton"
+               title="@this.RemoveToolTip"
+               disabled="@(!this.RemoveEnabled)"
+               @onclick="this.RemoveClick" @onclick:preventDefault="true">@this.RemoveText</a>
+        </li>
+        <li><a onclick="showDialog('ImportDialog');" id="ckeditoroptions_lnkImport" class="dnnSecondaryAction importButton" href="#"><span id="lblImport">@this.ImportText</span></a></li>
+        <li><a onclick="showDialog('ExportDialog');" id="ckeditoroptions_Export" href="#" class="dnnSecondaryAction exportButton"><span id="lblExport">@this.ExportText</span></a></li>
+    </ul>
+</div>
+
+<div id="ExportDialog" title="@this.LocalizeString("SettingsExportTitle.Text")" style="display:none">
+    <div><select id="ExportDir" style="width:300px" @bind="this.exportDir">
+        @foreach (var item in this.folderItems)
+        {
+            <option value="@item.Value">@item.Text</option>
+        }
+    </select></div>
+    <div style="margin-top:6px"><input type="text" id="ExportFileName" style="width:294px" @bind="this.exportFileName" /></div>
+    @* <asp:LinkButton id="ExportNow" OnClick="Export_Click"> - the jQuery UI dialog's
+       "Export Now" button clicks it; plus <asp:HiddenField id="HiddenMessage">. *@
+    <a href="#" id="ExportNow" class="Hidden ExportHidden"
+       @onclick="this.ExportClick" @onclick:preventDefault="true">@this.ExportNowText</a>
+    <input type="hidden" id="HiddenMessage" value="@this.hiddenMessage" @onchange="@(e => this.hiddenMessage = e.Value?.ToString())" />
+</div>
+
+<div id="ImportDialog" title="@this.LocalizeString("SettingsImportTitle.Text")" style="display:none">
+    <UrlControl @ref="this.importFileControl"
+                Width="300px"
+                FileFilter="xml"
+                PortalId="@this.urlControlPortalId"
+                Url="@this.importFileUrl"
+                UrlChanged="@(value => this.importFileUrl = value)" />
+    @* <asp:LinkButton id="lnkImportNow" OnClick="Import_Click"> - the jQuery UI dialog's
+       "Import Now" button clicks it. *@
+    <a href="#" id="lnkImportNow" class="Hidden ImportHidden"
+       @onclick="this.ImportClick" @onclick:preventDefault="true">@this.ImportNowText</a>
+</div>
+
+@* Loading screen *@
+<div id="panelLoading" class="panelLoading">
+    <div class="ModalDialog_overlayBG" id="LoadingScreen"></div>
+    <div class="MessageBox">
+        <div class="ModalDialog">
+            <div class="popup">
+                <div class="DialogContent LoadingContent">
+                    <div class="modalHeader">
+                        <h3><span id="Wait">@this.waitLabel</span></h3>
+                    </div>
+                    <div class="LoadingMessage"><span id="WaitMessage">@this.waitMessageLabel</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@* / Loading screen *@
+}

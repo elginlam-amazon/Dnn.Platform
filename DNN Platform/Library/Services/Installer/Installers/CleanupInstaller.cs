@@ -150,6 +150,23 @@ namespace DotNetNuke.Services.Installer.Installers
                 return false;
             }
 
+            // A cleanup manifest is authored once and installed on any host, so the directory
+            // separator it uses is not necessarily the one the host uses. Normalize both separators
+            // before validating anything: on Windows the Path APIs treated '/' and '\' alike, but
+            // on a non-Windows host '\' is an ordinary file-name character, so an authored
+            // "..\..\wwwroot" or "D:\inetpub" would otherwise slip past every check below.
+            path = path.Trim()
+                       .Replace('\\', Path.DirectorySeparatorChar)
+                       .Replace('/', Path.DirectorySeparatorChar);
+
+            if (path.Contains(':'))
+            {
+                // Drive-qualified ("C:", "D:\inetpub") or scheme-qualified ("file://", "http://")
+                // paths. Path.IsPathRooted only recognizes these on Windows, so they are rejected
+                // explicitly to keep the check host-independent.
+                return false;
+            }
+
             if (Path.IsPathRooted(path))
             {
                 return false; // no rooted paths
@@ -164,8 +181,6 @@ namespace DotNetNuke.Services.Installer.Installers
             {
                 return false; // no relative paths outside the app root
             }
-
-            path = path.Trim();
 
             // normalize slashes
             var appPath = Path.GetFullPath(this.applicationStatusInfo.ApplicationMapPath);

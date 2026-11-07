@@ -5,9 +5,8 @@ namespace DotNetNuke.Authentication.LiveConnect.Components
 {
     using System;
     using System.Collections.Generic;
-    using System.Web;
-    using System.Web.Script.Serialization;
 
+    using DotNetNuke.Common.Utilities;
     using DotNetNuke.Services.Authentication;
     using DotNetNuke.Services.Authentication.OAuth;
 
@@ -27,7 +26,12 @@ namespace DotNetNuke.Authentication.LiveConnect.Components
             this.AuthorizationEndpoint = new Uri("https://login.live.com/oauth20_authorize.srf");
             this.MeGraphEndpoint = new Uri("https://apis.live.net/v5.0/me");
 
-            this.Scope = HttpContext.Current.Server.UrlEncode("wl.signin wl.basic wl.emails");
+            // System.Web.HttpUtility does not exist on net10.0 and System.Web must not be
+            // reintroduced, so the equivalent System.Net.WebUtility.UrlEncode is used. Both
+            // encode a space as "+" and differ only in the letter case of the percent-hex
+            // escapes, which RFC 3986 defines as case-insensitive. The scope string itself is
+            // unchanged, character for character.
+            this.Scope = System.Net.WebUtility.UrlEncode("wl.signin wl.basic wl.emails");
 
             this.AuthTokenName = "LiveUserToken";
 
@@ -39,8 +43,11 @@ namespace DotNetNuke.Authentication.LiveConnect.Components
         /// <inheritdoc />
         protected override TimeSpan GetExpiry(string responseText)
         {
-            var jsonSerializer = new JavaScriptSerializer();
-            var tokenDictionary = jsonSerializer.DeserializeObject(responseText) as Dictionary<string, object>;
+            // System.Web.Script.Serialization.JavaScriptSerializer does not exist on net10.0;
+            // the platform's own Json helper is the replacement. The control flow is kept
+            // exactly as it was - deserialize, then index - with no added null/empty guard, so
+            // an empty or malformed token response still fails the same way it did on net48.
+            var tokenDictionary = Json.Deserialize<IDictionary<string, object>>(responseText);
 
             return new TimeSpan(0, 0, Convert.ToInt32(tokenDictionary["expires_in"]));
         }
@@ -48,8 +55,7 @@ namespace DotNetNuke.Authentication.LiveConnect.Components
         /// <inheritdoc />
         protected override string GetToken(string responseText)
         {
-            var jsonSerializer = new JavaScriptSerializer();
-            var tokenDictionary = jsonSerializer.DeserializeObject(responseText) as Dictionary<string, object>;
+            var tokenDictionary = Json.Deserialize<IDictionary<string, object>>(responseText);
             return Convert.ToString(tokenDictionary["access_token"]);
         }
     }

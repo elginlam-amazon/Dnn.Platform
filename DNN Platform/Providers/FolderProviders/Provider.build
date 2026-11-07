@@ -10,15 +10,18 @@
     <Providers>/Providers</Providers>
     <InstallPath>$(WebsiteInstallPath)\Provider</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <!-- The file on disk is Package.targets; the lower-case "t" matters on case-sensitive
+       (Linux) file systems, where the old "Package.Targets" spelling fails with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="GetFiles;DebugProject;Package" />
   <Target Name="GetFiles">
     <ItemGroup>
       <TextFiles Include="*.txt" Exclude="license.txt;releasenotes.txt" />
-      <Views Include="AzureFolderProvider/*.ascx" />
-      <ResourceFiles Include="AzureFolderProvider/App_LocalResources\*.resx" />
+      <!-- The settings user control is now the Blazor component AzureFolderProvider/Settings.razor,
+           compiled into the assembly, and its localization resources are embedded in the assembly
+           (Resources/AzureFolderProvider.Settings.resx), so neither is packaged as loose content. -->
       <Images Include="AzureFolderProvider/Images/*.*" />
-      <Resources Include="@(ResourceFiles);@(Views);@(Images);@(TextFiles)" />
+      <Resources Include="@(Images);@(TextFiles)" />
     </ItemGroup>
   </Target>
   <Target Name="DebugProject" Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">

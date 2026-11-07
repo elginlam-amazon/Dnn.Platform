@@ -7,9 +7,9 @@ namespace DotNetNuke.UI.Modules
     using System.Collections;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
-    using System.Web;
-    using System.Web.UI;
 
+    using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Internal;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Host;
@@ -22,6 +22,8 @@ namespace DotNetNuke.UI.Modules
     using DotNetNuke.Services.Personalization;
     using DotNetNuke.UI.Skins;
     using DotNetNuke.UI.Utilities;
+
+    using Microsoft.AspNetCore.Http;
 
     using Globals = DotNetNuke.Common.Globals;
 
@@ -140,7 +142,7 @@ namespace DotNetNuke.UI.Modules
             {
                 if (this.actions == null)
                 {
-                    this.LoadActions(HttpContext.Current.Request);
+                    this.LoadActions(HttpContextSource.Current?.Request);
                 }
 
                 return this.actions;
@@ -283,7 +285,7 @@ namespace DotNetNuke.UI.Modules
             {
                 if (!UIUtilities.IsLegacyUI(this.ModuleId, controlKey, this.PortalId) && url.Contains("ctl"))
                 {
-                    url = UrlUtils.PopUpUrl(url, null, this.PortalSettings, false, pageRedirect);
+                    url = UrlUtils.PopUpUrl(url, this.PortalSettings, false, pageRedirect);
                 }
             }
 
@@ -298,7 +300,7 @@ namespace DotNetNuke.UI.Modules
 
         private static string FilterUrl(HttpRequest request)
         {
-            return request.RawUrl.Replace("\"", string.Empty);
+            return request.GetRawUrl().Replace("\"", string.Empty);
         }
 
         /// <summary>GetActionsCount gets the current number of actions.</summary>
@@ -322,12 +324,13 @@ namespace DotNetNuke.UI.Modules
 
         private static bool SupportShowInPopup(string url)
         {
-            if (HttpContext.Current == null || !url.Contains("://"))
+            var popupContext = HttpContextSource.Current;
+            if (popupContext == null || !url.Contains("://"))
             {
                 return true;
             }
 
-            var isSecureConnection = UrlUtils.IsSecureConnectionOrSslOffload(HttpContext.Current.Request);
+            var isSecureConnection = UrlUtils.IsSecureConnectionOrSslOffload(popupContext.Request);
             return (isSecureConnection && url.StartsWith("https://", StringComparison.InvariantCultureIgnoreCase))
                    || (!isSecureConnection && url.StartsWith("http://", StringComparison.InvariantCultureIgnoreCase));
         }
@@ -539,7 +542,7 @@ namespace DotNetNuke.UI.Modules
 
                         if (!UIUtilities.IsLegacyUI(this.ModuleId, action.ControlKey, this.PortalId) && action.Url.Contains("ctl"))
                         {
-                            action.ClientScript = UrlUtils.PopUpUrl(action.Url, this.moduleControl as Control, this.PortalSettings, true, false);
+                            action.ClientScript = UrlUtils.PopUpUrl(action.Url, this.PortalSettings, true, false);
                         }
                     }
                 }
@@ -646,7 +649,7 @@ namespace DotNetNuke.UI.Modules
             // help module actions available to content editors and administrators
             const string permisisonList = "CONTENT,DELETE,EDIT,EXPORT,IMPORT,MANAGE";
             if (ModulePermissionController.HasModulePermission(this.Configuration.ModulePermissions, permisisonList)
-                    && request.QueryString["ctl"] != "Help"
+                    && request?.GetValue("ctl") != "Help"
                     && !Globals.IsAdminControl())
             {
                 this.AddHelpActions();
@@ -739,7 +742,7 @@ namespace DotNetNuke.UI.Modules
             {
                 if (!UIUtilities.IsLegacyUI(this.ModuleId, action.ControlKey, this.PortalId) && action.Url.Contains("ctl"))
                 {
-                    action.ClientScript = UrlUtils.PopUpUrl(action.Url, this.moduleControl as Control, this.PortalSettings, true, false);
+                    action.ClientScript = UrlUtils.PopUpUrl(action.Url, this.PortalSettings, true, false);
                 }
             }
         }

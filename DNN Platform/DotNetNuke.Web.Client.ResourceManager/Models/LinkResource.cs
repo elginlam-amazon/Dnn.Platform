@@ -4,6 +4,7 @@
 
 namespace DotNetNuke.Web.Client.ResourceManager.Models
 {
+    using System.Globalization;
     using System.Net;
     using System.Text;
 
@@ -28,7 +29,7 @@ namespace DotNetNuke.Web.Client.ResourceManager.Models
         {
             if (!string.IsNullOrEmpty(this.Media) && !this.Attributes.ContainsKey("media"))
             {
-                htmlString.Append($" media=\"{this.Media}\"");
+                htmlString.Append(CultureInfo.InvariantCulture, $" media=\"{this.Media}\"");
             }
         }
     }

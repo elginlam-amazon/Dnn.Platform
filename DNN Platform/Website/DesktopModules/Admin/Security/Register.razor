@@ -1,0 +1,1262 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Admin.Users
+@inherits DotNetNuke.Entities.Modules.UserUserControlBase
+
+@using System
+@using System.Collections.Generic
+@using System.Collections.Specialized
+@using System.Globalization
+@using System.IO
+@using System.Linq
+@using System.Threading.Tasks
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.ClientResources
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Lists
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Data
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Profile
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Entities.Users.Membership
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Membership
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.Authentication
+@using DotNetNuke.Services.ClientDependency
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Skins.Controls
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+@*
+    Replaces Register.ascx, Register.ascx.cs and Register.ascx.designer.cs.
+
+    *** Registration rules (checklist item 256) are preserved exactly. ***
+      * Which registration mode is configured still decides everything:
+        - PortalSettings.UserRegistration == NoRegistration and an anonymous request ->
+          redirect to the "Access Denied" page (OnInit), and RegisterClick refuses to create.
+        - PrivateRegistration / PublicRegistration / VerifiedRegistration each still append
+          their own instruction text from the SHARED resource file, and
+          User.Membership.Approved is set to (UserRegistration == PublicRegistration) only.
+        - CompleteUserCreation (base class) still performs the mail/approval/login per mode.
+      * Which form is rendered still depends on Registration.RegistrationFormType:
+        0 -> the standard form (DisplayName or First/Last name per DisplayNameFormat, Email,
+             Username unless UseEmailAsUserName, Password (+ confirm when
+             RequirePasswordConfirm) unless RandomPassword, Q&A when the membership provider
+             requires it, and every REQUIRED profile property when RequireValidProfile).
+        else -> exactly the fields listed in Registration.RegistrationFields, in that order,
+             with PasswordQuestion/PasswordAnswer appended when the provider requires them.
+      * The captcha row is rendered when Registration.UseCaptcha, and RegisterClick only
+        proceeds when the captcha is valid (or captcha is off) - same condition, same
+        "InvalidCaptcha" message.
+      * The hidden "gotcha" honeypot still invalidates the submission when it is filled in.
+      * Validate() is ported line for line: the input filters, IsValidUserName, the profanity
+        filter, the banned password list, the duplicate user name / display name resolution
+        loops (same "0N" suffix numbering) and the Q&A checks, all setting the same
+        UserCreateStatus values, which drive the same localized message.
+      * Email verification: the verification mail is sent by CompleteUserCreation, unchanged.
+
+    Control mapping: dnn:DnnFormEditor userForm -> the field list rendered below (each field keeps
+    its DataField, Required flag and ValidationExpression); dnn:captchacontrol -> the Captcha
+    component; asp:PlaceHolder socialLoginControls -> the authentication provider components,
+    rendered by type with their RedirectURL/AuthenticationType/UserAuthenticatedCallback
+    parameters; asp:LinkButton registerButton -> the register anchor; the inline jQuery that marked
+    required labels and the password comparer bootstrap are invoked through IJSRuntime after the
+    first render.
+*@
+
+@if (this.containerVisible)
+{
+    @if (this.registrationFormVisible)
+    {
+        <div class="dnnForm dnnRegistrationForm" id="RegistrationForm">
+            <div class="dnnFormItem">
+                <div class="dnnFormMessage dnnFormInfo"><span id="userHelpLabel">@((MarkupString)(this.userHelpText ?? string.Empty))</span></div>
+            </div>
+            <br />
+            <div class="dnnFormItem dnnClear">
+                <div id="userForm" class="dnnForm dnnFormShort">
+                    @foreach (var field in this.fields.Where(f => f.Visible))
+                    {
+                        var current = field;
+                        <div class="dnnFormItem">
+                            <div class="dnnLabel">
+                                <label>
+                                    <span class="@(current.Required ? "dnnFormRequired" : string.Empty)">@current.Label</span>
+                                </label>
+                            </div>
+                            @if (current.Editor == FieldEditor.Password)
+                            {
+                                <div class="@current.ContainerCssClass">
+                                    <input type="password" id="@current.Id" maxlength="@current.MaxLength" autocomplete="off" class="@current.CssClass"
+                                           value="@current.GetValue(this)" @onchange="@(e => current.SetValue(this, e.Value?.ToString()))" />
+                                </div>
+                            }
+                            else if (current.Editor == FieldEditor.CheckBox)
+                            {
+                                <input type="checkbox" id="@current.Id"
+                                       checked="@(string.Equals(current.GetValue(this), bool.TrueString, StringComparison.OrdinalIgnoreCase))"
+                                       @onchange="@(e => current.SetValue(this, ((bool)e.Value).ToString()))" />
+                            }
+                            else if (current.Editor == FieldEditor.MultiLine)
+                            {
+                                <textarea id="@current.Id" rows="4" cols="40"
+                                          value="@current.GetValue(this)" @onchange="@(e => current.SetValue(this, e.Value?.ToString()))"></textarea>
+                            }
+                            else if (current.Editor == FieldEditor.Date)
+                            {
+                                <input type="date" id="@current.Id"
+                                       value="@current.GetValue(this)" @onchange="@(e => current.SetValue(this, e.Value?.ToString()))" />
+                            }
+                            else if (current.Editor == FieldEditor.List)
+                            {
+                                <select id="@current.Id" value="@current.GetValue(this)" @onchange="@(e => current.SetValue(this, e.Value?.ToString()))">
+                                    <option value=""></option>
+                                    @foreach (var entry in current.ListEntries)
+                                    {
+                                        <option value="@entry">@entry</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <input type="text" id="@current.Id"
+                                       value="@current.GetValue(this)" @onchange="@(e => current.SetValue(this, e.Value?.ToString()))" />
+                            }
+                            @if (current.ShowRequired)
+                            {
+                                <span class="dnnFormMessage dnnFormError">@current.RequiredMessage</span>
+                            }
+                            @if (current.ShowInvalid)
+                            {
+                                <span class="dnnFormMessage dnnFormError">@current.InvalidMessage</span>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="dnnSocialRegistration">
+                    <div id="mainContainer">
+                        <ul class="buttonList">
+                            @foreach (var loginControl in this.loginControls)
+                            {
+                                <li>
+                                    <DynamicComponent Type="@loginControl.ControlType" Parameters="@loginControl.Parameters" />
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            @if (this.captchaRowVisible)
+            {
+                <div id="captchaRow" class="dnnFormItem dnnCaptcha">
+                    <div class="dnnLabel"><label><span id="captchaLabel">@this.LocalizeText("captchaLabel")</span></label></div>
+                    <DotNetNuke.UI.WebControls.CaptchaControl @ref="this.ctlCaptcha"
+                                                              ID="ctlCaptcha"
+                                                              CaptchaWidth="@(new DotNetNuke.UI.WebControls.Unit(130))"
+                                                              CaptchaHeight="@(new DotNetNuke.UI.WebControls.Unit(40))"
+                                                              ErrorMessage="@this.LocalizeText("InvalidCaptcha")"
+                                                              Text="@this.LocalizeText("CaptchaText")" />
+                </div>
+            }
+            <input id="gotcha" type="text" name="gotcha" style="display: none;" autocomplete="off" aria-label="gotcha" @bind="this.gotcha" />
+            <ul id="actionsRow" class="dnnActions dnnClear">
+                @if (this.registerButtonVisible)
+                {
+                    <li><a id="registerButton" class="dnnPrimaryAction" href="#" @onclick="this.RegisterButtonClick" @onclick:preventDefault="true">@this.LocalizeText("cmdRegister")</a></li>
+                }
+                <li><a id="cancelLink" class="dnnSecondaryAction" href="@this.cancelUrl">@this.LocalizeText("cmdCancel")</a></li>
+            </ul>
+        </div>
+    }
+    @if (this.closeLinkVisible)
+    {
+        <a id="closeLink" class="dnnSecondaryAction" href="@this.closeUrl">@this.LocalizeText("Close")</a>
+    }
+}
+
+@code {
+    private const string PasswordStrengthTextBoxCssClass = "password-strength";
+    private const string ConfirmPasswordTextBoxCssClass = "password-confirm";
+
+    private readonly List<LoginControlDescriptor> loginControls = new();
+    private readonly List<RegistrationField> fields = new();
+
+    private bool containerVisible = true;
+    private bool registrationFormVisible = true;
+    private bool registerButtonVisible = true;
+    private bool closeLinkVisible;
+    private bool captchaRowVisible;
+    private string gotcha = string.Empty;
+    private string userHelpText = string.Empty;
+    private string cancelUrl = string.Empty;
+    private string closeUrl = string.Empty;
+    private string authenticationType = Null.NullString;
+    private string userToken = string.Empty;
+    private DotNetNuke.UI.WebControls.CaptchaControl ctlCaptcha;
+
+    /// <summary>Gets or sets the service provider.</summary>
+    [Inject]
+    protected IServiceProvider Services { get; set; }
+
+    /// <summary>Gets or sets the navigation manager.</summary>
+    [Inject]
+    protected INavigationManager DnnNavigationManager { get; set; }
+
+    /// <summary>Gets or sets the host settings.</summary>
+    [Inject]
+    protected IHostSettings HostSettingsInstance { get; set; }
+
+    /// <summary>Gets or sets the JavaScript library helper.</summary>
+    [Inject]
+    protected IJavaScriptLibraryHelper JavaScriptHelper { get; set; }
+
+    /// <summary>Gets or sets the client resources controller.</summary>
+    [Inject]
+    protected IClientResourceController ClientResources { get; set; }
+
+    /// <summary>Gets or sets the application status.</summary>
+    [Inject]
+    protected IApplicationStatusInfo AppStatus { get; set; }
+
+    /// <summary>Gets or sets the event logger.</summary>
+    [Inject]
+    protected IEventLogger EventLoggerInstance { get; set; }
+
+    /// <summary>Gets or sets the list controller.</summary>
+    [Inject]
+    protected ListController ListControllerInstance { get; set; }
+
+    /// <summary>Gets or sets the data provider.</summary>
+    [Inject]
+    protected DataProvider DataProviderInstance { get; set; }
+
+    /// <summary>Gets or sets the Blazor navigation manager used by the redirects.</summary>
+    [Inject]
+    protected NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets or sets the JavaScript runtime the password comparer is initialized with.</summary>
+    [Inject]
+    protected Microsoft.JSInterop.IJSRuntime JsRuntime { get; set; }
+
+    /// <summary>The kind of editor a registration field renders.</summary>
+    private enum FieldEditor
+    {
+        /// <summary>A single line text box.</summary>
+        Text,
+
+        /// <summary>A password box.</summary>
+        Password,
+
+        /// <summary>A multi line text box.</summary>
+        MultiLine,
+
+        /// <summary>A check box.</summary>
+        CheckBox,
+
+        /// <summary>A date picker.</summary>
+        Date,
+
+        /// <summary>A list.</summary>
+        List,
+    }
+
+    /// <summary>Gets the regular expression excluding the configured terms from a user name.</summary>
+    protected string ExcludeTerms
+    {
+        get
+        {
+            string regex = string.Empty;
+            if (!string.IsNullOrEmpty(this.PortalSettings.Registration.ExcludeTerms))
+            {
+                regex = @"^(?:(?!" + this.PortalSettings.Registration.ExcludeTerms.Replace(" ", string.Empty).Replace(",", "|") + @").)*$\r?\n?";
+            }
+
+            return regex;
+        }
+    }
+
+    /// <summary>Gets a value indicating whether the registration is valid.</summary>
+    protected bool IsValid => this.Validate();
+
+    /// <inheritdoc />
+    protected override bool AddUser { get; } = true;
+
+    /// <summary>Gets or sets the authentication type of an alternate login being associated.</summary>
+    protected string AuthenticationType
+    {
+        get => this.authenticationType;
+        set => this.authenticationType = value;
+    }
+
+    /// <summary>Gets or sets the create status of the last attempt.</summary>
+    protected UserCreateStatus CreateStatus { get; set; }
+
+    /// <summary>Gets or sets the token of the alternate login being associated.</summary>
+    protected string UserToken
+    {
+        get => this.userToken;
+        set => this.userToken = value;
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.JavaScriptHelper.RequestRegistration(CommonJs.DnnPlugins);
+
+        this.ClientResources.RegisterScript("~/resources/Shared/scripts/dnn.jquery.extensions.js");
+        this.ClientResources.RegisterScript("~/resources/Shared/scripts/dnn.jquery.tooltip.js");
+        this.ClientResources.RegisterScript("~/desktopmodules/Admin/Security/Scripts/dnn.PasswordComparer.js");
+
+        if (this.PortalSettings.Registration.RegistrationFormType == 0)
+        {
+            // DisplayName
+            if (string.IsNullOrEmpty(this.PortalSettings.Registration.DisplayNameFormat))
+            {
+                this.AddField("DisplayName", string.Empty, true, string.Empty, FieldEditor.Text);
+            }
+            else
+            {
+                this.AddField("FirstName", string.Empty, true, string.Empty, FieldEditor.Text);
+                this.AddField("LastName", string.Empty, true, string.Empty, FieldEditor.Text);
+            }
+
+            // Email
+            this.AddField("Email", string.Empty, true, this.PortalSettings.Registration.EmailValidator, FieldEditor.Text);
+
+            // UserName
+            if (!this.PortalSettings.Registration.UseEmailAsUserName)
+            {
+                var userNameValidator =
+                    string.IsNullOrEmpty(this.PortalSettings.Registration.UserNameValidator)
+                        ? this.ExcludeTerms
+                        : this.PortalSettings.Registration.UserNameValidator;
+                this.AddField(
+                    "Username",
+                    string.Empty,
+                    true,
+                    userNameValidator,
+                    FieldEditor.Text);
+            }
+
+            // Password
+            if (!this.PortalSettings.Registration.RandomPassword)
+            {
+                this.AddPasswordStrengthField("Password", "Membership", true);
+
+                if (this.PortalSettings.Registration.RequirePasswordConfirm)
+                {
+                    this.AddPasswordConfirmField("PasswordConfirm", "Membership", true);
+                }
+            }
+
+            // Password Q&A
+            if (MembershipProviderConfig.RequiresQuestionAndAnswer)
+            {
+                this.AddField("PasswordQuestion", "Membership", true, string.Empty, FieldEditor.Text);
+                this.AddField("PasswordAnswer", "Membership", true, string.Empty, FieldEditor.Text);
+            }
+
+            if (this.PortalSettings.Registration.RequireValidProfile)
+            {
+                foreach (ProfilePropertyDefinition property in this.User.Profile.ProfileProperties)
+                {
+                    if (property.Required)
+                    {
+                        this.AddProperty(property);
+                    }
+                }
+            }
+        }
+        else
+        {
+            var registrationFields = this.PortalSettings.Registration.RegistrationFields.Split(',').ToList();
+
+            // append question/answer field when RequiresQuestionAndAnswer is enabled in config.
+            if (MembershipProviderConfig.RequiresQuestionAndAnswer)
+            {
+                if (!registrationFields.Contains("PasswordQuestion"))
+                {
+                    registrationFields.Add("PasswordQuestion");
+                }
+
+                if (!registrationFields.Contains("PasswordAnswer"))
+                {
+                    registrationFields.Add("PasswordAnswer");
+                }
+            }
+
+            foreach (string field in registrationFields)
+            {
+                var trimmedField = field.Trim();
+                switch (trimmedField)
+                {
+                    case "Username":
+                        var userNameValidator =
+                            string.IsNullOrEmpty(this.PortalSettings.Registration.UserNameValidator)
+                                ? this.ExcludeTerms
+                                : this.PortalSettings.Registration.UserNameValidator;
+                        this.AddField(
+                            "Username",
+                            string.Empty,
+                            true,
+                            userNameValidator,
+                            FieldEditor.Text);
+                        break;
+                    case "DisplayName":
+                        this.AddField(trimmedField, string.Empty, true, this.ExcludeTerms, FieldEditor.Text);
+                        break;
+                    case "Email":
+                        this.AddField("Email", string.Empty, true, this.PortalSettings.Registration.EmailValidator, FieldEditor.Text);
+                        break;
+                    case "Password":
+                        this.AddPasswordStrengthField(trimmedField, "Membership", true);
+                        break;
+                    case "PasswordConfirm":
+                        this.AddPasswordConfirmField(trimmedField, "Membership", true);
+                        break;
+                    case "PasswordQuestion":
+                    case "PasswordAnswer":
+                        this.AddField(trimmedField, "Membership", true, string.Empty, FieldEditor.Text);
+                        break;
+                    default:
+                        ProfilePropertyDefinition property = this.User.Profile.GetProperty(trimmedField);
+                        if (property != null)
+                        {
+                            this.AddProperty(property);
+                        }
+
+                        break;
+                }
+            }
+        }
+
+        // Verify that the current user has access to this page
+        if (this.PortalSettings.UserRegistration == (int)DotNetNuke.Common.Globals.PortalRegistrationType.NoRegistration && this.Request.IsAuthenticated() == false)
+        {
+            this.Navigation.NavigateTo(this.DnnNavigationManager.NavigateURL("Access Denied"), forceLoad: true);
+            return;
+        }
+
+        this.cancelUrl = this.closeUrl = this.GetRedirectUrl(false);
+
+        if (this.PortalSettings.Registration.UseAuthProviders)
+        {
+            List<AuthenticationInfo> authSystems = AuthenticationController.GetEnabledAuthenticationServices(this.HostSettingsInstance);
+            foreach (AuthenticationInfo authSystem in authSystems)
+            {
+                try
+                {
+                    var authLoginControl = DotNetNuke.UI.ControlUtilities.LoadControl<AuthenticationLoginBase>(this, "~/" + authSystem.LoginControlSrc);
+                    if (authSystem.AuthenticationType != "DNN")
+                    {
+                        this.BindLoginControl(authLoginControl, authSystem);
+
+                        // Check if AuthSystem is Enabled
+                        if (authLoginControl.Enabled && authLoginControl.SupportsRegistration)
+                        {
+                            authLoginControl.Mode = AuthMode.Register;
+
+                            // Add Login Control to List
+                            this.loginControls.Add(new LoginControlDescriptor(
+                                authLoginControl.GetType(),
+                                new Dictionary<string, object>(StringComparer.Ordinal)
+                                {
+                                    ["AuthenticationType"] = authSystem.AuthenticationType,
+                                    ["RedirectURL"] = authLoginControl.RedirectURL,
+                                    ["ModuleConfiguration"] = this.ModuleConfiguration,
+                                    ["LocalResourceFile"] = authLoginControl.LocalResourceFile,
+                                    // UserAuthenticated is an (object sender, UserAuthenticatedEventArgs e)
+                                    // handler, so it cannot bind directly to EventCallback<T>. The lambda
+                                    // supplies the same sender the CLR-event path passes (the auth login
+                                    // control that raised it); the handler itself ignores sender.
+                                    ["UserAuthenticatedCallback"] = EventCallback.Factory.Create<UserAuthenticatedEventArgs>(
+                                        this,
+                                        e => this.UserAuthenticated(authLoginControl, e)),
+                                }));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Exceptions.LogException(ex);
+                }
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.Request.IsAuthenticated())
+        {
+            // if a Login Page has not been specified for the portal
+            if (DotNetNuke.Common.Globals.IsAdminControl())
+            {
+                // redirect to current page
+                this.Navigation.NavigateTo(this.DnnNavigationManager.NavigateURL(), forceLoad: true);
+                return;
+            }
+            else
+            {
+                // make module container invisible if user is not a page admin
+                if (!TabPermissionController.CanAdminPage())
+                {
+                    if (this.ContainerControl is DotNetNuke.UI.IDnnControl container)
+                    {
+                        container.Visible = false;
+                    }
+
+                    // when there is no container to hide (for example a standalone render),
+                    // this control renders nothing, which is what hiding the container achieved.
+                    this.containerVisible = false;
+                }
+            }
+        }
+
+        if (this.PortalSettings.Registration.UseCaptcha)
+        {
+            this.captchaRowVisible = true;
+        }
+
+        // Display relevant message
+        this.userHelpText = Localization.GetSystemMessage(this.PortalSettings, "MESSAGE_REGISTRATION_INSTRUCTIONS");
+        switch (this.PortalSettings.UserRegistration)
+        {
+            case (int)DotNetNuke.Common.Globals.PortalRegistrationType.PrivateRegistration:
+                this.userHelpText += Localization.GetString("PrivateMembership", Localization.SharedResourceFile);
+                break;
+            case (int)DotNetNuke.Common.Globals.PortalRegistrationType.PublicRegistration:
+                this.userHelpText += Localization.GetString("PublicMembership", Localization.SharedResourceFile);
+                break;
+            case (int)DotNetNuke.Common.Globals.PortalRegistrationType.VerifiedRegistration:
+                this.userHelpText += Localization.GetString("VerifiedMembership", Localization.SharedResourceFile);
+                break;
+        }
+
+        this.userHelpText += this.LocalizeText("Required");
+        this.userHelpText += this.LocalizeText("RegisterWarning");
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender)
+        {
+            return;
+        }
+
+        var confirmPasswordOptions = new DotNetNuke.Web.UI.WebControls.DnnConfirmPasswordOptions()
+        {
+            FirstElementSelector = "." + PasswordStrengthTextBoxCssClass,
+            SecondElementSelector = "." + ConfirmPasswordTextBoxCssClass,
+            ContainerSelector = ".dnnRegistrationForm",
+            UnmatchedCssClass = "unmatched",
+            MatchedCssClass = "matched",
+        };
+
+        await this.JsRuntime.InvokeVoidAsync("dnn.initializePasswordComparer", confirmPasswordOptions);
+
+        // the inline jQuery that copied dnnFormRequired onto the label of a required field
+        await this.JsRuntime.InvokeVoidAsync(
+            "eval",
+            "(function($){ $('.dnnFormItem .dnnLabel').each(function(){ var next = $(this).next(); if (next.hasClass('dnnFormRequired')) { $(this).find('span').addClass('dnnFormRequired'); } }); " +
+            "if (navigator.userAgent.match(/IEMobile\\/10\\.0/)) { $(window.parent).resize(function(){ $('.dnnFormItem .dnnFormMessage.dnnFormError').hide(); }); } })(jQuery);");
+    }
+
+    private void AddField(string dataField, string dataMember, bool required, string regexValidator, FieldEditor editor)
+    {
+        if (this.fields.Any(i => i.Id == dataField))
+        {
+            return;
+        }
+
+        this.fields.Add(new RegistrationField
+        {
+            Id = dataField,
+            DataField = dataField,
+            DataMember = dataMember,
+            Visible = true,
+            Required = required,
+            Editor = editor,
+            ValidationExpression = regexValidator,
+            ResourceKey = dataField,
+            LocalResourceFile = this.LocalResourceFile,
+        });
+    }
+
+    private void AddPasswordStrengthField(string dataField, string dataMember, bool required)
+    {
+        // The DnnFormPasswordItem of the strength meter and the plain password text box differ
+        // only in the container css class the client script hooks onto.
+        this.fields.Add(new RegistrationField
+        {
+            Id = dataField,
+            DataField = dataField,
+            DataMember = dataMember,
+            Visible = true,
+            Required = required,
+            Editor = FieldEditor.Password,
+            CssClass = PasswordStrengthTextBoxCssClass,
+            ContainerCssClass = this.HostSettingsInstance.EnableStrengthMeter ? "password-strength-container" : string.Empty,
+            ResourceKey = dataField,
+            LocalResourceFile = this.LocalResourceFile,
+        });
+    }
+
+    private void AddPasswordConfirmField(string dataField, string dataMember, bool required)
+    {
+        this.fields.Add(new RegistrationField
+        {
+            Id = dataField,
+            DataField = dataField,
+            DataMember = dataMember,
+            Visible = true,
+            Required = required,
+            Editor = FieldEditor.Password,
+            CssClass = ConfirmPasswordTextBoxCssClass,
+            MaxLength = 39,
+            ResourceKey = dataField,
+            LocalResourceFile = this.LocalResourceFile,
+        });
+    }
+
+    private void AddProperty(ProfilePropertyDefinition property)
+    {
+        if (this.fields.Any(i => i.Id == property.PropertyName))
+        {
+            return;
+        }
+
+        ListEntryInfo imageType = this.ListControllerInstance.GetListEntryInfo("DataType", "Image");
+        if (property.DataType != imageType.EntryID)
+        {
+            var dataTypeEntry = this.ListControllerInstance.GetListEntryInfo("DataType", property.DataType);
+            var dataTypeValue = dataTypeEntry?.Value ?? string.Empty;
+
+            // REVIEW: the editor was chosen by EditorInfo.GetEditor(DataType); the data type's list
+            // value is mapped onto the matching input here. Verify against custom data types.
+            var editor = dataTypeValue switch
+            {
+                "RichText" or "MultiLine" or "MultiLineText" => FieldEditor.MultiLine,
+                "TrueFalse" or "CheckBox" or "Boolean" => FieldEditor.CheckBox,
+                "Date" or "DateTime" => FieldEditor.Date,
+                "Country" or "Region" or "List" or "TimeZone" or "TimeZoneInfo" or "Locale" => FieldEditor.List,
+                _ => FieldEditor.Text,
+            };
+
+            var field = new RegistrationField
+            {
+                Id = property.PropertyName,
+                DataField = property.PropertyName,
+                DataMember = "Profile",
+                ResourceKey = $"ProfileProperties_{property.PropertyName}",
+                LocalResourceFile = "~/DesktopModules/Admin/Security/App_LocalResources/Profile.ascx.resx",
+                ValidationMessageSuffix = ".Validation",
+                Visible = property.Visible,
+                Required = property.Required,
+                Editor = editor,
+                ValidationExpression = property.ValidationExpression,
+            };
+
+            // To check if the property has a default value
+            if (!string.IsNullOrEmpty(property.DefaultValue))
+            {
+                field.SetValue(this, property.DefaultValue);
+            }
+
+            this.fields.Add(field);
+        }
+    }
+
+    private void BindLoginControl(AuthenticationLoginBase authLoginControl, AuthenticationInfo authSystem)
+    {
+        // set the control ID to the resource file name ( ie. controlname.ascx = controlname )
+        // this is necessary for the Localization in PageBase
+        // BL0005: authLoginControl is a LOCAL probe instance (ControlUtilities.LoadControl) used to
+        // read Enabled/SupportsRegistration and to COMPOSE the parameter dictionary a few lines
+        // below; it is never rendered as a child component - the provider's component is rendered by
+        // TYPE through <DynamicComponent Type/Parameters>, which reads these values back. The writes
+        // are therefore on an object this method owns.
+#pragma warning disable BL0005
+        authLoginControl.AuthenticationType = authSystem.AuthenticationType;
+        authLoginControl.LocalResourceFile = Path.GetDirectoryName(authSystem.LoginControlSrc)?.Replace('\\', '/') + "/" + Localization.LocalResourceDirectory + "/" +
+                                             Path.GetFileNameWithoutExtension(authSystem.LoginControlSrc);
+        authLoginControl.RedirectURL = this.GetRedirectUrl();
+#pragma warning restore BL0005
+        authLoginControl.ModuleConfiguration = this.ModuleConfiguration;
+
+        authLoginControl.UserAuthenticated += this.UserAuthenticated;
+    }
+
+    private void CreateUser()
+    {
+        // Update DisplayName to conform to Format
+        this.UpdateDisplayName();
+
+        this.User.Membership.Approved = this.PortalSettings.UserRegistration == (int)DotNetNuke.Common.Globals.PortalRegistrationType.PublicRegistration;
+        var user = this.User;
+        this.CreateStatus = UserController.CreateUser(ref user);
+
+        DataCache.ClearPortalUserCountCache(this.PortalId);
+
+        try
+        {
+            if (this.CreateStatus == UserCreateStatus.Success)
+            {
+                // hide the successful captcha
+                this.captchaRowVisible = false;
+
+                // Associate alternate Login with User and proceed with Login
+                if (!string.IsNullOrEmpty(this.AuthenticationType))
+                {
+                    AuthenticationController.AddUserAuthentication(this.EventLoggerInstance, this.User.UserID, this.AuthenticationType, this.UserToken);
+                }
+
+                string strMessage = this.CompleteUserCreation(this.CreateStatus, user, true, this.IsRegister);
+
+                if (string.IsNullOrEmpty(strMessage))
+                {
+                    this.Navigation.NavigateTo(this.GetRedirectUrl(), forceLoad: true);
+                }
+                else
+                {
+                    this.registrationFormVisible = false;
+                    this.registerButtonVisible = false;
+                    this.closeLinkVisible = true;
+                }
+            }
+            else
+            {
+                this.AddLocalizedModuleMessage(UserController.GetUserCreateStatus(this.CreateStatus), ModuleMessage.ModuleMessageType.RedError, true);
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    private void UpdateDisplayName()
+    {
+        // Update DisplayName to conform to Format
+        if (!string.IsNullOrEmpty(this.PortalSettings.Registration.DisplayNameFormat))
+        {
+            this.User.UpdateDisplayName(this.PortalSettings.Registration.DisplayNameFormat);
+        }
+    }
+
+    /// <summary>Evaluates the Required flag and the ValidationExpression of every visible field.</summary>
+    /// <returns><see langword="true"/> when the form is valid.</returns>
+    /// <remarks>This is DnnFormEditor.IsValid, which checked every item's validators.</remarks>
+    private bool ValidateForm()
+    {
+        var isValid = true;
+        foreach (var field in this.fields.Where(f => f.Visible))
+        {
+            var value = field.GetValue(this);
+            field.ShowRequired = field.Required && string.IsNullOrWhiteSpace(value);
+            field.ShowInvalid = !field.ShowRequired
+                && !string.IsNullOrEmpty(field.ValidationExpression)
+                && !string.IsNullOrEmpty(value)
+                && !System.Text.RegularExpressions.Regex.IsMatch(value, field.ValidationExpression);
+
+            if (field.ShowRequired || field.ShowInvalid)
+            {
+                isValid = false;
+            }
+        }
+
+        return isValid;
+    }
+
+    private bool Validate()
+    {
+        if (!string.IsNullOrEmpty(this.gotcha))
+        {
+            return false;
+        }
+
+        this.CreateStatus = UserCreateStatus.AddUser;
+        var portalSecurity = PortalSecurity.Instance;
+
+        // Check User Editor
+        bool isValid = this.ValidateForm();
+
+        if (isValid)
+        {
+#pragma warning disable CS0618 // PortalSecurity.FilterFlag.NoScripting is deprecated
+            var filterFlags = PortalSecurity.FilterFlag.NoScripting | PortalSecurity.FilterFlag.NoAngleBrackets | PortalSecurity.FilterFlag.NoMarkup;
+#pragma warning restore CS0618 // PortalSecurity.FilterFlag.NoScripting is deprecated
+            var name = this.User.Username ?? this.User.Email;
+            var cleanUsername = PortalSecurity.Instance.InputFilter(name, filterFlags);
+            if (!cleanUsername.Equals(name))
+            {
+                this.CreateStatus = UserCreateStatus.InvalidUserName;
+            }
+
+            var valid = UserController.Instance.IsValidUserName(name);
+
+            if (!valid)
+            {
+                this.CreateStatus = UserCreateStatus.InvalidUserName;
+            }
+
+            var cleanEmail = PortalSecurity.Instance.InputFilter(this.User.Email, filterFlags);
+            if (!cleanEmail.Equals(this.User.Email))
+            {
+                this.CreateStatus = UserCreateStatus.InvalidEmail;
+            }
+
+            var cleanFirstName = PortalSecurity.Instance.InputFilter(this.User.FirstName, filterFlags);
+            if (!cleanFirstName.Equals(this.User.FirstName))
+            {
+                this.CreateStatus = UserCreateStatus.InvalidFirstName;
+            }
+
+            var cleanLastName = PortalSecurity.Instance.InputFilter(this.User.LastName, filterFlags);
+            if (!cleanLastName.Equals(this.User.LastName))
+            {
+                this.CreateStatus = UserCreateStatus.InvalidLastName;
+            }
+
+            if (string.IsNullOrEmpty(this.PortalSettings.Registration.DisplayNameFormat))
+            {
+                var cleanDisplayName = PortalSecurity.Instance.InputFilter(this.User.DisplayName, filterFlags);
+                if (!cleanDisplayName.Equals(this.User.DisplayName))
+                {
+                    this.CreateStatus = UserCreateStatus.InvalidDisplayName;
+                }
+            }
+        }
+
+        if (this.PortalSettings.Registration.RegistrationFormType == 0)
+        {
+            // Update UserName
+            if (this.PortalSettings.Registration.UseEmailAsUserName)
+            {
+                this.User.Username = this.User.Email;
+                if (string.IsNullOrEmpty(this.User.DisplayName))
+                {
+                    this.User.DisplayName = this.User.Email.Substring(0, this.User.Email.IndexOf("@", StringComparison.Ordinal));
+                }
+            }
+
+            // Check Password is valid
+            if (!this.PortalSettings.Registration.RandomPassword)
+            {
+                // Check Password is Valid
+                if (this.CreateStatus == UserCreateStatus.AddUser && !UserController.ValidatePassword(this.User.Membership.Password))
+                {
+                    this.CreateStatus = UserCreateStatus.InvalidPassword;
+                }
+
+                if (this.PortalSettings.Registration.RequirePasswordConfirm && string.IsNullOrEmpty(this.AuthenticationType))
+                {
+                    if (this.User.Membership.Password != this.User.Membership.PasswordConfirm)
+                    {
+                        this.CreateStatus = UserCreateStatus.PasswordMismatch;
+                    }
+                }
+            }
+            else
+            {
+                // Generate a random password for the user
+                this.User.Membership.Password = UserController.GeneratePassword();
+                this.User.Membership.PasswordConfirm = this.User.Membership.Password;
+            }
+        }
+        else
+        {
+            // Set Username to Email
+            if (string.IsNullOrEmpty(this.User.Username))
+            {
+                this.User.Username = this.User.Email;
+            }
+
+            // Set DisplayName
+            if (string.IsNullOrEmpty(this.User.DisplayName))
+            {
+                this.User.DisplayName = string.IsNullOrEmpty(this.User.FirstName + " " + this.User.LastName)
+                                       ? this.User.Email.Substring(0, this.User.Email.IndexOf("@", StringComparison.Ordinal))
+                                       : this.User.FirstName + " " + this.User.LastName;
+            }
+
+            // Random Password
+            if (string.IsNullOrEmpty(this.User.Membership.Password))
+            {
+                // Generate a random password for the user
+                this.User.Membership.Password = UserController.GeneratePassword();
+            }
+
+            // Password Confirm
+            if (!string.IsNullOrEmpty(this.User.Membership.PasswordConfirm))
+            {
+                if (this.User.Membership.Password != this.User.Membership.PasswordConfirm)
+                {
+                    this.CreateStatus = UserCreateStatus.PasswordMismatch;
+                }
+            }
+        }
+
+        // Validate banned password
+        var settings = new MembershipPasswordSettings(this.User.PortalID);
+
+        if (settings.EnableBannedList)
+        {
+            var m = new MembershipPasswordController(this.ListControllerInstance, this.DataProviderInstance);
+            if (m.FoundBannedPassword(this.User.Membership.Password) || this.User.Username == this.User.Membership.Password)
+            {
+                this.CreateStatus = UserCreateStatus.BannedPasswordUsed;
+            }
+        }
+
+        // Validate Profanity
+        if (this.PortalSettings.Registration.UseProfanityFilter)
+        {
+            if (!portalSecurity.ValidateInput(this.User.Username, PortalSecurity.FilterFlag.NoProfanity))
+            {
+                this.CreateStatus = UserCreateStatus.InvalidUserName;
+            }
+
+            if (!string.IsNullOrEmpty(this.User.DisplayName))
+            {
+                if (!portalSecurity.ValidateInput(this.User.DisplayName, PortalSecurity.FilterFlag.NoProfanity))
+                {
+                    this.CreateStatus = UserCreateStatus.InvalidDisplayName;
+                }
+            }
+        }
+
+        // Validate Unique User Name
+        UserInfo user = UserController.GetUserByName(this.PortalId, this.User.Username);
+        if (user != null)
+        {
+            if (this.PortalSettings.Registration.UseEmailAsUserName)
+            {
+                this.CreateStatus = UserCreateStatus.DuplicateEmail;
+            }
+            else
+            {
+                this.CreateStatus = UserCreateStatus.DuplicateUserName;
+                int i = 1;
+                string userName = null;
+                while (user != null)
+                {
+                    userName = this.User.Username + "0" + i.ToString(CultureInfo.InvariantCulture);
+                    user = UserController.GetUserByName(this.PortalId, userName);
+                    i++;
+                }
+
+                this.User.Username = userName;
+            }
+        }
+
+        // Validate Unique Display Name
+        if (this.CreateStatus == UserCreateStatus.AddUser && this.PortalSettings.Registration.RequireUniqueDisplayName)
+        {
+            user = UserController.Instance.GetUserByDisplayname(this.PortalId, this.User.DisplayName);
+            if (user != null)
+            {
+                this.CreateStatus = UserCreateStatus.DuplicateDisplayName;
+                int i = 1;
+                string displayName = null;
+                while (user != null)
+                {
+                    displayName = this.User.DisplayName + " 0" + i.ToString(CultureInfo.InvariantCulture);
+                    user = UserController.Instance.GetUserByDisplayname(this.PortalId, displayName);
+                    i++;
+                }
+
+                this.User.DisplayName = displayName;
+            }
+        }
+
+        // Check Question/Answer
+        if (this.CreateStatus == UserCreateStatus.AddUser && MembershipProviderConfig.RequiresQuestionAndAnswer)
+        {
+            if (string.IsNullOrEmpty(this.User.Membership.PasswordQuestion))
+            {
+                // Invalid Question
+                this.CreateStatus = UserCreateStatus.InvalidQuestion;
+            }
+
+            if (this.CreateStatus == UserCreateStatus.AddUser)
+            {
+                if (string.IsNullOrEmpty(this.User.Membership.PasswordAnswer))
+                {
+                    // Invalid Question
+                    this.CreateStatus = UserCreateStatus.InvalidAnswer;
+                }
+            }
+        }
+
+        if (this.CreateStatus != UserCreateStatus.AddUser)
+        {
+            isValid = false;
+        }
+
+        return isValid;
+    }
+
+    private string GetRedirectUrl(bool checkSetting = true)
+    {
+        var redirectUrl = string.Empty;
+        var redirectAfterRegistration = this.PortalSettings.Registration.RedirectAfterRegistration;
+        if (checkSetting && redirectAfterRegistration > 0)
+        {
+            // redirect to after registration page
+            redirectUrl = this.DnnNavigationManager.NavigateURL(redirectAfterRegistration);
+        }
+        else
+        {
+            var returnUrlParam = this.Request.GetQueryString()["returnurl"];
+            if (returnUrlParam != null)
+            {
+                // return to the url passed to register
+                redirectUrl = System.Net.WebUtility.UrlDecode(returnUrlParam);
+
+                // clean the return url to avoid possible XSS attack.
+                redirectUrl = UrlUtils.ValidReturnUrl(redirectUrl);
+
+                if (redirectUrl.Contains("?returnurl"))
+                {
+                    string baseURL = redirectUrl.Substring(
+                        0,
+                        redirectUrl.IndexOf("?returnurl", StringComparison.Ordinal));
+                    string returnURL =
+                        redirectUrl.Substring(redirectUrl.IndexOf("?returnurl", StringComparison.Ordinal) + 11);
+
+                    redirectUrl = string.Concat(baseURL, "?returnurl", System.Net.WebUtility.UrlEncode(returnURL));
+                }
+            }
+
+            if (string.IsNullOrEmpty(redirectUrl))
+            {
+                // redirect to current page
+                redirectUrl = this.DnnNavigationManager.NavigateURL();
+            }
+        }
+
+        return redirectUrl;
+    }
+
+    private void RegisterButtonClick()
+    {
+        if ((this.PortalSettings.Registration.UseCaptcha && this.ctlCaptcha is not null && this.ctlCaptcha.IsValid) || !this.PortalSettings.Registration.UseCaptcha)
+        {
+            if (this.IsValid)
+            {
+                if (this.PortalSettings.UserRegistration != (int)DotNetNuke.Common.Globals.PortalRegistrationType.NoRegistration)
+                {
+                    this.CreateUser();
+                }
+            }
+            else
+            {
+                if (this.CreateStatus != UserCreateStatus.AddUser)
+                {
+                    this.AddLocalizedModuleMessage(UserController.GetUserCreateStatus(this.CreateStatus), ModuleMessage.ModuleMessageType.RedError, true);
+                }
+            }
+        }
+    }
+
+    private void UserAuthenticated(object sender, UserAuthenticatedEventArgs e)
+    {
+        NameValueCollection profileProperties = e.Profile;
+
+        this.User.Username = e.UserToken;
+        this.AuthenticationType = e.AuthenticationType;
+        this.UserToken = e.UserToken;
+
+        foreach (string key in profileProperties)
+        {
+            switch (key)
+            {
+                case "FirstName":
+                    this.User.FirstName = profileProperties[key];
+                    break;
+                case "LastName":
+                    this.User.LastName = profileProperties[key];
+                    break;
+                case "Email":
+                    this.User.Email = profileProperties[key];
+                    break;
+                case "DisplayName":
+                    this.User.DisplayName = profileProperties[key];
+                    break;
+                default:
+                    this.User.Profile.SetProfileProperty(key, profileProperties[key]);
+                    break;
+            }
+        }
+
+        // Generate a random password for the user
+        this.User.Membership.Password = UserController.GeneratePassword();
+
+        if (!string.IsNullOrEmpty(this.User.Email))
+        {
+            this.CreateUser();
+        }
+        else
+        {
+            this.AddLocalizedModuleMessage(this.LocalizeText("NoEmail"), ModuleMessage.ModuleMessageType.RedError, true);
+            foreach (var formItem in this.fields)
+            {
+                formItem.Visible = formItem.DataField == "Email";
+            }
+        }
+    }
+
+    /// <summary>An authentication provider login control to render.</summary>
+    /// <param name="ControlType">The component type.</param>
+    /// <param name="Parameters">The parameters it is rendered with.</param>
+    private sealed record LoginControlDescriptor(Type ControlType, Dictionary<string, object> Parameters);
+
+    /// <summary>One item of the registration form (replaces a DnnFormItemBase).</summary>
+    private sealed class RegistrationField
+    {
+        /// <summary>Gets or sets the item ID.</summary>
+        public string Id { get; set; }
+
+        /// <summary>Gets or sets the property of the user this item reads and writes.</summary>
+        public string DataField { get; set; }
+
+        /// <summary>Gets or sets the member of the user holding <see cref="DataField"/> (empty, "Membership" or "Profile").</summary>
+        public string DataMember { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the item renders.</summary>
+        public bool Visible { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether a value is required.</summary>
+        public bool Required { get; set; }
+
+        /// <summary>Gets or sets the editor to render.</summary>
+        public FieldEditor Editor { get; set; }
+
+        /// <summary>Gets or sets the validation expression.</summary>
+        public string ValidationExpression { get; set; }
+
+        /// <summary>Gets or sets the resource key of the label.</summary>
+        public string ResourceKey { get; set; }
+
+        /// <summary>Gets or sets the resource file of the label.</summary>
+        public string LocalResourceFile { get; set; }
+
+        /// <summary>Gets or sets the suffix of the validation message key.</summary>
+        public string ValidationMessageSuffix { get; set; } = ".RegExError";
+
+        /// <summary>Gets or sets the css class of the input.</summary>
+        public string CssClass { get; set; } = string.Empty;
+
+        /// <summary>Gets or sets the css class of the input's container.</summary>
+        public string ContainerCssClass { get; set; } = string.Empty;
+
+        /// <summary>Gets or sets the maximum length of the input.</summary>
+        public int? MaxLength { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the required message shows.</summary>
+        public bool ShowRequired { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the validation message shows.</summary>
+        public bool ShowInvalid { get; set; }
+
+        /// <summary>Gets the entries of a list editor.</summary>
+        public IReadOnlyList<string> ListEntries { get; init; } = Array.Empty<string>();
+
+        /// <summary>Gets the label text.</summary>
+        public string Label => Localization.GetString(this.ResourceKey + ".Text", this.LocalResourceFile);
+
+        /// <summary>Gets the required message.</summary>
+        public string RequiredMessage => Localization.GetString(this.ResourceKey + ".Required", this.LocalResourceFile);
+
+        /// <summary>Gets the validation message.</summary>
+        public string InvalidMessage => Localization.GetString(this.ResourceKey + this.ValidationMessageSuffix, this.LocalResourceFile);
+
+        /// <summary>Reads the value of this item from the user being registered.</summary>
+        /// <param name="owner">The register control.</param>
+        /// <returns>The value.</returns>
+        /// <remarks>This is DnnFormItemBase.DataBindItem, which resolved DataMember/DataField by reflection.</remarks>
+        public string GetValue(Register owner)
+        {
+            var user = owner.User;
+            switch (this.DataMember)
+            {
+                case "Membership":
+                    return Convert.ToString(GetMember(user.Membership, this.DataField), CultureInfo.CurrentCulture);
+                case "Profile":
+                    return user.Profile.GetPropertyValue(this.DataField);
+                default:
+                    return Convert.ToString(GetMember(user, this.DataField), CultureInfo.CurrentCulture);
+            }
+        }
+
+        /// <summary>Writes the value of this item onto the user being registered.</summary>
+        /// <param name="owner">The register control.</param>
+        /// <param name="value">The new value.</param>
+        public void SetValue(Register owner, string value)
+        {
+            var user = owner.User;
+            switch (this.DataMember)
+            {
+                case "Membership":
+                    SetMember(user.Membership, this.DataField, value);
+                    break;
+                case "Profile":
+                    user.Profile.SetProfileProperty(this.DataField, value);
+                    break;
+                default:
+                    SetMember(user, this.DataField, value);
+                    break;
+            }
+        }
+
+        private static object GetMember(object target, string name)
+            => target?.GetType().GetProperty(name)?.GetValue(target);
+
+        private static void SetMember(object target, string name, string value)
+        {
+            var property = target?.GetType().GetProperty(name);
+            if (property == null || !property.CanWrite)
+            {
+                return;
+            }
+
+            var type = property.PropertyType;
+            if (type == typeof(string))
+            {
+                property.SetValue(target, value);
+            }
+            else if (type == typeof(bool))
+            {
+                property.SetValue(target, bool.TryParse(value, out var boolean) && boolean);
+            }
+            else if (type == typeof(int))
+            {
+                property.SetValue(target, int.TryParse(value, NumberStyles.Integer, CultureInfo.CurrentCulture, out var number) ? number : 0);
+            }
+            else if (type == typeof(DateTime))
+            {
+                property.SetValue(target, DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var date) ? date : Null.NullDate);
+            }
+            else
+            {
+                property.SetValue(target, Convert.ChangeType(value, type, CultureInfo.CurrentCulture));
+            }
+        }
+    }
+}

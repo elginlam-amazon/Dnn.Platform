@@ -8,6 +8,7 @@ namespace Dnn.ExportImport.Components.Services
     using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Text;
     using System.Text.RegularExpressions;
 
     using Dnn.ExportImport.Components.Common;
@@ -35,6 +36,8 @@ namespace Dnn.ExportImport.Components.Services
         private const string DefaultUsersFoldersPath = "Users";
 
         private const string UsersAssetsTempFolder = "{0}\\TempUsers\\";
+
+        private static readonly CompositeFormat UsersAssetsTempFolderFormat = CompositeFormat.Parse(UsersAssetsTempFolder);
 
         private static readonly Regex UserFolderEx = new Regex(
             @"users/\d+/\d+/(\d+)/",
@@ -167,7 +170,7 @@ namespace Dnn.ExportImport.Components.Services
 
                             this.Repository.CreateItems(files, folder.Id);
                             totalFilesExported += files.Count;
-                            var folderOffset = portal.HomeDirectoryMapPath.Length + (portal.HomeDirectoryMapPath.EndsWith(@"\", StringComparison.Ordinal) ? 0 : 1);
+                            var folderOffset = portal.HomeDirectoryMapPath.Length + (portal.HomeDirectoryMapPath.EndsWith('\\') ? 0 : 1);
 
                             if (folder.StorageLocation != (int)FolderController.StorageLocationTypes.DatabaseSecure)
                             {
@@ -239,7 +242,7 @@ namespace Dnn.ExportImport.Components.Services
             var portalId = importJob.PortalId;
             var portal = PortalController.Instance.GetPortal(portalId);
             var assetsFile = string.Format(CultureInfo.InvariantCulture, this.assetsFolder, importJob.Directory.TrimEnd('\\').TrimEnd('/'));
-            var userFolderPath = string.Format(CultureInfo.InvariantCulture, UsersAssetsTempFolder, portal.HomeDirectoryMapPath.TrimEnd('\\'));
+            var userFolderPath = string.Format(CultureInfo.InvariantCulture, UsersAssetsTempFolderFormat, portal.HomeDirectoryMapPath.TrimEnd('\\'));
             if (this.CheckPoint.Stage == 0)
             {
                 if (!File.Exists(assetsFile))
@@ -613,7 +616,7 @@ namespace Dnn.ExportImport.Components.Services
         {
             var portal = PortalController.Instance.GetPortal(portalId);
             var tempUsersFolderPath =
-                string.Format(CultureInfo.InvariantCulture, UsersAssetsTempFolder, portal.HomeDirectoryMapPath.TrimEnd('\\')) + folder.FolderPath;
+                string.Format(CultureInfo.InvariantCulture, UsersAssetsTempFolderFormat, portal.HomeDirectoryMapPath.TrimEnd('\\')) + folder.FolderPath;
             var newUsersFolderPath = $"{portal.HomeDirectoryMapPath}{folder.FolderPath}";
             if (!Directory.Exists(tempUsersFolderPath))
             {

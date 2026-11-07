@@ -92,26 +92,21 @@
 										<add name="DNNConnect.CKE"
                                              type="DNNConnect.CKEditorProvider.CKHtmlEditorProvider, DNNConnect.CKEditorProvider"
                                              providerPath="~/Providers/HtmlEditorProviders/DNNConnect.CKE/"
-                                             settingsControlPath="~/Providers/HtmlEditorProviders/DNNConnect.CKE/Module/EditorConfigManager.ascx" />
+                                             settingsControlPath="DNNConnect.CKEditorProvider.Module.EditorConfigManager, DNNConnect.CKEditorProvider" />
 									</node>
-									<node path="/configuration" action="update" key="path" collision="ignore">
-										<location path="Providers/HtmlEditorProviders/DNNConnect.CKE/Browser/FileUploader.ashx">
-											<system.web>
-												<authorization>
-													<deny users="?" />
-													<!-- Deny anonymous users -->
-												</authorization>
-											</system.web>
-										</location>
-										<location path="Providers/HtmlEditorProviders/DNNConnect.CKE/Browser/Browser.aspx">
-											<system.web>
-												<authorization>
-													<deny users="?" />
-													<!-- Deny anonymous users -->
-												</authorization>
-											</system.web>
-										</location>
-									</node>
+									<!--
+										The two <location><system.web><authorization><deny users="?" /> entries that
+										used to be written here are gone: <system.web> authorization is not honoured by
+										ASP.NET Core, so "deny anonymous" on the two URLs is enforced by the framework
+										itself - @attribute [Authorize] on Browser.razor (the component serving
+										Browser/Browser.aspx) and .RequireAuthorization() on the
+										Browser/FileUploader.ashx endpoint. Installing now REMOVES the entries, so a
+										site upgrading from an earlier version keeps no dead configuration.
+									-->
+									<node path="/configuration/location[@path='Providers/HtmlEditorProviders/DNNConnect.CKE/Browser/FileUploader.ashx']"
+                                          action="remove" />
+									<node path="/configuration/location[@path='Providers/HtmlEditorProviders/DNNConnect.CKE/Browser/Browser.aspx']"
+                                          action="remove" />
 								</nodes>
 							</configuration>
 						</install>
@@ -124,6 +119,10 @@
                                           value="DotNetNuke.RadEditorProvider" />
 									<node path="/configuration/dotnetnuke/htmlEditor/providers/add[@name='DNNConnect.CKE']"
                                           action="remove" />
+									<!--
+										Kept so uninstalling also cleans the two legacy deny-anonymous <location>
+										elements a pre-Core install of this extension may still have left behind.
+									-->
 									<node path="/configuration/location[@path='Providers/HtmlEditorProviders/DNNConnect.CKE/Browser/FileUploader.ashx']"
                                           action="remove" />
 									<node path="/configuration/location[@path='Providers/HtmlEditorProviders/DNNConnect.CKE/Browser/Browser.aspx']"

@@ -5,10 +5,8 @@ namespace DotNetNuke.Services.FileSystem
 {
     using System;
     using System.Data;
-    using System.Drawing;
     using System.Globalization;
     using System.IO;
-    using System.Web;
     using System.Xml.Serialization;
 
     using DotNetNuke.Abstractions.Portals;
@@ -145,7 +143,7 @@ namespace DotNetNuke.Services.FileSystem
             {
                 string physicalPath = Null.NullString;
                 IPortalSettings portalSettings = null;
-                if (HttpContext.Current != null)
+                if (HttpContextSource.Current != null)
                 {
                     portalSettings = PortalController.Instance.GetCurrentSettings();
                 }
@@ -173,7 +171,7 @@ namespace DotNetNuke.Services.FileSystem
 
                 if (!string.IsNullOrEmpty(physicalPath))
                 {
-                    physicalPath = physicalPath.Replace("/", @"\");
+                    physicalPath = physicalPath.Replace('/', Path.DirectorySeparatorChar);
                 }
 
                 return physicalPath;
@@ -514,7 +512,7 @@ namespace DotNetNuke.Services.FileSystem
                 fileContent = tmp;
             }
 
-            Image image = null;
+            SixLabors.ImageSharp.Image image = null;
             try
             {
                 image = fileManager.GetImageFromStream(fileContent);

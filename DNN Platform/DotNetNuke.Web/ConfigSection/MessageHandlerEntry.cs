@@ -4,97 +4,36 @@
 
 namespace DotNetNuke.Web.ConfigSection
 {
-    using System.Configuration;
-
     using DotNetNuke.Web.Api;
+    using Microsoft.Extensions.Configuration;
 
-    /// <summary>A <see cref="ConfigurationElement"/> for an auth message handler.</summary>
-    public class MessageHandlerEntry : ConfigurationElement
+    /// <summary>An auth message handler entry of the <see cref="AuthServicesOptions"/>.</summary>
+    /// <remarks>
+    /// This was a <c>System.Configuration.ConfigurationElement</c> bound to
+    /// <c>&lt;dotnetnuke&gt;&lt;authServices&gt;&lt;messageHandlers&gt;&lt;add …/&gt;</c>. It is now a
+    /// plain options type bound from the <c>DotNetNuke:authServices:messageHandlers</c> array of
+    /// <c>appsettings.json</c>; the entry shape (<c>name</c>/<c>type</c>/<c>enabled</c>/
+    /// <c>defaultInclude</c>/<c>forceSSL</c>) and every property name are unchanged, so
+    /// <c>ServicesRoutingManager.RegisterAuthenticationHandlers</c> reads it exactly as before.
+    /// </remarks>
+    public class MessageHandlerEntry
     {
-        private const string NameTag = "name";
-        private const string ClassNameTag = "type";
-        private const string EnabledNameTag = "enabled";
-        private const string DefaultIncludeTag = "defaultInclude";
-        private const string ForceSslTag = "forceSSL";
-
         /// <summary>Gets or sets the name of the message handler.</summary>
-        [ConfigurationProperty(NameTag, DefaultValue = "", IsRequired = true)]
-        ////[StringValidator(InvalidCharacters = "~!@#$%^&*()[]{}/;'\"|\\", MinLength = 1, MaxLength = 60)]
-        public string Name
-        {
-            get
-            {
-                return (string)this[NameTag];
-            }
-
-            set
-            {
-                this[NameTag] = value;
-            }
-        }
+        public string Name { get; set; } = string.Empty;
 
         /// <summary>Gets or sets the fully qualified name of the class that implements this message handler.</summary>
-        [ConfigurationProperty(ClassNameTag, DefaultValue = "", IsRequired = true)]
-        ////[StringValidator(InvalidCharacters = "~!@#$%^&*()[]{}/;'\"|\\", MinLength = 1, MaxLength = 300)]
-        public string ClassName
-        {
-            get
-            {
-                return (string)this[ClassNameTag];
-            }
-
-            set
-            {
-                this[ClassNameTag] = value;
-            }
-        }
+        /// <remarks>Bound from the <c>type</c> key, which is what the legacy <c>&lt;add type="…"/&gt;</c> attribute was called.</remarks>
+        [ConfigurationKeyName("type")]
+        public string ClassName { get; set; } = string.Empty;
 
         /// <summary>Gets or sets a value indicating whether this message handler is enabled.</summary>
-        [ConfigurationProperty(EnabledNameTag, DefaultValue = false, IsRequired = true)]
-        public bool Enabled
-        {
-            get
-            {
-                var b = (bool?)this[EnabledNameTag];
-                return b.Value;
-            }
+        public bool Enabled { get; set; }
 
-            set
-            {
-                this[EnabledNameTag] = value;
-            }
-        }
-
-        /// <summary>Gets or sets a value indicating whether this is automatically included when the <see cref="DnnAuthorizeAttribute"/>.</summary>
-        [ConfigurationProperty(DefaultIncludeTag, DefaultValue = false, IsRequired = true)]
-        public bool DefaultInclude
-        {
-            get
-            {
-                var b = (bool?)this[DefaultIncludeTag];
-                return b.Value;
-            }
-
-            set
-            {
-                this[DefaultIncludeTag] = value;
-            }
-        }
+        /// <summary>Gets or sets a value indicating whether this is automatically included when the <see cref="DnnAuthorizeAttribute"/> does not name an auth type.</summary>
+        public bool DefaultInclude { get; set; }
 
         /// <summary>Gets or sets a value indicating whether this message handler always uses HTTPS.</summary>
-        [ConfigurationProperty(ForceSslTag, DefaultValue = true, IsRequired = true)]
-        public bool ForceSsl
-        {
-            get
-            {
-                var b = (bool?)this[ForceSslTag];
-                return b.Value;
-            }
-
-            set
-            {
-                this[ForceSslTag] = value;
-            }
-        }
+        /// <remarks>Bound from <c>forceSSL</c> (configuration binding is case-insensitive). Defaults to <see langword="true"/>, as the legacy element did.</remarks>
+        public bool ForceSsl { get; set; } = true;
     }
 }

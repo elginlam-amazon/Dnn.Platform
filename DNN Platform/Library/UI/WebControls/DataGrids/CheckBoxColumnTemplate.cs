@@ -5,13 +5,20 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Common.Utilities;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Web;
+
     /// <summary>The CheckBoxColumnTemplate provides a Template for the CheckBoxColumn.</summary>
-    public class CheckBoxColumnTemplate : ITemplate
+    /// <remarks>
+    /// Was an <c>ITemplate</c> that instantiated a <c>CheckBox</c> into the cell and bound it
+    /// through its <c>DataBinding</c> event. It now renders the <c>input</c> itself and keeps the
+    /// posted state in the <see cref="GridCheckBox"/> it registers in the cell, so that the grid's
+    /// consumers can still read it back through <c>cell.Controls[0]</c>.
+    /// </remarks>
+    public class CheckBoxColumnTemplate : IGridTemplate
     {
         /// <summary>Initializes a new instance of the <see cref="CheckBoxColumnTemplate"/> class.</summary>
         public CheckBoxColumnTemplate()
@@ -26,6 +33,7 @@ namespace DotNetNuke.UI.WebControls
             this.ItemType = itemType;
         }
 
+        /// <summary>Occurs when the state of a check box of this template changed.</summary>
         public event DNNDataGridCheckedColumnEventHandler CheckedChanged;
 
         /// <summary>
@@ -76,82 +84,90 @@ namespace DotNetNuke.UI.WebControls
         /// <value>A String.</value>
         public string Text { get; set; } = string.Empty;
 
-        /// <summary>InstantiateIn is called when the Template is instantiated by the parent control.</summary>
-        /// <param name="container">The container control.</param>
-        public void InstantiateIn(Control container)
+        /// <inheritdoc />
+        public RenderFragment Render(DataGridCell cell)
         {
-            if (!string.IsNullOrEmpty(this.Text))
-            {
-                container.Controls.Add(new LiteralControl(this.Text + "<br/>"));
-            }
+            ArgumentNullException.ThrowIfNull(cell);
 
-            if (this.ItemType != ListItemType.Header || (this.ItemType == ListItemType.Header && this.HeaderCheckBox))
+            var state = this.BindState(cell);
+            return builder =>
             {
-                var box = new CheckBox();
-                box.AutoPostBack = this.AutoPostBack;
-                box.DataBinding += this.Item_DataBinding;
-                box.CheckedChanged += this.OnCheckChanged;
-                container.Controls.Add(box);
-            }
+                var sequence = 0;
+                if (!string.IsNullOrEmpty(this.Text))
+                {
+                    builder.AddMarkupContent(sequence++, this.Text + "<br/>");
+                }
+
+                if (state == null)
+                {
+                    return;
+                }
+
+                builder.OpenElement(sequence++, "input");
+                builder.AddAttribute(sequence++, "type", "checkbox");
+                builder.AddAttribute(sequence++, "checked", state.Checked);
+                if (!state.Enabled)
+                {
+                    builder.AddAttribute(sequence++, "disabled", true);
+                }
+
+                builder.AddAttribute(sequence++, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(
+                    this,
+                    args => this.OnCheckChanged(cell, state, args)));
+                builder.CloseElement();
+            };
         }
 
-        /// <summary>Called when the template item is Data Bound.</summary>
-        private void Item_DataBinding(object sender, EventArgs e)
+        /// <summary>Binds the state of this template's check box for the given cell.</summary>
+        /// <param name="cell">The cell being rendered.</param>
+        /// <returns>The state, or <see langword="null"/> when no check box renders in this cell.</returns>
+        /// <remarks>Replaces the <c>Item_DataBinding</c> handler of the WebForms template.</remarks>
+        private GridCheckBox BindState(DataGridCell cell)
         {
-            var box = (CheckBox)sender;
-            var container = (DataGridItem)box.NamingContainer;
+            if (this.ItemType == ListItemType.Header && !this.HeaderCheckBox)
+            {
+                return null;
+            }
+
+            var state = new GridCheckBox();
+            var dataItem = cell.Item?.DataItem;
             if (!string.IsNullOrEmpty(this.DataField) && this.ItemType != ListItemType.Header)
             {
-                if (this.DesignMode)
-                {
-                    box.Checked = false;
-                }
-                else
-                {
-                    box.Checked = Convert.ToBoolean(DataBinder.Eval(container.DataItem, this.DataField), CultureInfo.InvariantCulture);
-                }
+                state.Checked = this.DesignMode
+                    ? false
+                    : Convert.ToBoolean(GridDataBinder.Eval(dataItem, this.DataField), CultureInfo.InvariantCulture);
             }
             else
             {
-                box.Checked = this.Checked;
+                state.Checked = this.Checked;
             }
 
             if (!string.IsNullOrEmpty(this.EnabledField))
             {
-                if (this.DesignMode)
-                {
-                    box.Enabled = false;
-                }
-                else
-                {
-                    box.Enabled = Convert.ToBoolean(DataBinder.Eval(container.DataItem, this.EnabledField), CultureInfo.InvariantCulture);
-                }
+                state.Enabled = this.DesignMode
+                    ? false
+                    : Convert.ToBoolean(GridDataBinder.Eval(dataItem, this.EnabledField), CultureInfo.InvariantCulture);
             }
             else
             {
-                box.Enabled = this.Enabled;
+                state.Enabled = this.Enabled;
             }
+
+            cell.Controls.Clear();
+            cell.Controls.Add(state);
+            return state;
         }
 
         /// <summary>Centralised Event that is raised whenever a check box's state is modified.</summary>
-        private void OnCheckChanged(object sender, EventArgs e)
+        private void OnCheckChanged(DataGridCell cell, GridCheckBox state, ChangeEventArgs args)
         {
-            var box = (CheckBox)sender;
-            var container = (DataGridItem)box.NamingContainer;
-            DNNDataGridCheckChangedEventArgs evntArgs;
-            if (container.ItemIndex == Null.NullInteger)
-            {
-                evntArgs = new DNNDataGridCheckChangedEventArgs(container, box.Checked, this.DataField, true);
-            }
-            else
-            {
-                evntArgs = new DNNDataGridCheckChangedEventArgs(container, box.Checked, this.DataField, false);
-            }
+            state.Checked = args?.Value is bool isChecked
+                ? isChecked
+                : Convert.ToBoolean(args?.Value, CultureInfo.InvariantCulture);
 
-            if (this.CheckedChanged != null)
-            {
-                this.CheckedChanged(sender, evntArgs);
-            }
+            var isAll = cell.Item == null || cell.Item.ItemIndex == Null.NullInteger;
+            var eventArgs = new DNNDataGridCheckChangedEventArgs(cell.Item, state.Checked, this.DataField, isAll);
+            this.CheckedChanged?.Invoke(this, eventArgs);
         }
     }
 }

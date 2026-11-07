@@ -7,7 +7,6 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Security.Claims;
     using System.Security.Cryptography;
@@ -19,6 +18,7 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
+    using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Controllers;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Entities.Portals;
@@ -28,9 +28,11 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
     using DotNetNuke.Security.Membership;
     using DotNetNuke.Services.Log.EventLog;
     using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.Logging;
     using Microsoft.IdentityModel.JsonWebTokens;
     using Microsoft.IdentityModel.Tokens;
+    using Microsoft.Net.Http.Headers;
 
     /// <summary>Controls JWT features.</summary>
     internal class JwtController(IHostSettings hostSettings)
@@ -83,7 +85,7 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
         {
             get
             {
-                var setting = System.Configuration.ConfigurationManager.AppSettings["Jwt.SessionTokenTtlMinutes"];
+                var setting = Config.GetSetting("Jwt.SessionTokenTtlMinutes");
                 if (!string.IsNullOrEmpty(setting) && int.TryParse(setting, out var value) && value > 0)
                 {
                     return value;
@@ -99,7 +101,7 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
         {
             get
             {
-                var setting = System.Configuration.ConfigurationManager.AppSettings["Jwt.RenewalTokenTtlMinutes"];
+                var setting = Config.GetSetting("Jwt.RenewalTokenTtlMinutes");
                 if (!string.IsNullOrEmpty(setting) && int.TryParse(setting, out var value) && value > 0)
                 {
                     return value;
@@ -112,7 +114,7 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
         private static string NewSessionId => DateTime.UtcNow.Ticks.ToString("x16") + Guid.NewGuid().ToString("N").Substring(16);
 
         /// <inheritdoc />
-        public string ValidateToken(HttpRequestMessage request)
+        public string ValidateToken(HttpRequest request)
         {
             if (!JwtAuthMessageHandler.IsEnabled)
             {
@@ -120,12 +122,12 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
                 return null;
             }
 
-            var authorization = this.ValidateAuthHeader(request?.Headers.Authorization);
+            var authorization = this.ValidateAuthHeader(request);
             return string.IsNullOrEmpty(authorization) ? null : this.ValidateAuthorizationValue(authorization);
         }
 
         /// <inheritdoc />
-        public bool LogoutUser(HttpRequestMessage request)
+        public bool LogoutUser(HttpRequest request)
         {
             if (!JwtAuthMessageHandler.IsEnabled)
             {
@@ -133,7 +135,7 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
                 return false;
             }
 
-            var rawToken = this.ValidateAuthHeader(request?.Headers.Authorization);
+            var rawToken = this.ValidateAuthHeader(request);
             if (string.IsNullOrEmpty(rawToken))
             {
                 return false;
@@ -153,7 +155,7 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
         }
 
         /// <inheritdoc />
-        public LoginResultData LoginUser(HttpRequestMessage request, LoginData loginData)
+        public LoginResultData LoginUser(HttpRequest request, LoginData loginData)
         {
             if (!JwtAuthMessageHandler.IsEnabled)
             {
@@ -240,7 +242,7 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
         }
 
         /// <inheritdoc />
-        public LoginResultData RenewToken(HttpRequestMessage request, string renewalToken)
+        public LoginResultData RenewToken(HttpRequest request, string renewalToken)
         {
             if (!JwtAuthMessageHandler.IsEnabled)
             {
@@ -248,7 +250,7 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
                 return EmptyWithError("disabled");
             }
 
-            var rawToken = this.ValidateAuthHeader(request?.Headers.Authorization);
+            var rawToken = this.ValidateAuthHeader(request);
             if (string.IsNullOrEmpty(rawToken))
             {
                 return EmptyWithError("bad-credentials");
@@ -523,11 +525,23 @@ namespace Dnn.AuthServices.Jwt.Components.Common.Controllers
         }
 
         /// <summary>Checks for Authorization header and validates it is JWT scheme. If successful, it returns the token string.</summary>
-        /// <param name="authHdr">The request authorization header.</param>
+        /// <param name="request">The current HTTP request.</param>
         /// <returns>The JWT passed in the request; otherwise, it returns null.</returns>
-        private string ValidateAuthHeader(AuthenticationHeaderValue authHdr)
+        /// <remarks>
+        /// Was <c>ValidateAuthHeader(AuthenticationHeaderValue)</c>, fed by
+        /// <c>HttpRequestMessage.Headers.Authorization</c>, which parsed the header for us. ASP.NET Core
+        /// exposes the raw header, so it is parsed here with <see cref="AuthenticationHeaderValue.TryParse"/>
+        /// exactly as <c>BasicAuthMessageHandler.GetCredentials</c> does. All three original checks keep
+        /// their order, their log messages, and their <see langword="null"/> result: a header that is absent
+        /// (or malformed, which the legacy <c>Headers.Authorization</c> property also surfaced as no header
+        /// at all), a scheme that is not <c>Bearer</c>, and an empty parameter.
+        /// </remarks>
+        private string ValidateAuthHeader(HttpRequest request)
         {
-            if (authHdr == null)
+            var authorizationHeader = request?.Headers[HeaderNames.Authorization].ToString();
+            if (string.IsNullOrEmpty(authorizationHeader)
+                || !AuthenticationHeaderValue.TryParse(authorizationHeader, out var authHdr)
+                || authHdr == null)
             {
                 ////if (Logger.IsTraceEnabled) Logger.LogTrace("Authorization header not present in the request"); // too verbose; shows in all web requests
                 return null;

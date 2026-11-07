@@ -22,10 +22,13 @@ namespace DotNetNuke.Tests.Core.Entities.Portals
         {
             get
             {
-                var uri = new System.Uri(Assembly.GetExecutingAssembly().CodeBase);
-                string path = Path.GetFullPath(uri.AbsolutePath).Replace("%20", " ");
+                // No URL-decoding here: the net48 code decoded Uri.AbsolutePath (where
+                // percent-escaping was real), whereas AppContext.BaseDirectory is already an
+                // unescaped filesystem path — decoding it would corrupt any path containing
+                // '+' or '%'. Matches DotNetNuke.Tests.Utilities/DnnUnitTest.cs.
+                string path = Path.GetFullPath(AppContext.BaseDirectory);
 
-                return Path.Combine(path.Substring(0, path.IndexOf("bin", System.StringComparison.Ordinal)), "Entities\\Portals\\TestFiles");
+                return Path.Combine(path.Substring(0, path.IndexOf("bin", System.StringComparison.Ordinal)), "Entities", "Portals", "TestFiles");
             }
         }
 

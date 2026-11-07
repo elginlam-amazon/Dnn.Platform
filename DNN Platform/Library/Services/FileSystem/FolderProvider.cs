@@ -206,13 +206,34 @@ namespace DotNetNuke.Services.FileSystem
             {
                 var virtualPath = provider.Attributes["providerPath"] + SettingsControlId;
 
-                if (File.Exists(System.Web.HttpContext.Current.Server.MapPath(virtualPath)))
+                if (File.Exists(HttpContextSource.MapPath(virtualPath)))
                 {
                     return virtualPath;
                 }
             }
 
             return string.Empty;
+        }
+
+        /// <summary>
+        /// Gets the type of the component used to display and update specific folder mapping
+        /// settings, or <see langword="null"/> when the provider has no settings UI.
+        /// </summary>
+        /// <returns>
+        /// The settings component type. A non-<see langword="null"/> result MUST derive from
+        /// <see cref="FolderMappingSettingsControlBase"/>; anything else is ignored by the host.
+        /// </returns>
+        /// <remarks>
+        /// This is the type-based counterpart of <see cref="GetSettingsControlVirtualPath"/>. A
+        /// provider whose settings UI is a Blazor component compiled into its own assembly has no
+        /// deployed <c>Settings.ascx</c> file for the virtual-path lookup to find, so it overrides
+        /// this method instead. The host (<c>EditFolderMapping</c> in the Resource Manager module)
+        /// asks for the type first and only falls back to the virtual path, which keeps
+        /// file-based third-party providers working unchanged.
+        /// </remarks>
+        public virtual Type GetSettingsControlType()
+        {
+            return null;
         }
 
         /// <summary>Moves a file to a new folder.</summary>

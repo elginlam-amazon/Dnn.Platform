@@ -8,8 +8,6 @@ namespace DotNetNuke.UI.Skins
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.IO;
-    using System.Web.UI.HtmlControls;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Common;
     using DotNetNuke.Framework;
@@ -18,46 +16,92 @@ namespace DotNetNuke.UI.Skins
 
     using Microsoft.Extensions.Logging;
 
-    using Image = System.Drawing.Image;
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.Processing;
 
     /// <summary>
     /// SkinThumbNailControl is a user control that provides that displays the skins
     ///     as a Radio ButtonList with Thumbnail Images where available.
     /// </summary>
-    public abstract class SkinThumbNailControl : UserControlBase
+    /// <remarks>
+    /// <para>
+    /// The base class changed from <c>DotNetNuke.Framework.UserControlBase</c> to
+    /// <see cref="DnnComponentBase"/>; <c>HtmlGenericControl</c>/<c>RadioButtonList</c> became
+    /// <see cref="DnnGenericControl"/>/<see cref="DnnRadioButtonList"/>, and the view state became
+    /// component state. The thumbnails are produced with ImageSharp instead of System.Drawing.
+    /// </para>
+    /// <para>
+    /// The class is concrete and builds its own child tree in the constructor, which is what
+    /// <c>controls/skinthumbnailcontrol.ascx</c> used to declare:
+    /// <c>&lt;div id="ControlContainer"&gt;</c> wrapping
+    /// <c>&lt;asp:radiobuttonlist id="OptSkin" repeatdirection="Horizontal" repeatcolumns="3"
+    /// repeatlayout="Table" Width="100%" CssClass="SkinList" /&gt;</c>. The children are created in
+    /// the constructor rather than in <c>CreateChildControls</c> because the
+    /// <see cref="Border"/>, <see cref="Columns"/>, <see cref="Height"/>, <see cref="Width"/> and
+    /// <see cref="SkinSrc"/> members write through to them, and callers set those before the
+    /// control is first rendered. <c>repeatdirection</c>/<c>repeatlayout</c> have no separate
+    /// member on <see cref="DnnRadioButtonList"/>: it renders <see cref="Columns"/> as a CSS grid
+    /// of that many columns, which is the horizontal 3-column table the markup asked for.
+    /// </para>
+    /// </remarks>
+    public class SkinThumbNailControl : DnnComponentBase
     {
         [SuppressMessage("StyleCop.CSharp.NamingRules", "SA1306:FieldNamesMustBeginWithLowerCaseLetter", Justification = "Breaking Change")]
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
 
         // ReSharper disable once InconsistentNaming
-        protected HtmlGenericControl ControlContainer;
+        protected DnnGenericControl ControlContainer;
 
         [SuppressMessage("StyleCop.CSharp.NamingRules", "SA1306:FieldNamesMustBeginWithLowerCaseLetter", Justification = "Breaking Change")]
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
 
         // ReSharper disable once InconsistentNaming
-        protected RadioButtonList OptSkin;
+        protected DnnRadioButtonList OptSkin;
 
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<SkinThumbNailControl>();
+
+        private string skinControlBorder;
+        private int skinControlColumns;
+        private string skinControlHeight;
+        private string skinRoot;
+        private string skinControlWidth;
+
+        /// <summary>Initializes a new instance of the <see cref="SkinThumbNailControl"/> class.</summary>
+        public SkinThumbNailControl()
+        {
+            this.OptSkin = new DnnRadioButtonList { ID = "OptSkin", CssClass = "SkinList", RepeatColumns = 3 };
+            this.OptSkin.Style["width"] = "100%";
+
+            this.ControlContainer = new DnnGenericControl("div") { ID = "ControlContainer" };
+            this.ControlContainer.Controls.Add(this.OptSkin);
+            this.Controls.Add(this.ControlContainer);
+
+            this.skinControlColumns = 3;
+        }
+
+        /// <summary>Gets the portal settings of the current portal.</summary>
+        /// <remarks>Was inherited from <c>DotNetNuke.Framework.UserControlBase</c>.</remarks>
+        [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
+        public Entities.Portals.PortalSettings PortalSettings => Entities.Portals.PortalSettings.Current;
 
         public string Border
         {
             get
             {
-                return Convert.ToString(this.ViewState["SkinControlBorder"], CultureInfo.InvariantCulture);
+                return this.skinControlBorder ?? string.Empty;
             }
 
             set
             {
-                this.ViewState["SkinControlBorder"] = value;
+                this.skinControlBorder = value;
                 if (!string.IsNullOrEmpty(value))
                 {
-                    this.ControlContainer.Style.Add("border-top", value);
-                    this.ControlContainer.Style.Add("border-bottom", value);
-                    this.ControlContainer.Style.Add("border-left", value);
-                    this.ControlContainer.Style.Add("border-right", value);
+                    this.ControlContainer.Style["border-top"] = value;
+                    this.ControlContainer.Style["border-bottom"] = value;
+                    this.ControlContainer.Style["border-left"] = value;
+                    this.ControlContainer.Style["border-right"] = value;
                 }
             }
         }
@@ -66,12 +110,12 @@ namespace DotNetNuke.UI.Skins
         {
             get
             {
-                return Convert.ToInt32(this.ViewState["SkinControlColumns"], CultureInfo.InvariantCulture);
+                return this.skinControlColumns;
             }
 
             set
             {
-                this.ViewState["SkinControlColumns"] = value;
+                this.skinControlColumns = value;
                 if (value > 0)
                 {
                     this.OptSkin.RepeatColumns = value;
@@ -83,15 +127,15 @@ namespace DotNetNuke.UI.Skins
         {
             get
             {
-                return Convert.ToString(this.ViewState["SkinControlHeight"], CultureInfo.InvariantCulture);
+                return this.skinControlHeight ?? string.Empty;
             }
 
             set
             {
-                this.ViewState["SkinControlHeight"] = value;
+                this.skinControlHeight = value;
                 if (!string.IsNullOrEmpty(value))
                 {
-                    this.ControlContainer.Style.Add("height", value);
+                    this.ControlContainer.Style["height"] = value;
                 }
             }
         }
@@ -100,12 +144,12 @@ namespace DotNetNuke.UI.Skins
         {
             get
             {
-                return Convert.ToString(this.ViewState["SkinRoot"], CultureInfo.InvariantCulture);
+                return this.skinRoot ?? string.Empty;
             }
 
             set
             {
-                this.ViewState["SkinRoot"] = value;
+                this.skinRoot = value;
             }
         }
 
@@ -135,15 +179,15 @@ namespace DotNetNuke.UI.Skins
         {
             get
             {
-                return Convert.ToString(this.ViewState["SkinControlWidth"], CultureInfo.InvariantCulture);
+                return this.skinControlWidth ?? string.Empty;
             }
 
             set
             {
-                this.ViewState["SkinControlWidth"] = value;
+                this.skinControlWidth = value;
                 if (!string.IsNullOrEmpty(value))
                 {
-                    this.ControlContainer.Style.Add("width", value);
+                    this.ControlContainer.Style["width"] = value;
                 }
             }
         }
@@ -233,7 +277,9 @@ namespace DotNetNuke.UI.Skins
             if (Directory.Exists(strFolder))
             {
                 var arrFiles = Directory.GetFiles(strFolder, "*.ascx");
-                strFolder = strFolder.Substring(strFolder.LastIndexOf(@"\", StringComparison.Ordinal) + 1);
+                // Was strFolder.Substring(strFolder.LastIndexOf(@"\") + 1), which only works with
+                // Windows directory separators.
+                strFolder = Path.GetFileName(strFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
                 foreach (var strFile in arrFiles)
                 {
@@ -287,10 +333,12 @@ namespace DotNetNuke.UI.Skins
             if (blnCreate)
             {
                 const int intSize = 140; // size of the thumbnail
-                Image objImage;
                 try
                 {
-                    objImage = Image.FromFile(strImage);
+                    using var objImage = Image.Load(strImage);
+
+                    // the thumbnail keeps the source image's format, as RawFormat did
+                    var imageFormat = objImage.Metadata.DecodedImageFormat;
 
                     // scale the image to prevent distortion
                     int intWidth;
@@ -312,7 +360,7 @@ namespace DotNetNuke.UI.Skins
                     }
 
                     // create the thumbnail image
-                    var objThumbnail = objImage.GetThumbnailImage(intWidth, intHeight, null, IntPtr.Zero);
+                    using var objThumbnail = objImage.Clone(context => context.Resize(intWidth, intHeight));
 
                     // delete the old file ( if it exists )
                     if (File.Exists(strThumbnail))
@@ -321,15 +369,18 @@ namespace DotNetNuke.UI.Skins
                     }
 
                     // save the thumbnail image
-                    objThumbnail.Save(strThumbnail, objImage.RawFormat);
+                    if (imageFormat != null)
+                    {
+                        objThumbnail.Save(strThumbnail, Configuration.Default.ImageFormatsManager.GetEncoder(imageFormat));
+                    }
+                    else
+                    {
+                        objThumbnail.Save(strThumbnail);
+                    }
 
                     // set the file attributes
                     File.SetAttributes(strThumbnail, FileAttributes.Normal);
                     File.SetLastWriteTime(strThumbnail, File.GetLastWriteTime(strImage));
-
-                    // tidy up
-                    objImage.Dispose();
-                    objThumbnail.Dispose();
                 }
                 catch (Exception ex)
                 {
@@ -337,7 +388,11 @@ namespace DotNetNuke.UI.Skins
                 }
             }
 
-            strThumbnail = Globals.ApplicationPath + @"\" + strThumbnail.Substring(strThumbnail.IndexOf("portals\\", StringComparison.InvariantCultureIgnoreCase));
+            // the stored path is a URL, so it uses forward slashes regardless of the file system
+            var portalsIndex = strThumbnail.Replace('\\', '/').IndexOf("portals/", StringComparison.InvariantCultureIgnoreCase);
+            strThumbnail = portalsIndex < 0
+                ? strThumbnail.Replace('\\', '/')
+                : Globals.ApplicationPath + "/" + strThumbnail.Replace('\\', '/').Substring(portalsIndex);
             return strThumbnail;
         }
 
@@ -346,7 +401,7 @@ namespace DotNetNuke.UI.Skins
         {
             var strDefault = Localization.GetString("Not_Specified") + "<br />";
             strDefault += "<img src=\"" + Globals.ApplicationPath.Replace(@"\", "/") + "/images/spacer.gif\" width=\"140\" height=\"135\" border=\"0\">";
-            this.OptSkin.Items.Insert(0, new ListItem(strDefault, string.Empty));
+            this.OptSkin.Items.Insert(0, new DnnListItem(strDefault, string.Empty));
         }
 
         /// <summary>AddSkin adds the skin to the radio button list.</summary>
@@ -366,7 +421,7 @@ namespace DotNetNuke.UI.Skins
                 strImage += "<img src=\"" + Globals.ApplicationPath.Replace(@"\", "/") + "/images/thumbnail.jpg\" border=\"1\">";
             }
 
-            this.OptSkin.Items.Add(new ListItem(FormatSkinName(strFolder, Path.GetFileNameWithoutExtension(strFile)) + "<br />" + strImage, root + "/" + strFolder + "/" + Path.GetFileName(strFile)));
+            this.OptSkin.Items.Add(new DnnListItem(FormatSkinName(strFolder, Path.GetFileNameWithoutExtension(strFile)) + "<br />" + strImage, root + "/" + strFolder + "/" + Path.GetFileName(strFile)));
         }
     }
 }

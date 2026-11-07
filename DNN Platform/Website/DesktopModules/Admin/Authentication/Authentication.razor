@@ -1,0 +1,194 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Authentication
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using System.Collections.Generic
+@using System.IO
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.DependencyInjection
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Common
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Services.Authentication
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.UI.UserControls
+
+@*
+    Replaces Authentication.ascx — the host that shows every enabled authentication provider's
+    settings control.
+
+    Three WebForms constructs are replaced:
+
+    * LoadControl("~/" + authSystem.SettingsControlSrc) becomes component composition: the control
+      source is resolved to the Blazor component type that replaced it through the platform's
+      IDnnControlTypeResolver (ControlUtilities.ResolveControlType) and rendered with
+      DynamicComponent. The renderer owns the instance, so the host cannot call UpdateSettings() on
+      it; it asks for the save through the AuthenticationSettingsBase.UpdateRequested parameter
+      instead, which every settings control honours. Same set of controls, same save semantics.
+
+    * SectionHeadControl is the existing Library/UI/UserControls/SectionHeadControl.razor; its
+      ChildContent is the collapsible body, which is what Section + container.ID expressed before.
+
+    * HtmlGenericControl (the per-provider <div>) and LiteralControl("<br/>") become plain markup.
+
+    cmdUpdate keeps its guard: it is only rendered when IsEditable.
+*@
+
+@foreach (var settingControl in this.settingControls)
+{
+    <SectionHeadControl IncludeRule="true"
+                        CssClass="Head"
+                        Text="@settingControl.Title"
+                        Section="@settingControl.AuthenticationType">
+        <div id="@settingControl.AuthenticationType">
+            <DynamicComponent Type="@settingControl.ComponentType" Parameters="@settingControl.Parameters" />
+        </div>
+    </SectionHeadControl>
+    <br />
+}
+
+@if (this.cmdUpdateVisible)
+{
+    <button type="button" id="cmdUpdate" class="dnnSecondaryAction" @onclick="this.OnUpdateClick">@this.LocalizeText("cmdUpdate")</button>
+}
+
+@code {
+    private readonly List<SettingsControlDescriptor> settingControls = new List<SettingsControlDescriptor>();
+
+    private IHostSettings hostSettings;
+    private bool loaded;
+    private bool cmdUpdateVisible;
+    private bool updateRequested;
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.hostSettings ??= this.DependencyProvider.GetRequiredService<IHostSettings>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        this.BindSettingControls();
+    }
+
+    /// <summary>Persists every provider's settings, then validates that at least one provider is enabled.</summary>
+    /// <remarks>
+    /// Ported from <c>OnUpdateClick</c>. No authentication state is written here (no sign-in, no
+    /// cookie), only provider settings, so it is safe to run from an interactive handler.
+    /// </remarks>
+    protected void OnUpdateClick()
+    {
+        // Ask every rendered settings control to save; this is the replacement for
+        // "foreach (var settingControl in this.settingControls) settingControl.UpdateSettings();".
+        this.updateRequested = true;
+        this.BindSettingControls();
+
+        // Validate Enabled
+        var enabled = false;
+        var authSystems = AuthenticationController.GetEnabledAuthenticationServices(this.hostSettings);
+        foreach (var authSystem in authSystems)
+        {
+            try
+            {
+                var authLoginControl = ControlUtilities.LoadControl<AuthenticationLoginBase>(this, "~/" + authSystem.LoginControlSrc);
+                authLoginControl.ModuleConfiguration = this.ModuleConfiguration;
+
+                // Check if AuthSystem is Enabled
+                if (authLoginControl.Enabled)
+                {
+                    enabled = true;
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Exceptions.LogException(ex);
+            }
+        }
+
+        if (!enabled)
+        {
+            // Display warning
+            UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("NoProvidersEnabled", this.LocalResourceFile), ModuleMessage.ModuleMessageType.YellowWarning);
+        }
+    }
+
+    /// <summary>Builds the descriptor of every enabled provider's settings control.</summary>
+    private void BindSettingControls()
+    {
+        this.settingControls.Clear();
+
+        var authSystems = AuthenticationController.GetEnabledAuthenticationServices(this.hostSettings);
+
+        foreach (var authSystem in authSystems)
+        {
+            try
+            {
+                var componentType = ControlUtilities.ResolveControlType("~/" + authSystem.SettingsControlSrc);
+
+                // Get Section Head Text from the setting controls LocalResourceFile. The WebForms
+                // code derived this from the control's TemplateSourceDirectory, which was the
+                // directory of the .ascx; the control source carries the same information.
+                var controlPath = "~/" + Path.GetDirectoryName(authSystem.SettingsControlSrc).Replace('\\', '/');
+                var localResourceFile = controlPath + "/" + Localization.LocalResourceDirectory + "/" +
+                                        Path.GetFileNameWithoutExtension(authSystem.SettingsControlSrc);
+
+                var parameters = ControlUtilities.FilterDeclaredParameters(
+                    componentType,
+                    new Dictionary<string, object>
+                    {
+                        ["AuthenticationType"] = authSystem.AuthenticationType,
+                        ["LocalResourceFile"] = localResourceFile,
+                        ["ModuleConfiguration"] = this.ModuleConfiguration,
+                        ["UpdateRequested"] = this.updateRequested,
+                    });
+
+                this.settingControls.Add(new SettingsControlDescriptor
+                {
+                    AuthenticationType = authSystem.AuthenticationType,
+                    Title = Localization.GetString("Title", localResourceFile),
+                    ComponentType = componentType,
+                    Parameters = parameters,
+                });
+
+                this.cmdUpdateVisible = this.IsEditable;
+            }
+            catch (Exception ex)
+            {
+                Exceptions.LogException(ex);
+            }
+        }
+    }
+
+    /// <summary>One authentication provider's settings control, as the markup needs it.</summary>
+    private sealed class SettingsControlDescriptor
+    {
+        public string AuthenticationType { get; set; }
+
+        public string Title { get; set; }
+
+        public Type ComponentType { get; set; }
+
+        public IDictionary<string, object> Parameters { get; set; }
+    }
+}

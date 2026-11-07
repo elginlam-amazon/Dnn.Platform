@@ -8,6 +8,7 @@ namespace DNN.Integration.Test.Framework.Controllers
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
+    using System.Net.Http;
     using System.Threading;
 
     using DNN.Integration.Test.Framework.Helpers;
@@ -143,7 +144,7 @@ namespace DNN.Integration.Test.Framework.Controllers
                 {
                     Console.WriteLine(
                         @"Error running scheduler {0}. Status: {1} - {2}",
-                        schedulerName, resp.StatusCode, resp.StatusDescription);
+                        schedulerName, resp.StatusCode, resp.ReasonPhrase);
                     return false;
                 }
 
@@ -170,7 +171,7 @@ namespace DNN.Integration.Test.Framework.Controllers
         }
 
         // trigger the scheduler to run through [Run Now] button of the UI
-        private static HttpWebResponse TriggerScheduler(IDictionary<string, object> scheduleInfo, int moduleId)
+        private static HttpResponseMessage TriggerScheduler(IDictionary<string, object> scheduleInfo, int moduleId)
         {
             var scheduleId = (int)scheduleInfo["ScheduleId"];
             var scheduleTypeName = (string)scheduleInfo["TypeFullName"];

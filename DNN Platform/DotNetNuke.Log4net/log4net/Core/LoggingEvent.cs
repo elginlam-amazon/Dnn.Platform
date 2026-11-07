@@ -23,9 +23,7 @@ using System.Collections;
 using System.IO;
 using System.Runtime.Serialization;
 using System.Security;
-#if !NETCF && !NETSTANDARD1_3
 using System.Security.Principal;
-#endif
 using log4net.Util;
 using log4net.Repository;
 
@@ -264,13 +262,8 @@ namespace log4net.Core
     /// <author>Gert Driesen</author>
     /// <author>Douglas de la Torre</author>
     /// <author>Daniel Cazzulino</author>
-#if !NETCF
     [Serializable]
-#endif
-    public class LoggingEvent
-#if !NETCF
-        : ISerializable
-#endif
+    public class LoggingEvent : ISerializable
     {
         private static readonly Type declaringType = typeof(LoggingEvent);
 
@@ -407,7 +400,6 @@ namespace log4net.Core
         {
         }
 
-#if !NETCF
 
         /// <summary>Serialization constructor</summary>
         /// <param name="info">The <see cref="SerializationInfo" /> that holds the serialized object data.</param>
@@ -444,7 +436,6 @@ namespace log4net.Core
             this.m_fixFlags = FixFlags.All;
         }
 
-#endif
 
         /// <summary>Gets the time when the current process started.</summary>
         /// <value>
@@ -728,11 +719,6 @@ namespace log4net.Core
             {
                 if (this.m_data.ThreadName == null && this.m_cacheUpdatable)
                 {
-#if NETCF
-                    // Get thread ID only
-                    m_data.ThreadName =
- SystemInfo.CurrentThreadId.ToString(System.Globalization.NumberFormatInfo.InvariantInfo);
-#else
                     // '.NET ThreadPool Worker' appears as a default thread pool name in .NET 6+.
                     // Prefer the numeric thread ID instead.
                     string threadName = System.Threading.Thread.CurrentThread.Name;
@@ -763,7 +749,6 @@ namespace log4net.Core
                                 .ToString(System.Globalization.CultureInfo.InvariantCulture);
                         }
                     }
-#endif
                 }
 
                 return this.m_data.ThreadName;
@@ -830,14 +815,11 @@ namespace log4net.Core
 
         private static string TryGetCurrentUserName()
         {
-#if (NETCF || SSCLI || NETSTANDARD1_3)
-                    // On compact framework there's no notion of current Windows user
-                    return SystemInfo.NotAvailableText;
-#else
-            if (_platformDoesNotSupportWindowsIdentity)
+            if (_platformDoesNotSupportWindowsIdentity || !OperatingSystem.IsWindows())
             {
                 // we've already received one PlatformNotSupportedException
-                // and it's highly unlikely that will change
+                // and it's highly unlikely that will change, or there is no
+                // Windows identity on this platform at all
                 return Environment.UserName;
             }
 
@@ -867,13 +849,9 @@ namespace log4net.Core
             {
                 return null;
             }
-#endif
         }
 
-#if (NETCF || SSCLI || NETSTANDARD1_3)
-#else
         private static bool _platformDoesNotSupportWindowsIdentity;
-#endif
 
         /// <summary>Gets the identity of the current thread principal.</summary>
         /// <value>
@@ -891,10 +869,6 @@ namespace log4net.Core
             {
                 if (this.m_data.Identity == null && this.m_cacheUpdatable)
                 {
-#if (NETCF || SSCLI || NETSTANDARD1_3)
-                    // On compact framework there's no notion of current thread principals
-                    m_data.Identity = SystemInfo.NotAvailableText;
-#else
                     try
                     {
                         if (System.Threading.Thread.CurrentPrincipal != null &&
@@ -927,7 +901,6 @@ namespace log4net.Core
 
                         this.m_data.Identity = string.Empty;
                     }
-#endif
                 }
 
                 return this.m_data.Identity;
@@ -1015,7 +988,6 @@ namespace log4net.Core
             set { this.FixVolatileData(value); }
         }
 
-#if !NETCF
 
         /// <summary>Serializes this object into the <see cref="SerializationInfo" /> provided.</summary>
         /// <param name="info">The <see cref="SerializationInfo" /> to populate with data.</param>
@@ -1030,13 +1002,6 @@ namespace log4net.Core
         /// is to be used outside that method.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [SecurityCritical]
-#endif
-#if !NETCF && !NETSTANDARD1_3
-        [System.Security.Permissions.SecurityPermission(System.Security.Permissions.SecurityAction.Demand,
-            SerializationFormatter = true)]
-#endif
         public virtual void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             // The caller must call FixVolatileData before this object
@@ -1060,7 +1025,6 @@ namespace log4net.Core
             info.AddValue("Identity", this.m_data.Identity);
         }
 
-#endif
 
         /// <summary>Gets the portable data for this <see cref="LoggingEvent" />.</summary>
         /// <returns>The <see cref="LoggingEventData"/> for this event.</returns>
@@ -1322,13 +1286,11 @@ namespace log4net.Core
             {
                 compositeProperties.Add(this.m_eventProperties);
             }
-#if !NETCF
             var logicalThreadProperties = LogicalThreadContext.Properties.GetProperties(false);
             if (logicalThreadProperties != null)
             {
                 compositeProperties.Add(logicalThreadProperties);
             }
-#endif
             var threadProperties = ThreadContext.Properties.GetProperties(false);
             if (threadProperties != null)
             {

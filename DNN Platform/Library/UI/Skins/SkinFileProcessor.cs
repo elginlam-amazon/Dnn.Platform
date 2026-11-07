@@ -3,12 +3,12 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.UI.Skins
 {
+    using System.Net;
     using System;
     using System.Collections;
     using System.Globalization;
     using System.IO;
     using System.Text.RegularExpressions;
-    using System.Web;
     using System.Xml;
 
     using DotNetNuke.Common;
@@ -785,7 +785,7 @@ namespace DotNetNuke.UI.Skins
                     }
                 }
 
-                this.messages += SkinController.FormatMessage(this.subst, string.Format(CultureInfo.InvariantCulture, this.substDetail, HttpUtility.HtmlEncode(strOldTag), HttpUtility.HtmlEncode(strNewTag)), 2, false);
+                this.messages += SkinController.FormatMessage(this.subst, string.Format(CultureInfo.InvariantCulture, this.substDetail, WebUtility.HtmlEncode(strOldTag), WebUtility.HtmlEncode(strNewTag)), 2, false);
                 return strNewTag;
             }
         }
@@ -999,12 +999,12 @@ namespace DotNetNuke.UI.Skins
                     prefix += "<%@ Control language=\"vb\" AutoEventWireup=\"false\" Explicit=\"True\" Inherits=\"DotNetNuke.UI.Containers.Container\" %>" + Environment.NewLine;
                 }
 
-                messages += SkinController.FormatMessage(this.controlDirective, HttpUtility.HtmlEncode(prefix), 2, false);
+                messages += SkinController.FormatMessage(this.controlDirective, WebUtility.HtmlEncode(prefix), 2, false);
 
                 // add preformatted Control Registrations
                 foreach (string item in registrations)
                 {
-                    messages += SkinController.FormatMessage(this.controlRegister, HttpUtility.HtmlEncode(item), 2, false);
+                    messages += SkinController.FormatMessage(this.controlRegister, WebUtility.HtmlEncode(item), 2, false);
                     prefix += item;
                 }
 

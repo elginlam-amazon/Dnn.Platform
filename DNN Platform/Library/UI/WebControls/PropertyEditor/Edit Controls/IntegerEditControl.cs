@@ -5,15 +5,16 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Instrumentation;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
     using Microsoft.Extensions.Logging;
 
     /// <summary>The IntegerEditControl control provides a standard UI component for editing integer properties.</summary>
-    [ToolboxData("<{0}:IntegerEditControl runat=server></{0}:IntegerEditControl>")]
     public class IntegerEditControl : EditControl
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<IntegerEditControl>();
@@ -106,17 +107,20 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <summary>RenderEditMode renders the Edit mode of the control.</summary>
-        /// <param name="writer">A HtmlTextWriter.</param>
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        /// <param name="builder">The render tree builder to write to.</param>
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "text");
-            writer.AddAttribute(HtmlTextWriterAttribute.Size, "5");
-            writer.AddAttribute(HtmlTextWriterAttribute.Value, this.StringValue);
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Id, this.ClientID);
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.RenderEndTag();
+            ArgumentNullException.ThrowIfNull(builder);
+
+            builder.OpenElement(0, "input");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddAttribute(5, "type", "text");
+            builder.AddAttribute(6, "size", "5");
+            builder.AddAttribute(7, "value", this.StringValue);
+            builder.AddAttribute(8, "name", this.UniqueID);
+            builder.AddAttribute(9, "id", this.ClientID);
+            builder.AddAttribute(10, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnInputChanged));
+            builder.CloseElement();
         }
     }
 }

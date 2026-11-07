@@ -27,6 +27,10 @@ namespace DotNetNuke.Providers.FolderProviders.Components
                     if (package != null)
                     {
                         DataProvider.Instance().UnRegisterAssembly(package.PackageID, "Microsoft.WindowsAzure.StorageClient.dll");
+
+                        // The folder provider now stores its objects in Amazon S3, so the retired
+                        // Azure storage client assembly is shed from the host as well.
+                        DataProvider.Instance().UnRegisterAssembly(package.PackageID, "Microsoft.WindowsAzure.Storage.dll");
                     }
 
                     break;

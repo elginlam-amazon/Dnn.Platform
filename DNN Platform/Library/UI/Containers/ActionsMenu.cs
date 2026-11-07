@@ -5,7 +5,6 @@ namespace DotNetNuke.UI.Containers
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
@@ -13,13 +12,20 @@ namespace DotNetNuke.UI.Containers
     using DotNetNuke.Modules.NavigationProvider;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.UI.Modules;
+    using DotNetNuke.UI.Utilities;
     using DotNetNuke.UI.WebControls;
 
     using Microsoft.Extensions.DependencyInjection;
 
+    using Globals = DotNetNuke.Common.Globals;
+
     /// <summary>ActionsMenu provides a menu for a collection of actions.</summary>
-    /// <remarks>Inherits from <see cref="Control"/>, and implements the <see cref="IActionControl"/> Interface. It uses the Navigation Providers to implement the Menu.</remarks>
-    public class ActionsMenu : Control, IActionControl
+    /// <remarks>
+    /// Inherited from <c>System.Web.UI.Control</c>; it is now a DNN skinning component
+    /// (<see cref="DnnComponentBase"/>) and still implements the <see cref="IActionControl"/>
+    /// Interface. It uses the Navigation Providers to implement the Menu.
+    /// </remarks>
+    public class ActionsMenu : DnnComponentBase, IActionControl
     {
         private readonly IServiceProvider serviceProvider;
         private readonly IEventLogger eventLogger;
@@ -178,7 +184,9 @@ namespace DotNetNuke.UI.Containers
         {
             if (!string.IsNullOrEmpty(objParent.JSFunction))
             {
-                var postBackEventReference = this.Page.ClientScript.GetPostBackEventReference(this.ProviderControl.NavigationControl, objParent.ID);
+                // Was Page.ClientScript.GetPostBackEventReference; the Client API provides the
+                // equivalent for the component tree.
+                var postBackEventReference = ClientAPI.GetPostBackEventReference(this.ProviderControl.NavigationControl, objParent.ID);
                 objParent.JSFunction = $"if({objParent.JSFunction}){{{postBackEventReference}}};";
             }
 
@@ -210,8 +218,8 @@ namespace DotNetNuke.UI.Containers
                 this.ProviderControl.CSSIndicateChildSub = "ModuleTitle_MenuArrow";
                 this.ProviderControl.CSSIndicateChildRoot = "ModuleTitle_RootMenuArrow";
 
-                this.ProviderControl.PathImage = Globals.ApplicationPath + "/Images/";
-                this.ProviderControl.PathSystemImage = Globals.ApplicationPath + "/Images/";
+                this.ProviderControl.PathImage = Globals.ApplicationPath + "/images/";
+                this.ProviderControl.PathSystemImage = Globals.ApplicationPath + "/images/";
                 this.ProviderControl.IndicateChildImageSub = "action_right.gif";
                 this.ProviderControl.IndicateChildren = true;
                 this.ProviderControl.StyleRoot = "background-color: Transparent; font-size: 1pt;";
@@ -250,7 +258,7 @@ namespace DotNetNuke.UI.Containers
 
             if (args.Node == null)
             {
-                args.Node = Navigation.GetActionNode(args.ID, this.ProviderControl.ID, objAction, this);
+                args.Node = Navigation.GetActionNode(args.ID, this.ProviderControl.ControlID, objAction, this);
             }
 
             this.ProviderControl.ClearNodes(); // since we always bind we need to clear the nodes for providers that maintain their state

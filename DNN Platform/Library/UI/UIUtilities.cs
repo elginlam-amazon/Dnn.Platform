@@ -5,10 +5,9 @@
 namespace DotNetNuke.UI
 {
     using System;
-    using System.IO;
-    using System.Web;
-    using System.Web.UI;
 
+    using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Portals;
@@ -16,6 +15,7 @@ namespace DotNetNuke.UI
     using DotNetNuke.Services.Localization;
     using DotNetNuke.UI.ControlPanels;
     using DotNetNuke.UI.Modules;
+    using DotNetNuke.UI.Utilities;
 
     public class UIUtilities
     {
@@ -40,13 +40,13 @@ namespace DotNetNuke.UI
 
         public static bool IsLegacyUI(int moduleId, string key, int portalId)
         {
-            var request = HttpContext.Current.Request;
+            var request = HttpContextSource.Current?.Request;
             var isLegacyUi = true;
             var currentPage = TabController.CurrentPage;
             var settings = PortalController.Instance.GetCurrentSettings();
             if (settings != null)
             {
-                isLegacyUi = !(settings.EnablePopUps && !request.Browser.Crawler && request.Browser.EcmaScriptVersion >= new Version(1, 0));
+                isLegacyUi = !(settings.EnablePopUps && !BrowserCapabilities.IsCrawler(request) && BrowserCapabilities.GetEcmaScriptVersion(request) >= new Version(1, 0));
 
                 if (!isLegacyUi && !string.IsNullOrEmpty(key))
                 {
@@ -76,12 +76,12 @@ namespace DotNetNuke.UI
 
         internal static string GetControlKey()
         {
-            HttpRequest request = HttpContext.Current.Request;
+            var queryString = HttpContextSource.CurrentOrThrow.Request.GetQueryString();
 
             string key = string.Empty;
-            if (request.QueryString["ctl"] != null)
+            if (queryString["ctl"] != null)
             {
-                key = request.QueryString["ctl"];
+                key = queryString["ctl"];
             }
 
             return key;
@@ -89,20 +89,20 @@ namespace DotNetNuke.UI
 
         internal static int GetModuleId(string key)
         {
-            HttpRequest request = HttpContext.Current.Request;
+            var queryString = HttpContextSource.CurrentOrThrow.Request.GetQueryString();
 
             int moduleId = -1;
-            if (request.QueryString["mid"] != null)
+            if (queryString["mid"] != null)
             {
-                if (!int.TryParse(request.QueryString["mid"], out moduleId))
+                if (!int.TryParse(queryString["mid"], out moduleId))
                 {
                     moduleId = -1;
                 }
             }
 
-            if (request.QueryString["moduleid"] != null && (key.Equals("module", StringComparison.OrdinalIgnoreCase) || key.Equals("help", StringComparison.OrdinalIgnoreCase)))
+            if (queryString["moduleid"] != null && (key.Equals("module", StringComparison.OrdinalIgnoreCase) || key.Equals("help", StringComparison.OrdinalIgnoreCase)))
             {
-                if (!int.TryParse(request.QueryString["moduleid"], out moduleId))
+                if (!int.TryParse(queryString["moduleid"], out moduleId))
                 {
                     moduleId = -1;
                 }
@@ -113,12 +113,12 @@ namespace DotNetNuke.UI
 
         internal static string GetRenderMode()
         {
-            HttpRequest request = HttpContext.Current.Request;
+            var queryString = HttpContextSource.CurrentOrThrow.Request.GetQueryString();
 
             var renderMode = string.Empty;
-            if (request.QueryString["render"] != null)
+            if (queryString["render"] != null)
             {
-                renderMode = request.QueryString["render"];
+                renderMode = queryString["render"];
             }
 
             return renderMode;
@@ -126,7 +126,7 @@ namespace DotNetNuke.UI
 
         internal static ModuleInfo GetSlaveModule(int moduleId, string key, int tabId)
         {
-            HttpRequest request = HttpContext.Current.Request;
+            var queryString = HttpContextSource.CurrentOrThrow.Request.GetQueryString();
 
             ModuleInfo slaveModule = null;
             if (moduleId != -1)
@@ -143,12 +143,12 @@ namespace DotNetNuke.UI
                 slaveModule = new ModuleInfo { ModuleID = moduleId, ModuleDefID = -1, TabID = tabId, InheritViewPermissions = true };
             }
 
-            if (request.QueryString["moduleid"] != null && (key.Equals("module", StringComparison.OrdinalIgnoreCase) || key.Equals("help", StringComparison.OrdinalIgnoreCase)))
+            if (queryString["moduleid"] != null && (key.Equals("module", StringComparison.OrdinalIgnoreCase) || key.Equals("help", StringComparison.OrdinalIgnoreCase)))
             {
                 slaveModule.ModuleDefID = -1;
             }
 
-            if (request.QueryString["dnnprintmode"] != "true")
+            if (queryString["dnnprintmode"] != "true")
             {
                 slaveModule.ModuleTitle = string.Empty;
             }
@@ -170,21 +170,19 @@ namespace DotNetNuke.UI
         /// <summary>Gets the path to the local resource file associated to the control.</summary>
         /// <param name="ctrl">The control.</param>
         /// <returns>The path to the resource file.</returns>
-        internal static string GetLocalResourceFile(Control ctrl)
+        /// <remarks>
+        /// The <c>ctrl</c> parameter was a <c>System.Web.UI.Control</c>; it is now the DNN
+        /// component tree node (<see cref="IClientApiControl"/>). The <c>UserControl</c> and
+        /// <c>Page</c> branches, which guessed the <c>.ascx.resx</c>/<c>.aspx.resx</c> file from
+        /// <c>TemplateSourceDirectory</c>, now use <see cref="DnnComponentBase.TemplateSourceDirectory"/>,
+        /// which is derived from the markup source the control was loaded from.
+        /// </remarks>
+        internal static string GetLocalResourceFile(IClientApiControl ctrl)
         {
             string resourceFileName = Null.NullString;
 
             while (ctrl != null)
             {
-                if (ctrl is UserControl)
-                {
-                    resourceFileName = $"{ctrl.TemplateSourceDirectory}/{Localization.LocalResourceDirectory}/{ctrl.GetType().BaseType.Name}.ascx.resx";
-                    if (File.Exists(ctrl.Page.Server.MapPath(resourceFileName)))
-                    {
-                        break;
-                    }
-                }
-
                 if (ctrl is IModuleControl moduleControl)
                 {
                     resourceFileName = moduleControl.LocalResourceFile;
@@ -197,9 +195,15 @@ namespace DotNetNuke.UI
                     break;
                 }
 
-                if (ctrl is Page)
+                if (ctrl is DnnComponentBase component && !string.IsNullOrEmpty(component.ControlSrc))
                 {
-                    resourceFileName = $"{ctrl.TemplateSourceDirectory}/{Localization.LocalResourceDirectory}/{ctrl.GetType().BaseType.Name}.aspx.resx";
+                    var typeName = component.GetType().BaseType?.Name ?? component.GetType().Name;
+                    var candidate = $"{component.TemplateSourceDirectory}/{Localization.LocalResourceDirectory}/{typeName}.ascx.resx";
+                    resourceFileName = candidate;
+                    if (System.IO.File.Exists(HttpContextSource.MapPath(candidate)))
+                    {
+                        break;
+                    }
                 }
 
                 ctrl = ctrl.Parent;

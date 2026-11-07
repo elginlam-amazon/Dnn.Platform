@@ -5,21 +5,29 @@
 namespace DotNetNuke.Web.UI.WebControls
 {
     using System;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
+    using DotNetNuke.Common;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Framework.JavaScriptLibraries;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI;
     using DotNetNuke.UI.Utilities;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
 
     using Globals = DotNetNuke.Common.Globals;
 
     /// <summary>A form label control.</summary>
-    public class DnnFormLabel : Panel
+    /// <remarks>
+    /// This was a <c>Panel</c> building its content in <c>CreateChildControls</c>. On ASP.NET Core
+    /// it is a <see cref="DnnComponentBase"/> that renders the same <c>div.dnnLabel</c> tree
+    /// (label &gt; span, the help anchor and the optional tooltip panel) into its
+    /// <see cref="DnnComponentBase.Controls"/> collection.
+    /// </remarks>
+    public class DnnFormLabel : DnnComponentBase
     {
         private readonly IApplicationStatusInfo appStatus;
         private readonly IEventLogger eventLogger;
@@ -41,20 +49,30 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets the ID of the associated control.</summary>
+        [Parameter]
         public string AssociatedControlID { get; set; }
 
         /// <summary>Gets or sets the path to the local resource file.</summary>
+        [Parameter]
         public string LocalResourceFile { get; set; }
 
         /// <summary>Gets or sets the resource key of the label.</summary>
+        [Parameter]
         public string ResourceKey { get; set; }
 
         /// <summary>Gets or sets the resource key of the tooltip.</summary>
+        [Parameter]
         public string ToolTipKey { get; set; }
 
         /// <summary>Gets or sets a value indicating whether the field is required.</summary>
+        [Parameter]
         public bool RequiredField { get; set; }
 
+        /// <inheritdoc />
+        protected override string TagName => "div";
+
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <inheritdoc />
         protected override void CreateChildControls()
         {
@@ -68,47 +86,48 @@ namespace DotNetNuke.Web.UI.WebControls
                 this.CssClass += " dnnLabel";
             }
 
-            ////var outerPanel = new Panel();
-            ////outerPanel.CssClass = "dnnLabel";
-            ////Controls.Add(outerPanel);
-            var outerLabel = new System.Web.UI.HtmlControls.HtmlGenericControl { TagName = "label", };
+            var outerLabel = new DnnGenericControl("label");
+            if (!string.IsNullOrEmpty(this.AssociatedControlID))
+            {
+                outerLabel.Attributes["for"] = this.AssociatedControlID;
+            }
+
             this.Controls.Add(outerLabel);
 
-            var label = new Label { ID = "Label", Text = this.LocalizeString(this.ResourceKey), };
+            var label = new DotNetNuke.UI.DnnLabel { ID = "Label", Text = this.LocalizeString(this.ResourceKey), };
             if (this.RequiredField)
             {
-                label.CssClass += " dnnFormRequired";
+                label.CssClass = (label.CssClass + " dnnFormRequired").Trim();
             }
 
             outerLabel.Controls.Add(label);
 
-            var link = new LinkButton { ID = "Link", CssClass = "dnnFormHelp", TabIndex = -1, };
-            link.Attributes.Add("aria-label", "Help");
+            var link = new DnnGenericControl("a") { ID = "Link", CssClass = "dnnFormHelp", };
+            link.Attributes["tabindex"] = "-1";
+            link.Attributes["aria-label"] = "Help";
             this.Controls.Add(link);
 
             if (!string.IsNullOrEmpty(toolTipText))
             {
-                ////CssClass += "dnnLabel";
-                var tooltipPanel = new Panel { CssClass = "dnnTooltip", };
+                var tooltipPanel = new DnnPanel { CssClass = "dnnTooltip", };
                 this.Controls.Add(tooltipPanel);
 
-                var panel = new Panel { ID = "Help", CssClass = "dnnFormHelpContent dnnClear", };
+                var panel = new DnnPanel { ID = "Help", CssClass = "dnnFormHelpContent dnnClear", };
                 tooltipPanel.Controls.Add(panel);
 
-                var helpLabel = new Label { ID = "Text", CssClass = "dnnHelpText", Text = this.LocalizeString(this.ToolTipKey), };
+                var helpLabel = new DotNetNuke.UI.DnnLabel { ID = "Text", CssClass = "dnnHelpText", Text = toolTipText, };
                 panel.Controls.Add(helpLabel);
 
-                var pinLink = new HyperLink { CssClass = "pinHelp", };
-                pinLink.Attributes.Add("href", "#");
-                pinLink.Attributes.Add("aria-label", "Pin");
+                var pinLink = new DnnGenericControl("a") { CssClass = "pinHelp", };
+                pinLink.Attributes["href"] = "#";
+                pinLink.Attributes["aria-label"] = "Pin";
                 panel.Controls.Add(pinLink);
 
-                JavaScript.RegisterClientReference(this.Page, ClientAPI.ClientNamespaceReferences.dnn);
+                JavaScript.RegisterClientReference(DotNetNuke.Common.HttpContextSource.Current, ClientAPI.ClientNamespaceReferences.dnn);
                 JavaScript.RequestRegistration(this.appStatus, this.eventLogger, PortalSettings.Current, CommonJs.DnnPlugins);
-
-                ////ClientResourceManager.RegisterScript(this.Page, "~/Resources/Shared/Scripts/initTooltips.js");
             }
         }
+        #pragma warning restore BL0005
 
         /// <summary>Gets the localized string corresponding to the <paramref name="key"/>.</summary>
         /// <param name="key">The resource key to find.</param>

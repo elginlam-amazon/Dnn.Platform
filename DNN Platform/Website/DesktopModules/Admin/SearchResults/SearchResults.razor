@@ -1,0 +1,138 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.SearchResults
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using DotNetNuke.UI.UserControls
+
+@*
+    Replaces SearchResults.ascx, element for element.
+
+    This module never rendered a single result server side: the whole result list, the grouping and
+    the pager are produced by ~/desktopmodules/Admin/SearchResults/dnn.searchResult.js, which calls
+    the InternalServices search Web API. The .ascx therefore only had to (a) render the search box,
+    the sort/page-size chrome, the empty pager/result containers the script fills in and the
+    advanced-search form, and (b) hand the script its options through an inline <script> block.
+    This component does exactly the same two things:
+
+    - the markup below keeps EVERY id and css class the script selects on
+      (#dnnSearchResult_dnnSearchBox, #dnnSearchResult-advancedTipContainer, .dnnSearchResultPanel,
+      .dnnSearchResultSortOptions, .dnnSearchResultCountPerPage, .dnnSearchResultPager (+ Top),
+      .dnnSearchResultContainer, #dnnSearchResultAdvancedForm, #advancedTagsCtrl,
+      #dnnSearchResultAdvancedExactSearch, #dnnSearchResultAdvancedSearch,
+      #dnnSearchResultAdvancedClear), so the client module keeps working unchanged;
+    - the three <dnn:DnnComboBox>es (ResultsPerPageList, AdvnacedDatesList, SearchScopeList) are the
+      plain <select>s the Web Forms control rendered, carrying the same ids, the same option
+      value/text pairs and the same selection. The Selectize client component the control used to
+      create over JS interop (dnn.createComboBox) cannot be created from a static server render, so
+      the bootstrap block added to dnn.searchResult.js creates it with the very same options
+      (checkbox for the scope list, the two OnClientSelectedIndexChanged handlers, and the
+      AllItemsChecked/ItemsChecked localization the control passed).
+    - the inline <script> block is forbidden in a Razor component, so the values it carried are
+      rendered as JSON into the #dnnSearchResultOptions data island below and read back by that same
+      bootstrap block. The two functions the block declared
+      (dnnSearchResultScopeItemChanged / dnnSearchResultPageSizeChanged) moved there verbatim.
+
+    No render mode is declared: the component only needs the request (query string + module
+    settings), which is available during the server render, and every interaction is handled by the
+    client module. Localization deliberately keeps Localization.GetString/GetSafeJSString against
+    the control's own resource file so that per-portal Language Editor overrides of the search
+    prompts ("NoResults", "DefaultText", ...) keep working.
+*@
+
+<div class="dnnSearchBoxPanel">
+    <a href="javascript:void(0)" class="dnnSearchResultAdvancedTip">@this.LinkAdvancedTipText</a>
+    <input type="text" id="dnnSearchResult_dnnSearchBox" value="@this.SearchTerm" aria-label="Search Term" />
+    <div id="dnnSearchResult-advancedTipContainer">
+        @this.AdvancedSearchHintText
+    </div>
+</div>
+
+<div class="dnnSearchResultPanel">
+    <div class="dnnRight">
+        <ul class="dnnSearchResultSortOptions">
+            <li class="active"><a href="#byRelevance">@this.RelevanceText</a></li>
+            <li><a href="#byDate">@this.DateText</a></li>
+        </ul>
+    </div>
+
+    <div class="dnnRight">
+        <span class="dnnSearchResultCountPerPage">@this.ResultsPerPageText</span>
+        @* Was <dnn:DnnComboBox ID="ResultsPerPageList" OnClientSelectedIndexChanged="dnnSearchResultPageSizeChanged">. *@
+        <select id="ResultsPerPageList" name="ResultsPerPageList" aria-label="PageSize">
+            @foreach (var item in this.ResultsPerPageItems)
+            {
+                <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+            }
+        </select>
+    </div>
+    <div class="dnnClear"></div>
+</div>
+
+<div class="dnnSearchResultPager dnnSearchResultPagerTop">
+    <div class="dnnLeft">
+        <span></span>
+    </div>
+    <div class="dnnRight">
+    </div>
+    <div class="dnnClear"></div>
+</div>
+
+<div class="dnnSearchResultContainer">
+</div>
+
+<div class="dnnSearchResultPager">
+    <div class="dnnLeft">
+        <span></span>
+    </div>
+    <div class="dnnRight">
+    </div>
+</div>
+
+<div id="dnnSearchResultAdvancedForm" class="dnnForm">
+    <div class="dnnFormItem">
+        <LabelControl ID="lblAdvancedTags" ResourceKey="lblAdvancedTags" ControlName="advancedTagsCtrl" LocalResourceFile="@this.ResourceFile" />
+        <input type="text" id="advancedTagsCtrl" value="@this.TagsQuery" />
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblAdvancedDates" ResourceKey="lblAdvancedDates" ControlName="AdvnacedDatesList" LocalResourceFile="@this.ResourceFile" />
+        @* Was <dnn:DnnComboBox ID="AdvnacedDatesList">, whose six <asp:ListItem>s carried ResourceKeys. *@
+        <select id="AdvnacedDatesList" name="AdvnacedDatesList" aria-label="Advanced Date">
+            @foreach (var item in this.AdvancedDatesItems)
+            {
+                <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+            }
+        </select>
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblAdvancedScope" ResourceKey="lblAdvancedScope" ControlName="SearchScopeList" LocalResourceFile="@this.ResourceFile" />
+        @* Was <dnn:DnnComboBox ID="SearchScopeList" CheckBoxes="true" Width="235px"
+           OnClientSelectedIndexChanged="dnnSearchResultScopeItemChanged">, filled in OnLoad. *@
+        <select id="SearchScopeList" name="SearchScopeList" multiple="multiple" style="width:235px" aria-label="Advanced Scope">
+            @foreach (var item in this.SearchScopeItems)
+            {
+                <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+            }
+        </select>
+    </div>
+    <div class="dnnFormItem">
+        <LabelControl ID="lblAdvancedExactSearch" ResourceKey="lblAdvancedExactSearch" ControlName="dnnSearchResultAdvancedExactSearch" LocalResourceFile="@this.ResourceFile" />
+        <input type="checkbox" id="dnnSearchResultAdvancedExactSearch" checked="@this.ExactSearchChecked" />
+    </div>
+    <ul class="dnnActions dnnClear">
+        <li>
+            <a id="dnnSearchResultAdvancedSearch" class="dnnPrimaryAction">@this.SearchButtonText</a>
+        </li>
+        <li>
+            <a id="dnnSearchResultAdvancedClear" class="dnnSecondaryAction">@this.ClearButtonText</a>
+        </li>
+    </ul>
+</div>
+
+@* Replaces the inline <script> block: the values it interpolated travel as JSON and are read back
+   by the bootstrap block of dnn.searchResult.js. *@
+<div id="dnnSearchResultOptions" class="dnnSearchResultOptions" data-options="@this.ClientOptionsJson"></div>

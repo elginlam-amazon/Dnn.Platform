@@ -8,8 +8,7 @@ namespace DotNetNuke.Web.Services
     using System.Globalization;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
+    using System.Text;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Application;
@@ -21,7 +20,8 @@ namespace DotNetNuke.Web.Services
     using DotNetNuke.Security.Permissions;
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Models;
-
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A web API controller for getting information about modules in the site.</summary>
@@ -29,6 +29,7 @@ namespace DotNetNuke.Web.Services
     public class MobileHelperController : DnnApiController
     {
         private static readonly char[] ModuleSeparator = [',',];
+        private static readonly CompositeFormat DesktopModuleCacheKeyFormat = CompositeFormat.Parse(DataCache.DesktopModuleCacheKey);
         private readonly string dnnVersion = Globals.FormatVersion(DotNetNukeContext.Current.Application.Version, false);
         private readonly IHostSettings hostSettings;
         private readonly ITabController tabController;
@@ -53,7 +54,7 @@ namespace DotNetNuke.Web.Services
         /// <param name="moduleList">A comma-delimited list of module names.</param>
         /// <returns>A response with a list of objects containing <c>tabModuleId</c> and <c>moniker</c> fields.</returns>
         [HttpGet]
-        public IHttpActionResult Monikers(string moduleList)
+        public IActionResult Monikers(string moduleList)
         {
             var monikers = GetMonikersForList(this.hostSettings, moduleList);
             return this.Ok(monikers.Select(kpv => new { tabModuleId = kpv.Key, moniker = kpv.Value, }));
@@ -63,10 +64,10 @@ namespace DotNetNuke.Web.Services
         /// <param name="moduleList">A comma-delimited list of module names.</param>
         /// <returns>A response with a <see cref="SiteDetail"/> object.</returns>
         [HttpGet]
-        public HttpResponseMessage ModuleDetails(string moduleList)
+        public IActionResult ModuleDetails(string moduleList)
         {
             var siteDetails = this.GetSiteDetails(moduleList);
-            return this.Request.CreateResponse(HttpStatusCode.OK, siteDetails);
+            return DnnApiResults.Response(HttpStatusCode.OK, siteDetails);
         }
 
         private static IEnumerable<KeyValuePair<int, string>> GetMonikersForList(IHostSettings hostSettings, string moduleList)
@@ -108,7 +109,7 @@ namespace DotNetNuke.Web.Services
             var desktopModule = DesktopModuleController.GetDesktopModuleByModuleName(hostSettings, moduleName, portalId);
             if (desktopModule != null)
             {
-                var cacheKey = $"{string.Format(CultureInfo.InvariantCulture, DataCache.DesktopModuleCacheKey, portalId)}_{desktopModule.DesktopModuleID}";
+                var cacheKey = $"{string.Format(CultureInfo.InvariantCulture, DesktopModuleCacheKeyFormat, portalId)}_{desktopModule.DesktopModuleID}";
                 var args = new CacheItemArgs(cacheKey, DataCache.DesktopModuleCacheTimeOut, DataCache.DesktopModuleCachePriority, portalId, desktopModule, tabController);
 
                 return CBO.GetCachedObject<IList<TabModule>>(hostSettings, args, GetTabModulesCallback);

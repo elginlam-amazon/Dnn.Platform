@@ -5,10 +5,13 @@
 namespace DotNetNuke.Web.Client;
 
 using System;
-using System.Runtime.Serialization;
-using System.Web.UI;
 
-/// <summary>An exception thrown from an operation that requires a <see cref="ScriptManager"/> when it is not present.</summary>
+/// <summary>An exception thrown from an operation that requires an ASP.NET AJAX <c>ScriptManager</c> when it is not present.</summary>
+/// <remarks>
+/// The <c>System.Web.UI.ScriptManager</c> type this originally referenced is a WebForms type that does not exist on
+/// modern .NET, so the documentation reference is no longer a <c>cref</c>. The exception type itself is still thrown by
+/// the converted Tag Helpers when the WebForms-era async post-back host is required but unavailable.
+/// </remarks>
 [Serializable]
 public class ScriptManagerRequiredException : Exception
 {
@@ -29,9 +32,8 @@ public class ScriptManagerRequiredException : Exception
     {
     }
 
-    /// <inheritdoc />
-    protected ScriptManagerRequiredException(SerializationInfo info, StreamingContext context)
-        : base(info, context)
-    {
-    }
+    // The legacy `protected ScriptManagerRequiredException(SerializationInfo, StreamingContext)` constructor
+    // implemented the BinaryFormatter-era ISerializable pattern. Binary serialization of exceptions is obsolete
+    // (SYSLIB0051) and removed in .NET 10, so the constructor is intentionally not carried over. The type and its
+    // three public constructors are unchanged.
 }

@@ -7,14 +7,14 @@ namespace Dnn.PersonaBar.Servers.Services
     using System;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using Dnn.PersonaBar.Servers.Components.DatabaseServer;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     [MenuPermission(Scope = ServiceScope.Host)]
@@ -24,7 +24,7 @@ namespace Dnn.PersonaBar.Servers.Services
         private readonly DatabaseController databaseController = new DatabaseController();
 
         [HttpGet]
-        public HttpResponseMessage GetDatabaseServerInfo()
+        public IActionResult GetDatabaseServerInfo()
         {
             try
             {
@@ -45,7 +45,7 @@ namespace Dnn.PersonaBar.Servers.Services
                     fileName = f.ShortFileName,
                 });
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     productVersion = dbInfo.ProductVersion,
                     servicePack = dbInfo.ServicePack,
@@ -58,7 +58,7 @@ namespace Dnn.PersonaBar.Servers.Services
             catch (Exception exc)
             {
                 Logger.SystemInfoDatabaseControllerGetDatabaseServerInfoException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
     }

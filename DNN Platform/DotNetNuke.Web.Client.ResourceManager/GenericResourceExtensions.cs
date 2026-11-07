@@ -19,10 +19,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetPriority<T>(this T input, int priority)
             where T : IResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Priority = priority;
             return input;
@@ -38,10 +35,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetNameAndVersion<T>(this T input, string name, string version, bool forceVersion)
             where T : IResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Name = name;
             input.Version = version;
@@ -57,10 +51,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetCdnUrl<T>(this T input, string cdnUrl)
             where T : IResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.CdnUrl = cdnUrl;
             return input;
@@ -74,10 +65,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetProvider<T>(this T input, string provider)
             where T : IResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Provider = provider;
             return input;
@@ -90,10 +78,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetBlocking<T>(this T input)
             where T : IResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Blocking = true;
             return input;
@@ -107,10 +92,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetIntegrity<T>(this T input, string hash)
             where T : IResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Integrity = hash;
             return input;
@@ -124,10 +106,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetCrossOrigin<T>(this T input, CrossOrigin crossOrigin)
             where T : IResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.CrossOrigin = crossOrigin;
             return input;
@@ -141,10 +120,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetFetchPriority<T>(this T input, FetchPriority fetchPriority)
             where T : IResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.FetchPriority = fetchPriority;
             return input;
@@ -158,10 +134,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetReferrerPolicy<T>(this T input, ReferrerPolicy referrerPolicy)
             where T : IResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.ReferrerPolicy = referrerPolicy;
             return input;
@@ -176,10 +149,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T AddAttribute<T>(this T input, string attributeName, string attributeValue)
             where T : IResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             if (!string.IsNullOrEmpty(attributeName))
             {

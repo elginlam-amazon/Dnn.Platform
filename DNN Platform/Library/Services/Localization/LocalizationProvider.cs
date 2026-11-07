@@ -10,7 +10,6 @@ namespace DotNetNuke.Services.Localization
     using System.IO;
     using System.Linq;
     using System.Threading;
-    using System.Web.Hosting;
     using System.Xml;
     using System.Xml.XPath;
 
@@ -141,7 +140,7 @@ namespace DotNetNuke.Services.Localization
                 }
 
                 resourceFileName = resourceFileName.TrimStart('~', '/', '\\');
-                string filePath = HostingEnvironment.MapPath("~/" + resourceFileName);
+                string filePath = HttpContextSource.MapPath("~/" + resourceFileName);
                 XmlDocument doc = null;
                 if (File.Exists(filePath))
                 {
@@ -331,7 +330,7 @@ namespace DotNetNuke.Services.Localization
                     // no filepath found from an absolute reference, try and map the path to get the file path
                     if (filePath == null)
                     {
-                        filePath = HostingEnvironment.MapPath(Globals.ApplicationPath + cacheKey);
+                        filePath = HttpContextSource.MapPath(Globals.ApplicationPath + cacheKey);
                     }
 
                     // The file is not in the lookup, or we know it exists as we have found it before
@@ -426,7 +425,13 @@ namespace DotNetNuke.Services.Localization
         private static string GetResourceFileName(string resourceFileRoot, string language)
         {
             string resourceFile;
-            language = language.ToLowerInvariant();
+
+            // A missing language is equivalent to the system locale, which the branches below
+            // already handle through string.IsNullOrEmpty. The callers derive the language from
+            // the current UI culture and the portal default, either of which can legitimately be
+            // absent (CultureInfo.InvariantCulture.ToString() is the empty string, and a portal
+            // may have no default language configured), so null must not dereference here.
+            language = language is null ? string.Empty : language.ToLowerInvariant();
             if (resourceFileRoot != null)
             {
                 if (language.Equals(Localization.SystemLocale, StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(language))

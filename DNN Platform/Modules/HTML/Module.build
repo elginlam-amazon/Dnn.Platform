@@ -12,8 +12,49 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\HTML</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
-  <Import Project="$(BuildScriptsPath)\Module.Build"/>
+  <!-- The files on disk are Package.targets and Module.build; the lower-case "t"/"b" matters on
+       case-sensitive (Linux) file systems, where the old "Package.Targets" / "Module.Build"
+       spellings fail with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
+  <Import Project="$(BuildScriptsPath)\Module.build" />
+  <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="CopyBin;GetFiles;DebugProject;Package" />
+  <Target Name="GetFiles">
+    <ItemGroup>
+      <TextFiles Include="*.txt" Exclude="license.txt;releaseNotes.txt" />
+      <!-- The view, edit, my-work and settings controls are now Blazor components compiled into
+           the assembly, so no *.ascx is packaged as loose content any more. -->
+      <ResourceFiles Include="Resources/*.resx" />
+      <CssFiles Include="edit.css" />
+      <!-- edit.js is the ported inline <script> block of EditHtml.ascx (dnnPanels wiring plus the
+           iframe/CKEditor resize); EditHtml.razor loads it from DesktopModules/HTML/edit.js, so it
+           must ship next to edit.css. wwwroot/js/dnn.modules.html.js is NOT listed here: it is a
+           Razor Class Library static web asset served from
+           _content/DotNetNuke.Modules.Html/js/, the same convention DotNetNuke.WebControls uses. -->
+      <JsFiles Include="*.js" />
+      <ImageFiles Include="Images/*.*" />
+      <DocumentationFiles Include="Documentation/**/*.*" />
+      <SqlFiles Include="Providers/**/*.SqlDataProvider" />
+      <Resources Include="@(TextFiles);@(ResourceFiles);@(CssFiles);@(JsFiles);@(ImageFiles);@(DocumentationFiles);@(SqlFiles);" />
+    </ItemGroup>
+  </Target>
+  <Target Name="CopyBin">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).dll" DestinationFolder="$(WebsitePath)/bin" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).pdb" DestinationFolder="$(WebsitePath)/bin" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).xml" DestinationFolder="$(WebsitePath)/bin" />
+  </Target>
+  <Target Name="DebugProject" Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <Copy SourceFiles="@(TextFiles)" DestinationFolder="$(ModuleFolderName)" />
+    <Copy SourceFiles="@(CssFiles)" DestinationFolder="$(ModuleFolderName)" />
+    <Copy SourceFiles="@(JsFiles)" DestinationFolder="$(ModuleFolderName)" />
+    <!-- @(ResourceFiles) is now Resources\*.resx; the flat Copy lands them in
+         DesktopModules\HTML\App_LocalResources as HtmlModule.resx / EditHtml.resx /
+         MyWork.resx / Settings.resx / SharedResources.resx / Workflow.resx, which is the name
+         PortalModuleBase.LocalResourceFile derives from the component type name (and, for
+         SharedResources.resx, what Localization.LocalSharedResourceFile expects). -->
+    <Copy SourceFiles="@(ResourceFiles)" DestinationFolder="$(ModuleFolderName)\App_LocalResources" />
+    <Copy SourceFiles="@(ImageFiles)" DestinationFolder="$(ModuleFolderName)\Images" />
+    <Copy SourceFiles="@(DocumentationFiles)" DestinationFolder="$(ModuleFolderName)\Documentation" />
+  </Target>
   <Target Name="UpdateFiles">
     <ItemGroup>
       <Resources Remove="web.config" />

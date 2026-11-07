@@ -1,0 +1,31 @@
+@* Recursive level renderer for the desktop menu. Direct port of the
+   @helper RenderPages(IEnumerable<MenuNode> pages) block in menus/desktop/RazorMenu.cshtml.
+   @helper does not exist in modern Razor, so the recursion is expressed as a component that
+   renders itself for each node's children. *@
+
+@foreach (var node in this.Pages)
+{
+    <li class="@(node.Selected ? "selected" : string.Empty)">
+        <a href="@(node.Enabled ? node.Href : "javascript:void(0);")" target="@node.Target">
+            @node.Text
+            @if (node.HasChildren && node.Depth == 0)
+            {
+                @* Drop-down caret, shown only for top-level nodes in the original template. *@
+                <span>&nbsp;&#x25BC;</span>
+            }
+        </a>
+        @if (node.HasChildren)
+        {
+            <ul>
+                <DesktopMenuItems Pages="node.Children" />
+            </ul>
+        }
+    </li>
+}
+
+@code {
+    /// <summary>Gets or sets the nodes to render at this level of the menu.</summary>
+    [Parameter]
+    [EditorRequired]
+    public IReadOnlyList<ApertureMenuNode> Pages { get; set; } = [];
+}

@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.Upgrade.InternalController.Steps
 {
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -39,7 +38,7 @@ namespace DotNetNuke.Services.Upgrade.InternalController.Steps
             // Need to clear the cache to pick up new HostSettings from the SQLDataProvider script
             DataCache.RemoveCache(DataCache.HostSettingsCacheKey);
 
-            string domainName = Globals.GetDomainName(HttpContext.Current.Request);
+            string domainName = Globals.GetDomainName(HttpContextSource.CurrentOrThrow.Request);
             foreach (var setting in installConfig.Settings)
             {
                 var settingName = setting.Name;

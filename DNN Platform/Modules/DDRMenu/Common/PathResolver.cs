@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -7,7 +7,6 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -93,6 +92,10 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
                     switch (root)
                     {
                         case RelativeTo.Container:
+                            // Walks up the control tree looking for the DNN container, exactly as
+                            // before; a module-control host has no control tree, in which case
+                            // HostControl is null and the skin path is used, as it was when the
+                            // walk found no container.
                             var container = context.HostControl;
                             while (container != null && container is not UI.Containers.Container)
                             {
@@ -101,7 +104,7 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
 
                             var containerRoot = (container == null)
                                 ? context.SkinPath
-                                : $"{Path.GetDirectoryName(((UI.Containers.Container)container).AppRelativeVirtualPath).Replace('\\', '/')}/";
+                                : $"{Path.GetDirectoryName(((UI.Containers.Container)container).ControlSrc ?? string.Empty).Replace('\\', '/')}/";
                             resolvedPath = Path.Combine(containerRoot, path);
                             break;
                         case RelativeTo.Dnn:
@@ -131,7 +134,7 @@ namespace DotNetNuke.Web.DDRMenu.DNNCommon
                         var dirName = resolvedPath.Substring(0, sep + 1);
                         var fileName = resolvedPath.Substring(sep + 1);
 
-                        var mappedDir = HttpContext.Current.Server.MapPath(dirName);
+                        var mappedDir = HttpContextSource.MapPath(dirName);
                         mappedDir = mappedDir.Remove(mappedDir.Length - 1);
                         if (Directory.Exists(mappedDir))
                         {

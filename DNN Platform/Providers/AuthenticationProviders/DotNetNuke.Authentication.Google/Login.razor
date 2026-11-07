@@ -1,0 +1,110 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Authentication.Google
+@inherits DotNetNuke.Services.Authentication.OAuth.OAuthLoginBase
+@using System
+@using System.Threading.Tasks
+@using DotNetNuke.Authentication.Google.Components
+@using DotNetNuke.Services.Authentication
+@using DotNetNuke.Services.Authentication.OAuth
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Skins.Controls
+
+@* The two <li> items replace the runat="server" HtmlGenericControls; their Visible flags are
+   now conditional rendering.
+
+   The LinkButtons became ordinary links to Google's authorization endpoint. On WebForms the
+   click was a postback whose handler called OAuthClient.Authorize(), and that answered with an
+   HTTP redirect to exactly this URL; a Blazor event handler cannot redirect, because there is no
+   HTTP response left to redirect once the circuit is interactive. Letting the browser navigate
+   there directly produces the same user-visible result. The original LinkButtons had
+   CausesValidation="False", and these links likewise take part in no form or validation. *@
+@if (this.Mode == AuthMode.Login)
+{
+    <li id="loginItem" class="googleplus">
+        <a id="loginButton" href="@this.authorizeUrl">
+            <span>@this.LocalizeText("LoginGoogle")</span>
+        </a>
+    </li>
+}
+@if (this.Mode == AuthMode.Register)
+{
+    <li id="registerItem" class="googleplus">
+        <a id="registerButton" href="@this.authorizeUrl">
+            <span>@this.LocalizeText("RegisterGoogle")</span>
+        </a>
+    </li>
+}
+
+@code {
+    /// <summary>Google's authorization URL, resolved while the HTTP request is still in flight.</summary>
+    private string authorizeUrl;
+
+    /// <inheritdoc />
+    public override bool SupportsRegistration
+    {
+        get { return true; }
+    }
+
+    /// <inheritdoc />
+    protected override string AuthSystemApplicationName
+    {
+        get { return "Google"; }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The asynchronous replacement for the WebForms <c>GetCurrentUser</c> override. Unlike the
+    /// Facebook provider there is no <c>AddCustomProperties</c> override here - the WebForms
+    /// original had none either - so the fetched user data needs no field caching.
+    /// </remarks>
+    protected override async Task<UserData> GetCurrentUserAsync()
+    {
+        return await this.OAuthClient.GetCurrentUserAsync<GoogleUserData>();
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Replaces <c>OnInit</c>. The client must exist before the base class runs, because the base
+    /// uses it to decide whether this request is the OAuth callback and, if so, performs the
+    /// authorization round-trip.
+    /// </remarks>
+    protected override async Task OnInitializedAsync()
+    {
+        this.OAuthClient = new GoogleClient(this.PortalId, this.Mode);
+
+        await base.OnInitializedAsync();
+
+        // Everything below needs the HTTP request, which only exists during this initial
+        // (static) render — never in an event handler.
+        this.authorizeUrl = this.OAuthClient.GetAuthorizationUrl();
+        this.ReportAuthorizationDenied();
+    }
+
+    /// <summary>
+    /// Shows the warning that the WebForms <c>LoginButton_Click</c> handler showed when
+    /// <c>OAuthClient.Authorize()</c> returned <see cref="AuthorisationResult.Denied"/>.
+    /// </summary>
+    /// <remarks>
+    /// Google reports a declined consent screen by sending the user back to the callback URL
+    /// with an <c>error_reason</c>, which is the request value <c>Authorize()</c> inspected to
+    /// produce <see cref="AuthorisationResult.Denied"/>. That request is this render, so the
+    /// check belongs here: the query string is not readable from an interactive event handler,
+    /// and the user must not be authenticated — note that no authentication is performed on this
+    /// path, the base class only authenticates when authorization actually succeeded.
+    /// </remarks>
+    private void ReportAuthorizationDenied()
+    {
+        var errorReason = this.Request?.Query["error_reason"].ToString();
+        if (string.IsNullOrEmpty(errorReason) || !this.OAuthClient.IsCurrentService())
+        {
+            return;
+        }
+
+        UI.Skins.Skin.AddModuleMessage(
+            this,
+            Localization.GetString("PrivateConfirmationMessage", Localization.SharedResourceFile),
+            ModuleMessage.ModuleMessageType.YellowWarning);
+    }
+}

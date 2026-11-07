@@ -1,0 +1,639 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using System.Net
+@using System.Threading.Tasks
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Modules.HTMLEditorProvider
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Services.Personalization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="dnnForm dnnTextEditor dnnClear">
+    @if (!string.IsNullOrEmpty(this.errorMessage))
+    {
+        <div class="dnnFormMessage dnnFormError">@this.errorMessage</div>
+    }
+    <div id="PanelTextEditor" class="dnnTextPanel" style="@this.WidthStyle">
+        @if (this.ChooseMode)
+        {
+            <div id="PanelView" class="@this.ViewPanelCssClass" style="@this.WidthStyle">
+                @foreach (var item in this.viewItems)
+                {
+                    <label>
+                        <input type="radio"
+                               name="@this.OptViewClientId"
+                               value="@item.Value"
+                               checked="@item.Selected"
+                               @onchange="@(() => this.OptViewSelectedIndexChangedAsync(item.Value))" />
+                        @item.Text
+                    </label>
+                }
+                <LabelControl ID="plView" ControlName="optView" CssClass="dnnFormLabelNoFloat" LocalResourceFile="@this.ResourceFile" />
+            </div>
+        }
+        @if (this.BasicTextBoxVisible)
+        {
+            <div id="DivBasicTextBox" class="dnnFormItem">
+                <textarea id="TxtDesktopHTML"
+                          rows="12"
+                          cols="75"
+                          style="@this.EditorStyle"
+                          @onchange="this.OnBasicTextChangedAsync">@this.BasicText</textarea>
+                @if (this.ChooseRender)
+                {
+                    <div id="DivBasicRender">
+                        <LabelControl ID="plRender" ControlName="optRender" LocalResourceFile="@this.ResourceFile" />
+                        @foreach (var item in this.renderItems)
+                        {
+                            <label>
+                                <input type="radio"
+                                       name="@this.OptRenderClientId"
+                                       value="@item.Value"
+                                       checked="@item.Selected"
+                                       @onchange="@(() => this.OptRenderSelectedIndexChangedAsync(item.Value))" />
+                                @item.Text
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        @if (this.RichTextBoxVisible)
+        {
+            <div id="DivRichTextBox" class="dnnFormItem" style="@this.EditorStyle">
+                @if (this.editorComponentType is not null)
+                {
+                    <DynamicComponent @ref="this.editorHost" Type="@this.editorComponentType" />
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "TextEditor.ascx";
+
+    private readonly List<ListItem> renderItems = new List<ListItem>();
+    private readonly List<ListItem> viewItems = new List<ListItem>();
+
+    private string instanceId = "textEditor_" + Guid.NewGuid().ToString("N");
+    private HtmlEditorProvider richTextEditor;
+    private Type editorComponentType;
+    private DynamicComponent editorHost;
+    private string errorMessage;
+    private string basicText = string.Empty;
+    private string desktopMode;
+    private string defaultMode;
+    private string textRenderMode;
+    private bool loaded;
+
+    /// <summary>Initializes a new instance of the <see cref="TextEditor"/> class.</summary>
+    public TextEditor()
+    {
+        this.HtmlEncode = true;
+        this.ChooseRender = true;
+        this.ChooseMode = true;
+    }
+
+    /// <summary>Gets a value indicating whether a rich text editor provider is installed.</summary>
+    public bool IsRichEditorAvailable => this.richTextEditor != null;
+
+    /// <summary>Gets allows public access ot the HtmlEditorProvider.</summary>
+    /// <value>
+    /// The rendered provider component once it exists, and the probe instance created during
+    /// initialization before that.
+    /// </value>
+    public HtmlEditorProvider RichText => this.RenderedEditor ?? this.richTextEditor;
+
+    /// <summary>Gets the text currently held by the basic (plain textarea) editor.</summary>
+    /// <remarks>
+    /// Replaces <c>BasicTextEditor</c>, which returned the <c>System.Web.UI.WebControls.TextBox</c>
+    /// the basic mode rendered; there is no such control on ASP.NET Core.
+    /// </remarks>
+    public string BasicText => this.basicText;
+
+    /// <summary>Gets the client id of the editor-mode radio button group.</summary>
+    public string OptViewClientId => this.instanceId + "_OptView";
+
+    /// <summary>Gets the client id of the render-mode radio button group.</summary>
+    public string OptRenderClientId => this.instanceId + "_OptRender";
+
+    /// <summary>Gets the resource file of this control.</summary>
+    public string LocalResourceFile => this.ResourceFile;
+
+    /// <summary>Gets or sets a value indicating whether enables/Disables the option to allow the user to select between Rich/Basic Mode, Default is true.</summary>
+    [Parameter]
+    public bool ChooseMode { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the Text/Html button is rendered for Basic mode, Default is True.</summary>
+    [Parameter]
+    public bool ChooseRender { get; set; }
+
+    /// <summary>Gets or sets /Sets the Default mode of the control, either "RICH" or "BASIC", Defaults to Rich.</summary>
+    [Parameter]
+    public string DefaultMode
+    {
+        get => string.IsNullOrEmpty(this.defaultMode) ? "RICH" : this.defaultMode;
+
+        set
+        {
+            this.defaultMode = !value.Equals("BASIC", StringComparison.OrdinalIgnoreCase) ? "RICH" : "BASIC";
+        }
+    }
+
+    /// <summary>Gets or sets /Sets the CSS height of the control.</summary>
+    /// <value>A CSS length (this was a Web Forms <c>Unit</c>).</value>
+    [Parameter]
+    public string Height { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether turns on HtmlEncoding of text.  If this option is on the control will assume, it is being passed encoded text and will decode.</summary>
+    [Parameter]
+    public bool HtmlEncode { get; set; }
+
+    /// <summary>Gets or sets the current mode of the control "RICH",  "BASIC".</summary>
+    [Parameter]
+    public string Mode
+    {
+        get
+        {
+            var strMode = string.Empty;
+            var objUserInfo = UserController.Instance.GetCurrentUserInfo();
+
+            // Check if Personal Preference is set
+            if (objUserInfo.UserID >= 0)
+            {
+                if (Personalization.GetProfile("DotNetNuke.TextEditor", "PreferredTextEditor") != null)
+                {
+                    strMode = Convert.ToString(Personalization.GetProfile("DotNetNuke.TextEditor", "PreferredTextEditor"), CultureInfo.InvariantCulture);
+                }
+            }
+
+            // If no Preference Check if the component already recorded a mode
+            if (string.IsNullOrEmpty(strMode))
+            {
+                if (!string.IsNullOrEmpty(this.desktopMode))
+                {
+                    strMode = this.desktopMode;
+                }
+            }
+
+            // Finally if still no value Use default
+            if (string.IsNullOrEmpty(strMode))
+            {
+                strMode = this.DefaultMode;
+            }
+
+            if (strMode == "RICH" && !this.IsRichEditorAvailable)
+            {
+                strMode = "BASIC";
+            }
+
+            return strMode;
+        }
+
+        set
+        {
+            var objUserInfo = UserController.Instance.GetCurrentUserInfo();
+
+            if (!value.Equals("BASIC", StringComparison.OrdinalIgnoreCase))
+            {
+                this.desktopMode = "RICH";
+
+                if (objUserInfo.UserID >= 0)
+                {
+                    Personalization.SetProfile("DotNetNuke.TextEditor", "PreferredTextEditor", "RICH");
+                }
+            }
+            else
+            {
+                this.desktopMode = "BASIC";
+
+                if (objUserInfo.UserID >= 0)
+                {
+                    Personalization.SetProfile("DotNetNuke.TextEditor", "PreferredTextEditor", "BASIC");
+                }
+            }
+        }
+    }
+
+    /// <summary>Gets or sets /Sets the Text of the control.</summary>
+    [Parameter]
+    public string Text
+    {
+        get
+        {
+            switch (this.SelectedViewValue)
+            {
+                case "BASIC":
+                    switch (this.SelectedRenderValue)
+                    {
+                        case "T":
+                            return this.Encode(HtmlUtils.ConvertToHtml(RemoveBaseTags(this.basicText)));
+
+                        case "R":
+                            return RemoveBaseTags(this.basicText);
+
+                        default:
+                            return this.Encode(RemoveBaseTags(this.basicText));
+                    }
+
+                default:
+                    return this.IsRichEditorAvailable
+                        ? this.Encode(RemoveBaseTags(this.RichText.Text))
+                        : this.Encode(RemoveBaseTags(this.basicText));
+            }
+        }
+
+        set
+        {
+            this.basicText = HtmlUtils.ConvertToText(this.Decode(value));
+            if (this.IsRichEditorAvailable)
+            {
+                this.RichText.Text = this.Decode(value);
+            }
+        }
+    }
+
+    /// <summary>Gets or sets the callback raised when <see cref="Text"/> changes.</summary>
+    [Parameter]
+    public EventCallback<string> TextChanged { get; set; }
+
+    /// <summary>Gets or sets the render mode for Basic mode.  {Raw | HTML | Text}.</summary>
+    [Parameter]
+    public string TextRenderMode
+    {
+        get => this.textRenderMode ?? string.Empty;
+
+        set
+        {
+            var strMode = value.ToUpperInvariant().Substring(0, 1);
+            if (!string.Equals(strMode, "R", StringComparison.Ordinal)
+                && !string.Equals(strMode, "H", StringComparison.Ordinal)
+                && !string.Equals(strMode, "T", StringComparison.Ordinal))
+            {
+                strMode = "H";
+            }
+
+            this.textRenderMode = strMode;
+        }
+    }
+
+    /// <summary>Gets or sets /Sets the CSS width of the control.</summary>
+    /// <value>A CSS length (this was a Web Forms <c>Unit</c>).</value>
+    [Parameter]
+    public string Width { get; set; }
+
+    /// <summary>Gets a value indicating whether the basic (textarea) editor is rendered.</summary>
+    public bool BasicTextBoxVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the rich text editor is rendered.</summary>
+    public bool RichTextBoxVisible { get; private set; }
+
+    /// <summary>Gets the css class of the mode selection panel.</summary>
+    private string ViewPanelCssClass { get; set; } = "dnnTextPanelView";
+
+    /// <summary>Gets the rendered provider component, or <see langword="null"/> before it rendered.</summary>
+    private HtmlEditorProvider RenderedEditor => this.editorHost?.Instance as HtmlEditorProvider;
+
+    /// <summary>Gets the value of the selected editor mode.</summary>
+    private string SelectedViewValue =>
+        this.viewItems.Find(item => item.Selected)?.Value ?? this.Mode;
+
+    /// <summary>Gets the value of the selected render mode.</summary>
+    private string SelectedRenderValue =>
+        this.renderItems.Find(item => item.Selected)?.Value ?? this.TextRenderMode;
+
+    /// <summary>Gets the inline width style of the control.</summary>
+    private string WidthStyle => string.IsNullOrEmpty(this.Width) ? null : "width:" + this.Width;
+
+    /// <summary>Gets the inline style applied to the editors.</summary>
+    private string EditorStyle
+    {
+        get
+        {
+            var style = string.Empty;
+            if (!string.IsNullOrEmpty(this.Width))
+            {
+                style += "width:" + this.Width + ";";
+            }
+
+            if (!string.IsNullOrEmpty(this.Height))
+            {
+                style += "height:" + this.Height + ";";
+            }
+
+            return style.Length == 0 ? null : style;
+        }
+    }
+
+    /// <summary>Gets the resource file of this control.</summary>
+    private string ResourceFile => "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName;
+
+    /// <summary>Switches the editor mode.</summary>
+    /// <param name="mode">The mode to switch to, either <c>RICH</c> or <c>BASIC</c>.</param>
+    public void ChangeMode(string mode)
+    {
+        this.ApplyViewMode(mode);
+    }
+
+    /// <summary>Switches the render mode of the basic editor.</summary>
+    /// <param name="textRenderMode">The render mode to switch to.</param>
+    public void ChangeTextRenderMode(string textRenderMode)
+    {
+        this.ApplyRenderMode(textRenderMode);
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.richTextEditor = HtmlEditorProvider.Instance();
+
+        if (this.IsRichEditorAvailable)
+        {
+            this.richTextEditor.ControlID = this.instanceId;
+            this.richTextEditor.Initialize();
+
+            // Blazor components cannot be added to a control tree, so the provider's component type
+            // is rendered through DynamicComponent and the rendered instance is captured in
+            // OnPreRender (see editorHost / RenderedEditor).
+            this.editorComponentType = this.richTextEditor.GetType();
+        }
+    }
+
+    /// <summary>Page_Load runs when the control is loaded.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        try
+        {
+            // Populate Radio Button Lists
+            this.PopulateLists();
+
+            this.SetPanels();
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Hands the current text (and the control id) to the provider component that
+    /// <c>DynamicComponent</c> created, which is the replacement for
+    /// <c>PlcEditor.Controls.Add(richTextEditor.HtmlEditorControl)</c>.
+    /// </remarks>
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+
+        var rendered = this.RenderedEditor;
+        if (rendered is null || ReferenceEquals(rendered, this.richTextEditor))
+        {
+            return;
+        }
+
+        rendered.ControlID = this.instanceId;
+        rendered.Initialize();
+        rendered.Text = this.richTextEditor.Text;
+        this.richTextEditor = rendered;
+        this.StateHasChanged();
+    }
+
+    /// <summary>Removes the <c>base</c> tags from the given markup.</summary>
+    /// <param name="strInput">The markup to clean.</param>
+    /// <returns>The cleaned markup.</returns>
+    private static string RemoveBaseTags(string strInput)
+    {
+        return Globals.BaseTagRegex.Replace(strInput ?? string.Empty, " ");
+    }
+
+    /// <summary>Decodes the html.</summary>
+    /// <param name="strHtml">Html to decode.</param>
+    /// <returns>The decoded html.</returns>
+    private string Decode(string strHtml)
+    {
+        // Was Server.HtmlDecode, which is not available outside of System.Web.
+        return this.HtmlEncode ? WebUtility.HtmlDecode(strHtml) : strHtml;
+    }
+
+    /// <summary>Encodes the html.</summary>
+    /// <param name="strHtml">Html to encode.</param>
+    /// <returns>The encoded html.</returns>
+    private string Encode(string strHtml)
+    {
+        // Was Server.HtmlEncode, which is not available outside of System.Web.
+        return this.HtmlEncode ? WebUtility.HtmlEncode(strHtml) : strHtml;
+    }
+
+    /// <summary>Builds the radio button lists.</summary>
+    private void PopulateLists()
+    {
+        if (this.renderItems.Count == 0)
+        {
+            this.renderItems.Add(new ListItem(Localization.GetString("Text", this.ResourceFile), "T"));
+            this.renderItems.Add(new ListItem(Localization.GetString("Html", this.ResourceFile), "H"));
+            this.renderItems.Add(new ListItem(Localization.GetString("Raw", this.ResourceFile), "R"));
+        }
+
+        if (this.viewItems.Count == 0)
+        {
+            this.viewItems.Add(new ListItem(Localization.GetString("BasicTextBox", this.ResourceFile), "BASIC"));
+            if (this.IsRichEditorAvailable)
+            {
+                this.viewItems.Add(new ListItem(Localization.GetString("RichTextBox", this.ResourceFile), "RICH"));
+            }
+        }
+    }
+
+    /// <summary>Marks the editor mode item with the given value as selected.</summary>
+    /// <param name="value">The value to select.</param>
+    private void SelectViewValue(string value)
+    {
+        this.viewItems.ClearSelection();
+        var item = this.viewItems.FindByValue(value);
+        if (item is not null)
+        {
+            item.Selected = true;
+        }
+        else if (this.viewItems.Count > 0)
+        {
+            this.viewItems[0].Selected = true;
+        }
+    }
+
+    /// <summary>Marks the render mode item with the given value as selected.</summary>
+    /// <param name="value">The value to select.</param>
+    private void SelectRenderValue(string value)
+    {
+        this.renderItems.ClearSelection();
+        var item = this.renderItems.FindByValue(value);
+        if (item is not null)
+        {
+            item.Selected = true;
+        }
+        else if (this.renderItems.Count > 0)
+        {
+            this.renderItems[0].Selected = true;
+        }
+    }
+
+    /// <summary>optRender_SelectedIndexChanged runs when Basic Text Box mode is changed.</summary>
+    /// <param name="value">The newly selected render mode.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OptRenderSelectedIndexChangedAsync(string value)
+    {
+        this.ApplyRenderMode(value);
+        await this.TextChanged.InvokeAsync(this.Text);
+    }
+
+    /// <summary>Applies a new render mode for the basic editor.</summary>
+    /// <param name="value">The newly selected render mode.</param>
+    private void ApplyRenderMode(string value)
+    {
+        if (!string.IsNullOrEmpty(value))
+        {
+            this.SelectRenderValue(value);
+            this.TextRenderMode = value;
+        }
+
+        if (this.Mode == "BASIC")
+        {
+            this.basicText = this.TextRenderMode == "H"
+                ? HtmlUtils.ConvertToHtml(this.basicText)
+                : HtmlUtils.ConvertToText(this.basicText);
+        }
+
+        this.SetPanels();
+    }
+
+    /// <summary>optView_SelectedIndexChanged runs when Editor Mode is changed.</summary>
+    /// <param name="value">The newly selected editor mode.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OptViewSelectedIndexChangedAsync(string value)
+    {
+        this.ApplyViewMode(value);
+        await this.TextChanged.InvokeAsync(this.Text);
+    }
+
+    /// <summary>Applies a new editor mode.</summary>
+    /// <param name="value">The newly selected editor mode.</param>
+    private void ApplyViewMode(string value)
+    {
+        if (!string.IsNullOrEmpty(value))
+        {
+            this.SelectViewValue(value);
+            this.Mode = value;
+        }
+
+        if (this.Mode == "BASIC")
+        {
+            if (this.IsRichEditorAvailable)
+            {
+                switch (this.TextRenderMode)
+                {
+                    case "T":
+                        this.basicText = HtmlUtils.ConvertToText(this.RichText.Text);
+                        break;
+                    default:
+                        this.basicText = this.RichText.Text;
+                        break;
+                }
+            }
+        }
+        else if (this.IsRichEditorAvailable)
+        {
+            switch (this.TextRenderMode)
+            {
+                case "T":
+                    this.RichText.Text = HtmlUtils.ConvertToHtml(this.basicText);
+                    break;
+                default:
+                    this.RichText.Text = this.basicText;
+                    break;
+            }
+        }
+
+        this.SetPanels();
+    }
+
+    /// <summary>Handles a change of the basic editor's text.</summary>
+    /// <param name="args">The change event arguments.</param>
+    /// <returns>A task representing the operation.</returns>
+    private async Task OnBasicTextChangedAsync(ChangeEventArgs args)
+    {
+        this.basicText = args?.Value?.ToString() ?? string.Empty;
+        await this.TextChanged.InvokeAsync(this.Text);
+    }
+
+    /// <summary>Sets the Mode displayed.</summary>
+    private void SetPanels()
+    {
+        var selectedView = this.viewItems.Find(item => item.Selected);
+        if (selectedView is not null)
+        {
+            this.Mode = selectedView.Value;
+        }
+
+        if (!string.IsNullOrEmpty(this.Mode))
+        {
+            this.SelectViewValue(this.Mode);
+        }
+        else if (this.viewItems.Count > 0)
+        {
+            this.viewItems.ClearSelection();
+            this.viewItems[0].Selected = true;
+        }
+
+        // Set the text render mode for basic mode
+        var selectedRender = this.renderItems.Find(item => item.Selected);
+        if (selectedRender is not null)
+        {
+            this.TextRenderMode = selectedRender.Value;
+        }
+
+        if (!string.IsNullOrEmpty(this.TextRenderMode))
+        {
+            this.SelectRenderValue(this.TextRenderMode);
+        }
+        else if (this.renderItems.Count > 0)
+        {
+            this.renderItems.ClearSelection();
+            this.renderItems[0].Selected = true;
+        }
+
+        if (this.SelectedViewValue == "BASIC")
+        {
+            this.BasicTextBoxVisible = true;
+            this.RichTextBoxVisible = false;
+            this.ViewPanelCssClass = "dnnTextPanelView dnnTextPanelView-basic";
+        }
+        else
+        {
+            this.BasicTextBoxVisible = false;
+            this.RichTextBoxVisible = true;
+            this.ViewPanelCssClass = "dnnTextPanelView";
+        }
+    }
+}

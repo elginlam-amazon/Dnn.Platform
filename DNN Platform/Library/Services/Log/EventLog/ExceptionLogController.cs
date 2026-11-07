@@ -4,15 +4,15 @@
 namespace DotNetNuke.Services.Log.EventLog
 {
     using System;
-    using System.Data.SqlClient;
     using System.Diagnostics;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.Exceptions;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Data.SqlClient;
 
     public class ExceptionLogController : LogController
     {
@@ -134,10 +134,18 @@ namespace DotNetNuke.Services.Log.EventLog
 
             // when current user is host user and exception is PageLoadException, try to log the log guid into cookies.
             // so that this log can be picked and do more action on it later.
-            if (logType == ExceptionLogType.PAGE_LOAD_EXCEPTION && HttpContext.Current != null && UserController.Instance.GetCurrentUserInfo().IsSuperUser)
+            var context = HttpContextSource.Current;
+            if (logType == ExceptionLogType.PAGE_LOAD_EXCEPTION && context != null && UserController.Instance.GetCurrentUserInfo().IsSuperUser)
             {
-                HttpContext.Current.Response.Cookies.Add(
-                    new HttpCookie("LogGUID", log.LogGUID) { HttpOnly = false, Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/" });
+                // HttpCookie is replaced by Response.Cookies.Append + CookieOptions on ASP.NET Core.
+                context.Response.Cookies.Append(
+                    "LogGUID",
+                    log.LogGUID,
+                    new CookieOptions
+                    {
+                        HttpOnly = false,
+                        Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
+                    });
             }
         }
     }

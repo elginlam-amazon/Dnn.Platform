@@ -9,9 +9,9 @@ namespace DotNetNuke.Services.Search.Internals
     using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Net;
     using System.Text;
     using System.Threading;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -20,16 +20,15 @@ namespace DotNetNuke.Services.Search.Internals
     using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Exceptions;
+    using Localization = DotNetNuke.Services.Localization.Localization;
     using Lucene.Net.Analysis;
     using Lucene.Net.Documents;
     using Lucene.Net.Index;
     using Lucene.Net.Search;
-    using Lucene.Net.Search.Vectorhighlight;
+    using Lucene.Net.Search.Similarities;
+    using Lucene.Net.Search.VectorHighlight;
     using Lucene.Net.Store;
-
     using Microsoft.Extensions.Logging;
-
-    using Localization = DotNetNuke.Services.Localization.Localization;
 
     /// <summary>  The Impl Controller class for Lucene.</summary>
     internal partial class LuceneControllerImpl : ILuceneController, IDisposable
@@ -45,6 +44,24 @@ namespace DotNetNuke.Services.Search.Internals
         private const string HtmlPreTag = "<b>";
         private const string HtmlPostTag = "</b>";
 
+        /// <summary>
+        /// The default minimum similarity Lucene 3.0.3's <c>FuzzyQuery</c> applied when the caller
+        /// did not specify one (<c>FuzzyQuery.defaultMinSimilarity</c>).
+        /// </summary>
+        private const float DefaultFuzzyMinSimilarity = 0.5f;
+
+        /// <summary>
+        /// The scoring model DNN has always shipped. Lucene 3.0.3 scored with the classic TF-IDF
+        /// similarity and <em>counted</em> overlapping tokens (those indexed with a position
+        /// increment of zero - i.e. the synonyms injected by <see cref="SynonymFilter"/>) when
+        /// computing a field's length norm. Lucene 4.8's <see cref="DefaultSimilarity"/> discounts
+        /// overlapping tokens by default, which shortens the effective length of every field that
+        /// has synonyms and therefore silently re-ranks result sets (and so changes which document
+        /// a given page of results contains). Pin the similarity explicitly - at index time for the
+        /// norms and at query time for the scorer - so relevance ordering stays the shipped one.
+        /// </summary>
+        private static readonly Similarity ClassicSimilarity = new DefaultSimilarity { DiscountOverlaps = false };
+
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<LuceneControllerImpl>();
         private static readonly TimeSpan DefaultRereadTimeSpan = TimeSpan.FromSeconds(30);
         private readonly object writerLock = new object();
@@ -53,7 +70,7 @@ namespace DotNetNuke.Services.Search.Internals
         private readonly List<CachedReader> oldReaders = new List<CachedReader>();
 
         private IndexWriter writer;
-        private IndexReader idxReader;
+        private DirectoryReader idxReader;
         private CachedReader reader;
         private FastVectorHighlighter fastHighlighter;
         private int isDisposed = UNDISPOSED;
@@ -109,11 +126,35 @@ namespace DotNetNuke.Services.Search.Internals
                             }
 
                             this.CheckDisposed();
-                            var writer = new IndexWriter(
-                                FSDirectory.Open(this.IndexFolder),
-                                this.GetCustomAnalyzer() ?? new SynonymAnalyzer(),
-                                IndexWriter.MaxFieldLength.UNLIMITED);
-                            this.idxReader = writer.GetReader();
+
+                            // Lucene 4.8 cannot read an index written by Lucene 3.x. If the on-disk index
+                            // predates the upgrade, discard it and request a full re-index rather than
+                            // failing every search/index operation from here on.
+                            IndexWriter writer;
+                            try
+                            {
+                                writer = CreateWriter(this.IndexFolder, this.GetCustomAnalyzer() ?? new SynonymAnalyzer());
+                            }
+                            catch (LockObtainFailedException e)
+                            {
+                                // The index is locked by another writer. On Windows the open lock
+                                // file could not be deleted above, so the IOException handler already
+                                // reported this; on every other platform unlinking an open file
+                                // succeeds, and the contention only surfaces here. Report it the same
+                                // way, because callers are documented to see a SearchException.
+                                throw new SearchException(
+                                    Localization.GetExceptionMessage(
+                                        "UnableToCreateLuceneWriter",
+                                        "Unable to create Lucene writer (lock file is in use). Please recycle AppPool in IIS to release lock."),
+                                    e);
+                            }
+                            catch (Exception ex) when (IsUnreadableIndexException(ex))
+                            {
+                                this.ResetIncompatibleIndex(ex);
+                                writer = CreateWriter(this.IndexFolder, this.GetCustomAnalyzer() ?? new SynonymAnalyzer());
+                            }
+
+                            this.idxReader = writer.GetReader(true);
                             Thread.MemoryBarrier();
                             this.writer = writer;
                         }
@@ -140,9 +181,9 @@ namespace DotNetNuke.Services.Search.Internals
             {
                 if (this.fastHighlighter == null)
                 {
-                    FragListBuilder fragListBuilder = new SimpleFragListBuilder();
-                    FragmentsBuilder fragmentBuilder = new ScoreOrderFragmentsBuilder(
-                        new[] { HighlightPreTag }, new[] { HighlightPostTag });
+                    IFragListBuilder fragListBuilder = new MatchCentredFragListBuilder();
+                    IFragmentsBuilder fragmentBuilder = new ScoreOrderFragmentsBuilder(
+                        new[] { HighlightPreTag }, new[] { HighlightPostTag }, new ExactOffsetBoundaryScanner());
                     this.fastHighlighter = new FastVectorHighlighter(true, true, fragListBuilder, fragmentBuilder);
                 }
 
@@ -167,7 +208,10 @@ namespace DotNetNuke.Services.Search.Internals
             }
 
             var highlighter = this.FastHighlighter;
-            var fieldQuery = highlighter.GetFieldQuery(searchContext.LuceneQuery.Query);
+
+            // Keep the fuzzy tolerance the product shipped with before the Lucene 4.8 upgrade.
+            var query = NormalizeFuzzyTolerance(searchContext.LuceneQuery.Query);
+            var fieldQuery = highlighter.GetFieldQuery(query);
 
             var maxResults = searchContext.LuceneQuery.PageIndex * searchContext.LuceneQuery.PageSize;
             var minResults = maxResults - searchContext.LuceneQuery.PageSize + 1;
@@ -184,12 +228,12 @@ namespace DotNetNuke.Services.Search.Internals
                         LuceneQuery = searchContext.LuceneQuery,
                         SearchQuery = searchContext.SearchQuery,
                     });
-                    searcher.Search(searchContext.LuceneQuery.Query, null, searchSecurityTrimmer);
+                    searcher.Search(query, null, searchSecurityTrimmer);
                     luceneResults.TotalHits = searchSecurityTrimmer.TotalHits;
 
                     if (Logger.IsEnabled(LogLevel.Trace))
                     {
-                        Logger.LuceneControllerSearchResultExplanation(searchContext.LuceneQuery.Query, GetSearchResultExplanation(searchContext.LuceneQuery, searchSecurityTrimmer.ScoreDocs, searcher));
+                        Logger.LuceneControllerSearchResultExplanation(query, GetSearchResultExplanation(query, searchSecurityTrimmer.ScoreDocs, searcher));
                     }
 
                     // Page doesn't exist
@@ -213,7 +257,7 @@ namespace DotNetNuke.Services.Search.Internals
                         }).ToList();
                     break;
                 }
-                catch (Exception ex) when (ex is IOException or AlreadyClosedException)
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException)
                 {
                     this.DisposeReaders();
                     this.DisposeWriter(false);
@@ -236,7 +280,7 @@ namespace DotNetNuke.Services.Search.Internals
         public void Add(Document doc)
         {
             Requires.NotNull("searchDocument", doc);
-            if (doc.GetFields().Count > 0)
+            if (doc.Fields.Count > 0)
             {
                 try
                 {
@@ -292,7 +336,7 @@ namespace DotNetNuke.Services.Search.Internals
                 this.CheckDisposed();
 
                 // optimize down to "> 1 segments" for better performance than down to 1
-                this.writer.Optimize(4, doWait);
+                this.writer.ForceMerge(4, doWait);
 
                 if (doWait)
                 {
@@ -327,7 +371,7 @@ namespace DotNetNuke.Services.Search.Internals
         {
             this.CheckDisposed();
             var searcher = this.GetSearcher();
-            return searcher.IndexReader.NumDocs();
+            return searcher.IndexReader.NumDocs;
         }
 
         /// <inheritdoc />
@@ -342,7 +386,7 @@ namespace DotNetNuke.Services.Search.Internals
             return new SearchStatistics
             {
                 // Hack: seems that NumDocs/MaxDoc are buggy and return incorrect/swapped values
-                TotalActiveDocuments = searcher.IndexReader.NumDocs(),
+                TotalActiveDocuments = searcher.IndexReader.NumDocs,
                 TotalDeletedDocuments = searcher.IndexReader.NumDeletedDocs,
                 IndexLocation = this.IndexFolder,
                 LastModifiedOn = System.IO.Directory.GetLastWriteTimeUtc(this.IndexFolder),
@@ -380,7 +424,7 @@ namespace DotNetNuke.Services.Search.Internals
                         {
                             analyzer = Reflection.CreateInstance(analyzerType) as Analyzer;
                         }
-                        else if (analyzerType?.GetConstructor([typeof(Lucene.Net.Util.Version),]) != null)
+                        else if (analyzerType?.GetConstructor([typeof(Lucene.Net.Util.LuceneVersion),]) != null)
                         {
                             analyzer = Reflection.CreateInstance(analyzerType, [Constants.LuceneVersion,]) as Analyzer;
                         }
@@ -419,12 +463,89 @@ namespace DotNetNuke.Services.Search.Internals
             return this.reader.GetSearcher();
         }
 
-        private static string GetSearchResultExplanation(LuceneQuery luceneQuery, IEnumerable<ScoreDoc> scoreDocs, IndexSearcher searcher)
+        /// <summary>
+        /// Restores the fuzzy tolerance Lucene 3.0.3 applied.
+        /// </summary>
+        /// <remarks>
+        /// Lucene 3.0.3's <c>FuzzyQuery</c> was parameterised by a float <c>minSimilarity</c>
+        /// (0..1) and derived the allowed edit distance from the length of the term being matched:
+        /// a candidate was accepted only while <c>1 - distance / length &gt; minSimilarity</c>, so a
+        /// short term tolerated fewer edits than a long one. Lucene 4.8 replaced that with an
+        /// integer <c>maxEdits</c> whose default is the maximum the Levenshtein automaton supports
+        /// (<c>FuzzyQuery.DefaultMaxEdits</c> == 2), which makes every default fuzzy query looser
+        /// than the same query was before the upgrade - short keywords start matching words they
+        /// never used to, widening every fuzzy search in the product.
+        /// <para>
+        /// For a query that asked for the default tolerance, derive <c>maxEdits</c> from the term
+        /// length and the 3.x default minimum similarity so the effective tolerance matches the
+        /// shipped behaviour. A query that explicitly chose a <c>maxEdits</c> is left untouched.
+        /// </para>
+        /// </remarks>
+        /// <param name="query">The query as supplied by the caller.</param>
+        /// <returns>An equivalent query with 3.x fuzzy tolerance, or <paramref name="query"/> itself when nothing needed changing.</returns>
+        private static Query NormalizeFuzzyTolerance(Query query)
+        {
+            switch (query)
+            {
+                case FuzzyQuery fuzzy when fuzzy.MaxEdits == FuzzyQuery.DefaultMaxEdits:
+                    // transpositions: false - 3.x measured plain Levenshtein distance, where a
+                    // transposition counted as two edits rather than one.
+                    return new FuzzyQuery(
+                        fuzzy.Term,
+                        GetEquivalentMaxEdits(fuzzy.Term, fuzzy.PrefixLength),
+                        fuzzy.PrefixLength,
+                        FuzzyQuery.DefaultMaxExpansions,
+                        false)
+                    {
+                        Boost = fuzzy.Boost,
+                        MultiTermRewriteMethod = fuzzy.MultiTermRewriteMethod,
+                    };
+
+                case BooleanQuery boolean:
+                    var rewritten = new BooleanQuery(boolean.CoordDisabled)
+                    {
+                        Boost = boolean.Boost,
+                        MinimumNumberShouldMatch = boolean.MinimumNumberShouldMatch,
+                    };
+                    var changed = false;
+                    foreach (var clause in boolean.Clauses)
+                    {
+                        var normalized = NormalizeFuzzyTolerance(clause.Query);
+                        changed |= !ReferenceEquals(normalized, clause.Query);
+                        rewritten.Add(normalized, clause.Occur);
+                    }
+
+                    return changed ? rewritten : boolean;
+
+                default:
+                    return query;
+            }
+        }
+
+        /// <summary>Computes the largest edit distance Lucene 3.0.3 would have accepted for a term.</summary>
+        /// <param name="term">The term being matched fuzzily.</param>
+        /// <param name="prefixLength">The number of leading characters that must match exactly, which 3.x excluded from the comparison.</param>
+        /// <returns>A <c>maxEdits</c> value within the range the Levenshtein automaton supports.</returns>
+        private static int GetEquivalentMaxEdits(Term term, int prefixLength)
+        {
+            var length = Math.Max(0, (term?.Text?.Length ?? 0) - prefixLength);
+
+            // 3.x accepted a candidate while its edit distance was strictly less than this.
+            var tolerance = length * (1f - DefaultFuzzyMinSimilarity);
+
+            // The largest integer strictly below `tolerance`.
+            var maxEdits = (int)Math.Ceiling(tolerance) - 1;
+
+            return Math.Max(0, Math.Min(FuzzyQuery.DefaultMaxEdits, maxEdits));
+        }
+
+        private static string GetSearchResultExplanation(Query query, IEnumerable<ScoreDoc> scoreDocs, IndexSearcher searcher)
         {
             var sb = new StringBuilder();
             foreach (var match in scoreDocs)
             {
-                var explanation = searcher.Explain(luceneQuery.Query, match.Doc);
+                var explanation = searcher.Explain(query, match.Doc);
+
                 sb.AppendLine("-------------------");
                 var doc = searcher.Doc(match.Doc);
                 sb.AppendLine(doc.Get(Constants.TitleTag));
@@ -439,7 +560,7 @@ namespace DotNetNuke.Services.Search.Internals
             var s = highlighter.GetBestFragment(fieldQuery, searcher.IndexReader, match.Doc, tag, length);
             if (!string.IsNullOrEmpty(s))
             {
-                s = HttpUtility.HtmlEncode(s).Replace(HighlightPreTag, HtmlPreTag).Replace(HighlightPostTag, HtmlPostTag);
+                s = WebUtility.HtmlEncode(s).Replace(HighlightPreTag, HtmlPreTag).Replace(HighlightPostTag, HtmlPostTag);
             }
 
             return s;
@@ -462,9 +583,57 @@ namespace DotNetNuke.Services.Search.Internals
             return displayScore;
         }
 
+        private static IndexWriter CreateWriter(string indexFolder, Analyzer analyzer)
+        {
+            var config = new IndexWriterConfig(Constants.LuceneVersion, analyzer)
+            {
+                OpenMode = OpenMode.CREATE_OR_APPEND,
+                Similarity = ClassicSimilarity,
+            };
+
+            return new IndexWriter(FSDirectory.Open(indexFolder), config);
+        }
+
+        /// <summary>Determines whether the exception means the on-disk index cannot be read by this Lucene version.</summary>
+        private static bool IsUnreadableIndexException(Exception ex)
+        {
+            return ex is IndexFormatTooOldException or IndexFormatTooNewException or CorruptIndexException;
+        }
+
+        /// <summary>
+        /// Deletes an index that this Lucene version cannot read (e.g. one written by the Lucene 3.0.3
+        /// used before the .NET upgrade) and schedules a full re-index of every portal.
+        /// </summary>
+        private void ResetIncompatibleIndex(Exception ex)
+        {
+            Logger.LuceneControllerSearchException(ex);
+
+            if (System.IO.Directory.Exists(this.IndexFolder))
+            {
+                foreach (var file in System.IO.Directory.GetFiles(this.IndexFolder, "*.*"))
+                {
+                    try
+                    {
+                        File.Delete(file);
+                    }
+                    catch (IOException deleteException)
+                    {
+                        throw new SearchException(
+                            Localization.GetExceptionMessage(
+                                "UnableToDeleteStaleLuceneIndex",
+                                "The search index was written by an older, unreadable Lucene version and could not be deleted. Please delete the contents of the search index folder and re-index."),
+                            deleteException);
+                    }
+                }
+            }
+
+            // Ask the search scheduler for a full re-index of all portals.
+            SearchHelper.Instance.SetSearchReindexRequestTime(true);
+        }
+
         private void CheckDisposed()
         {
-            if (Thread.VolatileRead(ref this.isDisposed) == DISPOSED)
+            if (Volatile.Read(ref this.isDisposed) == DISPOSED)
             {
                 throw new ObjectDisposedException(Localization.GetExceptionMessage("LuceneControlerIsDisposed", "LuceneController is disposed and cannot be used anymore"));
             }
@@ -475,9 +644,11 @@ namespace DotNetNuke.Services.Search.Internals
             IndexSearcher searcher;
             if (this.idxReader != null)
             {
-                // use the Reopen() method for better near-realtime when the _writer isn't null
-                var newReader = this.idxReader.Reopen();
-                if (this.idxReader != newReader)
+                // DirectoryReader.OpenIfChanged replaces the 3.x IndexReader.Reopen() and gives
+                // better near-realtime behaviour while the writer is open. It returns null when
+                // nothing changed, in which case the existing reader stays in use.
+                var newReader = DirectoryReader.OpenIfChanged(this.idxReader);
+                if (newReader != null)
                 {
                     ////_idxReader.Dispose(); -- will get disposed upon disposing the searcher
                     Interlocked.Exchange(ref this.idxReader, newReader);
@@ -487,10 +658,23 @@ namespace DotNetNuke.Services.Search.Internals
             }
             else
             {
-                // Note: disposing the IndexSearcher instance obtained from the next
-                // statement will not close the underlying reader on dispose.
-                searcher = new IndexSearcher(FSDirectory.Open(this.IndexFolder));
+                // Note: the IndexSearcher does not own the reader in Lucene 4.8, so the reader is
+                // disposed explicitly by CachedReader.Dispose().
+                try
+                {
+                    searcher = new IndexSearcher(DirectoryReader.Open(FSDirectory.Open(this.IndexFolder)));
+                }
+                catch (Exception ex) when (IsUnreadableIndexException(ex))
+                {
+                    this.ResetIncompatibleIndex(ex);
+                    throw new SearchIndexEmptyException(Localization.GetExceptionMessage(
+                        "SearchIndexingDirectoryNoValid",
+                        "Search indexing directory is either empty or does not exist"));
+                }
             }
+
+            // Query-time scoring must use the same similarity the norms were written with.
+            searcher.Similarity = ClassicSimilarity;
 
             var reader = new CachedReader(searcher);
             var cutoffTime = DateTime.Now - TimeSpan.FromSeconds(this.readerTimeSpan.TotalSeconds * 10);
@@ -593,7 +777,7 @@ namespace DotNetNuke.Services.Search.Internals
 
             public void Dispose()
             {
-                this.searcher.Dispose();
+                // IndexSearcher is not IDisposable in Lucene 4.8; only the reader owns resources.
                 this.searcher.IndexReader.Dispose();
             }
 

@@ -4,6 +4,7 @@
 namespace DotNetNuke.Services.OutputCache
 {
     using System;
+    using System.Buffers;
     using System.Collections.Generic;
     using System.Collections.Specialized;
     using System.Diagnostics.CodeAnalysis;
@@ -11,7 +12,7 @@ namespace DotNetNuke.Services.OutputCache
     using System.IO;
     using System.Security.Cryptography;
     using System.Text;
-    using System.Web;
+    using Microsoft.AspNetCore.Http;
 
     using DotNetNuke.ComponentModel;
 
@@ -90,7 +91,7 @@ namespace DotNetNuke.Services.OutputCache
         protected string GenerateCacheKeyHash(int tabId, string cacheKey)
         {
             byte[] hash = Encoding.ASCII.GetBytes(cacheKey);
-            using var sha256 = new SHA256CryptoServiceProvider();
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
             hash = sha256.ComputeHash(hash);
             return string.Concat(tabId.ToString(CultureInfo.InvariantCulture), "_", this.ByteArrayToString(hash));
         }
@@ -112,9 +113,11 @@ namespace DotNetNuke.Services.OutputCache
 
                 var buffer = new byte[Convert.ToInt32(length)];
                 int count = stream.Read(buffer, 0, Convert.ToInt32(length));
-                char[] output = Encoding.UTF8.GetChars(buffer, 0, count);
-                context.Response.ContentEncoding = Encoding.UTF8;
-                context.Response.Output.Write(output);
+
+                // The cached output is UTF-8 encoded text. On ASP.NET Core we write the bytes to
+                // the response body writer (a PipeWriter), which buffers synchronously without
+                // requiring AllowSynchronousIO and is flushed by the pipeline.
+                context.Response.BodyWriter.Write(new ReadOnlySpan<byte>(buffer, 0, count));
             }
         }
     }

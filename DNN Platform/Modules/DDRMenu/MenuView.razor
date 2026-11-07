@@ -1,0 +1,22 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.Web.DDRMenu.ModuleBase
+
+@*
+    Replaces MenuView.ascx (a code-only control whose markup was a single @Control directive) and
+    the Render(HtmlTextWriter) override of MenuView.ascx.cs. The template engine runs ONCE in
+    OnLoad, while the captured request is still live, and stores its HTML in MenuMarkup; this
+    markup only emits the cached value, so an interactive (SignalR) re-render never re-enters the
+    engine with a null HttpContext. When no menu style is configured the hint is rendered as
+    encoded text, which is what the original WriteEncodedText call did; a FAILED render renders
+    nothing and is logged, exactly as the original did.
+*@
+@if (this.ShowMenuStyleHint)
+{
+    <text>Please specify menu style in settings.</text>
+}
+else
+{
+    @this.MenuMarkup
+}

@@ -1,0 +1,278 @@
+@* ---------------------------------------------------------------------------------------------
+    DnnToolBarButton — the Blazor replacement of the DNNToolBarButton render path.
+
+    Render mode: inherited from the enclosing DnnToolBar (InteractiveServer). The button declares
+    no render mode of its own because it is always rendered inside its tool bar's interactive
+    subtree and a second @rendermode on a child of an interactive component is not allowed.
+
+    Ported from DNNToolBarButton.cs / dnn.controls.dnntoolbarstub.js, whose ToJSON payload the
+    client script turned into markup:
+      * css / cssh  -> the CssClass / CssClassHover pair, swapped on mouse over and mouse out and
+                       falling back to the tool bar's DefaultButtonCssClass(Hover),
+      * img / txt   -> the image and the text of the button, laid out according to Alignment
+                       (Left/Right put the image beside the text, Top/Bottom above or below it),
+      * alt         -> the title attribute,
+      * ca/key/js/url -> the control action dispatched by DnnToolBar.DispatchAsync,
+      * vis         -> whether the button is rendered at all.
+    A button whose action is "separator" (or whose text is the "-" separator marker the original
+    used) renders the separator element instead of a command, as the client script did.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+@inherits ComponentBase
+
+@if (this.IsRendered)
+{
+    @if (this.IsSeparator)
+    {
+        <span class="@this.SeparatorCssClass" role="separator"></span>
+    }
+    else
+    {
+        <a href="@this.HrefValue"
+           class="@this.CurrentCssClass"
+           title="@this.ToolTipValue"
+           aria-disabled="@(this.IsEnabled ? "false" : "true")"
+           @onclick="this.ClickAsync"
+           @onclick:preventDefault="true"
+           @onmouseover="() => this.hovered = true"
+           @onmouseout="() => this.hovered = false">
+            @if (this.Alignment is Alignment.Right or Alignment.Bottom)
+            {
+                @this.RenderText
+                @this.RenderImage
+            }
+            else
+            {
+                @this.RenderImage
+                @this.RenderText
+            }
+        </a>
+    }
+}
+
+@code {
+    private bool hovered;
+
+    /// <summary>Gets or sets the tool bar this button belongs to.</summary>
+    /// <remarks>Replaces the <c>Parent</c> walk of the WebForms button.</remarks>
+    [CascadingParameter]
+    public DnnToolBar ToolBar { get; set; }
+
+    /// <summary>Gets or sets the preserved button model this component renders.</summary>
+    /// <remarks>
+    /// When set, every unset parameter below is read from it, which is how the preserved
+    /// <see cref="DNNToolBarButton"/> instances of the 18 external call sites keep working.
+    /// </remarks>
+    [Parameter]
+    public DNNToolBarButton Button { get; set; }
+
+    /// <summary>Gets or sets the text of the button.</summary>
+    [Parameter]
+    public string Text { get; set; }
+
+    /// <summary>Gets or sets the image of the button.</summary>
+    [Parameter]
+    public string ImageUrl { get; set; }
+
+    /// <summary>Gets or sets the tooltip of the button.</summary>
+    [Parameter]
+    public string ToolTip { get; set; }
+
+    /// <summary>Gets or sets the CSS class of the button.</summary>
+    [Parameter]
+    public string CssClass { get; set; }
+
+    /// <summary>Gets or sets the CSS class applied while the pointer is over the button.</summary>
+    [Parameter]
+    public string CssClassHover { get; set; }
+
+    /// <summary>Gets or sets the CSS class of a separator button.</summary>
+    [Parameter]
+    public string SeparatorCssClass { get; set; } = "dnnToolBarSeparator";
+
+    /// <summary>Gets or sets the action the button raises.</summary>
+    [Parameter]
+    public string ControlAction { get; set; }
+
+    /// <summary>Gets or sets the key of the action the button raises.</summary>
+    [Parameter]
+    public string Key { get; set; }
+
+    /// <summary>Gets or sets the URL the button navigates to.</summary>
+    [Parameter]
+    public string NavigateUrl { get; set; }
+
+    /// <summary>Gets or sets the script the button runs.</summary>
+    [Parameter]
+    public string JSFunction { get; set; }
+
+    /// <summary>Gets or sets how the image and the text of the button are laid out.</summary>
+    [Parameter]
+    public Alignment Alignment { get; set; } = Alignment.Left;
+
+    /// <summary>Gets or sets what clicking the button does.</summary>
+    /// <remarks>
+    /// Mirrors the <see cref="eClickAction"/> of the node-based controls:
+    /// <see cref="eClickAction.Navigate"/> renders a real link, every other value lets the tool
+    /// bar dispatch the control action.
+    /// </remarks>
+    [Parameter]
+    public eClickAction ClickAction { get; set; } = eClickAction.PostBack;
+
+    /// <summary>Gets or sets a value indicating whether the button is rendered.</summary>
+    [Parameter]
+    public bool Visible { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether the button can be clicked.</summary>
+    [Parameter]
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Occurs when the button is clicked and no tool bar handles the action.</summary>
+    [Parameter]
+    public EventCallback<DNNToolBarButton> OnClick { get; set; }
+
+    /// <summary>Gets the model the button's values are taken from, creating one when needed.</summary>
+    /// <remarks>
+    /// The tool bar dispatches on a <see cref="DNNToolBarButton"/>, so a button declared as markup
+    /// (without a model) is given one carrying the very same values.
+    /// </remarks>
+    private DNNToolBarButton Model => this.Button ?? this.BuildModel();
+
+    /// <summary>Gets a value indicating whether the button is rendered.</summary>
+    private bool IsRendered =>
+        this.ToolBar is not null && this.Button is not null
+            ? this.ToolBar.IsVisible(this.Button)
+            : this.Visible;
+
+    /// <summary>Gets a value indicating whether the button can be clicked.</summary>
+    private bool IsEnabled =>
+        this.ToolBar is not null && this.Button is not null
+            ? this.ToolBar.IsEnabled(this.Button)
+            : this.Enabled;
+
+    /// <summary>Gets a value indicating whether the button renders as a separator.</summary>
+    private bool IsSeparator =>
+        string.Equals(this.ActionValue, "separator", StringComparison.OrdinalIgnoreCase)
+        || this.TextValue == "-";
+
+    /// <summary>Gets the action of the button.</summary>
+    private string ActionValue => this.Button is not null ? this.Button.ControlAction : this.ControlAction;
+
+    /// <summary>Gets the text of the button.</summary>
+    private string TextValue => this.Button is not null ? this.Button.Text : this.Text;
+
+    /// <summary>Gets the image of the button.</summary>
+    private string ImageValue => this.Button is not null ? this.Button.ImageUrl : this.ImageUrl;
+
+    /// <summary>Gets the tooltip of the button.</summary>
+    private string ToolTipValue => this.Button is not null ? this.Button.ToolTip : this.ToolTip;
+
+    /// <summary>Gets the URL of the button.</summary>
+    private string UrlValue => this.Button is not null ? this.Button.NavigateUrl : this.NavigateUrl;
+
+    /// <summary>Gets the href of the rendered link.</summary>
+    /// <remarks>
+    /// Only a navigating button got a real URL in the original markup; every other button was an
+    /// anchor whose click was handled by the script.
+    /// </remarks>
+    private string HrefValue =>
+        (this.ClickAction == eClickAction.Navigate
+            || string.Equals(this.ActionValue, "navigate", StringComparison.Ordinal))
+        && !string.IsNullOrEmpty(this.UrlValue)
+            ? this.UrlValue
+            : "#";
+
+    /// <summary>Gets the CSS class the button currently renders with.</summary>
+    private string CurrentCssClass
+    {
+        get
+        {
+            string cssClass;
+            if (this.ToolBar is not null && this.Button is not null)
+            {
+                cssClass = this.ToolBar.GetButtonCssClass(this.Button, this.hovered);
+            }
+            else
+            {
+                cssClass = this.hovered && !string.IsNullOrEmpty(this.CssClassHover)
+                    ? this.CssClassHover
+                    : this.CssClass;
+            }
+
+            return this.IsEnabled ? cssClass : string.Join(' ', cssClass ?? string.Empty, "dnnDisabled").Trim();
+        }
+    }
+
+    /// <summary>Gets the image element of the button.</summary>
+    private RenderFragment RenderImage => builder =>
+    {
+        var image = this.ImageValue;
+        if (string.IsNullOrEmpty(image))
+        {
+            return;
+        }
+
+        builder.OpenElement(0, "img");
+        builder.AddAttribute(1, "src", image);
+        builder.AddAttribute(2, "alt", this.ToolTipValue ?? this.TextValue ?? string.Empty);
+        if (this.Alignment is Alignment.Top or Alignment.Bottom)
+        {
+            // The vertical layouts put the image on its own line, as the client script's
+            // block-level image did.
+            builder.AddAttribute(3, "style", "display:block;");
+        }
+
+        builder.CloseElement();
+    };
+
+    /// <summary>Gets the text element of the button.</summary>
+    private RenderFragment RenderText => builder =>
+    {
+        var text = this.TextValue;
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        builder.OpenElement(0, "span");
+        builder.AddContent(1, text);
+        builder.CloseElement();
+    };
+
+    /// <summary>Handles the button being clicked.</summary>
+    /// <returns>A task that completes once the action has run.</returns>
+    private async Task ClickAsync()
+    {
+        if (!this.IsEnabled)
+        {
+            return;
+        }
+
+        if (this.ToolBar is not null)
+        {
+            await this.ToolBar.DispatchAsync(this.Model);
+        }
+
+        await this.OnClick.InvokeAsync(this.Model);
+    }
+
+    /// <summary>Builds a model carrying the values of a button declared as markup.</summary>
+    /// <returns>The model of the button.</returns>
+    private DNNToolBarButton BuildModel()
+    {
+        return new DNNToolBarButton
+        {
+            Text = this.Text ?? string.Empty,
+            ImageUrl = this.ImageUrl ?? string.Empty,
+            ToolTip = this.ToolTip ?? string.Empty,
+            CssClass = this.CssClass ?? string.Empty,
+            CssClassHover = this.CssClassHover ?? string.Empty,
+            ControlAction = this.ControlAction ?? string.Empty,
+            Key = this.Key ?? string.Empty,
+            NavigateUrl = this.NavigateUrl ?? string.Empty,
+            JSFunction = this.JSFunction ?? string.Empty,
+            Visible = this.Visible,
+            Enabled = this.Enabled,
+        };
+    }
+}

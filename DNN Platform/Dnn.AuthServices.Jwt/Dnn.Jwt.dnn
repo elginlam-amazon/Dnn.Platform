@@ -23,71 +23,20 @@
               <path>bin</path>
               <name>Dnn.AuthServices.Jwt.dll</name>
             </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>Microsoft.IdentityModel.Abstractions.dll</name>
-              <version>8.4.0.60207</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>Microsoft.IdentityModel.Tokens.dll</name>
-              <version>8.4.0.60207</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>Microsoft.IdentityModel.JsonWebTokens.dll</name>
-              <version>8.4.0.60207</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>Microsoft.IdentityModel.Logging.dll</name>
-              <version>8.4.0.60207</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>System.Text.Json.dll</name>
-              <version>8.0.1024.46610</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>System.Text.Encodings.Web.dll</name>
-              <version>9.0.225.6610</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>System.Memory.dll</name>
-              <version>4.600.24.56208</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>System.Buffers.dll</name>
-              <version>4.600.24.56208</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>System.Runtime.CompilerServices.Unsafe.dll</name>
-              <version>6.100.24.56208</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>System.Numerics.Vectors.dll</name>
-              <version>4.600.24.56208</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>System.Threading.Tasks.Extensions.dll</name>
-              <version>4.6.28619.1</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>Microsoft.Bcl.AsyncInterfaces.dll</name>
-              <version>8.0.23.53103</version>
-            </assembly>
-            <assembly>
-              <path>bin</path>
-              <name>Microsoft.Bcl.TimeProvider.dll</name>
-              <version>8.0.123.58001</version>
-            </assembly>
+            <!-- The net48 package also declared and installed the four Microsoft.IdentityModel.*
+                 assemblies plus a set of netstandard polyfills (System.Text.Json,
+                 System.Text.Encodings.Web, System.Memory, System.Buffers,
+                 System.Runtime.CompilerServices.Unsafe, System.Numerics.Vectors,
+                 System.Threading.Tasks.Extensions, Microsoft.Bcl.AsyncInterfaces,
+                 Microsoft.Bcl.TimeProvider). None of them is this extension's to ship on net10.0:
+                 the polyfills are types in the shared framework and are never produced, and -
+                 verified against a successful build, not assumed - an SDK-style class library does
+                 not copy NuGet package assets to its output at all, so no Microsoft.IdentityModel.*
+                 assembly is emitted here either. Those are supplied by the core/website build,
+                 which stages the transitive dependencies (DotNetNuke.Library already depends on
+                 them), exactly as the migrated DotNetNuke.Web documents for its own CopyBin. Keeping
+                 the old <version>8.4.0.60207</version> declarations would be doubly wrong: the files
+                 are not in the package, and the resolved version is now 8.22.0. -->
             <assembly action="UnRegister">
               <path>bin</path>            
               <name>System.IdentityModel.Tokens.Jwt.dll</name>

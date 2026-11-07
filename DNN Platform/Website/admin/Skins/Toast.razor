@@ -1,0 +1,26 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@*
+    Replaces Toast.ascx. That file consisted of an inline <script> block plus a single
+    <asp:Literal id="addtionalScripts" Visible="False">.
+
+    A <script> element is not allowed in a Razor component, so the document-ready glue that set up
+    dnn.toast.refreshUser is now built server side (with exactly the same values the <%= %>
+    expressions produced) and handed to DNN's keyed client script seam,
+    IClientApiPage.RegisterStartupScript - see Toast.razor.cs. The toast plugin script and
+    stylesheet are still registered through IClientResourceController, unchanged.
+
+    The literal keeps its meaning: the optional "scripts" node of Toast.config is operator supplied
+    markup, so it is rendered as markup content (what Literal.Text did) and only when it is set
+    (what Literal.Visible did).
+*@
+
+@if (this.AdditionalScriptsVisible && !string.IsNullOrEmpty(this.AdditionalScripts))
+{
+    @((MarkupString)this.AdditionalScripts)
+}

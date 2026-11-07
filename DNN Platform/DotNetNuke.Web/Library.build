@@ -3,21 +3,19 @@
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
   </PropertyGroup>
   <Import Project="..\..\DNN_Platform.build" />
-  <Target Name="CopyBin" BeforeTargets="Build">
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\Microsoft.Extensions.DependencyInjection.Abstractions.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\Microsoft.Extensions.DependencyInjection.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\Microsoft.Web.Infrastructure.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\Newtonsoft.Json.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Net.Http.Formatting.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Web.Http.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Web.Http.WebHost.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Web.WebPages.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Web.WebPages.Deployment.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.Web.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.Web.pdb" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.Web.xml" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.DependencyInjection.pdb" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.DependencyInjection.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\WebFormsMvp.dll" DestinationFolder="$(WebsitePath)/bin" />
+  <!-- Stages this project's output into the website bin. The net48 target copied the
+       legacy flat-bin assemblies (System.Web.Http*, System.Net.Http.Formatting,
+       System.Web.WebPages*, Microsoft.Web.Infrastructure, WebFormsMvp) which do not
+       exist on net10.0 - those are supplied by the Microsoft.AspNetCore.App shared
+       framework or were removed entirely. Transitive dependencies are staged by the
+       SDK's own publish/copy-local logic, so only this project's own outputs are
+       staged here, with forward slashes so staging works on non-Windows too. -->
+  <Target Name="CopyBin" AfterTargets="Build" Condition="'$(TargetFramework)' == 'net10.0'">
+    <ItemGroup>
+      <CopyBinStagedFiles Include="$(TargetDir)DotNetNuke.Web.dll" />
+      <CopyBinStagedFiles Include="$(TargetDir)DotNetNuke.Web.pdb" />
+      <CopyBinStagedFiles Include="$(TargetDir)DotNetNuke.Web.xml" Condition="Exists('$(TargetDir)DotNetNuke.Web.xml')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CopyBinStagedFiles)" DestinationFolder="$(WebsitePath)/bin" SkipUnchangedFiles="true" />
   </Target>
 </Project>

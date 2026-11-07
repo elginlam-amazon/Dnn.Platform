@@ -7,17 +7,25 @@ namespace DotNetNuke.Web.Api.Auth
     using System;
     using System.Globalization;
     using System.Net;
-    using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Text;
-    using System.Threading;
 
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security.Membership;
     using DotNetNuke.Web.Api.Internal.Auth;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Net.Http.Headers;
+
     /// <summary>Digest authentication message handler.</summary>
+    /// <remarks>
+    /// The wire behaviour is identical to net48: the same nonce construction (a Base64 of the invariant
+    /// "G" formatted expiry one minute out, with the padding trimmed), the same
+    /// <c>realm</c>/<c>nonce</c>/<c>opaque</c>/<c>stale</c>/<c>algorithm</c>/<c>qop</c> parameter string
+    /// including its double space before <c>opaque</c>, and the same stale handling (a bare 401 carrying
+    /// <c>stale=True</c> is returned immediately when the nonce has expired).
+    /// </remarks>
     [DnnDeprecated(10, 2, 2, "Use JWT or API token authentication")]
     public partial class DigestAuthMessageHandler : AuthMessageHandlerBase
     {
@@ -33,37 +41,38 @@ namespace DotNetNuke.Web.Api.Auth
         public override string AuthScheme => DigestAuthentication.AuthenticationScheme;
 
         /// <inheritdoc />
-        public override HttpResponseMessage OnInboundRequest(HttpRequestMessage request, CancellationToken cancellationToken)
+        public override bool OnAuthenticateRequest(HttpContext context)
         {
-            if (this.NeedsAuthentication(request))
+            if (this.NeedsAuthentication(context))
             {
                 var portalSettings = PortalController.Instance.GetCurrentSettings();
                 if (portalSettings != null)
                 {
-                    var isStale = TryToAuthenticate(request, portalSettings.PortalId);
+                    var isStale = TryToAuthenticate(context, portalSettings.PortalId);
 
                     if (isStale)
                     {
-                        var staleResponse = request.CreateResponse(HttpStatusCode.Unauthorized);
-                        this.AddStaleWwwAuthenticateHeader(staleResponse);
-
-                        return staleResponse;
+                        // The legacy handler returned request.CreateResponse(Unauthorized) with the stale
+                        // challenge, terminating inbound processing.
+                        context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+                        this.AddStaleWwwAuthenticateHeader(context.Response);
+                        return true;
                     }
                 }
             }
 
-            return base.OnInboundRequest(request, cancellationToken);
+            return base.OnAuthenticateRequest(context);
         }
 
         /// <inheritdoc />
-        public override HttpResponseMessage OnOutboundResponse(HttpResponseMessage response, CancellationToken cancellationToken)
+        public override void OnSendResponse(HttpContext context)
         {
-            if (response.StatusCode == HttpStatusCode.Unauthorized && SupportsDigestAuth(response.RequestMessage))
+            if (context?.Response?.StatusCode == (int)HttpStatusCode.Unauthorized && SupportsDigestAuth(context.Request))
             {
-                this.AddWwwAuthenticateHeader(response);
+                this.AddWwwAuthenticateHeader(context.Response);
             }
 
-            return base.OnOutboundResponse(response, cancellationToken);
+            base.OnSendResponse(context);
         }
 
         private static string CreateNewNonce()
@@ -78,20 +87,23 @@ namespace DotNetNuke.Web.Api.Auth
             return nonce;
         }
 
-        private static bool TryToAuthenticate(HttpRequestMessage request, int portalId)
+        private static bool TryToAuthenticate(HttpContext context, int portalId)
         {
-            if (request?.Headers.Authorization == null)
+            var request = context.Request;
+            var authHeader = request.Headers[HeaderNames.Authorization].ToString();
+            if (string.IsNullOrEmpty(authHeader))
             {
                 return false;
             }
 
-            string authHeader = request?.Headers.Authorization.ToString();
-
-            var digestAuthentication = new DigestAuthentication(new DigestAuthenticationRequest(authHeader, request.Method.Method), portalId, request.GetIPAddress());
+            var digestAuthentication = new DigestAuthentication(
+                new DigestAuthenticationRequest(authHeader, request.Method),
+                portalId,
+                request.GetIPAddress());
 
             if (digestAuthentication.IsValid)
             {
-                SetCurrentPrincipal(digestAuthentication.User, request);
+                SetCurrentPrincipal(digestAuthentication.User, context);
             }
             else if (digestAuthentication.IsNonceStale)
             {
@@ -101,20 +113,22 @@ namespace DotNetNuke.Web.Api.Auth
             return false;
         }
 
-        private static bool SupportsDigestAuth(HttpRequestMessage request)
+        private static bool SupportsDigestAuth(HttpRequest request)
         {
             return !IsXmlHttpRequest(request) && MembershipProviderConfig.PasswordRetrievalEnabled;
         }
 
-        private void AddStaleWwwAuthenticateHeader(HttpResponseMessage response)
+        private void AddStaleWwwAuthenticateHeader(HttpResponse response)
         {
             this.AddWwwAuthenticateHeader(response, true);
         }
 
-        private void AddWwwAuthenticateHeader(HttpResponseMessage response, bool isStale = false)
+        private void AddWwwAuthenticateHeader(HttpResponse response, bool isStale = false)
         {
             var value = $"realm=\"DNNAPI\", nonce=\"{CreateNewNonce()}\",  opaque=\"0000000000000000\", stale={isStale}, algorithm=MD5, qop=\"auth\"";
-            response.Headers.WwwAuthenticate.Add(new AuthenticationHeaderValue(this.AuthScheme, value));
+            response.Headers.Append(
+                HeaderNames.WWWAuthenticate,
+                new AuthenticationHeaderValue(this.AuthScheme, value).ToString());
         }
     }
 }

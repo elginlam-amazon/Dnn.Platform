@@ -1,0 +1,337 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Modules
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using System.Globalization
+@using System.IO
+@using System.Text
+@using System.Xml
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Modules
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Framework
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.FileSystem
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.Web.UI.WebControls
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+
+@*
+    Replaces admin/Modules/export.ascx + Export.ascx.cs + Export.ascx.designer.cs, element for
+    element. Renamed to ModuleExport because admin/Tabs also ships an export.ascx.
+
+    Control mapping:
+      - dnn:label plFolder/plFile -> <LabelControl> with the same ControlName and Suffix, and the
+        same resource keys (the ID is the key).
+      - dnn:DnnFolderDropDownList cboFolders -> the migrated DnnFolderDropDownList component. The
+        properties the code behind set that are not Blazor parameters (UndefinedItem and the ADD
+        permission service parameter) are set through @@ref in OnPreRender.
+      - asp:textbox txtFile -> the bound text input, maxlength 200 preserved.
+      - asp:LinkButton cmdExport -> the anchor whose @@onclick is OnExportClick.
+      - asp:HyperLink cmdCancel -> the anchor whose href is ReturnURL.
+
+    SECURITY: the ModulePermissionController.HasModuleAccess(SecurityAccessLevel.Edit, "EXPORT", Module)
+    guard and its AccessDeniedURL redirect are preserved verbatim in OnInit, as is
+    PortalController.Instance.HasSpaceAvailable before the file is written. The moduleId sentinel
+    stays -1 ("not set"), int.TryParse still leaves it unchanged on a non numeric query string.
+
+    No @@rendermode directive on purpose: the component is a descendant of
+    <Routes @@rendermode="RenderModeForPage"> in Website/Components/App.razor (InteractiveServer).
+*@
+
+<div class="dnnForm dnnExport dnnClear" id="dnnLogViewer">
+    <fieldset>
+        <div class="dnnFormItem">
+            <LabelControl ID="plFolder" ControlName="cboFolders" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+            <DnnFolderDropDownList @ref="this.cboFolders" />
+        </div>
+        <div class="dnnFormItem">
+            <LabelControl ID="plFile" ControlName="txtFile" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+            <input type="text" id="txtFile" maxlength="200" value="@this.FileText" @onchange="@(e => this.FileText = e.Value?.ToString() ?? string.Empty)" />
+        </div>
+    </fieldset>
+    <ul class="dnnActions dnnClear">
+        <li><a id="cmdExport" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.OnExportClick" @onclick:preventDefault="true">@this.LocalizeText("cmdExport")</a></li>
+        <li><a id="cmdCancel" class="dnnSecondaryAction" href="@this.cancelUrl">@this.LocalizeText("cmdCancel")</a></li>
+    </ul>
+</div>
+
+@code {
+    private readonly IBusinessControllerProvider businessControllerProvider;
+    private readonly INavigationManager navigationManager;
+    private readonly IHostSettings hostSettings;
+
+    private int moduleId = -1;
+    private ModuleInfo module;
+    private DnnFolderDropDownList cboFolders;
+    private string cancelUrl = string.Empty;
+    private bool initialBindDone;
+
+    /// <summary>Initializes a new instance of the <see cref="ModuleExport"/> class.</summary>
+    /// <remarks>A Blazor component cannot take constructor parameters; the services are resolved
+    /// from the module's dependency provider, which is what the parameterless overload did.</remarks>
+    public ModuleExport()
+    {
+        this.businessControllerProvider = this.DependencyProvider.GetRequiredService<IBusinessControllerProvider>();
+        this.navigationManager = this.DependencyProvider.GetRequiredService<INavigationManager>();
+        this.hostSettings = this.DependencyProvider.GetRequiredService<IHostSettings>();
+    }
+
+    /// <summary>Gets or sets the export file name (was <c>txtFile.Text</c>).</summary>
+    protected string FileText { get; set; } = string.Empty;
+
+    /// <summary>Gets the navigation manager used for the redirects <c>Response.Redirect</c> issued.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    private ModuleInfo Module => this.module ??= ModuleController.Instance.GetModule(this.moduleId, this.TabId, false);
+
+    private string ReturnURL
+    {
+        get
+        {
+            return UrlUtils.ValidReturnUrl(this.Request?.GetValue("ReturnURL")) ?? this.navigationManager.NavigateURL();
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // The .resx of this control is still App_LocalResources/Export.ascx.resx.
+        this.LocalResourceFile = "~/admin/Modules/" + Localization.LocalResourceDirectory + "/Export.ascx";
+
+        var moduleIdValue = this.GetQueryValue("moduleid");
+        if (moduleIdValue != null)
+        {
+            int.TryParse(moduleIdValue, out this.moduleId);
+        }
+
+        if (!ModulePermissionController.HasModuleAccess(SecurityAccessLevel.Edit, "EXPORT", this.Module))
+        {
+            this.Navigation.NavigateTo(Globals.AccessDeniedURL(), forceLoad: true);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            var moduleIdValue = this.GetQueryValue("moduleid");
+            if (moduleIdValue != null)
+            {
+                int.TryParse(moduleIdValue, out this.moduleId);
+            }
+
+            // Was the !Page.IsPostBack guard.
+            if (this.initialBindDone)
+            {
+                return;
+            }
+
+            this.cancelUrl = this.ReturnURL;
+
+            if (this.Module != null)
+            {
+                this.FileText = CleanName(this.Module.ModuleTitle);
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>The folder picker only exists once this component has rendered, so the two
+    /// properties the code behind set on it are applied in the phase that was OnPreRender.</remarks>
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+
+        if (this.initialBindDone)
+        {
+            return;
+        }
+
+        this.initialBindDone = true;
+
+        try
+        {
+            if (this.cboFolders == null)
+            {
+                return;
+            }
+
+            this.cboFolders.UndefinedItem = new DotNetNuke.UI.DnnListItem("<" + Localization.GetString("None_Specified") + ">", string.Empty);
+            this.cboFolders.Services.Parameters.Add("permission", "ADD");
+
+            this.StateHasChanged();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>Exports the module content to the portal file system (was <c>cmdExport.Click</c>).</summary>
+    protected void OnExportClick()
+    {
+        try
+        {
+            IFolderInfo folder = null;
+            if (this.cboFolders?.SelectedItem != null && !string.IsNullOrEmpty(this.FileText))
+            {
+                folder = FolderManager.Instance.GetFolder(this.cboFolders.SelectedItemValueAsInt);
+            }
+
+            if (folder != null)
+            {
+                var strFile = $"content.{CleanName(this.Module.DesktopModule.ModuleName)}.{CleanName(this.FileText)}.export";
+                var strMessage = this.ExportModule(this.moduleId, strFile, folder);
+                if (string.IsNullOrEmpty(strMessage))
+                {
+                    this.Navigation.NavigateTo(this.ReturnURL, forceLoad: true);
+                }
+                else
+                {
+                    DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, strMessage, ModuleMessage.ModuleMessageType.RedError);
+                }
+            }
+            else
+            {
+                DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, Localization.GetString("Validation", this.LocalResourceFile), ModuleMessage.ModuleMessageType.RedError);
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    private static string CleanName(string name)
+    {
+        var strName = name;
+        const string strBadChars = ". ~`!@#$%^&*()-_+={[}]|\\:;<,>?/\"'";
+
+        int intCounter;
+        for (intCounter = 0; intCounter <= strBadChars.Length - 1; intCounter++)
+        {
+            strName = strName.Replace(strBadChars.Substring(intCounter, 1), string.Empty);
+        }
+
+        return strName;
+    }
+
+    /// <summary>Reads a query string value, from the captured request when there is one and from
+    /// the current URL otherwise (an interactive circuit has no <c>HttpContext</c>).</summary>
+    /// <param name="name">The query string key.</param>
+    /// <returns>The value, or <see langword="null"/> when the key is absent - the same
+    /// <c>Request.QueryString[key] != null</c> test the WebForms control made.</returns>
+    private string GetQueryValue(string name)
+    {
+        var request = this.Request;
+        if (request != null && request.Query.ContainsKey(name))
+        {
+            return request.Query[name].ToString();
+        }
+
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(this.Navigation.Uri).Query);
+        return query.TryGetValue(name, out var values) ? values.ToString() : null;
+    }
+
+    private string ExportModule(int moduleID, string fileName, IFolderInfo folder)
+    {
+        var strMessage = string.Empty;
+        if (this.Module != null)
+        {
+            if (!string.IsNullOrEmpty(this.Module.DesktopModule.BusinessControllerClass) && this.Module.DesktopModule.IsPortable)
+            {
+                try
+                {
+                    var businessControllerType = Reflection.CreateType(this.Module.DesktopModule.BusinessControllerClass);
+
+                    // Double-check
+                    if (typeof(IPortable).IsAssignableFrom(businessControllerType))
+                    {
+                        XmlDocument moduleXml = new XmlDocument { XmlResolver = null };
+                        XmlNode moduleNode = ModuleController.SerializeModule(this.businessControllerProvider, this.hostSettings, moduleXml, this.Module, true);
+
+                        // add attributes to XML document
+                        XmlAttribute typeAttribute = moduleXml.CreateAttribute("type");
+                        typeAttribute.Value = CleanName(this.Module.DesktopModule.ModuleName);
+                        moduleNode.Attributes.Append(typeAttribute);
+
+                        XmlAttribute versionAttribute = moduleXml.CreateAttribute("version");
+                        versionAttribute.Value = this.Module.DesktopModule.Version;
+                        moduleNode.Attributes.Append(versionAttribute);
+
+                        // Create content from XmlNode
+                        StringWriter sw = new StringWriter();
+                        XmlTextWriter xw = new XmlTextWriter(sw);
+                        moduleNode.WriteTo(xw);
+                        var content = sw.ToString();
+                        if (!string.IsNullOrEmpty(content))
+                        {
+                            // remove invalid chars in content -> DNN 26810: Handled by ModuleController.SerializeModule
+                            // First check the Portal limits will not be exceeded (this is approximate)
+                            if (PortalController.Instance.HasSpaceAvailable(this.PortalId, content.Length))
+                            {
+                                // add file to Files table
+                                using var fileContent = new MemoryStream(Encoding.UTF8.GetBytes(content));
+                                DotNetNuke.Services.FileSystem.FileManager.Instance.AddFile(folder, fileName, fileContent, true, true, "application/octet-stream");
+                            }
+                            else
+                            {
+                                strMessage += "<br>" + string.Format(CultureInfo.CurrentCulture, Localization.GetString("DiskSpaceExceeded"), fileName);
+                            }
+                        }
+                        else
+                        {
+                            strMessage = Localization.GetString("NoContent", this.LocalResourceFile);
+                        }
+                    }
+                    else
+                    {
+                        strMessage = Localization.GetString("ExportNotSupported", this.LocalResourceFile);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (ex is InvalidFileExtensionException || ex is PermissionsNotMetException || ex is InvalidFilenameException)
+                    {
+                        strMessage = ex.Message;
+                    }
+                    else
+                    {
+                        strMessage = Localization.GetString("Error", this.LocalResourceFile);
+                    }
+                }
+            }
+            else
+            {
+                strMessage = Localization.GetString("ExportNotSupported", this.LocalResourceFile);
+            }
+        }
+
+        return strMessage;
+    }
+}

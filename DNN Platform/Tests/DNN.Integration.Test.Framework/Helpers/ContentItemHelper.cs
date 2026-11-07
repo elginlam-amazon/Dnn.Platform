@@ -5,7 +5,7 @@
 namespace DNN.Integration.Test.Framework.Helpers
 {
     using System.Linq;
-    using System.Web;
+    using System.Net;
 
     public static class ContentItemHelper
     {
@@ -19,7 +19,7 @@ namespace DNN.Integration.Test.Framework.Helpers
 	                            JOIN {objectQualifier}Taxonomy_Terms t ON ct.TermID = t.TermID
                             WHERE ContentItemID = " + contentItemId;
             var tags = DatabaseHelper.ExecuteQuery(tagsQuery);
-            return tags[0].Values.OfType<string>().Select(HttpUtility.HtmlDecode).ToArray();
+            return tags[0].Values.OfType<string>().Select(WebUtility.HtmlDecode).ToArray();
         }
 
         /// <summary>Adds a valid Fake Content item.</summary>

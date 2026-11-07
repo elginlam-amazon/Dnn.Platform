@@ -4,7 +4,6 @@
 
 namespace DotNetNuke.Web.Mvc.Framework.Modules
 {
-    using System;
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
@@ -12,22 +11,16 @@ namespace DotNetNuke.Web.Mvc.Framework.Modules
     using DotNetNuke.Common;
     using DotNetNuke.Web.Mvc.Framework.ActionResults;
 
+    /// <inheritdoc cref="IModuleExecutionEngine" />
     public class ModuleExecutionEngine : IModuleExecutionEngine
     {
         /// <inheritdoc />
-        public ModuleRequestResult ExecuteModule(ModuleRequestContext moduleRequestContext)
+        public Task<ModuleRequestResult> ExecuteModule(ModuleRequestContext moduleRequestContext)
         {
-            Requires.NotNull("moduleRequestContext", moduleRequestContext);
-
-            if (moduleRequestContext.ModuleApplication != null)
-            {
-                // Run the module
-                return moduleRequestContext.ModuleApplication.ExecuteRequest(moduleRequestContext);
-            }
-
-            return null;
+            return this.ExecuteModuleAsync(moduleRequestContext, CancellationToken.None);
         }
 
+        /// <inheritdoc />
         public async Task<ModuleRequestResult> ExecuteModuleAsync(ModuleRequestContext moduleRequestContext, CancellationToken cancellationToken)
         {
             Requires.NotNull("moduleRequestContext", moduleRequestContext);
@@ -42,16 +35,23 @@ namespace DotNetNuke.Web.Mvc.Framework.Modules
         }
 
         /// <inheritdoc />
-        public virtual void ExecuteModuleResult(ModuleRequestResult moduleResult, TextWriter writer)
+        public virtual async Task ExecuteModuleResultAsync(ModuleRequestResult moduleResult, TextWriter writer)
         {
-            var result = moduleResult.ActionResult as IDnnViewResult;
-            if (result != null)
+            Requires.NotNull("moduleResult", moduleResult);
+
+            if (moduleResult.ActionResult is null)
             {
-                result.ExecuteResult(moduleResult.ControllerContext, writer);
+                return;
+            }
+
+            if (moduleResult.ActionResult is IDnnViewResult dnnViewResult)
+            {
+                // DNN view results render into the supplied writer so the output can be injected in the page.
+                await dnnViewResult.ExecuteResultAsync(moduleResult.ActionContext, writer);
             }
             else
             {
-                moduleResult.ActionResult.ExecuteResult(moduleResult.ControllerContext);
+                await moduleResult.ActionResult.ExecuteResultAsync(moduleResult.ActionContext);
             }
         }
     }

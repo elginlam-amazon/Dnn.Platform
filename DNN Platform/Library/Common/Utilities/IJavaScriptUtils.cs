@@ -5,15 +5,17 @@
 namespace DotNetNuke.Common.Utilities
 {
     using System;
-    using System.Web.UI;
+
+    using Microsoft.AspNetCore.Http;
 
     public interface IJavaScriptUtils
     {
         /// <summary>Registers a javascript variable in a page with its value.</summary>
         /// <param name="variableName">Variable name and also the name of the registered code.</param>
         /// <param name="value">Object to be assigned to the variable.</param>
-        /// <param name="page">Page where the varialbe will be registered.</param>
+        /// <param name="context">The HTTP context of the request whose page the variable is registered on.</param>
         /// <param name="type">Type.</param>
-        void RegisterJavascriptVariable(string variableName, object value, Page page, Type type);
+        /// <remarks>The <c>page</c> parameter was a <c>System.Web.UI.Page</c>; the current page is now identified by the request.</remarks>
+        void RegisterJavascriptVariable(string variableName, object value, HttpContext context, Type type);
     }
 }

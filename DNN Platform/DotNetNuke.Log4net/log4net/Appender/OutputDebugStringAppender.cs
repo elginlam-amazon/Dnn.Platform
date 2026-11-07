@@ -18,16 +18,12 @@
 // limitations under the License.
 // 
 
-// MONO 1.0 has no support for Win32 OutputDebugString API
-#if !MONO
-// SSCLI 1.0 has no support for Win32 OutputDebugString API
-#if !SSCLI
-// We don't want framework or platform specific code in the CLI version of log4net
-#if !CLI_1_0
-
+using System;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 using log4net.Core;
+using log4net.Util;
 
 namespace log4net.Appender
 {
@@ -41,11 +37,19 @@ namespace log4net.Appender
     /// The string is passed to the native <c>OutputDebugString</c> 
     /// function.
     /// </para>
+    /// <para>
+    /// The native <c>OutputDebugString</c> function only exists on Windows. The appender type
+    /// itself remains constructible and configurable on every platform so that log4net
+    /// configuration parsing never fails, but on non-Windows platforms <see cref="Append"/>
+    /// is a documented no-op that emits a single <see cref="LogLog"/> warning instead.
+    /// </para>
     /// </remarks>
     /// <author>Nicko Cadell</author>
     /// <author>Gert Driesen</author>
     public class OutputDebugStringAppender : AppenderSkeleton
     {
+        private bool m_unsupportedPlatformWarningIssued;
+
         /// <summary>Initializes a new instance of the <see cref="OutputDebugStringAppender" /> class.</summary>
         /// <remarks>
         /// <para>
@@ -60,23 +64,22 @@ namespace log4net.Appender
         /// <param name="loggingEvent">the event to log</param>
         /// <remarks>
         /// <para>
-        /// Write the logging event to the output debug string API
+        /// Write the logging event to the output debug string API. On platforms other than
+        /// Windows this is a no-op and a warning is written to <see cref="LogLog"/> once.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecuritySafeCritical]
-#endif
-#if !NETCF && !NETSTANDARD1_3
-        [System.Security.Permissions.SecurityPermission(System.Security.Permissions.SecurityAction.Demand, UnmanagedCode = true)]
-#endif
         protected override void Append(LoggingEvent loggingEvent) 
         {
-#if NETSTANDARD
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (!OperatingSystem.IsWindows())
             {
-                throw new System.PlatformNotSupportedException("OutputDebugString is only available on Windows");
+                if (!this.m_unsupportedPlatformWarningIssued)
+                {
+                    this.m_unsupportedPlatformWarningIssued = true;
+                    LogLog.Warn(declaringType, "OutputDebugStringAppender: the native OutputDebugString API is only available on Windows; this appender is a no-op on the current platform.");
+                }
+
+                return;
             }
-#endif
 
             OutputDebugString(this.RenderLoggingEvent(loggingEvent));
         } 
@@ -97,18 +100,16 @@ namespace log4net.Appender
         /// <param name="message">the string to output</param>
         /// <remarks>
         /// <para>
-        /// Stub for OutputDebugString native method
+        /// Stub for OutputDebugString native method. Windows only.
         /// </para>
         /// </remarks>
-#if NETCF || NETSTANDARD
-        [DllImport("CoreDll.dll")]
-#else
-        [DllImport("Kernel32.dll")]
-#endif
+        [SupportedOSPlatform("windows")]
+        [DllImport("Kernel32.dll", CharSet = CharSet.Unicode)]
         protected static extern void OutputDebugString(string message);
+
+        /// <summary>
+        /// The fully qualified type of the OutputDebugStringAppender class.
+        /// </summary>
+        private static readonly Type declaringType = typeof(OutputDebugStringAppender);
     }
 }
-
-#endif // !CLI_1_0
-#endif // !SSCLI
-#endif // !MONO

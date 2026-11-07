@@ -1,0 +1,1014 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Admin.Security
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+@implements DotNetNuke.Entities.Modules.IActionable
+
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using System.Linq
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Modules.Actions
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Security.Roles
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.UI.WebControls
+@using DotNetNuke.Website
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Logging
+
+@*
+    Replaces securityroles.ascx, SecurityRoles.ascx.cs and SecurityRoles.ascx.designer.cs.
+
+    *** SECURITY CONTROL - role assignment. ***
+    Every guard of the original is preserved verbatim:
+      * DataBind()  : !ModulePermissionController.CanEditModuleContent(ModuleConfiguration)
+                      -> redirect to the "Access Denied" page.
+      * BindData()  : the Administrator role is removed from the role list for a user who is not
+                      in the Administrator role, and when the target role IS the Administrator
+                      role the whole add/assign UI is hidden with the "NotAuthorized" warning.
+      * CmdAdd      : PortalSecurity.IsInRole(AdministratorRoleName) == false -> return.
+      * Delete      : PortalSecurity.IsInRole(AdministratorRoleName) == false -> return, and the
+                      per row DeleteButtonVisible([DNN-4285]) rule.
+
+    *** Effective / expiry date semantics (unchanged, see GetDates and AddUserRoleClick). ***
+      * Both pickers are <input type="date">, i.e. the "yyyy-MM-dd" round trip the WebForms
+        TextMode="Date" textboxes used.
+      * Reading: DateTime.TryParseExact(text, "yyyy-MM-dd", InvariantCulture,
+        DateTimeStyles.AssumeLocal); when it fails the value is Null.NullDate - NOT
+        DateTime.MinValue, NOT "today".
+      * Writing: effective/expiry are only shown when Null.IsNull(...) is false; a null date
+        renders as an empty picker.
+      * A new assignment with a billing period pre-fills the expiry date by adding
+        BillingPeriod days/weeks(*7)/months/years to DateTime.Now, for BillingPeriod > 0 only.
+      * The portal Administrator in the Administrator role is exempt: both dates are cleared
+        before they are parsed, so the account's dates are never modified.
+      * valDates: expiry must be strictly GREATER THAN effective (CompareValidator
+        Operator="GreaterThan"), so equal dates are invalid, as before.
+
+    Control mapping: asp:DataGrid grdUserRoles -> the @foreach; dnn:pagingcontrol ctlPagingControl
+    -> the PagingControl component; dnn:DnnComboBox cboRoles/cboUsers -> <select>s whose change
+    handlers are the SelectedIndexChanged handlers; asp:LinkButton cmdAdd/cmdValidate -> anchors.
+*@
+
+<div class="dnnForm dnnManageSecurityRoles">
+    @if (this.pnlRolesVisible)
+    {
+        <div id="pnlRoles">
+            <h2 class="dnnFormSectionHead"><span id="lblTitle">@this.title</span></h2>
+            <div class="dnnFormItem">
+                <table cellspacing="0" cellpadding="0" border="0" class="dnnSecurityRoles dnnClear">
+                    <tr>
+                        <td valign="top" width="250">
+                            <div class="dnnFormItem" style="z-index: 10;">
+                                @if (this.plRolesVisible)
+                                {
+                                    <div class="dnnLabel"><label><span id="plRoles">@this.LocalizeText("plRoles")</span></label></div>
+                                }
+                                @if (this.plUsersVisible)
+                                {
+                                    <div class="dnnLabel"><label><span id="plUsers">@this.LocalizeText("plUsers")</span></label></div>
+                                }
+                            </div>
+                        </td>
+                        <td width="30"></td>
+                        <td valign="top" width="100">
+                            <div class="dnnLabel"><label><span id="plEffectiveDate">@this.LocalizeText("plEffectiveDate")</span></label></div>
+                        </td>
+                        <td width="30"></td>
+                        <td valign="top" width="100">
+                            <div class="dnnLabel"><label><span id="plExpiryDate">@this.LocalizeText("plExpiryDate")</span></label></div>
+                        </td>
+                        @if (this.isOwnerVisible)
+                        {
+                            <td width="30"></td>
+                            <td valign="top" width="150">
+                                <div class="dnnLabel"><label><span id="lblIsOwner">@this.LocalizeText("lblIsOwner")</span></label></div>
+                            </td>
+                        }
+                        <td width="30"></td>
+                        <td valign="top" width="200"></td>
+                    </tr>
+                    <tr>
+                        <td valign="top" width="220">
+                            @if (this.txtUsersVisible)
+                            {
+                                <input type="text" id="txtUsers" style="width: 150px;" @bind="this.usersText" />
+                            }
+                            @if (this.cmdValidateVisible)
+                            {
+                                <a id="cmdValidate" class="dnnSecondaryAction" href="#" @onclick="this.CmdValidateClick" @onclick:preventDefault="true">@this.LocalizeText("cmdValidate")</a>
+                            }
+                            @if (this.cboUsersVisible)
+                            {
+                                <select id="cboUsers" value="@this.selectedUserValue" @onchange="this.CboUsersChanged">
+                                    @foreach (var item in this.userItems)
+                                    {
+                                        <option value="@item.Value">@item.Text</option>
+                                    }
+                                </select>
+                            }
+                            @if (this.cboRolesVisible)
+                            {
+                                <select id="cboRoles" value="@this.selectedRoleValue" @onchange="this.CboRolesChanged">
+                                    @foreach (var item in this.roleItems)
+                                    {
+                                        <option value="@item.Value">@item.Text</option>
+                                    }
+                                </select>
+                            }
+                        </td>
+                        <td width="30"></td>
+                        <td valign="top" width="100" nowrap="nowrap">
+                            <input type="date" id="effectiveDatePicker" value="@this.effectiveDateText" @onchange="@(e => this.effectiveDateText = e.Value?.ToString())" />
+                        </td>
+                        <td width="30"></td>
+                        <td valign="top" width="100" nowrap="nowrap">
+                            <input type="date" id="expiryDatePicker" value="@this.expiryDateText" @onchange="@(e => this.expiryDateText = e.Value?.ToString())" />
+                        </td>
+                        @if (this.isOwnerVisible)
+                        {
+                            <td width="30"></td>
+                            <td valign="top" width="150" nowrap="nowrap" align="right">
+                                <input type="checkbox" id="chkIsOwner" checked="@this.isOwner" @onchange="@(e => this.isOwner = (bool)e.Value)" />
+                            </td>
+                        }
+                        <td width="30"></td>
+                        <td valign="top" nowrap="nowrap">
+                            <a id="cmdAdd" class="dnnPrimaryAction" href="#" @onclick="this.CmdAddClick" @onclick:preventDefault="true">@this.addText</a>
+                            @if (this.chkNotifyVisible)
+                            {
+                                <input type="checkbox" id="chkNotify" checked="@this.notify" @onchange="@(e => this.notify = (bool)e.Value)" />
+                                <label for="chkNotify">@this.LocalizeText("SendNotification")</label>
+                            }
+                        </td>
+                    </tr>
+                </table>
+                @if (this.showInvalidEffectiveDate)
+                {
+                    <span id="valEffectiveDate" class="dnnFormError">@this.LocalizeText("valEffectiveDate")</span>
+                }
+                @if (this.showInvalidExpiryDate)
+                {
+                    <span id="valExpiryDate" class="dnnFormError">@this.LocalizeText("valExpiryDate")</span>
+                }
+                @if (this.showInvalidDates)
+                {
+                    <span id="valDates" class="dnnFormError">@this.LocalizeText("valDates")</span>
+                }
+            </div>
+        </div>
+    }
+    @if (this.pnlUserRolesVisible)
+    {
+        <div id="pnlUserRoles" class="WorkPanel">
+            <table id="grdUserRoles" width="100%" cellspacing="0" cellpadding="0" class="dnnGrid">
+                <thead>
+                    <tr class="dnnGridHeader">
+                        <th></th>
+                        @if (this.userNameColumnVisible)
+                        {
+                            <th>@this.LocalizeText("UserName.Header")</th>
+                        }
+                        @if (this.roleNameColumnVisible)
+                        {
+                            <th>@this.LocalizeText("SecurityRole.Header")</th>
+                        }
+                        <th>@this.LocalizeText("EffectiveDate.Header")</th>
+                        <th>@this.LocalizeText("ExpiryDate.Header")</th>
+                        @if (this.isOwnerColumnVisible)
+                        {
+                            <th>@this.LocalizeText("IsOwner.Header")</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @{
+                        var rowIndex = 0;
+                    }
+                    @foreach (var userRole in this.userRoles)
+                    {
+                        var current = userRole;
+                        var cssClass = rowIndex % 2 == 0 ? "dnnGridItem" : "dnnGridAltItem";
+                        rowIndex++;
+                        <tr class="@cssClass">
+                            <td>
+                                @* [DNN-4285] Hide the button if the user cannot be removed from the role *@
+                                @if (this.DeleteButtonVisible(current.UserID, current.RoleID))
+                                {
+                                    <a id="cmdDeleteUserRole" href="#" title="@this.LocalizeText("cmdDelete")"
+                                       @onclick="@(() => this.DeleteUserRoleClick(current.RoleID, current.UserID, this.GetDeleteConfirmText(current)))" @onclick:preventDefault="true">
+                                        <img src="@DotNetNuke.Entities.Icons.IconController.IconURL("Delete")" alt="Delete" />
+                                    </a>
+                                }
+                            </td>
+                            @if (this.userNameColumnVisible)
+                            {
+                                <td>
+                                    <a href="@DotNetNuke.Common.Globals.LinkClick("userid=" + current.UserID, this.TabId, this.ModuleId)">@current.FullName</a>
+                                </td>
+                            }
+                            @if (this.roleNameColumnVisible)
+                            {
+                                <td>@current.RoleName</td>
+                            }
+                            <td>@this.FormatDate(current.EffectiveDate)</td>
+                            <td>@this.FormatDate(current.ExpiryDate)</td>
+                            @if (this.isOwnerColumnVisible)
+                            {
+                                <td>
+                                    @if (current.IsOwner)
+                                    {
+                                        <img id="imgApproved" src="@DotNetNuke.Entities.Icons.IconController.IconURL("Checked")" alt="" />
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <PagingControl ID="ctlPagingControl"
+                           TotalRecords="@this.totalRecords"
+                           PageSize="@this.PageSize"
+                           CurrentPage="@this.CurrentPage"
+                           TabID="@this.TabId"
+                           QuerystringParams="@this.pagingQuerystringParams" />
+        </div>
+    }
+    <ul id="actionsRow" class="dnnActions dnnClear">
+        <li><a id="cmdCancel" class="dnnPrimaryAction" href="@this.ReturnUrl">@this.LocalizeText("Close")</a></li>
+    </ul>
+</div>
+
+@code {
+    private static readonly ILogger Logger = DnnLoggingController.GetLogger<SecurityRoles>();
+
+    private int roleId = Null.NullInteger;
+    private int userId = Null.NullInteger;
+    private RoleInfo role;
+    private int selectedUserId = Null.NullInteger;
+    private UserInfo user;
+    private int totalRecords;
+
+    private IList<UserRoleInfo> userRoles = new List<UserRoleInfo>();
+    private List<SelectItem> roleItems = new();
+    private List<SelectItem> userItems = new();
+    private string selectedRoleValue = string.Empty;
+    private string selectedUserValue = string.Empty;
+    private string usersText = string.Empty;
+    private string effectiveDateText;
+    private string expiryDateText;
+    private string title = string.Empty;
+    private string addText = string.Empty;
+    private string pagingQuerystringParams = string.Empty;
+    private bool notify = true;
+    private bool isOwner;
+    private bool isOwnerVisible;
+    private bool isOwnerColumnVisible;
+    private bool pnlRolesVisible = true;
+    private bool pnlUserRolesVisible = true;
+    private bool chkNotifyVisible = true;
+    private bool plRolesVisible = true;
+    private bool plUsersVisible = true;
+    private bool cboRolesVisible = true;
+    private bool cboUsersVisible;
+    private bool txtUsersVisible;
+    private bool cmdValidateVisible;
+    private bool userNameColumnVisible = true;
+    private bool roleNameColumnVisible = true;
+    private bool showInvalidEffectiveDate;
+    private bool showInvalidExpiryDate;
+    private bool showInvalidDates;
+    private bool rolesBound;
+    private bool usersBound;
+
+    /// <summary>Gets or sets the navigation manager.</summary>
+    [Inject]
+    protected INavigationManager DnnNavigationManager { get; set; }
+
+    /// <summary>
+    /// Gets or sets the JavaScript runtime, used for the per-row delete confirmation prompt that
+    /// the original markup expressed as <c>onclick="return confirm('…')"</c> (a literal
+    /// <c>onclick</c> and <c>@onclick</c> cannot coexist on one element — RZ10008).
+    /// </summary>
+    [Inject]
+    protected Microsoft.JSInterop.IJSRuntime JsRuntime { get; set; }
+
+    /// <summary>Gets or sets the role provider.</summary>
+    [Inject]
+    protected RoleProvider RoleProviderInstance { get; set; }
+
+    /// <summary>Gets or sets the role controller.</summary>
+    [Inject]
+    protected IRoleController RoleControllerInstance { get; set; }
+
+    /// <summary>Gets or sets the event manager.</summary>
+    [Inject]
+    protected IEventManager EventManagerInstance { get; set; }
+
+    /// <summary>Gets or sets the portal controller.</summary>
+    [Inject]
+    protected IPortalController PortalControllerInstance { get; set; }
+
+    /// <summary>Gets or sets the user controller.</summary>
+    [Inject]
+    protected IUserController UserControllerInstance { get; set; }
+
+    /// <summary>Gets or sets the event logger.</summary>
+    [Inject]
+    protected IEventLogger EventLoggerInstance { get; set; }
+
+    /// <summary>Gets or sets the host settings.</summary>
+    [Inject]
+    protected IHostSettings HostSettingsInstance { get; set; }
+
+    /// <summary>Gets or sets the Blazor navigation manager the Access Denied redirect uses.</summary>
+    [Inject]
+    protected NavigationManager Navigation { get; set; }
+
+    /// <inheritdoc />
+    public ModuleActionCollection ModuleActions => new();
+
+    /// <summary>Gets or sets the ParentModule (if one exists).</summary>
+    [Parameter]
+    public PortalModuleBase ParentModule { get; set; }
+
+    /// <summary>Gets the Return Url for the page.</summary>
+    protected string ReturnUrl
+    {
+        get
+        {
+            string returnURL;
+            var query = this.Request.GetQueryString();
+            var filterParams = new string[string.IsNullOrEmpty(query["filterproperty"]) ? 2 : 3];
+
+            if (string.IsNullOrEmpty(query["filterProperty"]))
+            {
+                filterParams.SetValue("filter=" + query["filter"], 0);
+                filterParams.SetValue("currentpage=" + query["currentpage"], 1);
+            }
+            else
+            {
+                filterParams.SetValue("filter=" + query["filter"], 0);
+                filterParams.SetValue("filterProperty=" + query["filterProperty"], 1);
+                filterParams.SetValue("currentpage=" + query["currentpage"], 2);
+            }
+
+            if (string.IsNullOrEmpty(query["filter"]))
+            {
+                returnURL = this.DnnNavigationManager.NavigateURL(this.TabId);
+            }
+            else
+            {
+                returnURL = this.DnnNavigationManager.NavigateURL(this.TabId, string.Empty, filterParams);
+            }
+
+            return returnURL;
+        }
+    }
+
+    /// <summary>Gets the role being managed.</summary>
+    protected RoleInfo Role
+    {
+        get
+        {
+            if (this.role == null)
+            {
+                if (this.roleId != Null.NullInteger)
+                {
+                    this.role = this.RoleControllerInstance.GetRole(this.PortalId, r => r.RoleID == this.roleId);
+                }
+                else if (!string.IsNullOrEmpty(this.selectedRoleValue))
+                {
+                    this.role = this.RoleControllerInstance.GetRole(this.PortalId, r => r.RoleID == Convert.ToInt32(this.selectedRoleValue));
+                }
+            }
+
+            return this.role;
+        }
+    }
+
+    /// <summary>Gets the user being managed.</summary>
+    protected UserInfo User
+    {
+        get
+        {
+            if (this.user == null)
+            {
+                if (this.userId != Null.NullInteger)
+                {
+                    this.user = UserController.GetUserById(this.HostSettingsInstance, this.PortalId, this.userId);
+                }
+                else if (this.UsersControl == UsersControl.TextBox && !string.IsNullOrEmpty(this.usersText))
+                {
+                    this.user = UserController.GetUserByName(this.PortalId, this.usersText);
+                }
+                else if (this.UsersControl == UsersControl.Combo && !string.IsNullOrEmpty(this.selectedUserValue))
+                {
+                    this.user = UserController.GetUserById(this.HostSettingsInstance, this.PortalId, Convert.ToInt32(this.selectedUserValue));
+                }
+            }
+
+            return this.user;
+        }
+    }
+
+    /// <summary>Gets the control should use a Combo Box or Text Box to display the users.</summary>
+    protected UsersControl UsersControl
+    {
+        get
+        {
+            var setting = UserModuleBase.GetSetting(this.PortalId, "Security_UsersControl");
+            return (UsersControl)setting;
+        }
+    }
+
+    /// <summary>Gets the page size of the user role grid.</summary>
+    protected int PageSize
+    {
+        get
+        {
+            var setting = UserModuleBase.GetSetting(this.PortalId, "Records_PerPage");
+            return Convert.ToInt32(setting);
+        }
+    }
+
+    /// <summary>Gets or sets the selected user ID.</summary>
+    protected int SelectedUserID
+    {
+        get
+        {
+            return this.selectedUserId;
+        }
+
+        set
+        {
+            this.selectedUserId = value;
+        }
+    }
+
+    /// <summary>Gets or sets the current page of the user role grid.</summary>
+    protected int CurrentPage { get; set; }
+
+    /// <summary>DataBind binds the data to the controls.</summary>
+    public void DataBind()
+    {
+        if (!ModulePermissionController.CanEditModuleContent(this.ModuleConfiguration))
+        {
+            this.Navigation.NavigateTo(this.DnnNavigationManager.NavigateURL("Access Denied"), forceLoad: true);
+            return;
+        }
+
+        // Bind the role data to the datalist
+        this.BindData();
+
+        this.BindGrid();
+    }
+
+    /// <summary>
+    /// DeleteButtonVisible returns a boolean indicating if the delete button for
+    /// the specified UserID, RoleID pair should be shown.
+    /// </summary>
+    /// <param name="userID">The ID of the user to check delete button visibility for.</param>
+    /// <param name="roleID">The ID of the role to check delete button visibility for.</param>
+    /// <returns><see langword="true"/> if the delete button should be shown, <see langword="false"/> to hide the delete button.</returns>
+    public bool DeleteButtonVisible(int userID, int roleID)
+    {
+        // [DNN-4285] Check if the role can be removed (only handles case of Administrator and Administrator Role
+        bool canDelete = RoleController.CanRemoveUserFromRole(this.PortalSettings, userID, roleID);
+        if (roleID == this.PortalSettings.AdministratorRoleId && canDelete)
+        {
+            // User can only delete if in Admin role
+            canDelete = PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName);
+        }
+
+        return canDelete;
+    }
+
+    /// <summary>FormatExpiryDate formats the expiry/effective date and filters out nulls.</summary>
+    /// <param name="dateTime">The Date object to format.</param>
+    /// <returns>The short date string or <see cref="string.Empty"/>.</returns>
+    public string FormatDate(DateTime dateTime)
+    {
+        if (!Null.IsNull(dateTime))
+        {
+            return dateTime.ToShortDateString();
+        }
+        else
+        {
+            return string.Empty;
+        }
+    }
+
+    /// <summary>Generates HTML to link to a user.</summary>
+    /// <param name="userID">The user ID.</param>
+    /// <param name="displayName">The display name for the link.</param>
+    /// <returns>A string with an HTML link to edit the user.</returns>
+    public string FormatUser(int userID, string displayName)
+    {
+        return "<a href=\"" + DotNetNuke.Common.Globals.LinkClick("userid=" + userID, this.TabId, this.ModuleId) + "\" class=\"CommandButton\">" + displayName + "</a>";
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        var query = this.Request.GetQueryString();
+
+        if (query["RoleId"] != null)
+        {
+            this.roleId = int.Parse(query["RoleId"]);
+        }
+
+        if (query["UserId"] != null)
+        {
+            int parsedUserId;
+
+            // Use Int32.MaxValue as invalid UserId
+            this.userId = int.TryParse(query["UserId"], out parsedUserId) ? parsedUserId : int.MaxValue;
+        }
+
+        this.CurrentPage = 1;
+        if (query["CurrentPage"] != null)
+        {
+            if (int.TryParse(query["CurrentPage"], out var currentPage) && currentPage > 0)
+            {
+                this.CurrentPage = currentPage;
+            }
+            else
+            {
+                this.CurrentPage = 1;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            if (this.ParentModule == null)
+            {
+                this.DataBind();
+            }
+
+            if (this.Role == null)
+            {
+                return;
+            }
+
+            this.isOwnerVisible = this.Role.SecurityMode is SecurityMode.SocialGroup or SecurityMode.Both;
+            this.isOwnerColumnVisible = this.Role.SecurityMode is SecurityMode.SocialGroup or SecurityMode.Both;
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>BindData loads the controls from the Database.</summary>
+    private void BindData()
+    {
+        // bind all portal roles to dropdownlist
+        if (this.roleId == Null.NullInteger)
+        {
+            if (!this.rolesBound)
+            {
+                var roles = this.RoleControllerInstance.GetRoles(this.PortalId, x => x.Status == RoleStatus.Approved);
+
+                // Remove access to Admin Role if use is not a member of the role
+                int roleIndex = Null.NullInteger;
+                foreach (RoleInfo tmpRole in roles)
+                {
+                    if (tmpRole.RoleName == this.PortalSettings.AdministratorRoleName)
+                    {
+                        if (!PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName))
+                        {
+                            roleIndex = roles.IndexOf(tmpRole);
+                        }
+                    }
+
+                    break;
+                }
+
+                if (roleIndex > Null.NullInteger)
+                {
+                    roles.RemoveAt(roleIndex);
+                }
+
+                this.roleItems = roles.Select(r => new SelectItem(r.RoleName, r.RoleID.ToString(CultureInfo.InvariantCulture))).ToList();
+                if (this.roleItems.Count > 0 && string.IsNullOrEmpty(this.selectedRoleValue))
+                {
+                    this.selectedRoleValue = this.roleItems[0].Value;
+                }
+
+                this.rolesBound = true;
+            }
+        }
+        else
+        {
+            if (!this.rolesBound)
+            {
+                if (this.Role != null)
+                {
+                    this.roleItems = new List<SelectItem> { new SelectItem(this.Role.RoleName, this.Role.RoleID.ToString(CultureInfo.InvariantCulture)) };
+                    this.selectedRoleValue = this.Role.RoleID.ToString(CultureInfo.InvariantCulture);
+                    this.title = string.Format(CultureInfo.CurrentCulture, this.LocalizeText("RoleTitle.Text"), this.Role.RoleName, this.Role.RoleID);
+                }
+
+                this.cboRolesVisible = false;
+                this.plRolesVisible = false;
+                this.rolesBound = true;
+            }
+        }
+
+        // bind all portal users to dropdownlist
+        if (this.userId == -1)
+        {
+            // Make sure user has enough permissions
+            if (this.Role.RoleName == this.PortalSettings.AdministratorRoleName && !PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName))
+            {
+                DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, this.LocalizeText("NotAuthorized"), ModuleMessage.ModuleMessageType.YellowWarning);
+                this.pnlRolesVisible = false;
+                this.pnlUserRolesVisible = false;
+                this.chkNotifyVisible = false;
+                return;
+            }
+
+            if (this.UsersControl == UsersControl.Combo)
+            {
+                if (!this.usersBound)
+                {
+                    foreach (UserInfo objUser in UserController.GetUsers(this.PortalId))
+                    {
+                        this.userItems.Add(new SelectItem(objUser.DisplayName + " (" + objUser.Username + ")", objUser.UserID.ToString(CultureInfo.InvariantCulture)));
+                    }
+
+                    this.usersBound = true;
+                }
+
+                this.txtUsersVisible = false;
+                this.cboUsersVisible = true;
+                this.cmdValidateVisible = false;
+            }
+            else
+            {
+                this.txtUsersVisible = true;
+                this.cboUsersVisible = false;
+                this.cmdValidateVisible = true;
+            }
+        }
+        else
+        {
+            if (this.User != null)
+            {
+                this.usersText = this.User.UserID.ToString(CultureInfo.InvariantCulture);
+                this.title = string.Format(CultureInfo.CurrentCulture, this.LocalizeText("UserTitle.Text"), this.User.Username, this.User.UserID);
+            }
+
+            this.txtUsersVisible = false;
+            this.cboUsersVisible = false;
+            this.cmdValidateVisible = false;
+            this.plUsersVisible = false;
+        }
+    }
+
+    /// <summary>BindGrid loads the data grid from the Database.</summary>
+    private void BindGrid()
+    {
+        if (this.roleId != Null.NullInteger)
+        {
+            this.addText = this.LocalizeText("AddUser.Text");
+
+            // the original hid grid column 2 (the RoleName bound column)
+            this.roleNameColumnVisible = false;
+        }
+
+        if (this.userId != Null.NullInteger)
+        {
+            this.addText = this.LocalizeText("AddRole.Text");
+
+            // the original hid grid column 1 (the UserName template column)
+            this.userNameColumnVisible = false;
+        }
+
+        this.userRoles = this.GetPagedDataSource();
+
+        // grdUserRoles_ItemDataBound: when the listed assignment is the one selected in the
+        // role/user pickers, the add button becomes an update button.
+        foreach (var userRole in this.userRoles)
+        {
+            if (this.roleId == Null.NullInteger
+                && !string.IsNullOrEmpty(this.selectedRoleValue)
+                && userRole.RoleID == Convert.ToInt32(this.selectedRoleValue))
+            {
+                this.addText = this.LocalizeText("UpdateRole.Text");
+            }
+
+            if (this.userId == Null.NullInteger && userRole.UserID == this.SelectedUserID)
+            {
+                this.addText = this.LocalizeText("UpdateRole.Text");
+            }
+        }
+
+        // WebUtility replaces HttpUtility (System.Web), which the migrated platform no longer uses.
+        this.pagingQuerystringParams = System.Net.WebUtility.UrlDecode(string.Join("&", this.Request.QueryString.ToString().TrimStart('?').Split('&').
+                                                                    ToList().
+                                                                    Where(s => s.StartsWith("ctl", StringComparison.OrdinalIgnoreCase)
+                                                                        || s.StartsWith("mid", StringComparison.OrdinalIgnoreCase)
+                                                                        || s.StartsWith("RoleId", StringComparison.OrdinalIgnoreCase)
+                                                                        || s.StartsWith("UserId", StringComparison.OrdinalIgnoreCase)
+                                                                        || s.StartsWith("filter", StringComparison.OrdinalIgnoreCase)
+                                                                        || s.StartsWith("popUp", StringComparison.OrdinalIgnoreCase)).ToArray()));
+    }
+
+    private IList<UserRoleInfo> GetPagedDataSource()
+    {
+        var roleName = this.roleId != Null.NullInteger ? this.Role.RoleName : Null.NullString;
+        var userName = this.userId != Null.NullInteger ? this.User.Username : Null.NullString;
+
+        var userList = this.RoleControllerInstance.GetUserRoles(this.PortalId, userName, roleName);
+        this.totalRecords = userList.Count;
+
+        return userList.Skip((this.CurrentPage - 1) * this.PageSize).Take(this.PageSize).ToList();
+    }
+
+    /// <summary>Gets the confirm text of the delete command of a row.</summary>
+    /// <param name="userRoleInfo">The listed assignment.</param>
+    /// <returns>The confirmation text.</returns>
+    /// <remarks>This is the ClientAPI.AddButtonConfirm of GrdUserRoles_ItemCreated.</remarks>
+    private string GetDeleteConfirmText(UserRoleInfo userRoleInfo)
+    {
+        var text = this.roleId == Null.NullInteger
+            ? string.Format(CultureInfo.CurrentCulture, this.LocalizeText("DeleteRoleFromUser.Text"), userRoleInfo.FullName, userRoleInfo.RoleName)
+            : string.Format(CultureInfo.CurrentCulture, this.LocalizeText("DeleteUsersFromRole.Text"), userRoleInfo.FullName, userRoleInfo.RoleName);
+
+        return DotNetNuke.UI.Utilities.ClientAPI.GetSafeJSString(text);
+    }
+
+    /// <summary>GetDates gets the expiry/effective Dates of a Users Role membership.</summary>
+    /// <param name="userId">The ID of the User.</param>
+    /// <param name="roleId">The ID of the Role.</param>
+    private void GetDates(int userId, int roleId)
+    {
+        DateTime? expiryDate = null;
+        DateTime? effectiveDate = null;
+
+        var userRole = this.RoleControllerInstance.GetUserRole(this.PortalId, userId, roleId);
+        if (userRole != null)
+        {
+            if (Null.IsNull(userRole.EffectiveDate) == false)
+            {
+                effectiveDate = userRole.EffectiveDate;
+            }
+
+            if (Null.IsNull(userRole.ExpiryDate) == false)
+            {
+                expiryDate = userRole.ExpiryDate;
+            }
+        }
+        else
+        {
+            // new role assignment
+            var objRole = this.RoleControllerInstance.GetRole(this.PortalId, r => r.RoleID == roleId);
+            if (objRole.BillingPeriod > 0)
+            {
+                switch (objRole.BillingFrequency)
+                {
+                    case "D":
+                        expiryDate = DateTime.Now.AddDays(objRole.BillingPeriod);
+                        break;
+                    case "W":
+                        expiryDate = DateTime.Now.AddDays(objRole.BillingPeriod * 7);
+                        break;
+                    case "M":
+                        expiryDate = DateTime.Now.AddMonths(objRole.BillingPeriod);
+                        break;
+                    case "Y":
+                        expiryDate = DateTime.Now.AddYears(objRole.BillingPeriod);
+                        break;
+                }
+            }
+        }
+
+        this.effectiveDateText = effectiveDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        this.expiryDateText = expiryDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>This is CboUsers_SelectedIndexChanged.</summary>
+    /// <param name="args">The change event args.</param>
+    private void CboUsersChanged(ChangeEventArgs args)
+    {
+        this.selectedUserValue = args.Value?.ToString();
+        this.user = null;
+
+        if (!string.IsNullOrEmpty(this.selectedUserValue) && !string.IsNullOrEmpty(this.selectedRoleValue))
+        {
+            this.SelectedUserID = int.Parse(this.selectedUserValue);
+            this.GetDates(this.SelectedUserID, int.Parse(this.selectedRoleValue));
+        }
+
+        this.BindGrid();
+    }
+
+    /// <summary>This is CmdValidate_Click.</summary>
+    private void CmdValidateClick()
+    {
+        if (PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName) == false)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(this.usersText))
+        {
+            // validate username
+            UserInfo objUser = UserController.GetUserByName(this.PortalId, this.usersText);
+            if (objUser != null)
+            {
+                this.GetDates(objUser.UserID, this.roleId);
+                this.SelectedUserID = objUser.UserID;
+            }
+            else
+            {
+                this.usersText = string.Empty;
+            }
+        }
+
+        this.user = null;
+        this.BindGrid();
+    }
+
+    /// <summary>This is CboRoles_SelectedIndexChanged.</summary>
+    /// <param name="args">The change event args.</param>
+    private void CboRolesChanged(ChangeEventArgs args)
+    {
+        this.selectedRoleValue = args.Value?.ToString();
+        this.role = null;
+
+        this.GetDates(this.userId, int.Parse(this.selectedRoleValue));
+        this.BindGrid();
+    }
+
+    /// <summary>
+    /// Validates the two date pickers the way valEffectiveDate, valExpiryDate and valDates did.
+    /// </summary>
+    /// <returns><see langword="true"/> when the page is valid.</returns>
+    /// <remarks>
+    /// valEffectiveDate/valExpiryDate were CompareValidators with Operator="DataTypeCheck"
+    /// Type="Date" (an empty value is valid, a non-date is not); valDates required the expiry date
+    /// to be strictly greater than the effective date.
+    /// </remarks>
+    private bool ValidateDates()
+    {
+        this.showInvalidEffectiveDate = false;
+        this.showInvalidExpiryDate = false;
+        this.showInvalidDates = false;
+
+        DateTime? effective = null;
+        DateTime? expiry = null;
+
+        if (!string.IsNullOrEmpty(this.effectiveDateText))
+        {
+            if (DateTime.TryParseExact(this.effectiveDateText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsedEffective))
+            {
+                effective = parsedEffective;
+            }
+            else
+            {
+                this.showInvalidEffectiveDate = true;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(this.expiryDateText))
+        {
+            if (DateTime.TryParseExact(this.expiryDateText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsedExpiry))
+            {
+                expiry = parsedExpiry;
+            }
+            else
+            {
+                this.showInvalidExpiryDate = true;
+            }
+        }
+
+        if (effective.HasValue && expiry.HasValue && expiry.Value <= effective.Value)
+        {
+            this.showInvalidDates = true;
+        }
+
+        return !this.showInvalidEffectiveDate && !this.showInvalidExpiryDate && !this.showInvalidDates;
+    }
+
+    /// <summary>This is CmdAdd_Click: it assigns the selected user to the selected role.</summary>
+    private void CmdAddClick()
+    {
+        if (PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName) == false)
+        {
+            return;
+        }
+
+        try
+        {
+            if (this.ValidateDates())
+            {
+                if ((this.Role != null) && (this.User != null))
+                {
+                    // do not modify the portal Administrator account dates
+                    if (this.User.UserID == this.PortalSettings.AdministratorId && this.Role.RoleID == this.PortalSettings.AdministratorRoleId)
+                    {
+                        this.effectiveDateText = null;
+                        this.expiryDateText = null;
+                    }
+
+                    if (!DateTime.TryParseExact(this.effectiveDateText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var datEffectiveDate))
+                    {
+                        datEffectiveDate = Null.NullDate;
+                    }
+
+                    if (!DateTime.TryParseExact(this.expiryDateText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var datExpiryDate))
+                    {
+                        datExpiryDate = Null.NullDate;
+                    }
+
+                    // Add User to Role
+                    var roleIsOwner = false;
+                    if (this.Role.SecurityMode is SecurityMode.SocialGroup or SecurityMode.Both)
+                    {
+                        roleIsOwner = this.isOwner;
+                    }
+
+                    RoleController.AddUserRole(this.RoleControllerInstance, this.UserControllerInstance, this.EventLoggerInstance, this.User, this.Role, this.PortalSettings, RoleStatus.Approved, datEffectiveDate, datExpiryDate, this.notify, roleIsOwner);
+                    this.isOwner = false; // reset the checkbox
+                }
+            }
+
+            this.BindGrid();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>This is cmdDeleteUserRole_click.</summary>
+    /// <param name="deleteRoleId">The role of the assignment being removed.</param>
+    /// <param name="deleteUserId">The user of the assignment being removed.</param>
+    /// <param name="confirmText">
+    /// The per-row confirmation prompt. The original markup carried
+    /// <c>onclick="return confirm('…')"</c> alongside the server-side click handler, which a Razor
+    /// component cannot do on one element (RZ10008), so the prompt moved here. It runs AFTER the
+    /// Administrator-role check and before the removal, so declining aborts the delete and an
+    /// unauthorized caller is rejected without being prompted at all.
+    /// </param>
+    private async Task DeleteUserRoleClick(int deleteRoleId, int deleteUserId, string confirmText)
+    {
+        if (PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName) == false)
+        {
+            return;
+        }
+
+        if (!await this.JsRuntime.InvokeAsync<bool>("confirm", confirmText))
+        {
+            return;
+        }
+
+        try
+        {
+            var roleToDelete = this.RoleControllerInstance.GetRole(this.PortalId, r => r.RoleID == deleteRoleId);
+            if (!RoleController.DeleteUserRole(this.RoleProviderInstance, this.RoleControllerInstance, this.EventManagerInstance, this.PortalControllerInstance, this.UserControllerInstance, this.EventLoggerInstance, this.UserControllerInstance.GetUserById(this.PortalId, deleteUserId), roleToDelete, this.PortalSettings, this.notify))
+            {
+                DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, this.LocalizeText("RoleRemoveError"), ModuleMessage.ModuleMessageType.RedError);
+            }
+
+            this.BindGrid();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.LogException(exc);
+            DotNetNuke.UI.Skins.Skin.AddModuleMessage(this, this.LocalizeText("RoleRemoveError"), ModuleMessage.ModuleMessageType.RedError);
+        }
+    }
+
+    /// <summary>An item of one of the two pickers (replaces ListItem of the DnnComboBoxes).</summary>
+    /// <param name="Text">The display text.</param>
+    /// <param name="Value">The value.</param>
+    private sealed record SelectItem(string Text, string Value);
+}

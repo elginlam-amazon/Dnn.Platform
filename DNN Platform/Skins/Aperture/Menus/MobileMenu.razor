@@ -1,0 +1,45 @@
+@* Ported from menus/mobile/RazorMenu.cshtml (+ menus/mobile/menudef.xml, which only pointed the
+   DDRMenu template engine at that template).
+
+   The hamburger markup (#menuToggle with its checkbox and three spans) and the .nav-drill container
+   are styled by src/scss/components/_nav.scss and driven by src/scripts/menu.ts, so the structure is
+   kept verbatim rather than replaced with Blazor event handlers — the toggle behaviour stays
+   CSS/JS-driven exactly as before and therefore needs no interactive render mode. *@
+@inject IApertureMenuProvider MenuProvider
+
+<span class="mobile-menu @this.CssClass" id="nav-mobile">
+    <div id="menuToggle">
+        <input type="checkbox" aria-label="Toggle navigation" />
+        <span></span>
+        <span></span>
+        <span></span>
+        <nav role="navigation" class="nav-drill">
+            <ul class="nav-items">
+                <MobileMenuItems Pages="this.nodes" />
+            </ul>
+        </nav>
+    </div>
+</span>
+
+@code {
+    private IReadOnlyList<ApertureMenuNode> nodes = [];
+
+    /// <summary>Gets or sets the CSS class applied to the menu element.</summary>
+    /// <remarks>Replaces the <c>CssClass</c> attribute of the <c>dnn:MENU</c> skin object.</remarks>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the DDRMenu node selector that scopes the rendered nodes.</summary>
+    /// <remarks>
+    /// Defaults to <c>*,0,2</c>, the value declared for <c>menu_mobile</c> in
+    /// <c>partials/_header.ascx</c>.
+    /// </remarks>
+    [Parameter]
+    public string NodeSelector { get; set; } = "*,0,2";
+
+    /// <inheritdoc />
+    protected override async Task OnParametersSetAsync()
+    {
+        this.nodes = await this.MenuProvider.GetNodesAsync(this.NodeSelector);
+    }
+}

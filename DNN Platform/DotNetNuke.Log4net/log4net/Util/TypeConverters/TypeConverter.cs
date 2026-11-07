@@ -19,9 +19,6 @@
 // 
 
 using System;
-#if NETSTANDARD1_3
-using System.Reflection;
-#endif
 
 namespace log4net.Util.TypeConverters
 {
@@ -72,11 +69,7 @@ namespace log4net.Util.TypeConverters
             string str = source as string;
             if (str != null)
             {
-#if NETSTANDARD1_3 // TODO can we use ComponentModel here?
-                return SystemInfo.GetTypeFromString(GetType().GetTypeInfo().Assembly, str, true, true);
-#else
                 return SystemInfo.GetTypeFromString(str, true, true);
-#endif
             }
             throw ConversionNotSupportedException.Create(typeof(Type), source);
         }

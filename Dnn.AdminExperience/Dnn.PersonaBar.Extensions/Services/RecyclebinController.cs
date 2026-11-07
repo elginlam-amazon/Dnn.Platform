@@ -10,9 +10,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Text;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -23,6 +21,9 @@ namespace Dnn.PersonaBar.Recyclebin.Services
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Mvc;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [MenuPermission(MenuName = Components.Constants.MenuName)]
     public class RecyclebinController : PersonaBarApiController
@@ -33,7 +34,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
 
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RecycleBinPagesView)]
-        public HttpResponseMessage GetDeletedPageList(int pageIndex = -1, int pageSize = -1, string sortType = "", string sortDirection = "")
+        public IActionResult GetDeletedPageList(int pageIndex = -1, int pageSize = -1, string sortType = "", string sortDirection = "")
         {
             var totalRecords = 0;
             var tabs = Components.RecyclebinController.Instance.GetDeletedTabs(out totalRecords, pageIndex, pageSize, sortType, sortDirection);
@@ -45,12 +46,12 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                 Results = deletedtabs,
                 TotalResults = totalRecords,
             };
-            return this.Request.CreateResponse(HttpStatusCode.OK, response);
+            return this.Ok(response);
         }
 
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RecycleBinModulesView)]
-        public HttpResponseMessage GetDeletedModuleList(int pageIndex = -1, int pageSize = -1, string sortType = "", string sortDirection = "")
+        public IActionResult GetDeletedModuleList(int pageIndex = -1, int pageSize = -1, string sortType = "", string sortDirection = "")
         {
             var totalRecords = 0;
             var mods = Components.RecyclebinController.Instance.GetDeletedModules(out totalRecords, pageIndex, pageSize, sortType, sortDirection);
@@ -61,12 +62,12 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                 Results = deletedmodules,
                 TotalResults = totalRecords,
             };
-            return this.Request.CreateResponse(HttpStatusCode.OK, response);
+            return this.Ok(response);
         }
 
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RecycleBinUsersView)]
-        public HttpResponseMessage GetDeletedUserList(int pageIndex = -1, int pageSize = -1, string sortType = "", string sortDirection = "")
+        public IActionResult GetDeletedUserList(int pageIndex = -1, int pageSize = -1, string sortType = "", string sortDirection = "")
         {
             var totalRecords = 0;
             var users = Components.RecyclebinController.Instance.GetDeletedUsers(out totalRecords, pageIndex, pageSize, sortType, sortDirection);
@@ -77,13 +78,13 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                 Results = deletedusers,
                 TotalResults = totalRecords,
             };
-            return this.Request.CreateResponse(HttpStatusCode.OK, response);
+            return this.Ok(response);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RecycleBinPagesView + "&" + Components.Constants.RecycleBinPagesEdit)]
-        public HttpResponseMessage RemovePage(List<PageItem> pages)
+        public IActionResult RemovePage(List<PageItem> pages)
         {
             var errors = new StringBuilder();
 
@@ -91,7 +92,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
 
             if (errors.Length > 0)
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Status = 1,
                     Message =
@@ -102,13 +103,13 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                 });
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0 });
+            return this.Ok(new { Status = 0 });
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RecycleBinModulesView + "&" + Components.Constants.RecycleBinModulesEdit)]
-        public HttpResponseMessage RemoveModule(List<ModuleItem> modules)
+        public IActionResult RemoveModule(List<ModuleItem> modules)
         {
             var errors = new StringBuilder();
 
@@ -116,7 +117,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
 
             if (errors.Length > 0)
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Status = 1,
                     Message =
@@ -127,13 +128,13 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                 });
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0 });
+            return this.Ok(new { Status = 0 });
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RecycleBinUsersView + "&" + Components.Constants.RecycleBinUsersEdit)]
-        public HttpResponseMessage RemoveUser(List<UserItem> users)
+        public IActionResult RemoveUser(List<UserItem> users)
         {
             var errors = new StringBuilder();
 
@@ -141,20 +142,20 @@ namespace Dnn.PersonaBar.Recyclebin.Services
 
             if (errors.Length > 0)
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Status = 1,
                     Message = string.Format(CultureInfo.CurrentCulture, Components.RecyclebinController.Instance.LocalizeString("Service_RemoveUserError"), errors),
                 });
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0 });
+            return this.Ok(new { Status = 0 });
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RecycleBinPagesView + "&" + Components.Constants.RecycleBinPagesEdit)]
-        public HttpResponseMessage RestorePage(List<PageItem> pages)
+        public IActionResult RestorePage(List<PageItem> pages)
         {
             var errors = new StringBuilder();
             if (pages != null && pages.Count != 0)
@@ -164,7 +165,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                 {
                     if (tab == null)
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.NotFound);
+                        return DnnApiResults.Response(HttpStatusCode.NotFound);
                     }
 
                     Components.RecyclebinController.Instance.RestoreTab(tab, out var resultMessage);
@@ -173,9 +174,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
             }
 
             return errors.Length > 0
-                ? this.Request.CreateResponse(
-                    HttpStatusCode.OK,
-                    new
+                ? this.Ok(new
                     {
                         Status = 1,
                         Message =
@@ -184,13 +183,13 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                                 Components.RecyclebinController.Instance.LocalizeString("Service_RestoreTabModuleError"),
                                 errors),
                     })
-                : this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0 });
+                : this.Ok(new { Status = 0 });
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RecycleBinModulesView + "&" + Components.Constants.RecycleBinModulesEdit)]
-        public HttpResponseMessage RestoreModule(List<ModuleItem> modules)
+        public IActionResult RestoreModule(List<ModuleItem> modules)
         {
             // modules dic stores module.Key=moduleId, module.Value=pageId;
             var result = true;
@@ -202,7 +201,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                     var tab = TabController.Instance.GetTab(module.TabID, this.PortalSettings.PortalId);
                     if (tab == null)
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.NotFound);
+                        return DnnApiResults.Response(HttpStatusCode.NotFound);
                     }
 
                     string resultmessage;
@@ -213,16 +212,16 @@ namespace Dnn.PersonaBar.Recyclebin.Services
 
             if (!result)
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 1, Message = errors });
+                return this.Ok(new { Status = 1, Message = errors });
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0 });
+            return this.Ok(new { Status = 0 });
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = Components.Constants.RecycleBinUsersView + "&" + Components.Constants.RecycleBinUsersEdit)]
-        public HttpResponseMessage RestoreUser(List<UserItem> users)
+        public IActionResult RestoreUser(List<UserItem> users)
         {
             var errors = new StringBuilder();
             if (users != null && users.Count != 0)
@@ -232,7 +231,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                 {
                     if (user == null)
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.NotFound);
+                        return DnnApiResults.Response(HttpStatusCode.NotFound);
                     }
 
                     Components.RecyclebinController.Instance.RestoreUser(user, out var resultMessage);
@@ -241,9 +240,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
             }
 
             return errors.Length > 0
-                ? this.Request.CreateResponse(
-                    HttpStatusCode.OK,
-                    new
+                ? this.Ok(new
                     {
                         Status = 1,
                         Message =
@@ -252,12 +249,12 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                                 Components.RecyclebinController.Instance.LocalizeString("Service_RestoreTabModuleError"),
                                 errors),
                     })
-                : this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0 });
+                : this.Ok(new { Status = 0 });
         }
 
         [HttpGet]
         [AdvancedPermission(MenuName = Components.Constants.MenuName, Permission = EmptyRecycleBinPermission)]
-        public HttpResponseMessage EmptyRecycleBin()
+        public IActionResult EmptyRecycleBin()
         {
             var deletedTabs = Components.RecyclebinController.Instance.GetDeletedTabs(out _);
             var deletedModules = Components.RecyclebinController.Instance.GetDeletedModules(out _);
@@ -272,7 +269,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
 
             if (errors.Length > 0)
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, new
+                return this.Ok(new
                 {
                     Status = 1,
                     Message =
@@ -283,7 +280,7 @@ namespace Dnn.PersonaBar.Recyclebin.Services
                 });
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0 });
+            return this.Ok(new { Status = 0 });
         }
 
         private static UserItem ConvertToUserItem(UserInfo user)

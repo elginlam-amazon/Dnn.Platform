@@ -7,7 +7,6 @@ namespace DotNetNuke.Services.Localization
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
@@ -99,9 +98,10 @@ namespace DotNetNuke.Services.Localization
         {
             Locale locale = null;
 
-            if (HttpContext.Current != null && !string.IsNullOrEmpty(HttpContext.Current.Request.QueryString["language"]))
+            var requestedLanguage = HttpContextSource.Current?.Request.Query["language"].ToString();
+            if (!string.IsNullOrEmpty(requestedLanguage))
             {
-                locale = this.GetLocale(HttpContext.Current.Request.QueryString["language"]);
+                locale = this.GetLocale(requestedLanguage);
             }
 
             return locale ?? ((portalId == Null.NullInteger)

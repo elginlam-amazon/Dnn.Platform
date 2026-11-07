@@ -5,13 +5,12 @@
 namespace DotNetNuke;
 
 using System;
-using System.Configuration;
-using System.Data.SqlClient;
 using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Threading;
-using System.Web.UI;
+using Microsoft.AspNetCore.Components;
+using Microsoft.Data.SqlClient;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Entities.Tabs.TabVersions.Exceptions;
@@ -520,7 +519,7 @@ internal static partial class LoggerMessages
 
     // DotNetNuke.ComponentModel.ProviderInstaller (5,200 to 5,299)
     [LoggerMessage(EventId = 5_200, Level = LogLevel.Error)]
-    public static partial void ProviderInstallerCouldNotLoadProvider(this ILogger logger, ConfigurationErrorsException exception);
+    public static partial void ProviderInstallerCouldNotLoadProvider(this ILogger logger, Exception exception);
 
     /*
      * 6,000 to 6,999
@@ -916,7 +915,7 @@ internal static partial class LoggerMessages
 
     // DotNetNuke.Services.Authentication.OAuth.OAuthClientBase (202,000 to 202,099)
     [LoggerMessage(EventId = 202_000, Level = LogLevel.Error, Message = "WebResponse exception: {ResponseContent}")]
-    public static partial void OAuthClientBaseWebResponseException(this ILogger logger, WebException exception, string responseContent);
+    public static partial void OAuthClientBaseWebResponseException(this ILogger logger, Exception exception, string responseContent);
 
     // DotNetNuke.Services.Authentication.AuthenticationConfig (202,100 to 202,199)
     [LoggerMessage(EventId = 202_100, Level = LogLevel.Error)]
@@ -1007,7 +1006,7 @@ internal static partial class LoggerMessages
 
     // DotNetNuke.Services.Exceptions.Exceptions (225,000 to 225,099)
     [LoggerMessage(EventId = 225_000, Level = LogLevel.Error, Message = "FriendlyMessage=\"{FriendlyMessage}\" ctrl=\"{Control}\"")]
-    public static partial void ExceptionsProcessModuleLoadException(this ILogger logger, Exception exception, string friendlyMessage, Control control);
+    public static partial void ExceptionsProcessModuleLoadException(this ILogger logger, Exception exception, string friendlyMessage, IComponent control);
 
     [LoggerMessage(EventId = 225_001, Level = LogLevel.Error)]
     public static partial void ExceptionsGetExceptionInfoReflectionPermissionException(this ILogger logger, Exception exception);

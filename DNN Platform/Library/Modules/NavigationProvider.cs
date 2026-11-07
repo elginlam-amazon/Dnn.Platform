@@ -6,11 +6,11 @@ namespace DotNetNuke.Modules.NavigationProvider
     using System;
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
-    using System.Web.UI;
 
     using DotNetNuke.Common;
     using DotNetNuke.Framework;
     using DotNetNuke.Internal.SourceGenerators;
+    using DotNetNuke.UI;
     using DotNetNuke.UI.Skins;
     using DotNetNuke.UI.WebControls;
 
@@ -71,7 +71,12 @@ namespace DotNetNuke.Modules.NavigationProvider
             Vertical = 1,
         }
 
-        public abstract Control NavigationControl { get; }
+        /// <remarks>
+        /// Was a <c>System.Web.UI.Control</c>; a navigation provider's control is a DNN skinning
+        /// component (<see cref="IDnnControl"/>) now, so the consumer can still add it to its own
+        /// control collection and the Client API can still address it.
+        /// </remarks>
+        public abstract IDnnControl NavigationControl { get; }
 
         public abstract bool SupportsPopulateOnDemand { get; }
 

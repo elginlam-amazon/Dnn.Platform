@@ -1,0 +1,36 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Groups
+@inherits DotNetNuke.Modules.Groups.GroupsModuleBase
+
+@*
+    Replaces Loader.ascx (a single <asp:PlaceHolder ID="plhContent" />) and the Page_Load of
+    Loader.ascx.cs. The original composed its child by virtual path:
+
+        path = Constants.ModulePath + "Setup.ascx" | "List.ascx" | "GroupView.ascx";
+        ctl = (GroupsModuleBase)this.LoadControl(path);
+        ctl.ModuleConfiguration = this.ModuleConfiguration;
+        this.plhContent.Controls.Add(ctl);
+
+    The three controls are now components compiled into this assembly, so the virtual path
+    dispatch becomes the switch below and plhContent disappears (a Blazor component renders its
+    children directly). ModuleConfiguration keeps being handed down, through the
+    ParentModuleConfiguration parameter of GroupsModuleBase, which assigns it to the child's
+    module context before the child's load phase runs — the same ordering as the original.
+*@
+
+@switch (this.LoadView)
+{
+    case GroupMode.Setup:
+        <Setup ParentModuleConfiguration="this.ModuleConfiguration" />
+        break;
+
+    case GroupMode.List:
+        <List ParentModuleConfiguration="this.ModuleConfiguration" />
+        break;
+
+    case GroupMode.View:
+        <GroupView ParentModuleConfiguration="this.ModuleConfiguration" />
+        break;
+}

@@ -7,8 +7,8 @@ namespace DotNetNuke.Web.UI.WebControls
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.IO;
-    using System.Web.UI.HtmlControls;
-    using System.Web.UI.WebControls;
+    using System.Linq;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -21,14 +21,32 @@ namespace DotNetNuke.Web.UI.WebControls
     using DotNetNuke.Security.Permissions;
     using DotNetNuke.Services.FileSystem;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.UI;
+    using DotNetNuke.Web.Common.Internal;
+    using DotNetNuke.Web.UI.WebControls.Extensions;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Forms;
+    using Microsoft.AspNetCore.Components.Rendering;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
     using FileInfo = DotNetNuke.Services.FileSystem.FileInfo;
 
     /// <summary>The FilePicker Class provides a File Picker Control for DotNetNuke.</summary>
-    public class DnnFilePicker : CompositeControl, ILocalizable
+    /// <remarks>
+    /// This was a <c>CompositeControl, ILocalizable</c> that built its whole child tree in
+    /// <c>CreateChildControls</c> and round-tripped its state through view state. On ASP.NET Core it
+    /// is a <see cref="DnnComponentBase"/>: the tree (folder dropdown, file dropdown, upload input,
+    /// the Upload/Save/Cancel commands, the message row and the preview image) is still built in
+    /// <see cref="CreateChildControls"/> into <see cref="DnnComponentBase.Controls"/>, the former
+    /// view state entries are fields of the component, the auto-postback
+    /// <c>SelectedIndexChanged</c>/<c>Click</c> handlers are the same methods wired to the new
+    /// events, and the upload reads the browser file through <see cref="InputFile"/> rather than
+    /// <c>HtmlInputFile.PostedFile</c>. The permission gating of the commands
+    /// (<see cref="FolderPermissionController"/> + the user-folder check) is unchanged.
+    /// </remarks>
+    public class DnnFilePicker : DnnComponentBase, ILocalizable
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<DnnFilePicker>();
         private readonly IHostSettings hostSettings;
@@ -36,26 +54,42 @@ namespace DotNetNuke.Web.UI.WebControls
         private readonly IApplicationStatusInfo appStatus;
         private readonly IPortalGroupController portalGroupController;
 
-        private Panel pnlContainer;
-        private Panel pnlLeftDiv;
-        private Panel pnlFolder;
+        private DnnPanel pnlContainer;
+        private DnnPanel pnlLeftDiv;
+        private DnnPanel pnlFolder;
 
-        private Label lblFolder;
-        private DropDownList cboFolders;
-        private Panel pnlFile;
-        private Label lblFile;
-        private DropDownList cboFiles;
-        private Panel pnlUpload;
-        private HtmlInputFile txtFile;
-        private Panel pnlButtons;
-        private LinkButton cmdCancel;
-        private LinkButton cmdSave;
-        private LinkButton cmdUpload;
-        private Panel pnlMessage;
-        private Label lblMessage;
-        private Panel pnlRightDiv;
-        private Image imgPreview;
+        private DotNetNuke.UI.DnnLabel lblFolder;
+        private DnnListControl cboFolders;
+        private DnnPanel pnlFile;
+        private DotNetNuke.UI.DnnLabel lblFile;
+        private DnnListControl cboFiles;
+        private DnnPanel pnlUpload;
+        private DnnPanel pnlButtons;
+        private DnnTextButton cmdCancel;
+        private DnnTextButton cmdSave;
+        private DnnTextButton cmdUpload;
+        private DnnPanel pnlMessage;
+        private DotNetNuke.UI.DnnLabel lblMessage;
+        private DnnPanel pnlRightDiv;
+        private DnnImage imgPreview;
         private bool localize = true;
+
+        // the state that used to live in view state
+        private string commandCssClass;
+        private string fileFilter = string.Empty;
+        private int? fileId;
+        private string filePath;
+        private bool usePersonalFolder;
+        private string labelCssClass;
+        private string permissions;
+        private bool required;
+        private bool showFolders = true;
+        private bool showUpLoad = true;
+        private FileControlMode mode = FileControlMode.Normal;
+
+        // the browser file the user picked, read into memory so that the file system API can consume it
+        private string postedFileName;
+        private byte[] postedFileContent;
 
         /// <summary>Initializes a new instance of the <see cref="DnnFilePicker"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IHostSettings. Scheduled removal in v12.0.0.")]
@@ -91,36 +125,38 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets the maximum height in pixels.</summary>
+        [Parameter]
         public int MaxHeight { get; set; } = 100;
 
         /// <summary>Gets or sets the maximum width in pixels.</summary>
+        [Parameter]
         public int MaxWidth { get; set; } = 135;
 
+        // BL0007: the parameter keeps the property accessors of the original Web Forms control, which forward to the child control or to view state.
+        #pragma warning disable BL0007
         /// <summary>Gets or sets the class to be used for the Labels.</summary>
         /// <remarks>Defaults to 'CommandButton'.</remarks>
         /// <value>A String.</value>
+        [Parameter]
         public string CommandCssClass
         {
-            get
-            {
-                var cssClass = Convert.ToString(this.ViewState["CommandCssClass"], CultureInfo.InvariantCulture);
-                return string.IsNullOrEmpty(cssClass) ? "dnnSecondaryAction" : cssClass;
-            }
-
-            set
-            {
-                this.ViewState["CommandCssClass"] = value;
-            }
+            get => string.IsNullOrEmpty(this.commandCssClass) ? "dnnSecondaryAction" : this.commandCssClass;
+            set => this.commandCssClass = value;
         }
+        #pragma warning restore BL0007
 
+        // BL0007: the parameter keeps the property accessors of the original Web Forms control, which forward to the child control or to view state.
+        #pragma warning disable BL0007
         /// <summary>Gets or sets the file Filter to use.</summary>
         /// <remarks>Defaults to <see cref="string.Empty"/>.</remarks>
         /// <value>a comma separated list of file extensions no wildcards or periods e.g. "jpg,png,gif".</value>
+        [Parameter]
         public string FileFilter
         {
-            get => this.ViewState["FileFilter"] != null ? (string)this.ViewState["FileFilter"] : string.Empty;
-            set => this.ViewState["FileFilter"] = value;
+            get => this.fileFilter ?? string.Empty;
+            set => this.fileFilter = value;
         }
+        #pragma warning restore BL0007
 
         /// <summary>  Gets or sets the FileID for the control.</summary>
         /// <value>An Integer.</value>
@@ -129,25 +165,25 @@ namespace DotNetNuke.Web.UI.WebControls
             get
             {
                 this.EnsureChildControls();
-                if (this.ViewState["FileID"] == null)
+                if (this.fileId == null)
                 {
                     // Get FileId from the file combo
-                    var fileId = Null.NullInteger;
+                    var selectedFileId = Null.NullInteger;
                     if (this.cboFiles.SelectedItem != null)
                     {
-                        fileId = int.Parse(this.cboFiles.SelectedItem.Value, CultureInfo.InvariantCulture);
+                        selectedFileId = int.Parse(this.cboFiles.SelectedItem.Value, CultureInfo.InvariantCulture);
                     }
 
-                    this.ViewState["FileID"] = fileId;
+                    this.fileId = selectedFileId;
                 }
 
-                return Convert.ToInt32(this.ViewState["FileID"], CultureInfo.InvariantCulture);
+                return this.fileId.Value;
             }
 
             set
             {
                 this.EnsureChildControls();
-                this.ViewState["FileID"] = value;
+                this.fileId = value;
                 if (string.IsNullOrEmpty(this.FilePath))
                 {
                     var fileInfo = FileManager.Instance.GetFile(value);
@@ -163,86 +199,100 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <value>A String.</value>
         public string FilePath
         {
-            get => Convert.ToString(this.ViewState["FilePath"], CultureInfo.InvariantCulture);
-            set => this.ViewState["FilePath"] = value;
+            get => this.filePath ?? string.Empty;
+            set => this.filePath = value;
         }
 
+        // BL0007: the parameter keeps the property accessors of the original Web Forms control, which forward to the child control or to view state.
+        #pragma warning disable BL0007
         /// <summary>Gets or sets a value indicating whether to Include Personal Folder.</summary>
         /// <remarks>Defaults to <see langword="false"/>.</remarks>
         /// <value>A Boolean.</value>
+        [Parameter]
         public bool UsePersonalFolder
         {
-            get => this.ViewState["UsePersonalFolder"] != null && Convert.ToBoolean(this.ViewState["UsePersonalFolder"], CultureInfo.InvariantCulture);
-            set => this.ViewState["UsePersonalFolder"] = value;
+            get => this.usePersonalFolder;
+            set => this.usePersonalFolder = value;
         }
+        #pragma warning restore BL0007
 
+        // BL0007: the parameter keeps the property accessors of the original Web Forms control, which forward to the child control or to view state.
+        #pragma warning disable BL0007
         /// <summary>  Gets or sets the class to be used for the Labels.</summary>
         /// <value>A String.</value>
+        [Parameter]
         public string LabelCssClass
         {
-            get
-            {
-                var cssClass = Convert.ToString(this.ViewState["LabelCssClass"], CultureInfo.InvariantCulture);
-                return string.IsNullOrEmpty(cssClass) ? string.Empty : cssClass;
-            }
-
-            set
-            {
-                this.ViewState["LabelCssClass"] = value;
-            }
+            get => this.labelCssClass ?? string.Empty;
+            set => this.labelCssClass = value;
         }
+        #pragma warning restore BL0007
 
+        // BL0007: the parameter keeps the property accessors of the original Web Forms control, which forward to the child control or to view state.
+        #pragma warning disable BL0007
         /// <summary>Gets or sets the permission keys.</summary>
+        [Parameter]
         public string Permissions
         {
-            get
-            {
-                var permissions = Convert.ToString(this.ViewState["Permissions"], CultureInfo.InvariantCulture);
-                return string.IsNullOrEmpty(permissions) ? "BROWSE,ADD" : permissions;
-            }
-
-            set
-            {
-                this.ViewState["Permissions"] = value;
-            }
+            get => string.IsNullOrEmpty(this.permissions) ? "BROWSE,ADD" : this.permissions;
+            set => this.permissions = value;
         }
+        #pragma warning restore BL0007
 
+        // BL0007: the parameter keeps the property accessors of the original Web Forms control, which forward to the child control or to view state.
+        #pragma warning disable BL0007
         /// <summary>Gets or sets a value indicating whether the combos have a "Not Specified" option.</summary>
         /// <remarks>Defaults to <see langword="true"/> (i.e. no "Not Specified").</remarks>
         /// <value>A Boolean.</value>
+        [Parameter]
         public bool Required
         {
-            get => this.ViewState["Required"] != null && Convert.ToBoolean(this.ViewState["Required"], CultureInfo.InvariantCulture);
-            set => this.ViewState["Required"] = value;
+            get => this.required;
+            set => this.required = value;
         }
+        #pragma warning restore BL0007
 
+        // BL0007: the parameter keeps the property accessors of the original Web Forms control, which forward to the child control or to view state.
+        #pragma warning disable BL0007
         /// <summary>Gets or sets a value indicating whether to show folders.</summary>
+        [Parameter]
         public bool ShowFolders
         {
-            get => this.ViewState["ShowFolders"] == null || Convert.ToBoolean(this.ViewState["ShowFolders"], CultureInfo.InvariantCulture);
-            set => this.ViewState["ShowFolders"] = value;
+            get => this.showFolders;
+            set => this.showFolders = value;
         }
+        #pragma warning restore BL0007
 
+        // BL0007: the parameter keeps the property accessors of the original Web Forms control, which forward to the child control or to view state.
+        #pragma warning disable BL0007
         /// <summary>Gets or sets a value indicating whether to Show the Upload Button.</summary>
         /// <remarks>Defaults to <see langword="true"/>.</remarks>
         /// <value>A Boolean.</value>
+        [Parameter]
         public bool ShowUpLoad
         {
-            get => this.ViewState["ShowUpLoad"] == null || Convert.ToBoolean(this.ViewState["ShowUpLoad"], CultureInfo.InvariantCulture);
-            set => this.ViewState["ShowUpLoad"] = value;
+            get => this.showUpLoad;
+            set => this.showUpLoad = value;
         }
+        #pragma warning restore BL0007
 
         /// <summary>Gets or sets the user.</summary>
+        [Parameter]
         public UserInfo User { get; set; }
 
+        // BL0007: the parameter keeps the property accessors of the original Web Forms control, which forward to the child control or to view state.
+        #pragma warning disable BL0007
         /// <inheritdoc />
+        [Parameter]
         public bool Localize
         {
             get => this.localize;
             set => this.localize = value;
         }
+        #pragma warning restore BL0007
 
         /// <inheritdoc />
+        [Parameter]
         public string LocalResourceFile { get; set; }
 
         /// <summary>Gets a value indicating whether the control is on a Host or Portal Tab.</summary>
@@ -275,9 +325,10 @@ namespace DotNetNuke.Web.UI.WebControls
         {
             get
             {
-                if ((this.Page.Request.QueryString["pid"] != null) && (Globals.IsHostTab(this.PortalSettings.ActiveTab.TabID) || UserController.Instance.GetCurrentUserInfo().IsSuperUser))
+                var requestedPortalId = this.Request?.Query["pid"].ToString();
+                if (!string.IsNullOrEmpty(requestedPortalId) && (Globals.IsHostTab(this.PortalSettings.ActiveTab.TabID) || UserController.Instance.GetCurrentUserInfo().IsSuperUser))
                 {
-                    return int.Parse(this.Page.Request.QueryString["pid"], CultureInfo.InvariantCulture);
+                    return int.Parse(requestedPortalId, CultureInfo.InvariantCulture);
                 }
 
                 if (!this.IsHost)
@@ -298,8 +349,8 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <value>A FileControlMode enum.</value>
         protected FileControlMode Mode
         {
-            get => this.ViewState["Mode"] == null ? FileControlMode.Normal : (FileControlMode)this.ViewState["Mode"];
-            set => this.ViewState["Mode"] = value;
+            get => this.mode;
+            set => this.mode = value;
         }
 
         /// <inheritdoc />
@@ -324,9 +375,9 @@ namespace DotNetNuke.Web.UI.WebControls
             // First clear the controls collection
             this.Controls.Clear();
 
-            this.pnlContainer = new Panel { CssClass = "dnnFilePicker" };
+            this.pnlContainer = new DnnPanel { CssClass = "dnnFilePicker" };
 
-            this.pnlLeftDiv = new Panel { CssClass = "dnnLeft" };
+            this.pnlLeftDiv = new DnnPanel { CssClass = "dnnLeft" };
 
             this.AddFolderArea();
             this.AddFileAndUploadArea();
@@ -335,17 +386,50 @@ namespace DotNetNuke.Web.UI.WebControls
 
             this.pnlContainer.Controls.Add(this.pnlLeftDiv);
 
-            this.pnlRightDiv = new Panel { CssClass = "dnnLeft" };
+            this.pnlRightDiv = new DnnPanel { CssClass = "dnnLeft" };
 
             this.GeneratePreviewImage();
 
             this.pnlContainer.Controls.Add(this.pnlRightDiv);
 
             this.Controls.Add(this.pnlContainer);
-
-            base.CreateChildControls();
         }
 
+        // ASP0006: the render tree of this ported Web Forms control is built imperatively through helper methods that share a running sequence number, so literal sequence numbers cannot express its structure.
+        #pragma warning disable ASP0006
+        /// <inheritdoc />
+        /// <remarks>
+        /// The upload input is an <see cref="InputFile"/> rendered inside the upload panel; the rest
+        /// of the tree renders itself from <see cref="DnnComponentBase.Controls"/>.
+        /// </remarks>
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+
+            this.EnsureChildControls();
+
+            if (!this.Visible)
+            {
+                return;
+            }
+
+            var sequence = 0;
+            RenderControl(builder, sequence++, this.pnlContainer);
+
+            if (this.pnlUpload.Visible)
+            {
+                builder.OpenRegion(sequence++);
+                builder.OpenComponent<InputFile>(0);
+                builder.AddAttribute(1, "OnChange", EventCallback.Factory.Create<InputFileChangeEventArgs>(this, this.OnFileSelectedAsync));
+                builder.AddAttribute(2, "size", "13");
+                builder.CloseComponent();
+                builder.CloseRegion();
+            }
+        }
+        #pragma warning restore ASP0006
+
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <summary>OnPreRender runs just before the control is rendered.</summary>
         /// <param name="e">The event arguments.</param>
         protected override void OnPreRender(EventArgs e)
@@ -365,7 +449,7 @@ namespace DotNetNuke.Web.UI.WebControls
                 string folderPath;
                 if (!string.IsNullOrEmpty(this.FilePath))
                 {
-                    fileName = this.FilePath.Substring(this.FilePath.LastIndexOf("/", StringComparison.Ordinal) + 1);
+                    fileName = this.FilePath.Substring(this.FilePath.LastIndexOf('/') + 1);
                     folderPath = string.IsNullOrEmpty(fileName) ? this.FilePath : this.FilePath.Replace(fileName, string.Empty);
                 }
                 else
@@ -438,22 +522,24 @@ namespace DotNetNuke.Web.UI.WebControls
             // Show message Row
             this.pnlMessage.Visible = !string.IsNullOrEmpty(this.lblMessage.Text);
         }
+        #pragma warning restore BL0005
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <summary>  AddButton adds a button to the Command Row.</summary>
         /// <param name="button">The button to add to the Row.</param>
-        private void AddButton(ref LinkButton button)
+        private void AddButton(ref DnnTextButton button)
         {
-            button = new LinkButton { EnableViewState = false, CausesValidation = false };
-            button.ControlStyle.CssClass = this.CommandCssClass;
-            button.Visible = false;
+            button = new DnnTextButton { Localize = false, CssClass = this.CommandCssClass, Visible = false, };
 
             this.pnlButtons.Controls.Add(button);
         }
+        #pragma warning restore BL0005
 
         /// <summary>  AddCommandRow adds the Command Row.</summary>
         private void AddButtonArea()
         {
-            this.pnlButtons = new Panel { Visible = false };
+            this.pnlButtons = new DnnPanel { Visible = false };
 
             this.AddButton(ref this.cmdUpload);
             this.cmdUpload.Click += this.UploadFile;
@@ -467,46 +553,46 @@ namespace DotNetNuke.Web.UI.WebControls
             this.pnlLeftDiv.Controls.Add(this.pnlButtons);
         }
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <summary>  AddFileRow adds the Files Row.</summary>
         private void AddFileAndUploadArea()
         {
             // Create Url Div
-            this.pnlFile = new Panel { CssClass = "dnnFormItem" };
+            this.pnlFile = new DnnPanel { CssClass = "dnnFormItem" };
 
             // Create File Label
-            this.lblFile = new Label { EnableViewState = false };
+            this.lblFile = new DotNetNuke.UI.DnnLabel();
             this.pnlFile.Controls.Add(this.lblFile);
 
             // Create Files Combo
-            this.cboFiles = new DropDownList { ID = "File", DataTextField = "Text", DataValueField = "Value", AutoPostBack = true };
+            this.cboFiles = new DnnListControl { ID = "File", DataTextField = "Text", DataValueField = "Value", AutoPostBack = true };
             this.cboFiles.SelectedIndexChanged += this.FileChanged;
             this.pnlFile.Controls.Add(this.cboFiles);
 
             this.pnlLeftDiv.Controls.Add(this.pnlFile);
 
-            // Create Upload Div
-            this.pnlUpload = new Panel { CssClass = "dnnFormItem" };
-
-            // Create Upload Box
-            this.txtFile = new HtmlInputFile();
-            this.txtFile.Attributes.Add("size", "13");
-            this.pnlUpload.Controls.Add(this.txtFile);
+            // Create Upload Div (the file input itself is rendered by BuildRenderTree)
+            this.pnlUpload = new DnnPanel { CssClass = "dnnFormItem" };
 
             this.pnlLeftDiv.Controls.Add(this.pnlUpload);
         }
+        #pragma warning restore BL0005
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <summary>  AddFolderRow adds the Folders Row.</summary>
         private void AddFolderArea()
         {
             // Create Url Div
-            this.pnlFolder = new Panel { CssClass = "dnnFormItem" };
+            this.pnlFolder = new DnnPanel { CssClass = "dnnFormItem" };
 
             // Create Folder Label
-            this.lblFolder = new Label { EnableViewState = false };
+            this.lblFolder = new DotNetNuke.UI.DnnLabel();
             this.pnlFolder.Controls.Add(this.lblFolder);
 
             // Create Folders Combo
-            this.cboFolders = new DropDownList { ID = "Folder", AutoPostBack = true };
+            this.cboFolders = new DnnListControl { ID = "Folder", AutoPostBack = true };
             this.cboFolders.SelectedIndexChanged += this.FolderChanged;
             this.pnlFolder.Controls.Add(this.cboFolders);
 
@@ -516,25 +602,29 @@ namespace DotNetNuke.Web.UI.WebControls
             // Load Folders
             this.LoadFolders();
         }
+        #pragma warning restore BL0005
 
         /// <summary>Adds an empty preview image to the <see cref="pnlRightDiv"/> control.</summary>
         private void GeneratePreviewImage()
         {
-            this.imgPreview = new Image();
+            this.imgPreview = new DnnImage();
             this.pnlRightDiv.Controls.Add(this.imgPreview);
         }
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <summary>  AddMessageRow adds the Message Row.</summary>
         private void AddMessageRow()
         {
-            this.pnlMessage = new Panel { CssClass = "dnnFormMessage dnnFormWarning" };
+            this.pnlMessage = new DnnPanel { CssClass = "dnnFormMessage dnnFormWarning" };
 
             // Create Label
-            this.lblMessage = new Label { EnableViewState = false, Text = string.Empty };
+            this.lblMessage = new DotNetNuke.UI.DnnLabel { Text = string.Empty };
             this.pnlMessage.Controls.Add(this.lblMessage);
 
             this.pnlLeftDiv.Controls.Add(this.pnlMessage);
         }
+        #pragma warning restore BL0005
 
         private bool IsUserFolder(string folderPath)
         {
@@ -572,7 +662,7 @@ namespace DotNetNuke.Web.UI.WebControls
                 else
                 {
                     // Add DummyFolder
-                    this.cboFolders.Items.Add(new ListItem(Utilities.GetLocalizedString("MyFolder"), userFolder));
+                    this.cboFolders.Items.Add(new DnnListItem(Utilities.GetLocalizedString("MyFolder"), userFolder));
                 }
             }
             else
@@ -580,7 +670,7 @@ namespace DotNetNuke.Web.UI.WebControls
                 var folders = FolderManager.Instance.GetFolders(this.PortalId, "READ,ADD", user.UserID);
                 foreach (FolderInfo folder in folders)
                 {
-                    var folderItem = new ListItem
+                    var folderItem = new DnnListItem
                     {
                         Text =
                                                  folder.FolderPath == Null.NullString
@@ -619,10 +709,12 @@ namespace DotNetNuke.Web.UI.WebControls
             }
         }
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <summary>  ShowButton configures and displays a button.</summary>
         /// <param name="button">The button to configure.</param>
         /// <param name="command">The command name (amd key) of the button.</param>
-        private void ShowButton(LinkButton button, string command)
+        private void ShowButton(DnnTextButton button, string command)
         {
             button.Visible = true;
             if (!string.IsNullOrEmpty(command))
@@ -633,7 +725,10 @@ namespace DotNetNuke.Web.UI.WebControls
             AJAX.RegisterPostBackControl(button);
             this.pnlButtons.Visible = true;
         }
+        #pragma warning restore BL0005
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <summary>  ShowImage displays the Preview Image.</summary>
         private void ShowImage()
         {
@@ -656,10 +751,36 @@ namespace DotNetNuke.Web.UI.WebControls
             {
                 this.imgPreview.Visible = false;
 
-                Panel imageHolderPanel = new Panel { CssClass = "dnnFilePickerImageHolder", };
+                var imageHolderPanel = new DnnPanel { CssClass = "dnnFilePickerImageHolder", };
                 this.pnlRightDiv.Controls.Add(imageHolderPanel);
                 this.pnlRightDiv.Visible = true;
             }
+        }
+        #pragma warning restore BL0005
+
+        /// <summary>Reads the file the user picked into memory.</summary>
+        /// <param name="args">The file selection arguments.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        /// <remarks>Replaces <c>HtmlInputFile.PostedFile</c>, which no longer exists.</remarks>
+        private async Task OnFileSelectedAsync(InputFileChangeEventArgs args)
+        {
+            var file = args?.FileCount > 0 ? args.File : null;
+            if (file == null)
+            {
+                this.postedFileName = null;
+                this.postedFileContent = null;
+                return;
+            }
+
+            this.postedFileName = file.Name;
+
+            using var buffer = new MemoryStream();
+            await using (var source = file.OpenReadStream(Config.GetMaxUploadSize(this.appStatus)))
+            {
+                await source.CopyToAsync(buffer);
+            }
+
+            this.postedFileContent = buffer.ToArray();
         }
 
         private void CancelUpload(object sender, EventArgs e)
@@ -678,14 +799,16 @@ namespace DotNetNuke.Web.UI.WebControls
             this.SetFilePath();
         }
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         private void SaveFile(object sender, EventArgs e)
         {
             // if file is selected exit
-            if (!string.IsNullOrEmpty(this.txtFile.PostedFile.FileName))
+            if (!string.IsNullOrEmpty(this.postedFileName))
             {
-                var extension = Path.GetExtension(this.txtFile.PostedFile.FileName).Replace(".", string.Empty);
+                var extension = Path.GetExtension(this.postedFileName).Replace(".", string.Empty);
 
-                if (!string.IsNullOrEmpty(this.FileFilter) && !this.FileFilter.ToLowerInvariant().Contains(extension.ToLowerInvariant()))
+                if (!string.IsNullOrEmpty(this.FileFilter) && !this.FileFilter.Contains(extension, StringComparison.InvariantCultureIgnoreCase))
                 {
                     // trying to upload a file not allowed for current filter
                     var localizedString = Localization.GetString("UploadError", this.LocalResourceFile);
@@ -723,41 +846,43 @@ namespace DotNetNuke.Web.UI.WebControls
                         folder = folderManager.GetFolder(this.PortalId, folderPath);
                     }
 
-                    var fileName = Path.GetFileName(this.txtFile.PostedFile.FileName);
+                    var fileName = Path.GetFileName(this.postedFileName);
 
                     try
                     {
-                        FileManager.Instance.AddFile(folder, fileName, this.txtFile.PostedFile.InputStream, true, true, FileContentTypeManager.Instance.GetContentType(Path.GetExtension(fileName)));
+                        using var content = new MemoryStream(this.postedFileContent ?? Array.Empty<byte>());
+                        FileManager.Instance.AddFile(folder, fileName, content, true, true, FileContentTypeManager.Instance.GetContentType(Path.GetExtension(fileName)));
                     }
                     catch (PermissionsNotMetException)
                     {
-                        this.lblMessage.Text += "<br />" + string.Format(CultureInfo.CurrentCulture, Localization.GetString("InsufficientFolderPermission"), folder.FolderPath);
+                        this.lblMessage.Text += "<br />" + string.Format(CultureInfo.CurrentCulture, CompositeFormatCache.Get(Localization.GetString("InsufficientFolderPermission")), folder.FolderPath);
                     }
                     catch (NoSpaceAvailableException)
                     {
-                        this.lblMessage.Text += "<br />" + string.Format(CultureInfo.CurrentCulture, Localization.GetString("DiskSpaceExceeded"), fileName);
+                        this.lblMessage.Text += "<br />" + string.Format(CultureInfo.CurrentCulture, CompositeFormatCache.Get(Localization.GetString("DiskSpaceExceeded")), fileName);
                     }
                     catch (InvalidFileExtensionException)
                     {
-                        this.lblMessage.Text += "<br />" + string.Format(CultureInfo.CurrentCulture, Localization.GetString("RestrictedFileType"), fileName, this.hostSettings.AllowedExtensionAllowList.ToDisplayString());
+                        this.lblMessage.Text += "<br />" + string.Format(CultureInfo.CurrentCulture, CompositeFormatCache.Get(Localization.GetString("RestrictedFileType")), fileName, this.hostSettings.AllowedExtensionAllowList.ToDisplayString());
                     }
                     catch (Exception ex)
                     {
                         Logger.DnnFilePickerAddFileException(ex);
 
-                        this.lblMessage.Text += "<br />" + string.Format(CultureInfo.CurrentCulture, Localization.GetString("SaveFileError"), fileName);
+                        this.lblMessage.Text += "<br />" + string.Format(CultureInfo.CurrentCulture, CompositeFormatCache.Get(Localization.GetString("SaveFileError")), fileName);
                     }
                 }
 
                 if (string.IsNullOrEmpty(this.lblMessage.Text))
                 {
-                    var fileName = this.txtFile.PostedFile.FileName.Substring(this.txtFile.PostedFile.FileName.LastIndexOf(@"\", StringComparison.Ordinal) + 1);
+                    var fileName = this.postedFileName.Substring(this.postedFileName.LastIndexOf('\\') + 1);
                     this.SetFilePath(fileName);
                 }
             }
 
             this.Mode = FileControlMode.Normal;
         }
+        #pragma warning restore BL0005
 
         private void UploadFile(object sender, EventArgs e)
         {

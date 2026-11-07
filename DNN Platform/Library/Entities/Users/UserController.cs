@@ -7,12 +7,10 @@ namespace DotNetNuke.Entities.Users
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Configuration;
     using System.Globalization;
     using System.Linq;
     using System.Text.RegularExpressions;
     using System.Threading;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -675,7 +673,7 @@ namespace DotNetNuke.Entities.Users
         /// <param name="user">The user whose Password information we are retrieving.</param>
         /// <param name="passwordAnswer">The answer to the user's password Question.</param>
         /// <returns>A string representing the user password.</returns>
-        /// <exception cref="ConfigurationErrorsException">is thrown if the current configuration does not allow password retrieval.</exception>
+        /// <exception cref="InvalidOperationException">is thrown if the current configuration does not allow password retrieval.</exception>
         public static string GetPassword(ref UserInfo user, string passwordAnswer)
         {
             if (MembershipProviderConfig.PasswordRetrievalEnabled)
@@ -685,7 +683,7 @@ namespace DotNetNuke.Entities.Users
             else
             {
                 // Throw a configuration exception as password retrieval is not enabled
-                throw new ConfigurationErrorsException("Password Retrieval is not enabled");
+                throw new InvalidOperationException("Password Retrieval is not enabled");
             }
 
             return user.Membership.Password;
@@ -1232,11 +1230,16 @@ namespace DotNetNuke.Entities.Users
         /// <param name="oldPassword">The user old password.</param>
         /// <param name="newPassword">The user new password.</param>
         /// <returns>A value indicating whether the password change succeeded.</returns>
-        /// <exception cref="ConfigurationErrorsException"> is thrown if password reset is not enabled in the configuration.</exception>
+        /// <exception cref="InvalidOperationException"> is thrown if password reset is not enabled in the configuration.</exception>
         /// <exception cref="Exception"> with a message of "Invalid Password" is thrown if either the old or new password is not valid.</exception>
         public static bool ResetAndChangePassword(UserInfo user, string oldPassword, string newPassword)
         {
-            if (System.Web.Security.Membership.ValidateUser(user.Username, oldPassword))
+            // System.Web.Security.Membership does not exist on modern .NET; validate the old
+            // password against DNN's own membership provider instead (same semantics: the reset
+            // only happens when the supplied old password authenticates the user).
+            var loginStatus = UserLoginStatus.LOGIN_FAILURE;
+            MembershipProvider.Instance().UserLogin(user.PortalID, user.Username, oldPassword, string.Empty, ref loginStatus);
+            if (loginStatus is UserLoginStatus.LOGIN_SUCCESS or UserLoginStatus.LOGIN_SUPERUSER)
             {
                 string resetPassword = ResetPassword(user, string.Empty);
                 return ChangePassword(user, resetPassword, newPassword);
@@ -1249,8 +1252,8 @@ namespace DotNetNuke.Entities.Users
         /// <param name="user">The user whose Password information we are resetting.</param>
         /// <param name="passwordAnswer">The answer to the "user's" password Question.</param>
         /// <returns>A string representing the new password.</returns>
-        /// <exception cref="System.Web.Security.MembershipPasswordException"> is thrown when the password answer is not valid.</exception>
-        /// <exception cref="ConfigurationErrorsException"> is thrown when password reset is not enabled in the configuration.</exception>
+        /// <exception cref="Exception"> is thrown when the password answer is not valid.</exception>
+        /// <exception cref="InvalidOperationException"> is thrown when password reset is not enabled in the configuration.</exception>
         public static string ResetPassword(UserInfo user, string passwordAnswer)
         {
             if (MembershipProviderConfig.PasswordResetEnabled)
@@ -1260,7 +1263,7 @@ namespace DotNetNuke.Entities.Users
             else
             {
                 // Throw a configuration exception as password reset is not enabled
-                throw new ConfigurationErrorsException("Password Reset is not enabled");
+                throw new InvalidOperationException("Password Reset is not enabled");
             }
 
             return user.Membership.Password;
@@ -1863,7 +1866,14 @@ namespace DotNetNuke.Entities.Users
         /// </summary>
         internal static void RefreshCurrentUser()
         {
-            if (HttpContextSource.Current?.Items[CurrentUserInfoKey] is not UserInfo currentUser)
+            var currentContext = HttpContextSource.Current;
+            if (currentContext == null)
+            {
+                return;
+            }
+
+            if (!currentContext.Items.TryGetValue(CurrentUserInfoKey, out var currentUserItem)
+                || currentUserItem is not UserInfo currentUser)
             {
                 return;
             }
@@ -1873,7 +1883,7 @@ namespace DotNetNuke.Entities.Users
                 return;
             }
 
-            HttpContextSource.Current.Items[CurrentUserInfoKey] =
+            currentContext.Items[CurrentUserInfoKey] =
                 MembershipProvider.Instance().GetUser(currentUser.PortalID, currentUser.UserID);
         }
 
@@ -2122,7 +2132,7 @@ namespace DotNetNuke.Entities.Users
             {
                 // if the HttpContext is null, then get portal settings by portal id.
                 IPortalSettings portalSettings = null;
-                if (HttpContext.Current != null)
+                if (HttpContextSource.Current != null)
                 {
                     portalSettings = PortalController.Instance.GetCurrentSettings();
                 }
@@ -2283,9 +2293,13 @@ namespace DotNetNuke.Entities.Users
         private static UserInfo GetCurrentUserInternal()
         {
             UserInfo user;
-            if (HttpContext.Current == null)
+            var context = HttpContextSource.Current;
+            if (context == null)
             {
-                if (!Thread.CurrentPrincipal.Identity.IsAuthenticated)
+                // No request in flight (background thread, scheduler, Blazor Server circuit).
+                // Fall back to the ambient principal, as the legacy code did.
+                var principal = Thread.CurrentPrincipal;
+                if (principal?.Identity?.IsAuthenticated != true)
                 {
                     return new UserInfo();
                 }
@@ -2293,15 +2307,21 @@ namespace DotNetNuke.Entities.Users
                 var portalSettings = PortalController.Instance.GetCurrentSettings();
                 if (portalSettings != null)
                 {
-                    user = GetCachedUser(portalSettings.PortalId, Thread.CurrentPrincipal.Identity.Name);
+                    user = GetCachedUser(portalSettings.PortalId, principal.Identity.Name);
                     return user ?? new UserInfo();
                 }
 
                 return new UserInfo();
             }
 
-            user = (UserInfo)HttpContext.Current.Items[CurrentUserInfoKey];
-            return user ?? new UserInfo();
+            // The signed-in user is placed into HttpContext.Items once per request by the
+            // authentication middleware (see DnnAuthenticationDefaults.UserInfoContextKey).
+            if (context.Items.TryGetValue(CurrentUserInfoKey, out var currentUserItem) && currentUserItem is UserInfo currentUser)
+            {
+                return currentUser;
+            }
+
+            return new UserInfo();
         }
 
         private static int GetEffectivePortalId(int portalId)

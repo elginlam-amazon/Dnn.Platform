@@ -9,10 +9,12 @@ namespace DotNetNuke.Entities.Urls
     using System.Diagnostics.CodeAnalysis;
     using System.IO;
     using System.Text.RegularExpressions;
-    using System.Web;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
+
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>The UrlAction class keeps state of the current Request throughout the rewriting process.</summary>
     public class UrlAction
@@ -29,26 +31,29 @@ namespace DotNetNuke.Entities.Urls
             this.BrowserType = BrowserTypes.Normal;
             this.CanRewrite = StateBoolean.NotSet;
             this.Action = ActionType.Continue;
+            // ASP.NET Core has no Request.PhysicalPath / Request.ApplicationPath: the first is the
+            // request path mapped onto the content root, the second is the application path base.
+            var applicationPath = string.IsNullOrEmpty(request.PathBase.Value) ? "/" : request.PathBase.Value;
             string physicalPath = string.Empty;
             try
             {
-                physicalPath = request.PhysicalPath;
+                physicalPath = HttpContextSource.MapPath(request.Path.Value);
             }
             catch (PathTooLongException)
             {
                 // don't handle exception, but put something into the physical path
-                physicalPath = request.ApplicationPath; // will be no file for this location
+                physicalPath = applicationPath; // will be no file for this location
                 this.VirtualPath = StateBoolean.True;
             }
             catch (ArgumentException)
             {
                 // don't handle exception, but put something into the physical path
-                physicalPath = request.ApplicationPath; // will be no file for this location
+                physicalPath = applicationPath; // will be no file for this location
                 this.VirtualPath = StateBoolean.True;
             }
             finally
             {
-                this.Constructor(request.Url.Scheme, request.ApplicationPath, physicalPath);
+                this.Constructor(request.Scheme, applicationPath, physicalPath);
             }
         }
 
@@ -252,7 +257,7 @@ namespace DotNetNuke.Entities.Urls
             // set the mobile browser type
             if (request != null && response != null && settings != null)
             {
-                this.BrowserType = FriendlyUrlController.GetBrowserType(request, response, settings);
+                this.BrowserType = FriendlyUrlController.GetBrowserType(request.HttpContext ?? response.HttpContext, settings).ToDeprecatedBrowserTypes();
             }
         }
 

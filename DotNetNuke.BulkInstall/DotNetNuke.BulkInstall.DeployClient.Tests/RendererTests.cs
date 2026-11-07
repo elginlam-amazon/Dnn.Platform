@@ -10,6 +10,12 @@ using Spectre.Console.Testing;
 
 public class RendererTests
 {
+    /// <summary>The platform's path separator. <see cref="Renderer.RenderListOfFiles"/> splits paths with <see cref="Path.GetDirectoryName(string)"/>, so the test data must use native paths.</summary>
+    private static readonly char Sep = Path.DirectorySeparatorChar;
+
+    /// <summary>A rooted path prefix (already ending in <see cref="Sep"/>) that the renderer reports as the top-level folder.</summary>
+    private static readonly string Root = OperatingSystem.IsWindows() ? @"E:\" : "/e/";
+
     public static TheoryData<LogLevel> AllLogLevels()
     {
         return new TheoryData<LogLevel>(Enum.GetValues<LogLevel>());
@@ -80,9 +86,9 @@ public class RendererTests
         var console = new TestConsole().Interactive();
 
         var renderer = new Renderer(console);
-        renderer.RenderListOfFiles(LogLevel.Information, new[] { @"E:\foo\bar\OpenContent_4.5.0_Install.zip", @"E:\foo\bar\2sxc_12.4.4_Install.zip", });
+        renderer.RenderListOfFiles(LogLevel.Information, new[] { $"{Root}foo{Sep}bar{Sep}OpenContent_4.5.0_Install.zip", $"{Root}foo{Sep}bar{Sep}2sxc_12.4.4_Install.zip", });
 
-        console.Output.ShouldContainStringsInOrder(onlyOnce: true, @"E:\foo\bar", "OpenContent_4.5.0_Install.zip", "2sxc_12.4.4_Install.zip");
+        console.Output.ShouldContainStringsInOrder(onlyOnce: true, $"{Root}foo{Sep}bar", "OpenContent_4.5.0_Install.zip", "2sxc_12.4.4_Install.zip");
     }
 
     [Fact]
@@ -93,17 +99,17 @@ public class RendererTests
         var renderer = new Renderer(console);
         renderer.RenderListOfFiles(LogLevel.Information, new[]
         {
-            @"E:\my-top-level.zip",
-            @"E:\foo\Modules\the-module.zip",
-            @"E:\foo\Modules\the-templates.zip",
-            @"E:\foo\Skins\themezilla.zip",
+            $"{Root}my-top-level.zip",
+            $"{Root}foo{Sep}Modules{Sep}the-module.zip",
+            $"{Root}foo{Sep}Modules{Sep}the-templates.zip",
+            $"{Root}foo{Sep}Skins{Sep}themezilla.zip",
         });
 
         console.Output.ShouldContainStringsInOrder(
             onlyOnce: true,
             "Packages",
             "\n",
-            @"E:\",
+            Root,
             "\n",
             "my-top-level.zip",
             "\n",
@@ -129,15 +135,15 @@ public class RendererTests
         var renderer = new Renderer(console);
         renderer.RenderListOfFiles(LogLevel.Information, new[]
         {
-            @"E:\foo\Containers\my-containers.zip",
-            @"E:\foo\Modules\the-module.zip",
-            @"E:\foo\Modules\the-templates.zip",
-            @"E:\foo\Skins\themezilla.zip",
+            $"{Root}foo{Sep}Containers{Sep}my-containers.zip",
+            $"{Root}foo{Sep}Modules{Sep}the-module.zip",
+            $"{Root}foo{Sep}Modules{Sep}the-templates.zip",
+            $"{Root}foo{Sep}Skins{Sep}themezilla.zip",
         });
 
         console.Output.ShouldContainStringsInOrder(
             onlyOnce: true,
-            @"E:\foo",
+            $"{Root}foo",
             "Containers",
             "my-containers.zip",
             "Modules",

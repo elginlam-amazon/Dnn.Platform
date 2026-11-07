@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
-    <TargetFrameworks>netstandard2.0;net48</TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -20,12 +20,23 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
     <ProjectReference Include="..\DotNetNuke.DependencyInjection\DotNetNuke.DependencyInjection.csproj" />
   </ItemGroup>
 
   <Import Project="..\..\DNN_Platform.build" />
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(TargetFramework)' == 'netstandard2.0'">
-    <Exec Command="XCOPY &quot;$(ProjectDir)bin\$(ConfigurationName)\netstandard2.0\DotNetNuke.ContentSecurityPolicy*&quot; &quot;$(WebsitePath)\bin&quot; /S /Y /I" />
+  <!-- Stages this project's output into the website bin, as the netstandard2.0 leg did via
+       XCOPY. XCOPY is a Windows-shell-only command, so the MSBuild Copy task is used instead
+       to keep the same staging behaviour on every build platform. -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(TargetFramework)' == 'net10.0'">
+    <ItemGroup>
+      <PostBuildStagedFiles Include="$(ProjectDir)bin\$(Configuration)\net10.0\DotNetNuke.ContentSecurityPolicy*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PostBuildStagedFiles)" DestinationFolder="$(WebsitePath)\bin" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

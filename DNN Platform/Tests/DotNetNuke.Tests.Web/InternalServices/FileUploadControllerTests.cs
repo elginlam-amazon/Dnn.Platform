@@ -3,21 +3,28 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Tests.Web.InternalServices
 {
+    using System;
+    using System.Collections.Generic;
     using System.Data;
+    using System.IO;
     using System.Linq;
-    using System.Net.Http;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
 
     using DotNetNuke.Common.Lists;
     using DotNetNuke.Data;
     using DotNetNuke.Entities.Portals;
+    using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.Cache;
     using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Tests.Utilities.Mocks;
     using DotNetNuke.Web.InternalServices;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Primitives;
 
     using Moq;
 
@@ -31,6 +38,7 @@ namespace DotNetNuke.Tests.Web.InternalServices
         private FileUploadController testInstance;
         private Mock<CachingProvider> mockCachingProvider;
         private Mock<IPortalController> mockPortalController;
+        private Mock<IUserController> mockUserController;
         private TestSynchronizationContext synchronizationContext = new TestSynchronizationContext();
         private FakeServiceProvider serviceProvider;
 
@@ -48,19 +56,37 @@ namespace DotNetNuke.Tests.Web.InternalServices
         public void TearDown()
         {
             this.serviceProvider.Dispose();
-            this.testInstance?.Dispose();
+            (this.testInstance as IDisposable)?.Dispose();
+
+            UserController.ClearInstance();
+            PortalController.ClearInstance();
         }
 
         [Test]
         [SetCulture("tr-TR")]
         public async Task UploadFromLocal_ShouldUploadFile_WithTrCultureAsync()
         {
-            var formDataContent = new MultipartFormDataContent();
-            formDataContent.Add(new StringContent("Hello World!"), "\"postfile\"", "\"testing\"");
+            // On Web API 2 the body was a MultipartFormDataContent assigned to ApiController.Request.
+            // On ASP.NET Core, ControllerBase.Request is read-only and derives from the HttpContext, so the
+            // multipart body is modelled as an IFormFile on a DefaultHttpContext wired through ControllerContext.
+            var fileBytes = Encoding.UTF8.GetBytes("Hello World!");
+            var fileStream = new MemoryStream(fileBytes);
+            var postedFile = new FormFile(fileStream, 0, fileBytes.Length, "postfile", "testing")
+            {
+                Headers = new HeaderDictionary(),
+                ContentType = "text/plain",
+            };
 
-            var request = new HttpRequestMessage();
-            request.Content = formDataContent;
-            this.testInstance.Request = request;
+            var httpContext = new DefaultHttpContext();
+            httpContext.RequestServices = this.serviceProvider;
+            httpContext.Request.Method = HttpMethods.Post;
+            httpContext.Request.ContentType = "multipart/form-data; boundary=----DnnTestBoundary";
+            httpContext.Request.Form = new FormCollection(
+                new Dictionary<string, StringValues>(),
+                new FormFileCollection { postedFile });
+
+            this.testInstance.ControllerContext = new ControllerContext { HttpContext = httpContext, };
+
             await this.testInstance.UploadFromLocal(-1);
 
             Assert.That(this.synchronizationContext.IsUploadFileCalled(), Is.True);
@@ -71,6 +97,15 @@ namespace DotNetNuke.Tests.Web.InternalServices
             this.mockPortalController = MockComponentProvider.CreatePortalController();
             this.mockPortalController.Setup(x => x.GetCurrentPortalSettings()).Returns(new PortalSettings() { PortalId = 0 });
             PortalController.SetTestableInstance(this.mockPortalController.Object);
+
+            // PortalSettings.UserInfo delegates to UserController.Instance.GetCurrentUserInfo(). On
+            // net48 that resolved the real controller, which returns an anonymous (non-super-user)
+            // UserInfo when nobody is signed in. Resolving it from the test container yields a mock
+            // whose default return is null, which the controller would dereference. Restore the
+            // anonymous user the upload path was always exercised with.
+            this.mockUserController = new Mock<IUserController>();
+            this.mockUserController.Setup(x => x.GetCurrentUserInfo()).Returns(new UserInfo());
+            UserController.SetTestableInstance(this.mockUserController.Object);
         }
 
         private void SetupDataProvider()

@@ -3,8 +3,8 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Tests.Web.Mvc.Framework
 {
+    using System.Collections.Generic;
     using System.Linq;
-    using System.Web.Mvc;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Tests.Utilities.Fakes;
@@ -12,6 +12,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework
     using DotNetNuke.Web.Mvc.Framework.Controllers;
     using DotNetNuke.Web.Mvc.Framework.Modules;
     using DotNetNuke.Web.Mvc.Routing;
+
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Controllers;
+    using Microsoft.AspNetCore.Mvc.ViewEngines;
 
     using Microsoft.Extensions.DependencyInjection;
 
@@ -30,7 +34,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework
             this.serviceProvider = FakeServiceProvider.Setup(
                 services =>
                 {
-                    services.AddSingleton<IControllerFactory, DefaultControllerFactory>();
+                    // The MVC 5 DefaultControllerFactory is gone; ModuleApplication resolves the Core
+                    // Microsoft.AspNetCore.Mvc.Controllers.IControllerFactory from the service provider.
+                    services.AddSingleton(Mock.Of<IControllerFactory>());
+                    services.AddSingleton(Mock.Of<IHostSettings>());
                 });
         }
 
@@ -44,28 +51,27 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework
         public void Should_Forward_FindPartialView_To_Current_ModuleApplication_ViewEngineCollection()
         {
             // Arrange
-            var mockEngines = new Mock<ViewEngineCollection>();
-            var result = new ViewEngineResult(new[] { "foo", "bar", "baz" });
+            var mockEngine = new Mock<IViewEngine>();
             var controller = new Mock<DnnController>();
             controller.SetupAllProperties();
             var context = MockHelper.CreateMockControllerContext(controller.Object);
 
-            // ReSharper disable ConvertToConstant.Local
-            string viewName = "Foo";
+            const string viewName = "Foo";
 
-            // ReSharper restore ConvertToConstant.Local
-            mockEngines.Setup(e => e.FindPartialView(context, viewName))
-                       .Returns(result);
+            // A partial view lookup is FindView(..., isMainPage: false) in ASP.NET Core; a failed lookup
+            // carries the searched locations.
+            mockEngine.Setup(e => e.FindView(context, viewName, false))
+                      .Returns(ViewEngineResult.NotFound(viewName, new[] { "foo", "bar", "baz" }));
 
-            SetupMockModuleApplication(context, mockEngines.Object);
+            SetupMockModuleApplication(context, controller.Object, new[] { mockEngine.Object });
 
             var viewEngine = new ModuleDelegatingViewEngine(Mock.Of<IHostSettings>());
 
             // Act
-            ViewEngineResult engineResult = viewEngine.FindPartialView(context, viewName, true);
+            var engineResult = viewEngine.FindView(context, viewName, false);
 
             // Assert
-            mockEngines.Verify(e => e.FindPartialView(context, viewName));
+            mockEngine.Verify(e => e.FindView(context, viewName, false));
             using (Assert.EnterMultipleScope())
             {
                 Assert.That(engineResult.SearchedLocations.ElementAt(0), Is.EqualTo("foo"));
@@ -78,29 +84,27 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework
         public void Should_Forward_FindView_To_Current_ModuleApplication_ViewEngineCollection()
         {
             // Arrange
-            var mockEngines = new Mock<ViewEngineCollection>();
-            var result = new ViewEngineResult(new[] { "foo", "bar", "baz" });
+            var mockEngine = new Mock<IViewEngine>();
             var controller = new Mock<DnnController>();
             controller.SetupAllProperties();
             var context = MockHelper.CreateMockControllerContext(controller.Object);
 
-            // ReSharper disable ConvertToConstant.Local
-            var viewName = "Foo";
-            var masterName = "Bar";
+            const string viewName = "Bar";
 
-            // ReSharper restore ConvertToConstant.Local
-            mockEngines.Setup(e => e.FindView(context, viewName, masterName))
-                       .Returns(result);
+            // The master name no longer takes part in the lookup in ASP.NET Core (a Razor view selects its
+            // own layout), it only enters the view cache key.
+            mockEngine.Setup(e => e.FindView(context, viewName, true))
+                      .Returns(ViewEngineResult.NotFound(viewName, new[] { "foo", "bar", "baz" }));
 
-            SetupMockModuleApplication(context, mockEngines.Object);
+            SetupMockModuleApplication(context, controller.Object, new[] { mockEngine.Object });
 
-            var viewEngine = new ModuleDelegatingViewEngine();
+            var viewEngine = new ModuleDelegatingViewEngine(Mock.Of<IHostSettings>());
 
             // Act
-            var engineResult = viewEngine.FindView(context, viewName, masterName, true);
+            var engineResult = viewEngine.FindView(context, viewName, true);
 
             // Assert
-            mockEngines.Verify(e => e.FindView(context, viewName, masterName));
+            mockEngine.Verify(e => e.FindView(context, viewName, true));
             using (Assert.EnterMultipleScope())
             {
                 Assert.That(engineResult.SearchedLocations.ElementAt(0), Is.EqualTo("foo"));
@@ -113,77 +117,82 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework
         public void Should_Track_ViewEngine_View_Pairs_On_FindView_And_Releases_View_Appropriately()
         {
             // Arrange
-            var mockEngines = new Mock<ViewEngineCollection>();
             var mockEngine = new Mock<IViewEngine>();
             var mockView = new Mock<IView>();
-            var result = new ViewEngineResult(mockView.Object, mockEngine.Object);
             var controller = new Mock<DnnController>();
             controller.SetupAllProperties();
             var context = MockHelper.CreateMockControllerContext(controller.Object);
 
-            // ReSharper disable ConvertToConstant.Local
-            string viewName = "Foo";
-            string masterName = "Bar";
+            const string viewName = "Baz";
 
-            // ReSharper restore ConvertToConstant.Local
-            mockEngines.Setup(e => e.FindView(context, viewName, masterName))
-                       .Returns(result);
+            mockEngine.Setup(e => e.FindView(context, viewName, true))
+                      .Returns(ViewEngineResult.Found(viewName, mockView.Object));
 
-            SetupMockModuleApplication(context, mockEngines.Object);
+            SetupMockModuleApplication(context, controller.Object, new[] { mockEngine.Object });
 
-            var viewEngine = new ModuleDelegatingViewEngine();
+            var viewEngine = new ModuleDelegatingViewEngine(Mock.Of<IHostSettings>());
 
             // Act
-            ViewEngineResult engineResult = viewEngine.FindView(context, viewName, masterName, true);
-            viewEngine.ReleaseView(context, engineResult.View);
+            var engineResult = viewEngine.FindView(context, viewName, true);
 
             // Assert
-            mockEngine.Verify(e => e.ReleaseView(context, mockView.Object));
+            // ASP.NET Core's IViewEngine has no ReleaseView: view engines do not own the view instances,
+            // the Razor view engine caches and disposes them itself. The engine/view pairing is therefore
+            // asserted on the returned result: the view of the module's own engine is handed back.
+            mockEngine.Verify(e => e.FindView(context, viewName, true));
+            using (Assert.EnterMultipleScope())
+            {
+                Assert.That(engineResult.Success, Is.True);
+                Assert.That(engineResult.View, Is.SameAs(mockView.Object));
+                Assert.That(engineResult.ViewName, Is.EqualTo(viewName));
+            }
         }
 
         [Test]
         public void Should_Track_ViewEngine_View_Pairs_On_FindPartialView_And_Releases_View_Appropriately()
         {
             // Arrange
-            var mockEngines = new Mock<ViewEngineCollection>();
             var mockEngine = new Mock<IViewEngine>();
             var mockView = new Mock<IView>();
-            var result = new ViewEngineResult(mockView.Object, mockEngine.Object);
             var controller = new Mock<DnnController>();
             controller.SetupAllProperties();
             var context = MockHelper.CreateMockControllerContext(controller.Object);
 
-            // ReSharper disable ConvertToConstant.Local
-            string viewName = "Foo";
+            const string viewName = "Qux";
 
-            // ReSharper restore ConvertToConstant.Local
-            mockEngines.Setup(e => e.FindPartialView(context, viewName))
-                       .Returns(result);
+            mockEngine.Setup(e => e.FindView(context, viewName, false))
+                      .Returns(ViewEngineResult.Found(viewName, mockView.Object));
 
-            SetupMockModuleApplication(context, mockEngines.Object);
+            SetupMockModuleApplication(context, controller.Object, new[] { mockEngine.Object });
 
-            var viewEngine = new ModuleDelegatingViewEngine();
+            var viewEngine = new ModuleDelegatingViewEngine(Mock.Of<IHostSettings>());
 
             // Act
-            ViewEngineResult engineResult = viewEngine.FindPartialView(context, viewName, true);
-            viewEngine.ReleaseView(context, engineResult.View);
+            var engineResult = viewEngine.FindView(context, viewName, false);
 
             // Assert
-            mockEngine.Verify(e => e.ReleaseView(context, mockView.Object));
+            // See the remark on the FindView counterpart above: ReleaseView has no Core equivalent, so the
+            // engine/view pair is asserted through the returned result.
+            mockEngine.Verify(e => e.FindView(context, viewName, false));
+            using (Assert.EnterMultipleScope())
+            {
+                Assert.That(engineResult.Success, Is.True);
+                Assert.That(engineResult.View, Is.SameAs(mockView.Object));
+                Assert.That(engineResult.ViewName, Is.EqualTo(viewName));
+            }
         }
 
         [Test]
         public void Should_Return_Failed_ViewEngineResult_For_FindView_If_No_Current_Module_Application()
         {
             // Arrange
-            var mockEngines = new Mock<ViewEngineCollection>();
-            var viewEngine = new ModuleDelegatingViewEngine();
+            var viewEngine = new ModuleDelegatingViewEngine(Mock.Of<IHostSettings>());
             var controller = new Mock<DnnController>();
             controller.SetupAllProperties();
             var context = MockHelper.CreateMockControllerContext(controller.Object);
 
             // Act
-            var engineResult = viewEngine.FindView(context, "Foo", "Bar", true);
+            var engineResult = viewEngine.FindView(context, "Foo", true);
 
             // Assert
             Assert.That(engineResult, Is.Not.Null);
@@ -198,14 +207,13 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework
         public void Should_Return_Failed_ViewEngineResult_For_FindPartialView_If_No_Current_Module_Application()
         {
             // Arrange
-            var mockEngines = new Mock<ViewEngineCollection>();
-            var viewEngine = new ModuleDelegatingViewEngine();
+            var viewEngine = new ModuleDelegatingViewEngine(Mock.Of<IHostSettings>());
             var controller = new Mock<DnnController>();
             controller.SetupAllProperties();
             var context = MockHelper.CreateMockControllerContext(controller.Object);
 
             // Act
-            var engineResult = viewEngine.FindPartialView(context, "Foo", true);
+            var engineResult = viewEngine.FindView(context, "Foo", false);
 
             // Assert
             Assert.That(engineResult, Is.Not.Null);
@@ -216,15 +224,19 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework
             }
         }
 
-        private static void SetupMockModuleApplication(ControllerContext context, ViewEngineCollection engines)
+        private static void SetupMockModuleApplication(ControllerContext context, IDnnController controller, IReadOnlyList<IViewEngine> engines)
         {
+            // The MVC 5 view-engine collection has no Core equivalent: the module's engines are an ordered
+            // IReadOnlyList<IViewEngine> carried by the module application and by its controller, which is
+            // where ModuleDelegatingViewEngine reads them from (through the HttpContext).
             var mockApp = new Mock<ModuleApplication>();
-            mockApp.Object.ViewEngines = engines;
-            (context.Controller as IDnnController).ViewEngineCollectionEx = engines;
+            mockApp.Object.ViewEngines = new List<IViewEngine>(engines);
+            controller.ViewEngines = engines;
 
             var activeModuleRequest = new ModuleRequestResult
             {
                 ModuleApplication = mockApp.Object,
+                ActionContext = context,
             };
 
             context.HttpContext.SetModuleRequestResult(activeModuleRequest);

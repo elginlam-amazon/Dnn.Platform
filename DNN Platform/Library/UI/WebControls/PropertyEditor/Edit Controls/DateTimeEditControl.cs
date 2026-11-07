@@ -6,22 +6,25 @@ namespace DotNetNuke.UI.WebControls
     using System;
     using System.Collections.Specialized;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Common.Utilities;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
 
     /// <summary>
     /// The DateTimeEditControl control provides a standard UI component for editing
     /// date and time properties.
     /// </summary>
-    [ToolboxData("<{0}:DateTimeEditControl runat=server></{0}:DateTimeEditControl>")]
+    /// <remarks>
+    /// The <c>hours</c>/<c>minutes</c>/<c>ampm</c> <c>DropDownList</c> child controls are now
+    /// rendered directly, keeping their <c>{UniqueID}hours</c>, <c>{UniqueID}minutes</c> and
+    /// <c>{UniqueID}ampm</c> form field names so that <see cref="LoadPostData"/> is unchanged.
+    /// </remarks>
     public class DateTimeEditControl : DateEditControl
     {
-        private DropDownList ampmField;
-        private DropDownList hourField;
         private bool is24HourClock;
-        private DropDownList minutesField;
 
         /// <summary>
         /// Gets defaultFormat is a string that will be used to format the date in the absence of a
@@ -37,9 +40,14 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
+        /// <summary>Gets a value indicating whether the current culture uses a 24 hour clock.</summary>
+        protected bool Is24HourClock => this.is24HourClock;
+
         /// <inheritdoc />
         public override bool LoadPostData(string postDataKey, NameValueCollection postCollection)
         {
+            ArgumentNullException.ThrowIfNull(postCollection);
+
             bool dataChanged = false;
             DateTime presentValue = this.OldDateValue;
             string postedDate = postCollection[postDataKey + "date"];
@@ -89,11 +97,25 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void CreateChildControls()
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            base.CreateChildControls();
-            this.Controls.Add(new LiteralControl("<br/>"));
-            this.hourField = new DropDownList();
+            ArgumentNullException.ThrowIfNull(builder);
+
+            this.GetTimeParts(out var hour, out var minute, out var isAM);
+
+            // Every part of the value has to be present in the post data, because LoadPostData
+            // reassembles the whole DateTime from all four fields.
+            this.SetPostValue("hours", hour.ToString(CultureInfo.InvariantCulture));
+            this.SetPostValue("minutes", minute.ToString(CultureInfo.InvariantCulture));
+            if (!this.is24HourClock)
+            {
+                this.SetPostValue("ampm", isAM ? "AM" : "PM");
+            }
+
+            this.RenderDateField(builder, 0);
+
+            builder.AddMarkupContent(100, "<br/>");
+
             int maxHour = 12;
             int minHour = 1;
             if (this.is24HourClock)
@@ -102,43 +124,76 @@ namespace DotNetNuke.UI.WebControls
                 maxHour = 23;
             }
 
+            builder.OpenElement(110, "select");
+            this.AddStyleAttributes(builder, 111);
+            builder.AddAttribute(115, "name", this.UniqueID + "hours");
+            builder.AddAttribute(116, "id", this.ClientID + "hours");
+            builder.AddAttribute(117, "aria-label", "hours");
+            builder.AddAttribute(
+                118,
+                "onchange",
+                EventCallback.Factory.Create<ChangeEventArgs>(this, args => this.OnFieldChanged("hours", args)));
+            builder.OpenRegion(119);
             for (int i = minHour; i <= maxHour; i++)
             {
-                this.hourField.Items.Add(new ListItem(i.ToString("00", CultureInfo.CurrentCulture), i.ToString(CultureInfo.InvariantCulture)));
+                RenderOption(builder, i.ToString(CultureInfo.InvariantCulture), i.ToString("00", CultureInfo.CurrentCulture), i == hour);
             }
 
-            this.hourField.ControlStyle.CopyFrom(this.ControlStyle);
-            this.hourField.ID = this.ID + "hours";
-            this.Controls.Add(this.hourField);
-            this.Controls.Add(new LiteralControl("&nbsp"));
-            this.minutesField = new DropDownList();
+            builder.CloseRegion();
+            builder.CloseElement();
+
+            builder.AddMarkupContent(130, "&nbsp");
+
+            builder.OpenElement(140, "select");
+            this.AddStyleAttributes(builder, 141);
+            builder.AddAttribute(145, "name", this.UniqueID + "minutes");
+            builder.AddAttribute(146, "id", this.ClientID + "minutes");
+            builder.AddAttribute(147, "aria-label", "minutes");
+            builder.AddAttribute(
+                148,
+                "onchange",
+                EventCallback.Factory.Create<ChangeEventArgs>(this, args => this.OnFieldChanged("minutes", args)));
+            builder.OpenRegion(149);
             for (int i = 0; i <= 59; i++)
             {
-                this.minutesField.Items.Add(new ListItem(i.ToString("00", CultureInfo.CurrentCulture), i.ToString(CultureInfo.InvariantCulture)));
+                RenderOption(builder, i.ToString(CultureInfo.InvariantCulture), i.ToString("00", CultureInfo.CurrentCulture), i == minute);
             }
 
-            this.minutesField.ControlStyle.CopyFrom(this.ControlStyle);
-            this.minutesField.ID = this.ID + "minutes";
-            this.Controls.Add(this.minutesField);
+            builder.CloseRegion();
+            builder.CloseElement();
+
             if (!this.is24HourClock)
             {
-                this.Controls.Add(new LiteralControl("&nbsp"));
-                this.ampmField = new DropDownList();
-                this.ampmField.Items.Add(new ListItem("AM", "AM"));
-                this.ampmField.Items.Add(new ListItem("PM", "PM"));
-                this.ampmField.ControlStyle.CopyFrom(this.ControlStyle);
-                this.ampmField.ID = this.ID + "ampm";
-                this.Controls.Add(this.ampmField);
+                builder.AddMarkupContent(160, "&nbsp");
+
+                builder.OpenElement(170, "select");
+                this.AddStyleAttributes(builder, 171);
+                builder.AddAttribute(175, "name", this.UniqueID + "ampm");
+                builder.AddAttribute(176, "id", this.ClientID + "ampm");
+                builder.AddAttribute(177, "aria-label", "ampm");
+                builder.AddAttribute(
+                    178,
+                    "onchange",
+                    EventCallback.Factory.Create<ChangeEventArgs>(this, args => this.OnFieldChanged("ampm", args)));
+                builder.OpenRegion(179);
+                RenderOption(builder, "AM", "AM", isAM);
+                RenderOption(builder, "PM", "PM", !isAM);
+                builder.CloseRegion();
+                builder.CloseElement();
             }
         }
 
-        /// <inheritdoc />
-        protected override void LoadDateControls()
+        /// <summary>Splits the current value into the hour, minute and AM/PM parts that are rendered.</summary>
+        /// <param name="hour">The hour to pre-select.</param>
+        /// <param name="minute">The minute to pre-select.</param>
+        /// <param name="isAM">Whether the AM option is pre-selected.</param>
+        /// <remarks>Replaces the <c>LoadDateControls</c> override, which assigned the selections onto
+        /// the <c>DropDownList</c> child controls.</remarks>
+        protected void GetTimeParts(out int hour, out int minute, out bool isAM)
         {
-            base.LoadDateControls();
-            int hour = this.DateValue.Hour;
-            int minute = this.DateValue.Minute;
-            bool isAM = true;
+            hour = this.DateValue.Hour;
+            minute = this.DateValue.Minute;
+            isAM = true;
             if (!this.is24HourClock)
             {
                 if (hour >= 12)
@@ -152,21 +207,19 @@ namespace DotNetNuke.UI.WebControls
                     hour = 12;
                 }
             }
+        }
 
-            this.hourField.Items.FindByValue(hour.ToString(CultureInfo.InvariantCulture))?.Selected = true;
-            this.minutesField.Items.FindByValue(minute.ToString(CultureInfo.InvariantCulture))?.Selected = true;
-
-            if (!this.is24HourClock)
+        private static void RenderOption(RenderTreeBuilder builder, string value, string text, bool isSelected)
+        {
+            builder.OpenElement(0, "option");
+            builder.AddAttribute(1, "value", value);
+            if (isSelected)
             {
-                if (isAM)
-                {
-                    this.ampmField.SelectedIndex = 0;
-                }
-                else
-                {
-                    this.ampmField.SelectedIndex = 1;
-                }
+                builder.AddAttribute(2, "selected", "selected");
             }
+
+            builder.AddContent(3, text);
+            builder.CloseElement();
         }
     }
 }

@@ -1,0 +1,29 @@
+@using System.Net.Http
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@using DotNetNuke.Website.Components
+
+@* The migrated DNN UI components, shipped by the DotNetNuke platform RCL. *@
+@using DotNetNuke.Framework
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.UI.Modules
+@using DotNetNuke.Services.Exceptions
+
+@* The DNN client-resource registration namespace. NOTE: @addTagHelper is NOT valid in a Razor
+   *component* document (RZ9978) — tag helpers are an MVC/Razor-Pages feature and belong in a
+   _ViewImports.cshtml. Components render client resources by calling IClientResourceController
+   directly (which is exactly what the DnnResources tag helper does internally). *@
+@using DotNetNuke.Web.Client
+@using DotNetNuke.Web.Client.ClientResourceManagement
+
+@* The DNN 10 default theme: its layouts, containers and skin objects are addressed by tag name
+   (the replacement for the <%@ Register %> directives of partials/_registers.ascx). *@
+@using Dnn.Skins.Aperture
+@using Dnn.Skins.Aperture.SkinObjects
+
+@* The DNN Client API seam (IClientApiPage), which the host's ClientApiScripts component renders. *@
+@using DotNetNuke.UI.Utilities

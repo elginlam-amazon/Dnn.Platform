@@ -11,7 +11,6 @@ namespace DotNetNuke.Modules.Journal.Components
     using System.Net;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
     using System.Xml;
 
     using DotNetNuke.Abstractions;
@@ -23,6 +22,8 @@ namespace DotNetNuke.Modules.Journal.Components
     using DotNetNuke.Services.Journal;
     using DotNetNuke.Services.Journal.Internal;
     using DotNetNuke.Services.Localization;
+
+    using Microsoft.AspNetCore.Http.Extensions;
     using Microsoft.Extensions.DependencyInjection;
 
     public class JournalParser
@@ -76,16 +77,18 @@ namespace DotNetNuke.Modules.Journal.Components
                 this.OwnerPortalId = moduleInfo.OwnerPortalID;
             }
 
+            var currentRequest = HttpContextSource.CurrentOrThrow.Request;
+            var requestUri = new Uri(currentRequest.GetDisplayUrl());
             if (string.IsNullOrEmpty(this.url))
             {
-                this.url = HttpContext.Current.Request.Url.Host;
+                this.url = requestUri.Host;
             }
 
             this.url = string.Format(
                 "{0}://{1}{2}",
-                UrlUtils.IsSecureConnectionOrSslOffload(HttpContext.Current.Request) ? "https" : "http",
+                UrlUtils.IsSecureConnectionOrSslOffload(currentRequest) ? "https" : "http",
                 this.url,
-                !HttpContext.Current.Request.Url.IsDefaultPort && !this.url.Contains(":") ? ":" + HttpContext.Current.Request.Url.Port : string.Empty);
+                !requestUri.IsDefaultPort && !this.url.Contains(":") ? ":" + requestUri.Port : string.Empty);
         }
 
         public int JournalId { get; set; }

@@ -8,15 +8,14 @@ namespace Dnn.EditBar.UI.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
     using System.Text;
-    using System.Web;
-    using System.Web.Http;
 
     using Dnn.EditBar.Library;
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Mvc;
     using Newtonsoft.Json;
 
     [DnnAuthorize]
@@ -28,7 +27,7 @@ namespace Dnn.EditBar.UI.Services
         /// <param name="culture">The culture name.</param>
         /// <returns>A response with a collection of resources.</returns>
         [HttpGet]
-        public HttpResponseMessage GetTable(string culture)
+        public IActionResult GetTable(string culture)
         {
             try
             {
@@ -45,12 +44,12 @@ namespace Dnn.EditBar.UI.Services
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, resources);
+                return this.Ok(resources);
             }
             catch (Exception ex)
             {
                 Exceptions.LogException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.NotFound, ex.Message);
             }
         }
 
@@ -98,7 +97,7 @@ namespace Dnn.EditBar.UI.Services
         private static string GetJsonFileContent(string culture)
         {
             var path = GetResourcesJsonFilePath(culture);
-            return File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8) : null;
+            return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path, Encoding.UTF8) : null;
         }
 
         private static Dictionary<string, IDictionary<string, string>> GenerateJsonFile(string culture)
@@ -123,7 +122,7 @@ namespace Dnn.EditBar.UI.Services
                 Directory.CreateDirectory(folderPath);
             }
 
-            File.WriteAllText(filePath, content, Encoding.UTF8);
+            System.IO.File.WriteAllText(filePath, content, Encoding.UTF8);
 
             return resources;
         }
@@ -131,13 +130,13 @@ namespace Dnn.EditBar.UI.Services
         private static string GetResourcesJsonFilePath(string culture)
         {
             var path = Path.Combine(Constants.EditBarRelativePath, "Resources", $"LocalResources.{culture}.resources");
-            return HttpContext.Current.Server.MapPath(path);
+            return HttpContextSource.MapPath(path);
         }
 
         private static string[] GetAllResourceFiles(string culture)
         {
             var editBarResourcesPath = Path.Combine(Constants.EditBarRelativePath, "App_LocalResources");
-            var physicalPath = HttpContext.Current.Server.MapPath(editBarResourcesPath);
+            var physicalPath = HttpContextSource.MapPath(editBarResourcesPath);
             return Directory.GetFiles(physicalPath, "*.resx");
         }
     }

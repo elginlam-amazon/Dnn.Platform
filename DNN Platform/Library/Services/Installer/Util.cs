@@ -8,6 +8,8 @@ namespace DotNetNuke.Services.Installer
     using System.Globalization;
     using System.IO;
     using System.Net;
+    using System.Net.Http;
+    using System.Net.Http.Headers;
     using System.Text;
     using System.Threading;
     using System.Xml.XPath;
@@ -979,7 +981,12 @@ namespace DotNetNuke.Services.Installer
                 url = url + restoftheurl;
             }
 
+            // HttpWebRequest/WebResponse are part of this public API's signature, so SYSLIB0014 is
+            // suppressed here rather than changing the contract. New code should use
+            // GetExternalResponse, which is implemented over IHttpClientFactory.
+#pragma warning disable SYSLIB0014
             var wreq = (HttpWebRequest)WebRequest.Create(url);
+#pragma warning restore SYSLIB0014
             wreq.UserAgent = userAgent;
             wreq.Referer = referer;
             wreq.Method = "GET";
@@ -1040,6 +1047,149 @@ namespace DotNetNuke.Services.Installer
             }
 
             return response;
+        }
+
+        /// <summary>Requests an external resource over the DNN external-request <see cref="HttpClient"/>.</summary>
+        /// <param name="url">The URL to request.</param>
+        /// <param name="data">The data to send, as a form-url-encoded body when <paramref name="doPOST"/> is <see langword="true"/>, otherwise appended to the query string.</param>
+        /// <param name="username">The user name to authenticate with, or <see langword="null"/>.</param>
+        /// <param name="password">The password to authenticate with, or <see langword="null"/>.</param>
+        /// <param name="domain">The domain to authenticate with, or <see langword="null"/>.</param>
+        /// <param name="proxyAddress">The proxy host, or <see langword="null"/> for no proxy.</param>
+        /// <param name="proxyPort">The proxy port.</param>
+        /// <param name="proxyUsername">The proxy user name, or <see langword="null"/>.</param>
+        /// <param name="proxyPassword">The proxy password.</param>
+        /// <param name="doPOST">Whether to <c>POST</c> rather than <c>GET</c>.</param>
+        /// <param name="userAgent">The user agent to send.</param>
+        /// <param name="referer">The referer to send.</param>
+        /// <param name="filename">The file name from the <c>Content-Disposition</c> response header, or <see cref="string.Empty"/>.</param>
+        /// <param name="requestTimeout">The request time-out, in milliseconds.</param>
+        /// <returns>The response. The caller owns it and must dispose it.</returns>
+        /// <remarks>This is the <see cref="HttpClient"/> based replacement for <c>GetExternalRequest</c>.</remarks>
+        public static HttpResponseMessage GetExternalResponse(string url, byte[] data, string username, string password, string domain, string proxyAddress, int proxyPort, string proxyUsername, string proxyPassword, bool doPOST, string userAgent, string referer, out string filename, int requestTimeout)
+        {
+            if (!doPOST && data != null && data.Length > 0)
+            {
+                var restoftheurl = Encoding.ASCII.GetString(data);
+                if (url != null && url.IndexOf("?", StringComparison.Ordinal) <= 0)
+                {
+                    url += "?";
+                }
+
+                url += restoftheurl;
+            }
+
+            NetworkCredential credentials = null;
+            if (!string.IsNullOrWhiteSpace(username) && password != null)
+            {
+                credentials = domain != null
+                    ? new NetworkCredential(username, password, domain)
+                    : new NetworkCredential(username, password);
+            }
+
+            // A per-call proxy/credential combination cannot be expressed on a shared, factory-managed
+            // client, so the handler is built here. It is owned by the HttpClient created below, which
+            // the response keeps alive until the caller disposes it.
+            var handler = new HttpClientHandler();
+            if (credentials != null)
+            {
+                handler.Credentials = credentials;
+            }
+
+            if (!string.IsNullOrEmpty(proxyAddress))
+            {
+                var proxy = new WebProxy(proxyAddress, proxyPort);
+                if (!string.IsNullOrEmpty(proxyUsername))
+                {
+                    proxy.Credentials = new NetworkCredential(proxyUsername, proxyPassword);
+                }
+
+                handler.Proxy = proxy;
+                handler.UseProxy = true;
+            }
+
+            var client = new HttpClient(handler, disposeHandler: true)
+            {
+                Timeout = TimeSpan.FromMilliseconds(requestTimeout),
+            };
+
+            using var request = new HttpRequestMessage(doPOST ? HttpMethod.Post : HttpMethod.Get, url);
+            if (!string.IsNullOrEmpty(userAgent))
+            {
+                request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
+            }
+
+            if (!string.IsNullOrEmpty(referer))
+            {
+                request.Headers.TryAddWithoutValidation("Referer", referer);
+            }
+
+            if (doPOST && data is { Length: > 0, })
+            {
+                request.Content = new ByteArrayContent(data)
+                {
+                    Headers = { ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded"), },
+                };
+            }
+
+            HttpResponseMessage response;
+            try
+            {
+                response = client.Send(request, HttpCompletionOption.ResponseHeadersRead);
+            }
+            catch
+            {
+                client.Dispose();
+                throw;
+            }
+
+            response.EnsureSuccessStatusCode();
+
+            filename = string.Empty;
+            if (response.Content.Headers.TryGetValues("Content-Disposition", out var contentDispositions))
+            {
+                filename = ParseAttachmentFileName(string.Join(",", contentDispositions));
+            }
+
+            return response;
+        }
+
+        /// <summary>Writes the body of <paramref name="response"/> to a file in <paramref name="installFolder"/>.</summary>
+        /// <param name="response">The response to read.</param>
+        /// <param name="myfile">The file name to write.</param>
+        /// <param name="installFolder">The folder to write into.</param>
+        public static void DeployExtension(HttpResponseMessage response, string myfile, string installFolder)
+        {
+            using var remoteStream = response.Content.ReadAsStream();
+
+            // Create the local file with zip extension to ensure installation
+            using var localStream = File.Create(installFolder + "/" + myfile);
+            remoteStream.CopyTo(localStream);
+        }
+
+        /// <summary>Extracts the file name from a <c>Content-Disposition</c> header value for an attachment.</summary>
+        private static string ParseAttachmentFileName(string contentDisposition)
+        {
+            if (contentDisposition == null || contentDisposition.Trim() == string.Empty || !contentDisposition.StartsWith("attachment", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            var nameIndex = contentDisposition.IndexOf("filename", StringComparison.OrdinalIgnoreCase);
+            if (nameIndex <= -1)
+            {
+                return string.Empty;
+            }
+
+            var filenameParam = contentDisposition.Substring(nameIndex);
+            if (filenameParam.IndexOf("=", StringComparison.Ordinal) <= -1)
+            {
+                return string.Empty;
+            }
+
+            return filenameParam.IndexOf("\"", StringComparison.Ordinal) > -1
+                ? filenameParam.Substring(filenameParam.IndexOf("\"", StringComparison.Ordinal) + 1).TrimEnd('"').TrimEnd('\\')
+                : filenameParam.Substring(filenameParam.IndexOf("=", StringComparison.Ordinal) + 1);
         }
 
         public static void DeployExtension(WebResponse wr, string myfile, string installFolder)

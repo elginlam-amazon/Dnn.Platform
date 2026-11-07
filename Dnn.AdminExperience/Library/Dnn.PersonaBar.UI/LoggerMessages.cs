@@ -59,4 +59,7 @@ internal static partial class LoggerMessages
 
     [LoggerMessage(EventId = 5_500_500, Level = LogLevel.Error)]
     public static partial void MenuExtensionsControllerGetExtensionControllerException(this ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 5_500_600, Level = LogLevel.Error, Message = "The Persona Bar container could not run its client side initialization; the Persona Bar will not load.")]
+    public static partial void PersonaBarContainerInteropFailed(this ILogger logger, Exception exception);
 }

@@ -1,15 +1,37 @@
-jQuery.PageMethod = function (n, t, i, r) {
-    var u, e, f;
-    if (n == null && (n = window.location.pathname, n.lastIndexOf("/") == n.length - 1 && (n = n + "default.aspx")), u = "", e = arguments.length, e > 4) for (f = 4; f < e - 1; f += 2) u.length != 0 && (u += ","), u += '"' + arguments[f] + '":"' + arguments[f + 1] + '"';
-    return u = "{" + u + "}", jQuery.PageMethodToPage(n, t, i, r, u)
-}, jQuery.PageMethodToPage = function (n, t, i, r, u) {
+// ASP.NET AJAX page methods ([ScriptService]/[WebMethod], called as "<page>.aspx/<method>") do not
+// exist on ASP.NET Core, so the methods this file called are now real endpoints which live next to
+// the page they belong to (see Browser/SetFileEndpoint.cs). The jQuery.PageMethod signature is kept
+// so that the calling code the browser emits does not have to change: the method name becomes the
+// last segment of the endpoint URL, resolved relative to the folder of the calling page, and the
+// named argument pairs are posted as the same JSON body as before.
+jQuery.PageMethod = function (page, method, success, error) {
+    var args = "", argCount = arguments.length, i, folder;
+
+    if (argCount > 4) {
+        for (i = 4; i < argCount - 1; i += 2) {
+            if (args.length != 0) {
+                args += ",";
+            }
+
+            args += '"' + arguments[i] + '":"' + arguments[i + 1] + '"';
+        }
+    }
+
+    args = "{" + args + "}";
+
+    // The endpoint sits in the same folder as the page that calls it, so the extension keeps working
+    // whatever virtual path the DNN website is installed under.
+    folder = window.location.pathname.substring(0, window.location.pathname.lastIndexOf("/") + 1);
+
+    return jQuery.PageMethodToPage(folder + method, success, error, args);
+}, jQuery.PageMethodToPage = function (url, success, error, args) {
     jQuery.ajax({
         type: "POST",
-        url: n + "/" + t,
+        url: url,
         contentType: "application/json; charset=utf-8",
-        data: u,
+        data: args,
         dataType: "json",
-        success: i,
-        error: r
+        success: success,
+        error: error
     })
 }

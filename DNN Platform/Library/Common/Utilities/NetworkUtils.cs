@@ -9,9 +9,9 @@ namespace DotNetNuke.Common.Utils
     using System.Linq;
     using System.Net;
     using System.Net.Sockets;
-    using System.Web;
 
     using DotNetNuke.Services.UserRequest;
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Enumeration of IP address types.</summary>
     public enum AddressType
@@ -259,12 +259,13 @@ namespace DotNetNuke.Common.Utils
         public static string GetClientIpAddress(HttpRequest request)
         {
             var userRequestIpAddressController = UserRequestIPAddressController.Instance;
-            var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress(new HttpRequestWrapper(request));
+            var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress(request);
 
             // If there is no proxy, get the standard remote address
             if (string.IsNullOrWhiteSpace(ipAddress) || ipAddress.Equals("unknown", StringComparison.OrdinalIgnoreCase))
             {
-                ipAddress = request.UserHostAddress;
+                // Replaces System.Web's Request.UserHostAddress, which does not exist in ASP.NET Core.
+                ipAddress = request.HttpContext?.Connection?.RemoteIpAddress?.ToString();
             }
 
             return ipAddress;

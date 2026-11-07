@@ -9,13 +9,13 @@ namespace DotNetNuke.Services.OutputCache.Providers
     using System.Globalization;
     using System.IO;
     using System.Text;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Collections.Internal;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Services.Log.EventLog;
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>FileProvider implements the OutputCachingProvider for file storage.</summary>
     public class FileProvider : OutputCachingProvider
@@ -206,7 +206,12 @@ namespace DotNetNuke.Services.OutputCache.Providers
                     return false;
                 }
 
-                context.Response.WriteFile(captureFile);
+                // Response.WriteFile is not available on ASP.NET Core; stream the cached file into
+                // the response body writer instead.
+                using (var cachedStream = new FileStream(captureFile, FileMode.Open, FileAccess.Read))
+                {
+                    this.WriteStreamAsText(context, cachedStream, 0, -1);
+                }
 
                 foundFile = true;
             }

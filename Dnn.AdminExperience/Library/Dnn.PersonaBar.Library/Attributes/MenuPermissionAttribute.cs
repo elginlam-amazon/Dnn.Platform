@@ -4,7 +4,6 @@
 namespace Dnn.PersonaBar.Library.Attributes
 {
     using System;
-    using System.Threading;
 
     using Dnn.PersonaBar.Library.Controllers;
     using Dnn.PersonaBar.Library.Model;
@@ -42,7 +41,7 @@ namespace Dnn.PersonaBar.Library.Attributes
         /// <inheritdoc />
         public override bool IsAuthorized(AuthFilterContext context)
         {
-            var authenticated = Thread.CurrentPrincipal.Identity.IsAuthenticated;
+            var authenticated = context.Principal.Identity.IsAuthenticated;
             var portalSettings = PortalSettings.Current;
             var currentUser = UserController.Instance.GetCurrentUserInfo();
 

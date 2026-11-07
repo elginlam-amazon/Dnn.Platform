@@ -10,7 +10,6 @@ namespace DotNetNuke.Entities.Urls
     using System.Globalization;
     using System.Linq;
     using System.Text.RegularExpressions;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
@@ -21,8 +20,8 @@ namespace DotNetNuke.Entities.Urls
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Framework;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Log.EventLog;
-
     using Microsoft.Extensions.DependencyInjection;
 
     public class ExtensionUrlProviderController

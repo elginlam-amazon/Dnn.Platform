@@ -4,10 +4,10 @@
 namespace DNNConnect.CKEditorProvider.Objects
 {
     using System.Collections.Generic;
-    using System.Web.UI.WebControls;
 
     using DNNConnect.CKEditorProvider.Constants;
     using DotNetNuke.Internal.SourceGenerators;
+    using DotNetNuke.UI.WebControls;
 
     /// <summary>The Settings Base.</summary>
     [DnnDeprecated(7, 0, 0, "Please use EditorProviderSettings Class instead", RemovalVersion = 11)]

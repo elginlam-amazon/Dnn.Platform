@@ -125,7 +125,7 @@ namespace DotNetNuke.Tests.Core
             FileSystemUtils.DeleteFile(testPath);
 
             // Assert
-            Assert.That(testPath.Replace("/", @"\"), Does.Not.Exist);
+            Assert.That(testPath, Does.Not.Exist);
         }
 
         [TestCase(null)]
@@ -149,9 +149,12 @@ namespace DotNetNuke.Tests.Core
             }
             else
             {
+                // FixPath normalizes every separator to the host's own, so the separator it must
+                // not leave behind is the foreign one ('/' on Windows, '\\' elsewhere).
+                var foreignSeparator = Path.DirectorySeparatorChar == '\\' ? "/" : "\\";
                 using var scope = Assert.EnterMultipleScope();
                 Assert.That(result, Does.Not.Contain(" "));
-                Assert.That(result, Does.Not.Contain("/"));
+                Assert.That(result, Does.Not.Contain(foreignSeparator));
             }
         }
 
@@ -173,6 +176,14 @@ namespace DotNetNuke.Tests.Core
                     Console.WriteLine(e);
                 }
             }
+
+            // The fixtures that assert "the application root was NOT wiped" need the simulated
+            // root to actually contain something. On a developer machine the Website folder has
+            // top-level files (web.config, the default page, ...) that the copy above picks up, but
+            // a freshly built tree has only sub-directories, which left those assertions passing
+            // only by accident — on whatever file a previously executed test happened to leave
+            // behind. Seed a file of our own so the guard is what is being measured.
+            File.WriteAllText(Path.Combine(rootPath, "RootFolderSentinel.txt"), "48");
         }
 
         private static void DeleteZippedFiles()

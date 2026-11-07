@@ -5,6 +5,7 @@ namespace DotNetNuke
 {
     using System;
     using System.Linq;
+    using System.Net.Http;
     using System.Security.Cryptography;
 
     using DotNetNuke.Abstractions;
@@ -47,9 +48,11 @@ namespace DotNetNuke
     using DotNetNuke.Security;
     using DotNetNuke.Security.Permissions;
     using DotNetNuke.Security.Roles;
+    using DotNetNuke.Services.Authentication.OAuth;
     using DotNetNuke.Services.Cryptography;
     using DotNetNuke.Services.FileSystem;
     using DotNetNuke.Services.FileSystem.Internal;
+    using DotNetNuke.Services.GeneratedImage;
     using DotNetNuke.Services.Installer;
     using DotNetNuke.Services.Installer.Packages;
     using DotNetNuke.Services.Journal;
@@ -60,15 +63,18 @@ namespace DotNetNuke
     using DotNetNuke.Services.Pages;
     using DotNetNuke.Services.Personalization;
     using DotNetNuke.Services.Registration;
+    using DotNetNuke.Services.Scheduling;
     using DotNetNuke.Services.Search.Controllers;
     using DotNetNuke.Services.Search.Internals;
     using DotNetNuke.Services.Social.Subscriptions;
     using DotNetNuke.Services.UserRequest;
+    using DotNetNuke.UI;
     using DotNetNuke.UI.Modules;
     using DotNetNuke.UI.Modules.Html5;
 
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.DependencyInjection.Extensions;
+    using Microsoft.Extensions.Hosting;
 
     using ICryptographyProvider = DotNetNuke.Abstractions.Security.ICryptographyProvider;
 
@@ -80,8 +86,43 @@ namespace DotNetNuke
         {
             services.AddTransient(typeof(Lazy<>), typeof(LazyWrapper<>));
 
-            var applicationMapPath = System.Web.Hosting.HostingEnvironment.MapPath("~");
+            // HostingEnvironment.MapPath("~") is gone with System.Web. The application root is now
+            // IWebHostEnvironment.ContentRootPath, reached through the platform's single seam. The
+            // host registers the environment with HttpContextSource before the service collection is
+            // configured (see DnnPlatformApplicationExtensions.AddDnnPlatform), so this resolves here.
+            var applicationMapPath = HttpContextSource.ApplicationPhysicalPath;
             services.AddSerilog(applicationMapPath);
+
+            // ---------------------------------------------------------------------------------
+            // Framework services the migrated platform code depends on (checklist item 239).
+            // These used to be implied by System.Web (HttpContext.Current, HttpRuntime.Cache,
+            // HttpWebRequest, the <globalization> element). Each of the platform seams that
+            // consume them throws or logs loudly when they are missing, by design.
+            // ---------------------------------------------------------------------------------
+            services.AddHttpContextAccessor();
+            services.AddMemoryCache();
+            services.AddDistributedMemoryCache();
+            services.AddAntiforgery();
+            services.AddLocalization(options => options.ResourcesPath = "Resources");
+
+            // Named HttpClients replacing HttpWebRequest/WebRequest.Create.
+            services.AddHttpClient(OAuthClientBase.HttpClientName);
+            services.AddHttpClient(
+                    Globals.ExternalRequestHttpClientName,
+                    (serviceProvider, client) => Globals.ConfigureExternalRequestClient(client, serviceProvider.GetRequiredService<IHostSettings>()))
+                .ConfigurePrimaryHttpMessageHandler(serviceProvider => Globals.CreateExternalRequestHandler(serviceProvider.GetRequiredService<IHostSettings>()));
+
+            // Background work that used to run on ThreadPool/Timer threads owned by System.Web.
+            services.AddHostedService<DnnApplicationInitializationService>();
+            services.AddHostedService<SchedulerHostedService>();
+            services.AddHostedService<DiskImageStorePurgeService>();
+
+            // The scheduler drains in-flight tasks for up to 120 seconds on shutdown; the default
+            // host shutdown timeout of 30 seconds would kill it mid-task.
+            services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(150));
+
+            // Maps stored SkinSrc/ContainerSrc/ControlSrc values onto the migrated components.
+            services.TryAddSingleton<IDnnControlTypeResolver, DnnControlTypeResolver>();
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IModuleControlFactory, WebFormsModuleControlFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IModuleControlFactory, Html5ModuleControlFactory>());

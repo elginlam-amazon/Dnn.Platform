@@ -7,8 +7,6 @@ namespace Dnn.PersonaBar.UI.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -20,7 +18,8 @@ namespace Dnn.PersonaBar.UI.Services
     using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Exceptions;
-
+    using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -49,7 +48,7 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="menu">The menu identifier.</param>
         /// <returns>A response with a collection of extension info.</returns>
         [HttpGet]
-        public HttpResponseMessage GetExtensions(string menu)
+        public IActionResult GetExtensions(string menu)
         {
             try
             {
@@ -67,15 +66,15 @@ namespace Dnn.PersonaBar.UI.Services
                             settings = this.GetExtensionSettings(t),
                         });
 
-                    return this.Request.CreateResponse(HttpStatusCode.OK, extensions);
+                    return this.Ok(extensions);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.NotFound);
+                return DnnApiResults.Response(HttpStatusCode.NotFound);
             }
             catch (Exception ex)
             {
                 Exceptions.LogException(ex);
-                return this.Request.CreateErrorResponse(HttpStatusCode.NotFound, ex.Message);
+                return DnnApiResults.Error(HttpStatusCode.NotFound, ex.Message);
             }
         }
 

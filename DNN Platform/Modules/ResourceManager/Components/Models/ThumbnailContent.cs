@@ -3,13 +3,11 @@
 // See the LICENSE file in the project root for more information
 namespace Dnn.Modules.ResourceManager.Components.Models
 {
-    using System.Net.Http;
-
     /// <summary>Represents the content of a thumbnail.</summary>
     public class ThumbnailContent
     {
         /// <summary>Gets or sets the thumbnail content as a byte array.</summary>
-        public ByteArrayContent Content { get; set; }
+        public byte[] Content { get; set; }
 
         /// <summary>Gets or sets the content type of the thumbnail.</summary>
         public string ContentType { get; set; }

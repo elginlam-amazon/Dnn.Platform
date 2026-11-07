@@ -6,11 +6,11 @@ namespace DotNetNuke.UI.ControlPanels
     using System;
     using System.Diagnostics.CodeAnalysis;
     using System.Linq;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Abstractions.Security.Permissions;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Internal;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
@@ -27,7 +27,11 @@ namespace DotNetNuke.UI.ControlPanels
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>The ControlPanel class defines a custom base class inherited by all ControlPanel controls.</summary>
-    public class ControlPanelBase : UserControl
+    /// <remarks>
+    /// Was a <c>System.Web.UI.UserControl</c>; it is now a DNN skinning component
+    /// (<see cref="DotNetNuke.UI.DnnComponentBase"/>).
+    /// </remarks>
+    public class ControlPanelBase : DotNetNuke.UI.DnnComponentBase
     {
         private readonly IEventLogger eventLogger;
         private readonly IPermissionDefinitionService permissionDefinitionService;
@@ -69,7 +73,7 @@ namespace DotNetNuke.UI.ControlPanels
                 string fileRoot;
                 if (string.IsNullOrEmpty(this.localResourceFile))
                 {
-                    fileRoot = $"{this.TemplateSourceDirectory}/{Localization.LocalResourceDirectory}/{this.ID}";
+                    fileRoot = $"{this.TemplateSourceDirectory}/{Localization.LocalResourceDirectory}/{this.ID ?? this.GetType().Name}";
                 }
                 else
                 {
@@ -151,7 +155,7 @@ namespace DotNetNuke.UI.ControlPanels
             ModuleInfo objModule;
 
             int userId = -1;
-            if (this.Request.IsAuthenticated)
+            if (this.Request.IsAuthenticated())
             {
                 UserInfo objUserInfo = UserController.Instance.GetCurrentUserInfo();
                 userId = objUserInfo.UserID;
@@ -363,15 +367,23 @@ namespace DotNetNuke.UI.ControlPanels
         /// <inheritdoc />
         protected override void OnInit(EventArgs e)
         {
-            if (this.Page.Items.Contains(typeof(ControlPanelBase)) && this.Page.Items[typeof(ControlPanelBase)] is ControlPanelBase)
+            // Was Page.Items, the per-request item bag of the WebForms page; on ASP.NET Core the
+            // per-request bag is HttpContext.Items. The guard keeps a single control panel per
+            // request: a second instance renders nothing instead of being removed from the (now
+            // non-existent) server control tree.
+            var items = HttpContextSource.Current?.Items;
+            if (items != null && items.TryGetValue(typeof(ControlPanelBase), out var existing) && existing is ControlPanelBase)
             {
-                this.Parent.Controls.Remove(this);
+                this.Visible = false;
+                return;
             }
-            else
+
+            if (items != null)
             {
-                this.Page.Items[typeof(ControlPanelBase)] = this;
-                base.OnInit(e);
+                items[typeof(ControlPanelBase)] = this;
             }
+
+            base.OnInit(e);
         }
 
         /// <summary>Adds a Module Permission.</summary>

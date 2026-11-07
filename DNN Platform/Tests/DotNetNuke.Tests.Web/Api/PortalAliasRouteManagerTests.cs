@@ -20,6 +20,8 @@ namespace DotNetNuke.Tests.Web.Api
 
     using NUnit.Framework;
 
+#pragma warning disable CS0618 // IPortalAliasController is deprecated, but the fixture must keep mocking it to match the legacy service lookups.
+
     [TestFixture]
     public class PortalAliasRouteManagerTests
     {
@@ -37,6 +39,16 @@ namespace DotNetNuke.Tests.Web.Api
                 {
                     services.AddSingleton(this.mockPortalAliasService.Object);
                 });
+
+            // Requires.NotNullOrEmpty/NotNegative build their message through
+            // Localization.GetExceptionMessage, which reads PortalSettings.Current and therefore
+            // PortalController.Instance. ServiceLocator caches its factory as a method group bound
+            // to the Globals.DependencyProvider that was current when it was first created, and
+            // ClearInstance() does not reset that factory — so once this fixture's per-test
+            // provider is disposed, the guard-clause tests would see ObjectDisposedException
+            // instead of the ArgumentException they assert. A testable instance short-circuits the
+            // locator before it reaches that stale factory. Individual tests override it.
+            PortalController.SetTestableInstance(Mock.Of<IPortalController>());
         }
 
         [TearDown]
@@ -60,7 +72,7 @@ namespace DotNetNuke.Tests.Web.Api
             // Arrange
 
             // Act
-            string result = new PortalAliasRouteManager().GetRouteUrl(moduleFolderName, url, count);
+            string result = new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetRouteUrl(moduleFolderName, url, count);
 
             // Assert
             Assert.That(result, Is.EqualTo(expected));
@@ -76,7 +88,7 @@ namespace DotNetNuke.Tests.Web.Api
             // Act
             try
             {
-                new PortalAliasRouteManager().GetRouteUrl(moduleFolderName, "url", count);
+                new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetRouteUrl(moduleFolderName, "url", count);
             }
             catch (Exception e)
             {
@@ -114,7 +126,7 @@ namespace DotNetNuke.Tests.Web.Api
             TestableGlobals.SetTestableInstance(mockGlobals.Object);
 
             // Act
-            List<int> prefixes = new PortalAliasRouteManager().GetRoutePrefixCounts().ToList();
+            List<int> prefixes = new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetRoutePrefixCounts().ToList();
 
             // Assert
             Assert.That(prefixes, Is.EquivalentTo(new[] { 0 }));
@@ -143,7 +155,7 @@ namespace DotNetNuke.Tests.Web.Api
             TestableGlobals.SetTestableInstance(mockGlobals.Object);
 
             // Act
-            List<int> prefixes = new PortalAliasRouteManager().GetRoutePrefixCounts().ToList();
+            List<int> prefixes = new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetRoutePrefixCounts().ToList();
 
             // Assert
             Assert.That(prefixes, Is.EquivalentTo(new[] { 0 }));
@@ -166,7 +178,7 @@ namespace DotNetNuke.Tests.Web.Api
             TestableGlobals.SetTestableInstance(mockGlobals.Object);
 
             // Act
-            var parm = new PortalAliasRouteManager();
+            var parm = new PortalAliasRouteManager(this.mockPortalAliasService.Object);
             parm.GetRoutePrefixCounts();
             parm.GetRoutePrefixCounts();
 
@@ -191,7 +203,7 @@ namespace DotNetNuke.Tests.Web.Api
             TestableGlobals.SetTestableInstance(mockGlobals.Object);
 
             // Act
-            var parm = new PortalAliasRouteManager();
+            var parm = new PortalAliasRouteManager(this.mockPortalAliasService.Object);
             parm.GetRoutePrefixCounts();
             parm.ClearCachedData();
             parm.GetRoutePrefixCounts();
@@ -226,7 +238,7 @@ namespace DotNetNuke.Tests.Web.Api
             TestableGlobals.SetTestableInstance(mockGlobals.Object);
 
             // Act
-            List<int> prefixes = new PortalAliasRouteManager().GetRoutePrefixCounts().ToList();
+            List<int> prefixes = new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetRoutePrefixCounts().ToList();
 
             // Assert
             Assert.That(prefixes, Is.EqualTo(new[] { 1, 0 }).AsCollection);
@@ -241,7 +253,7 @@ namespace DotNetNuke.Tests.Web.Api
             // Arrange
 
             // Act
-            var result = new PortalAliasRouteManager().GetRouteName(moduleFolderName, routeName, count);
+            var result = new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetRouteName(moduleFolderName, routeName, count);
 
             // Assert
             Assert.That(result, Is.EqualTo(expected));
@@ -256,7 +268,7 @@ namespace DotNetNuke.Tests.Web.Api
             // Arrange
 
             // Act
-            var result = new PortalAliasRouteManager().GetRouteName(moduleFolderName, routeName, new PortalAliasInfo { HTTPAlias = httpAlias });
+            var result = new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetRouteName(moduleFolderName, routeName, new PortalAliasInfo { HTTPAlias = httpAlias });
 
             // Assert
             Assert.That(result, Is.EqualTo(expected));
@@ -270,7 +282,7 @@ namespace DotNetNuke.Tests.Web.Api
             // Arrange
 
             // Act
-            Assert.Throws<ArgumentException>(() => new PortalAliasRouteManager().GetRouteName(moduleFolderName, string.Empty, 0));
+            Assert.Throws<ArgumentException>(() => new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetRouteName(moduleFolderName, string.Empty, 0));
 
             // Assert
         }
@@ -281,7 +293,7 @@ namespace DotNetNuke.Tests.Web.Api
             // Arrange
 
             // Act
-            Assert.Throws<ArgumentOutOfRangeException>(() => new PortalAliasRouteManager().GetRouteName("foo", string.Empty, -1));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetRouteName("foo", string.Empty, -1));
 
             // Assert
         }
@@ -292,7 +304,7 @@ namespace DotNetNuke.Tests.Web.Api
             // Arrange
 
             // Act
-            new PortalAliasRouteManager().GetAllRouteValues(new PortalAliasInfo { HTTPAlias = string.Empty }, null);
+            new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetAllRouteValues(new PortalAliasInfo { HTTPAlias = string.Empty }, null);
 
             // Assert
             Assert.Pass();
@@ -304,7 +316,7 @@ namespace DotNetNuke.Tests.Web.Api
             // Arrange
 
             // Act
-            var result = new PortalAliasRouteManager().GetAllRouteValues(
+            var result = new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetAllRouteValues(
                 new PortalAliasInfo { HTTPAlias = string.Empty },
                 new { value1 = 1, value2 = 2 });
 
@@ -320,7 +332,7 @@ namespace DotNetNuke.Tests.Web.Api
 
             // Act
             var result =
-                new PortalAliasRouteManager().GetAllRouteValues(
+                new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetAllRouteValues(
                     new PortalAliasInfo { HTTPAlias = "ce.lvh.me/child" },
                     null);
 
@@ -336,7 +348,7 @@ namespace DotNetNuke.Tests.Web.Api
 
             // Act
             var result =
-                new PortalAliasRouteManager().GetAllRouteValues(
+                new PortalAliasRouteManager(this.mockPortalAliasService.Object).GetAllRouteValues(
                     new PortalAliasInfo { HTTPAlias = "ce.lvh.me/child0/child1/child2/child3" },
                     new { value1 = 1, value2 = 2 });
 
@@ -345,4 +357,6 @@ namespace DotNetNuke.Tests.Web.Api
             Assert.That(result, Is.EquivalentTo(expected));
         }
     }
+
+#pragma warning restore CS0618
 }

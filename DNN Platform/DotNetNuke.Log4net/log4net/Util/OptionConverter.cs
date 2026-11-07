@@ -271,11 +271,7 @@ namespace log4net.Util
             }
             else
             {
-#if NETSTANDARD1_3
-                if (target.GetTypeInfo().IsEnum)
-#else
                 if (target.IsEnum)
-#endif
                 {
                     // Target type is an enum.
 
@@ -292,11 +288,7 @@ namespace log4net.Util
                     if (meth != null)
                     {
                         // Call the Parse method
-#if NETSTANDARD1_3
-                        return meth.Invoke(target, new[] { txt });
-#else
                         return meth.Invoke(null, BindingFlags.InvokeMethod, null, new object[] {txt}, CultureInfo.InvariantCulture);
-#endif
                     }
                     else
                     {
@@ -462,11 +454,7 @@ namespace log4net.Util
             {
                 try 
                 {
-#if NETSTANDARD1_3
-                    Type classObj = SystemInfo.GetTypeFromString(superClass.GetTypeInfo().Assembly, className, true, true);
-#else
                     Type classObj = SystemInfo.GetTypeFromString(className, true, true);
-#endif
                     if (!superClass.IsAssignableFrom(classObj)) 
                     {
                         LogLog.Error(declaringType, "OptionConverter: A [" + className + "] object is not assignable to a [" + superClass.FullName + "] variable.");
@@ -582,45 +570,7 @@ namespace log4net.Util
         /// <returns>An object of type <paramref name="enumType" /> whose value is represented by <paramref name="value" />.</returns>
         private static object ParseEnum(Type enumType, string value, bool ignoreCase) 
         {
-#if !NETCF
             return Enum.Parse(enumType, value, ignoreCase);
-#else
-            FieldInfo[] fields = enumType.GetFields(BindingFlags.Public | BindingFlags.Static);
-
-            string[] names = value.Split(new char[] {','});
-            for (int i = 0; i < names.Length; ++i) 
-            {
-                names[i] = names [i].Trim();
-            }
-
-            long retVal = 0;
-
-            try 
-            {
-                // Attempt to convert to numeric type
-                return Enum.ToObject(enumType, Convert.ChangeType(value, typeof(long), CultureInfo.InvariantCulture));
-            } 
-            catch {}
-
-            foreach (string name in names) 
-            {
-                bool found = false;
-                foreach(FieldInfo field in fields) 
-                {
-                    if (String.Compare(name, field.Name, ignoreCase) == 0) 
-                    {
-                        retVal |= ((IConvertible) field.GetValue(null)).ToInt64(CultureInfo.InvariantCulture);
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) 
-                {
-                    throw new ArgumentException("Failed to lookup member [" + name + "] from Enum type [" + enumType.Name + "]");
-                }
-            }
-            return Enum.ToObject(enumType, retVal);
-#endif
         }
 
         /// <summary>The fully qualified type of the OptionConverter class.</summary>

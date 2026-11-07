@@ -1,187 +1,117 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
   <PropertyGroup>
-    <Deterministic>true</Deterministic>
-  </PropertyGroup>
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>
-    </ProductVersion>
-    <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{000181C6-C95F-4302-9130-A66B693FFFD2}</ProjectGuid>
-    <ProjectTypeGuids>{349c5851-65df-11da-9384-00065b846f21};{fae04ec0-301f-11d3-bf4b-00c04f79efbc}</ProjectTypeGuids>
+    <!-- Module.build's CopyBin copies from bin\ directly, so no TFM subfolder. -->
+    <OutputPath>bin</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TargetFramework>net10.0</TargetFramework>
     <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>DotNetNuke.Modules.HtmlEditorManager</RootNamespace>
     <AssemblyName>DotNetNuke.Modules.HtmlEditorManager</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <UseIISExpress>false</UseIISExpress>
-    <TargetFrameworkProfile />
-    <FileUpgradeFlags>
-    </FileUpgradeFlags>
-    <OldToolsVersion>4.0</OldToolsVersion>
-    <UpgradeBackupLocation />
-    <IISExpressSSLPort />
-    <IISExpressAnonymousAuthentication />
-    <IISExpressWindowsAuthentication />
-    <IISExpressUseClassicPipelineMode />
-    <RestorePackages>true</RestorePackages>
-    <UseGlobalApplicationHostFile />
-    <Use64BitIISExpress />
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- SA1600 was already suppressed on net48 and is kept. Any further id listed here is
+         reported by the net10-era analyzers in code this migration did not author, matching the
+         convention set by the already migrated DotNetNuke.Modules.Journal and
+         DotNetNuke.Modules.MemberDirectory. Compiler diagnostics (CS*) remain errors.
+         ASP0006: EditorControlHost builds its render tree with a running sequence number, which
+           is how the platform's own component tree renders a hosted component
+           (DotNetNuke.UI.DnnComponentBase.RenderControl, ModuleHost's holder); the id is listed
+           for this reason by DotNetNuke.Library and DotNetNuke.Modules.Journal too.
+         BL0005: the presenter assigns PortalModuleBase.ModuleConfiguration/LocalResourceFile on
+           the provider settings control it loads, which is what makes those values survive the
+           renderer instantiating the control by type; the already migrated Groups, CoreMessaging
+           and RazorHost modules list it for the same reason. -->
+    <WarningsNotAsErrors>SA1600,ASP0006,BL0005</WarningsNotAsErrors>
+    <!-- Replaces the two per-configuration
+         <DocumentationFile>bin\DotNetNuke.Modules.HtmlEditorManager.xml</DocumentationFile>
+         entries; emits bin/DotNetNuke.Modules.HtmlEditorManager.xml, which CopyBin copies. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- AssemblyInfo.cs is kept (it carries AssemblyTitle/AssemblyDescription/ComVisible/Guid,
+         none of which the linked SolutionInfo.cs declares), so the SDK must not generate them. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- This is a Blazor component library, not an MVC view assembly. -->
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+
+  <!-- The two original configurations are preserved. -->
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <GenerateSerializationAssemblies>Auto</GenerateSerializationAssemblies>
-    <DocumentationFile>bin\DotNetNuke.Modules.HtmlEditorManager.xml</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\DotNetNuke.Modules.HtmlEditorManager.xml</DocumentationFile>
-    <GenerateSerializationAssemblies>Auto</GenerateSerializationAssemblies>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
   </PropertyGroup>
+
+  <!-- DNN packaging properties consumed by Module.build / Package.targets. -->
+  <PropertyGroup>
+    <Extension>zip</Extension>
+    <DNNFileName>dnn_HtmlEditorManager</DNNFileName>
+    <PackageName>DNNCE_HtmlEditorManager</PackageName>
+    <BuildScriptsPath>$(MSBuildProjectDirectory)\..\..\..\Build\BuildScripts</BuildScriptsPath>
+  </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="System" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Web.Abstractions" />
-    <Reference Include="System.Web.ApplicationServices" />
-    <Reference Include="System.Web.DynamicData" />
-    <Reference Include="System.Web.Entity" />
-    <Reference Include="System.Drawing" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Web.Extensions" />
-    <Reference Include="System.Xml" />
-    <Reference Include="System.Configuration" />
-    <Reference Include="System.Web.Services" />
-    <Reference Include="System.EnterpriseServices" />
-    <Reference Include="System.Web.Mobile" />
-    <Reference Include="System.Xml.Linq" />
+    <!-- The components need Microsoft.AspNetCore.Components and Microsoft.AspNetCore.Http types;
+         this replaces the 16 GAC System.* references (System.Web, System.Web.Services,
+         System.Web.Extensions, System.Drawing, System.Configuration, ...), none of which exist
+         on net10.0. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
   <ItemGroup>
-    <Folder Include="Properties\" />
+    <ProjectReference Include="..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Web\DotNetNuke.Web.csproj" />
+    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj" />
   </ItemGroup>
+
   <ItemGroup>
-    <Compile Include="..\..\..\SolutionInfo.cs">
-      <Link>SolutionInfo.cs</Link>
-    </Compile>
-    <Compile Include="AssemblyInfo.cs" />
-    <Compile Include="Components\UpgradeController.cs" />
-    <Compile Include="ViewModels\ProviderConfigurationViewModel.cs" />
-    <Compile Include="Presenters\ProviderConfigurationPresenter.cs" />
-    <Compile Include="Controls\InvalidConfiguration.ascx.cs">
-      <DependentUpon>InvalidConfiguration.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="Controls\InvalidConfiguration.ascx.designer.cs">
-      <DependentUpon>InvalidConfiguration.ascx</DependentUpon>
-    </Compile>
-    <Compile Include="Views\EditorEventArgs.cs" />
-    <Compile Include="Views\IProviderConfigurationView.cs" />
-    <Compile Include="Views\ProviderConfiguration.ascx.cs">
-      <DependentUpon>ProviderConfiguration.ascx</DependentUpon>
-      <ExcludeFromStyleCop>True</ExcludeFromStyleCop>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="Views\ProviderConfiguration.ascx.designer.cs">
-      <DependentUpon>ProviderConfiguration.ascx</DependentUpon>
-    </Compile>
+    <AdditionalFiles Include="..\..\..\stylecop.json" Link="stylecop.json" />
+    <Compile Include="..\..\..\SolutionInfo.cs" Link="SolutionInfo.cs" />
   </ItemGroup>
+
   <ItemGroup>
-    <AdditionalFiles Include="..\..\..\stylecop.json">
-      <Link>stylecop.json</Link>
-    </AdditionalFiles>
-    <None Include="dnn_HtmlEditorManager.dnn">
-      <SubType>Designer</SubType>
-    </None>
-    <Content Include="Images\HtmlEditorManager_Standard_32x32.png" />
-    <Content Include="Images\HtmlEditorManager_Standard_16x16.png" />
-    <Content Include="Module.build" />
+    <!-- App_LocalResources\ProviderConfiguration.ascx.resx keeps its name and location on
+         purpose: UpgradeController.UpgradeModule hardcodes
+         "~/DesktopModules/Admin/HtmlEditorManager/App_LocalResources/ProviderConfiguration.ascx.resx"
+         for the HTMLEditorPageName/HTMLEditorPageDescription lookups, and the view's superuser
+         gate assigns that same literal to LocalResourceFile before reading
+         CannotManageHTMLEditorProviders. Renaming it would break all three keys at runtime with a
+         green build. It stays a packaged Content file, exactly as on net48; the SDK's default
+         EmbeddedResource glob is removed for the folder so packaging is unchanged. -->
+    <EmbeddedResource Remove="App_LocalResources\**" />
+    <Content Include="App_LocalResources\ProviderConfiguration.ascx.resx" />
   </ItemGroup>
+
+  <!-- Controls\InvalidConfiguration.ascx.resx is deleted along with
+       InvalidConfiguration.ascx.designer.cs, of which it was the resource twin. Its only three
+       entries were Visual Studio WebForms *designer* state for a design surface that no longer
+       exists ($this.DefaultModifiers as System.CodeDom.MemberAttributes, $this.TrayLargeIcon and
+       $this.TrayAutoArrange as System.Boolean - the remaining Name1/Color1/Bitmap1/Icon1 lines
+       were inside the ResX schema's XML comment, not resources). It declared no localized string
+       and nothing in the solution read it or its keys. Embedding it on net10.0 would additionally
+       require the System.Resources.Extensions preserialization path (MSB3822) to carry designer
+       metadata that can never be read again. -->
+
   <ItemGroup>
+    <!-- DNN extension package content (see BuildScripts\Module.build's GetFiles). -->
+    <None Include="dnn_HtmlEditorManager.dnn" />
     <Content Include="license.txt" />
     <Content Include="module.css" />
     <Content Include="releaseNotes.txt" />
-    <Content Include="Controls\InvalidConfiguration.ascx">
-      <SubType>ASPXCodeBehind</SubType>
-    </Content>
-    <Content Include="Views\ProviderConfiguration.ascx" />
+    <Content Include="Module.build" />
+    <Content Include="Images\HtmlEditorManager_Standard_32x32.png" />
+    <Content Include="Images\HtmlEditorManager_Standard_16x16.png" />
   </ItemGroup>
-  <ItemGroup>
-    <Content Include="App_LocalResources\ProviderConfiguration.ascx.resx" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer">
-      <Project>{5FE5D021-9C8D-47A6-BD34-F328BA3E709C}</Project>
-      <Name>DotNetNuke.Internal.SourceGenerators</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj">
-      <Project>{6928A9B1-F88A-4581-A132-D3EB38669BB0}</Project>
-      <Name>DotNetNuke.Abstractions</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj">
-      <Project>{03e3afa5-ddc9-48fb-a839-ad4282ce237e}</Project>
-      <Name>DotNetNuke.Web.Client</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Web\DotNetNuke.Web.csproj">
-      <Project>{ee1329fe-fd88-4e1a-968c-345e394ef080}</Project>
-      <Name>DotNetNuke.Web</Name>
-      <Private>False</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj">
-      <Project>{6b29aded-7b56-4484-bea5-c0e09079535b}</Project>
-      <Name>DotNetNuke.Library</Name>
-      <Private>False</Private>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="Controls\InvalidConfiguration.ascx.resx">
-      <DependentUpon>InvalidConfiguration.ascx.cs</DependentUpon>
-    </EmbeddedResource>
-  </ItemGroup>
-  <PropertyGroup>
-    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
-    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
-  </PropertyGroup>
-  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
-  <Import Project="$(VSToolsPath)\WebApplications\Microsoft.WebApplication.targets" Condition="'$(VSToolsPath)' != ''" />
-  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v10.0\WebApplications\Microsoft.WebApplication.targets" Condition="false" />
-  <ProjectExtensions>
-    <VisualStudio>
-      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
-        <WebProjectProperties>
-          <UseIIS>False</UseIIS>
-          <AutoAssignPort>True</AutoAssignPort>
-          <DevelopmentServerPort>28431</DevelopmentServerPort>
-          <DevelopmentServerVPath>/</DevelopmentServerVPath>
-          <IISUrl>
-          </IISUrl>
-          <NTLMAuthentication>False</NTLMAuthentication>
-          <UseCustomServer>True</UseCustomServer>
-          <CustomServerUrl>http://localhost/DNN_Platform</CustomServerUrl>
-          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
-        </WebProjectProperties>
-      </FlavorProperties>
-    </VisualStudio>
-  </ProjectExtensions>
+
   <Import Project="Module.build" />
 </Project>

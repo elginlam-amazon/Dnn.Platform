@@ -1,0 +1,159 @@
+@* ---------------------------------------------------------------------------------------------
+    TreeNodeFragment — one row of a DnnTree plus, when the node is expanded, its children.
+
+    Render mode: none of its own; it is only ever rendered inside DnnTree, from which it inherits
+    the InteractiveServer mode (a child component may not redeclare a render mode).
+
+    Ported from TreeNodeWriter.cs: RenderOpenTag, RenderSpacer, RenderExpandNodeIcon,
+    RenderNodeCheckbox, RenderNodeIcon, RenderNodeText and RenderChildren, with the Client API
+    post-back hyperlinks replaced by @onclick / @onchange handlers on the tree component.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+
+<div name="@this.Node.ID" id="@this.ElementId">
+    @if (this.Node.Level > 0)
+    {
+        @* RenderSpacer(level * IndentWidth) *@
+        <img src="@(this.Tree.SystemImagesPath + "spacer.gif")"
+             alt=""
+             style="width:@(this.IndentPixels)px;height:1px" />
+    }
+
+    @* RenderExpandNodeIcon *@
+    @if (this.Node.HasNodes || this.Node.DNNNodes.Count > 0)
+    {
+        <a href="javascript:void(0);" @onclick="this.ToggleAsync" @onclick:preventDefault="true">
+            @if (!string.IsNullOrEmpty(this.ExpandCollapseImage))
+            {
+                <img src="@this.ExpandCollapseImage" alt="@this.ExpandCollapseText" />
+            }
+            else
+            {
+                @this.ExpandCollapseText
+            }
+        </a>
+    }
+    else
+    {
+        <img src="@(this.Tree.SystemImagesPath + "spacer.gif")"
+             alt=""
+             style="width:@(this.Tree.ExpandCollapseImageWidth)px;height:1px" />
+    }
+    @((MarkupString)"&nbsp;")
+
+    @* RenderNodeCheckbox *@
+    @if (this.Tree.CheckBoxes)
+    {
+        <input type="checkbox"
+               id="@(this.Node.ID + ":checkbox")"
+               name="@(this.Node.ID + ":checkbox")"
+               checked="@this.Node.Selected"
+               @onchange="this.CheckChangedAsync" />
+        @((MarkupString)"&nbsp;")
+    }
+
+    @* RenderNodeIcon *@
+    <span class="@this.Tree.GetIconCss(this.Node)">
+        @if (!string.IsNullOrEmpty(this.IconUrl))
+        {
+            <img src="@this.IconUrl" alt="" />
+            @((MarkupString)"&nbsp;")
+        }
+    </span>
+
+    @* RenderNodeText *@
+    @if (this.Node.Enabled && this.Node.ClickAction != eClickAction.None)
+    {
+        <a href="@this.NodeHref"
+           class="@this.Tree.GetNodeCss(this.Node)"
+           title="@this.Node.ToolTip"
+           target="@this.LinkTarget"
+           @onclick="this.ClickAsync"
+           @onclick:preventDefault="true">@this.Node.Text</a>
+    }
+    else
+    {
+        <a class="@this.Tree.GetNodeCss(this.Node)" title="@this.Node.ToolTip">@this.Node.Text</a>
+    }
+</div>
+
+@if ((this.Node.HasNodes || this.Node.DNNNodes.Count > 0) && DnnTree.IsExpanded(this.Node))
+{
+    <div class="Child" style="width:100%">
+        @foreach (TreeNode child in this.Node.TreeNodes)
+        {
+            <TreeNodeFragment Tree="this.Tree" Node="child" />
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Gets or sets the tree this node belongs to.</summary>
+    [Parameter]
+    [EditorRequired]
+    public DnnTree Tree { get; set; }
+
+    /// <summary>Gets or sets the node rendered by this fragment.</summary>
+    [Parameter]
+    [EditorRequired]
+    public TreeNode Node { get; set; }
+
+    /// <summary>Gets the identifier rendered onto the row, as <c>RenderOpenTag</c> composed it.</summary>
+    private string ElementId => this.Node.ID?.Replace(":", "_", StringComparison.Ordinal);
+
+    /// <summary>Gets the indentation, in pixels, of the row.</summary>
+    /// <remarks>The original defaulted a zero <c>IndentWidth</c> to 9 before multiplying.</remarks>
+    private int IndentPixels =>
+        this.Node.Level * (this.Tree.IndentWidth == 0 ? 9 : this.Tree.IndentWidth);
+
+    /// <summary>Gets the text of the expand/collapse affordance.</summary>
+    private string ExpandCollapseText => DnnTree.IsExpanded(this.Node) ? "-" : "+";
+
+    /// <summary>Gets the image of the expand/collapse affordance.</summary>
+    private string ExpandCollapseImage => DnnTree.IsExpanded(this.Node)
+        ? this.Tree.ExpandedNodeImage
+        : this.Tree.CollapsedNodeImage;
+
+    /// <summary>Gets the icon of the node.</summary>
+    private string IconUrl => this.Tree.GetNodeImageUrl(this.Node);
+
+    /// <summary>Gets the frame the node navigates in.</summary>
+    private string LinkTarget =>
+        this.Node.ClickAction == eClickAction.Navigate && !string.IsNullOrEmpty(this.Tree.Target)
+            ? this.Tree.Target
+            : null;
+
+    /// <summary>Gets the target of the node's anchor.</summary>
+    /// <remarks>
+    /// The down-level writer emitted a <c>javascript:</c> URL that either posted back or assigned
+    /// <c>window.location.href</c>; the navigation now happens in <see cref="DnnTree.NodeClickAsync"/>,
+    /// so the anchor only carries the destination for the benefit of crawlers and the status bar.
+    /// </remarks>
+    private string NodeHref => this.Node.ClickAction == eClickAction.Navigate
+            && !string.IsNullOrEmpty(this.Node.NavigateURL)
+        ? this.Node.NavigateURL
+        : "javascript:void(0);";
+
+    /// <summary>Toggles the expansion of the node.</summary>
+    /// <returns>A task that completes once the tree has handled the toggle.</returns>
+    private Task ToggleAsync()
+    {
+        return this.Tree.ToggleNodeAsync(this.Node);
+    }
+
+    /// <summary>Handles the node being clicked.</summary>
+    /// <returns>A task that completes once the tree has handled the click.</returns>
+    private Task ClickAsync()
+    {
+        return this.Tree.NodeClickAsync(this.Node);
+    }
+
+    /// <summary>Handles the check box of the node being toggled.</summary>
+    /// <param name="args">The arguments of the change.</param>
+    /// <returns>A task that completes once the tree has handled the change.</returns>
+    private Task CheckChangedAsync(ChangeEventArgs args)
+    {
+        var isChecked = args.Value is bool value ? value : !this.Node.Selected;
+        return this.Tree.NodeCheckChangedAsync(this.Node, isChecked);
+    }
+}

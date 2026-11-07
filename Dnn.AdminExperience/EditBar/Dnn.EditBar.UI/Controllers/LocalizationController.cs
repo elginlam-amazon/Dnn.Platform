@@ -9,7 +9,6 @@ namespace Dnn.EditBar.UI.Controllers
     using System.IO;
     using System.Linq;
     using System.Threading;
-    using System.Web.Caching;
     using System.Xml;
     using System.Xml.XPath;
 
@@ -90,7 +89,7 @@ namespace Dnn.EditBar.UI.Controllers
         private static IEnumerable<KeyValuePair<string, string>> GetLocalizationValues(string fullPath, string culture)
         {
             var document = new XmlDocument();
-            using (var stream = new FileStream(System.Web.HttpContext.Current.Server.MapPath(fullPath), FileMode.Open, FileAccess.Read))
+            using (var stream = new FileStream(HttpContextSource.MapPath(fullPath), FileMode.Open, FileAccess.Read))
             using (var xmlReader = XmlReader.Create(stream, new XmlReaderSettings { XmlResolver = null, }))
             {
                 document.Load(xmlReader);

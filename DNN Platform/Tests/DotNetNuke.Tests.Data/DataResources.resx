@@ -118,10 +118,10 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="AdminConnectionString" xml:space="preserve">
-    <value>Data Source={0};Integrated Security=True</value>
+    <value>Data Source={0};Integrated Security=True;Encrypt=False;TrustServerCertificate=True</value>
   </data>
   <data name="ConnectionString" xml:space="preserve">
-    <value>Data Source={0};Integrated Security=True;Initial Catalog={1}</value>
+    <value>Data Source={0};Integrated Security=True;Initial Catalog={1};Encrypt=False;TrustServerCertificate=True</value>
   </data>
   <data name="GetFieldValue" xml:space="preserve">
     <value>SELECT {0} FROM {1} WHERE {2} = {3}</value>

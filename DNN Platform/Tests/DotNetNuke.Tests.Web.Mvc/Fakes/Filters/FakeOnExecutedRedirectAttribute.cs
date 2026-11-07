@@ -4,13 +4,15 @@
 
 namespace DotNetNuke.Tests.Web.Mvc.Fakes.Filters
 {
-    using System.Web.Mvc;
+    using Microsoft.AspNetCore.Mvc.Filters;
 
+    /// <summary>A fake action filter which replaces the executed action's result with <see cref="FakeRedirectAttribute.Result"/>.</summary>
     public class FakeOnExecutedRedirectAttribute : FakeRedirectAttribute
     {
-        public override void OnActionExecuted(ActionExecutedContext filterContext)
+        /// <inheritdoc />
+        public override void OnActionExecuted(ActionExecutedContext context)
         {
-            filterContext.Result = Result;
+            context.Result = Result;
         }
     }
 }

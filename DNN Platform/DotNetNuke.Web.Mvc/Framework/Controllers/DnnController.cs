@@ -4,13 +4,8 @@
 
 namespace DotNetNuke.Web.Mvc.Framework.Controllers
 {
-    using System;
+    using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
-    using System.Text;
-    using System.Threading.Tasks;
-    using System.Web.Mvc;
-    using System.Web.Routing;
-    using System.Web.UI;
 
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Modules.Actions;
@@ -23,46 +18,51 @@ namespace DotNetNuke.Web.Mvc.Framework.Controllers
     using DotNetNuke.Web.Mvc.Framework.Modules;
     using DotNetNuke.Web.Mvc.Helpers;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Filters;
+    using Microsoft.AspNetCore.Mvc.ViewEngines;
+    using Microsoft.AspNetCore.Routing;
+
+    /// <summary>The base class of DNN MVC module controllers.</summary>
+    /// <remarks>Was a <c>System.Web.Mvc.Controller</c>, now a <see cref="Controller"/> of ASP.NET Core MVC.</remarks>
     public abstract class DnnController : Controller, IDnnController
     {
         /// <summary>Initializes a new instance of the <see cref="DnnController"/> class.</summary>
         protected DnnController()
         {
-            this.ActionInvoker = new ResultCapturingActionInvoker();
         }
 
+        /// <summary>Gets the module of this request.</summary>
         public ModuleInfo ActiveModule
         {
             get { return (this.ModuleContext == null) ? null : this.ModuleContext.Configuration; }
         }
 
+        /// <summary>Gets the page (tab) of this request.</summary>
         public TabInfo ActivePage
         {
             get { return (this.PortalSettings == null) ? null : this.PortalSettings.ActiveTab; }
         }
 
+        /// <summary>Gets the portal settings of this request.</summary>
         public PortalSettings PortalSettings
         {
             get { return (this.ModuleContext == null) ? null : this.ModuleContext.PortalSettings; }
         }
 
         /// <inheritdoc />
-        public ActionResult ResultOfLastExecute
-        {
-            get
-            {
-                var actionInvoker = this.ActionInvoker as ResultCapturingActionInvoker;
-                return (actionInvoker != null) ? actionInvoker.ResultOfLastInvoke : null;
-            }
-        }
+        public IActionResult ResultOfLastExecute
+            => ResultCapturingActionInvoker.GetCurrent(this.HttpContext)?.ResultOfLastInvoke;
 
+        /// <summary>Gets the DNN user of this request.</summary>
         public new UserInfo User
         {
             get { return (this.PortalSettings == null) ? null : this.PortalSettings.UserInfo; }
         }
 
         /// <inheritdoc />
-        public Page DnnPage { get; set; }
+        public IComponent DnnPage { get; set; }
 
         /// <inheritdoc />
         public new DnnUrlHelper Url { get; set; }
@@ -76,8 +76,16 @@ namespace DotNetNuke.Web.Mvc.Framework.Controllers
         /// <inheritdoc />
         public ModuleInstanceContext ModuleContext { get; set; }
 
+        /// <summary>Gets or sets a value indicating whether the request should be validated.</summary>
+        /// <remarks>
+        /// MVC 5 exposed this through <c>Controller.ValidateRequest</c> (the ASP.NET request validation).
+        /// ASP.NET Core has no request validation to switch off, so the flag is kept on the DNN controller:
+        /// the module host sets it to <see langword="false"/> and module code can still read it.
+        /// </remarks>
+        public bool ValidateRequest { get; set; } = true;
+
         /// <inheritdoc />
-        public ViewEngineCollection ViewEngineCollectionEx { get; set; }
+        public IReadOnlyList<IViewEngine> ViewEngines { get; set; }
 
         /// <inheritdoc />
         public string LocalizeString(string key)
@@ -85,20 +93,56 @@ namespace DotNetNuke.Web.Mvc.Framework.Controllers
             return Localization.GetString(key, this.LocalResourceFile);
         }
 
+        /// <inheritdoc />
+        public override void OnActionExecuting(ActionExecutingContext context)
+        {
+            base.OnActionExecuting(context);
+
+            // Replaces the legacy Controller.Initialize(RequestContext) override: ASP.NET Core has no
+            // initialize hook, the controller context is only available once the action is executing.
+            this.Initialize((ActionContext)context ?? this.ControllerContext);
+        }
+
+        /// <inheritdoc />
+        public override PartialViewResult PartialView(string viewName, object model)
+        {
+            if (model != null)
+            {
+                this.ViewData.Model = model;
+            }
+
+            return new DnnPartialViewResult
+            {
+                ViewName = viewName,
+                ViewData = this.ViewData,
+                TempData = this.TempData,
+                ViewEngines = this.ViewEngines,
+            };
+        }
+
+        /// <summary>Redirects to the default DNN route.</summary>
+        /// <returns>A redirect result.</returns>
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         protected internal RedirectToRouteResult RedirectToDefaultRoute()
         {
             return new DnnRedirecttoRouteResult(string.Empty, string.Empty, string.Empty, null, false);
         }
 
-        /// <inheritdoc />
-        protected override RedirectToRouteResult RedirectToAction(string actionName, string controllerName, RouteValueDictionary routeValues)
+        /// <summary>Redirects to the given action of the given controller.</summary>
+        /// <param name="actionName">The action name.</param>
+        /// <param name="controllerName">The controller name.</param>
+        /// <param name="routeValues">The route values.</param>
+        /// <returns>A redirect result.</returns>
+        protected internal RedirectToRouteResult RedirectToAction(string actionName, string controllerName, RouteValueDictionary routeValues)
         {
             return new DnnRedirecttoRouteResult(actionName, controllerName, string.Empty, routeValues, false, this.Url);
         }
 
-        /// <inheritdoc />
-        protected override ViewResult View(IView view, object model)
+        /// <summary>Renders the given view.</summary>
+        /// <param name="view">The view to render.</param>
+        /// <param name="model">The model, may be <see langword="null"/>.</param>
+        /// <returns>A view result.</returns>
+        protected internal ViewResult View(IView view, object model)
         {
             if (model != null)
             {
@@ -110,11 +154,16 @@ namespace DotNetNuke.Web.Mvc.Framework.Controllers
                 View = view,
                 ViewData = this.ViewData,
                 TempData = this.TempData,
+                ViewEngines = this.ViewEngines,
             };
         }
 
-        /// <inheritdoc />
-        protected override ViewResult View(string viewName, string masterName, object model)
+        /// <summary>Renders the given view with the given master page (layout).</summary>
+        /// <param name="viewName">The view name.</param>
+        /// <param name="masterName">The master page (layout) name.</param>
+        /// <param name="model">The model, may be <see langword="null"/>.</param>
+        /// <returns>A view result.</returns>
+        protected internal ViewResult View(string viewName, string masterName, object model)
         {
             if (model != null)
             {
@@ -127,32 +176,15 @@ namespace DotNetNuke.Web.Mvc.Framework.Controllers
                 MasterName = masterName,
                 ViewData = this.ViewData,
                 TempData = this.TempData,
-                ViewEngineCollection = this.ViewEngineCollection,
+                ViewEngines = this.ViewEngines,
             };
         }
 
-        /// <inheritdoc />
-        protected override PartialViewResult PartialView(string viewName, object model)
+        /// <summary>Initializes the DNN specific members of the controller for the executing action.</summary>
+        /// <param name="actionContext">The context of the executing action.</param>
+        protected virtual void Initialize(ActionContext actionContext)
         {
-            if (model != null)
-            {
-                this.ViewData.Model = model;
-            }
-
-            return new DnnPartialViewResult
-            {
-                ViewName = viewName,
-                ViewData = this.ViewData,
-                TempData = this.TempData,
-                ViewEngineCollection = this.ViewEngineCollection,
-            };
-        }
-
-        /// <inheritdoc />
-        protected override void Initialize(RequestContext requestContext)
-        {
-            base.Initialize(requestContext);
-            this.Url = new DnnUrlHelper(requestContext, this);
+            this.Url = new DnnUrlHelper(actionContext, this);
         }
     }
 }

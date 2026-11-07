@@ -7,12 +7,19 @@ namespace DotNetNuke.Services.OutputCache
     using System.Diagnostics.CodeAnalysis;
     using System.IO;
     using System.Text;
+    using System.Threading;
+    using System.Threading.Tasks;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Http.Features;
 
     // helper class to capture the response into a file
     [SuppressMessage("Microsoft.Design", "CA1710:IdentifiersShouldHaveCorrectSuffix", Justification = "Breaking change")]
     public abstract class OutputCacheResponseFilter : Stream
     {
         private Stream captureStream;
+        private HttpContext attachedContext;
+        private IHttpResponseBodyFeature originalBodyFeature;
 
         /// <summary>Initializes a new instance of the <see cref="OutputCacheResponseFilter"/> class.</summary>
         /// <param name="filterChain">The stream to write into <see cref="CaptureStream"/>.</param>
@@ -132,6 +139,96 @@ namespace DotNetNuke.Services.OutputCache
         }
 
         /// <inheritdoc />
+        public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            await this.ChainedStream.WriteAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
+            if (this.HasErrored)
+            {
+                return;
+            }
+
+            var capture = this.captureStream;
+            if (capture != null)
+            {
+                await capture.WriteAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        /// <inheritdoc />
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await this.ChainedStream.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (this.HasErrored)
+            {
+                return;
+            }
+
+            var capture = this.captureStream;
+            if (capture != null)
+            {
+                await capture.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        /// <inheritdoc />
+        public override async Task FlushAsync(CancellationToken cancellationToken)
+        {
+            await this.ChainedStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            if (this.HasErrored)
+            {
+                return;
+            }
+
+            var capture = this.captureStream;
+            if (capture != null)
+            {
+                await capture.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Installs this filter as the response body of the given request, so that everything
+        /// written by the rest of the pipeline is both sent to the client and captured for the
+        /// output cache.
+        /// </summary>
+        /// <param name="context">The current request.</param>
+        /// <remarks>
+        /// This is the ASP.NET Core replacement for the legacy <c>HttpResponse.Filter</c> property:
+        /// the <see cref="IHttpResponseBodyFeature"/> is swapped for one wrapping this stream, and
+        /// restored again by <see cref="Detach"/>.
+        /// </remarks>
+        public void AttachTo(HttpContext context)
+        {
+            if (context == null)
+            {
+                throw new ArgumentNullException(nameof(context));
+            }
+
+            if (this.attachedContext != null)
+            {
+                return;
+            }
+
+            this.attachedContext = context;
+            this.originalBodyFeature = context.Features.Get<IHttpResponseBodyFeature>();
+            context.Features.Set<IHttpResponseBodyFeature>(new StreamResponseBodyFeature(this));
+        }
+
+        /// <summary>Restores the original response body feature replaced by <see cref="AttachTo"/>.</summary>
+        public void Detach()
+        {
+            var context = this.attachedContext;
+            if (context == null)
+            {
+                return;
+            }
+
+            this.attachedContext = null;
+            context.Features.Set(this.originalBodyFeature);
+            this.originalBodyFeature = null;
+        }
+
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count)
         {
             throw new NotSupportedException();
@@ -151,6 +248,8 @@ namespace DotNetNuke.Services.OutputCache
 
         public virtual byte[] StopFiltering(int itemId, bool deleteData)
         {
+            this.Detach();
+
             if (this.HasErrored)
             {
                 return null;
@@ -159,7 +258,7 @@ namespace DotNetNuke.Services.OutputCache
             if (this.CaptureStream != null)
             {
                 this.CaptureStream.Position = 0;
-                using (var reader = new StreamReader(this.CaptureStream, Encoding.Default))
+                using (var reader = new StreamReader(this.CaptureStream, Encoding.UTF8))
                 {
                     string output = reader.ReadToEnd();
                     this.AddItemToCache(itemId, output);

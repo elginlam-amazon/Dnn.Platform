@@ -1,0 +1,92 @@
+@* Ported from DnnLink.ascx / DnnLink.ascx.cs / DnnLink.ascx.designer.cs — the dnn:DnnLink skin
+   object.
+
+   NOTE on the checklist wording ("<link> emission -> <HeadOutlet /> contribution"): this control
+   does NOT emit a <link> element and contributes nothing to the document head. aDnnLink was
+   <a href="#" runat="server">, an in-body anchor to the DNN community site whose text and utm_term
+   vary with the first letter of the request host name. The real behaviour is what is preserved
+   here: a body anchor, with the identical letter buckets, link texts, utm parameters and HTML
+   encoding of the URL.
+*@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using Microsoft.AspNetCore.Components
+
+@if (this.Visible)
+{
+    <a href="@this.href"
+       class="@NullIfEmpty(this.CssClass)"
+       target="@NullIfEmpty(this.Target)">@this.linkText</a>
+}
+
+@code {
+    private const string MyFileName = "DnnLink.ascx";
+
+    private string href = "#";
+    private string linkText = string.Empty;
+
+    /// <summary>Gets or sets the <c>target</c> attribute of the link.</summary>
+    [Parameter]
+    public string Target { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        // set home page link to community URL
+        string url = "http://www.dnnsoftware.com/community?utm_source=dnn-install&utm_medium=web-link&utm_content=gravity-skin-link&utm_campaign=dnn-install";
+        string utmTerm = "&utm_term=cms-by-dnn";
+
+        // Was this.Request.Url.Host; the host of an ASP.NET Core request is Request.Host.Host.
+        string hostName = (this.Request?.Host.Host ?? string.Empty).ToLowerInvariant().Replace("www.", string.Empty);
+        int charPos = 0;
+        string linkText = "CMS by DNN";
+        if (hostName.Length > 0)
+        {
+            // convert first letter of hostname to int pos in alphabet
+            charPos = char.ToUpper(hostName[0]) - 64;
+        }
+
+        // vary link by first letter of host name
+        if (charPos <= 5)
+        {
+            linkText = "Open Source ASP.NET CMS by DNN";
+            utmTerm = "&utm_term=open+source+asp.net+by+dnn";
+        }
+
+        if (charPos > 5 && charPos <= 10)
+        {
+            linkText = "DNN - .NET Open Source CMS";
+            utmTerm = "&utm_term=dnn+.net+open+source+cms";
+        }
+
+        if (charPos > 10 && charPos <= 15)
+        {
+            linkText = "Web Content Management by DNN";
+            utmTerm = "&utm_term=web+content+management+by+dnn";
+        }
+
+        if (charPos > 15 && charPos <= 20)
+        {
+            linkText = "DNN .NET CMS";
+            utmTerm = "&utm_term=dnn+.net+cms";
+        }
+
+        if (charPos > 20 && charPos <= 25)
+        {
+            linkText = "WCM by DNN";
+            utmTerm = "&utm_term=wcm+by+dnn";
+        }
+
+        // Was aDnnLink.InnerText (text, HTML encoded by the renderer) and aDnnLink.HRef, which the
+        // original assigned the HTML encoded URL. Razor HTML encodes an attribute value and text
+        // content itself, so the raw values are assigned here and encoded exactly once on render.
+        this.linkText = linkText;
+        this.href = url + utmTerm;
+    }
+
+    private static string NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
+}

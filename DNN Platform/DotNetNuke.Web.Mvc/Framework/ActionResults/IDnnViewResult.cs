@@ -5,10 +5,17 @@
 namespace DotNetNuke.Web.Mvc.Framework.ActionResults
 {
     using System.IO;
-    using System.Web.Mvc;
+    using System.Threading.Tasks;
 
+    using Microsoft.AspNetCore.Mvc;
+
+    /// <summary>A view result which can render itself into a caller supplied <see cref="TextWriter"/>.</summary>
     public interface IDnnViewResult
     {
-        void ExecuteResult(ControllerContext context, TextWriter writer);
+        /// <summary>Renders the result into the given writer.</summary>
+        /// <param name="context">The action context to execute against.</param>
+        /// <param name="writer">The writer to render the view into.</param>
+        /// <returns>A task.</returns>
+        Task ExecuteResultAsync(ActionContext context, TextWriter writer);
     }
 }

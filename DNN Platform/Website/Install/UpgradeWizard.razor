@@ -1,0 +1,1628 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* The legacy URL is preserved: upgrade documentation and Upgrade.DeleteInstallerFiles both name
+   Install/UpgradeWizard.aspx, and it is the URL an administrator is told to visit after dropping
+   in a new release. *@
+@page "/Install/UpgradeWizard.aspx"
+
+@namespace DotNetNuke.Services.Install
+@inherits DotNetNuke.Framework.PageBase
+@layout DotNetNuke.Website.Components.StandaloneLayout
+@implements IDisposable
+
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+@using System.IO
+@using System.Linq
+@using System.Text
+@using System.Threading
+@using System.Threading.Tasks
+@using System.Xml.XPath
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Rendering
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.DependencyInjection
+@using Microsoft.Extensions.Logging
+@using Newtonsoft.Json
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Application
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Maintenance.Telerik
+@using DotNetNuke.Maintenance.Telerik.Removal
+@using DotNetNuke.Security.Membership
+@using DotNetNuke.Services.Installer.Blocker
+@using DotNetNuke.Services.Localization.Internal
+@using DotNetNuke.Services.Upgrade.InternalController.Steps
+@using DotNetNuke.Services.Upgrade.Internals.Steps
+@using DotNetNuke.Services.UserRequest
+@using DotNetNuke.Website
+@using ICryptographyProvider = DotNetNuke.Abstractions.Security.ICryptographyProvider
+@using Localization = DotNetNuke.Services.Localization.Localization
+
+@*
+    =====================================================================================
+    The Upgrade Wizard.
+
+    THE PROGRAMMATIC CONTROL BUILDERS ARE NOW RENDERFRAGMENTS.
+    UpgradeWizard.aspx.cs built the Security tab's UI in code - CreateTelerikInstalledHeader,
+    CreateTelerikInstalledDetectedParagraph, CreateBundle, CreateHeading, CreateParagraph,
+    CreateLabel, CreateHiddenField, CreateTable(items, maxRows, maxColumns),
+    StartNewColumn(row) - as a PlaceHolder/HtmlGenericControl/Label/Table/BulletedList tree, then
+    flattened it with RenderControls(...) -> HtmlTextWriter -> a `string View`, which the client
+    script injected with $('#upgradeSecurityView').html(...).
+
+    Every one of those builders is reproduced below as a RenderFragment composing REAL markup
+    (<h4>, <p>, <table>, <ul>, the hidden fields), never a concatenated string. Same element
+    shapes, same CSS classes (telerikVersion), same 3x4 table layout with the same "..." overflow
+    marker and the same equal column widths, same localization keys. The two hidden fields keep
+    their exact ids - telerikAntiForgeryToken and the TelerikUninstallOptionSettingKey - because
+    RunUpgrade reads the posted values by those names.
+
+    WHAT REPLACED THE CLIENT SCRIPT
+    As with the install wizard, the jQuery/jQuery-UI/PageMethods layer existed only because a
+    WebForms page cannot call its own server code without a postback. On Blazor Server:
+      * jQuery UI tabs (4 tabs)   -> the `step` field + @@if blocks.
+      * PageMethods.ValidateInput / GetSecurityTab / RunUpgrade / GetInstallationLog
+                                  -> @@onclick handlers calling the SAME static methods, which keep
+                                     their original signatures as the page's API surface.
+      * $.get("upgradestat...")   -> ReadStatusAsync(), a server-side 500ms loop over the same
+                                     status file, which no longer has to be web-servable.
+    No <script> is emitted from this component.
+
+    THE TELERIK STRINGS ARE DETECTION MESSAGES. They belong to Dnn.Modules.TelerikRemoval and are
+    read through ITelerikUtils; there is no Telerik UI control anywhere in this page, and none is
+    introduced.
+    =====================================================================================
+*@
+
+<PageTitle>@this.LocalizeString("Title")</PageTitle>
+
+<HeadContent>
+    @* Was the two <link class="needVer"> elements whose href the client script suffixed with the
+       application version. The version is appended here, server side. *@
+    <link rel="stylesheet" type="text/css" href="@($"{Globals.ResolveUrl("~/resources/Shared/stylesheets/dnndefault/10.0.0/default.css")}?{Globals.FormatVersion(this.ApplicationVersion)}")" />
+    <link rel="stylesheet" type="text/css" href="@($"{Globals.ResolveUrl("~/install/Install.css")}?{Globals.FormatVersion(this.ApplicationVersion)}")" />
+</HeadContent>
+
+@* Was <div id="languageFlags">, hidden by showSecurityTab(). *@
+@if (this.step == WizardStep.AccountInfo)
+{
+    <div id="languageFlags">
+        @foreach (var flag in LanguageFlags)
+        {
+            <a class="flag @(culture == flag ? "selectedFlag" : null)" value="@flag" href="javascript:void(0);"
+               @onclick="() => this.ChangePageLocale(flag)" @onclick:preventDefault="true">
+                <img src="@Globals.ResolveUrl($"~/images/flags/{flag}.gif")" alt="@flag" class="flagimage" />
+            </a>
+        }
+    </div>
+}
+
+<div class="install">
+    <h2 class="dnnForm dnnInstall dnnClear">
+        @this.LocalizeString("Title")
+        @* LocalizePage() showed either the two version labels or the "versions match" label. *@
+        <h5><span id="currentVersionLabel">@this.currentVersionText</span></h5>
+        <h5><span id="versionLabel">@this.versionText</span></h5>
+        <h5><span id="versionsMatch">@this.versionsMatchText</span></h5>
+    </h2>
+    <br />
+    @* Was <div id="dnnInstall" runat="server">, hidden by showSecurityTab(). *@
+    @if (this.step == WizardStep.AccountInfo)
+    {
+        <div class="dnnForm dnnInstall dnnClear" id="dnnInstall">
+            <hr />
+            <span id="lblIntroDetail">@this.LocalizeString("BestPractices")</span>
+        </div>
+    }
+
+    <div id="tabs" class="dnnWizardTab">
+        <ul>
+            <li class="@(this.step == WizardStep.AccountInfo ? "ui-tabs-active ui-state-active" : null)">
+                <div class="dnnWizardStep">
+                    <span class="dnnWizardStepNumber">1</span>
+                    <span class="dnnWizardStepTitle">@this.LocalizeString("AccountInfo")</span>
+                    <span class="dnnWizardStepArrow"></span>
+                </div>
+            </li>
+            <li class="@(this.step == WizardStep.Security ? "ui-tabs-active ui-state-active" : null)">
+                <div class="dnnWizardStep">
+                    <span class="dnnWizardStepNumber">2</span>
+                    <span class="dnnWizardStepTitle">@this.LocalizeString("Security")</span>
+                    <span class="dnnWizardStepArrow"></span>
+                </div>
+            </li>
+            <li class="@(this.step == WizardStep.Upgrade ? "ui-tabs-active ui-state-active" : null)">
+                <div class="dnnWizardStep">
+                    <span class="dnnWizardStepNumber">3</span>
+                    <span class="dnnWizardStepTitle">@this.LocalizeString("Upgrade")</span>
+                    <span class="dnnWizardStepArrow"></span>
+                </div>
+            </li>
+            <li class="@(this.step == WizardStep.ViewWebsite ? "ui-tabs-active ui-state-active" : null)">
+                <div class="dnnWizardStep">
+                    <span><img id="finishImage" src="@Globals.ResolveUrl("~/images/finishflag.png")" alt="" /></span>
+                    <span class="dnnWizardStepTitle">@this.LocalizeString("ViewWebsite")</span>
+                </div>
+            </li>
+        </ul>
+
+        @if (this.step == WizardStep.AccountInfo)
+        {
+            <div class="upgradeAccountInfo dnnClear" id="upgradeAccountInfo">
+                @if (!string.IsNullOrEmpty(this.accountInfoError))
+                {
+                    <span id="lblAccountInfoError" class="NormalRed" style="display:block">@this.accountInfoError</span>
+                }
+                <div class="dnnFormItem">
+                    <label for="txtUsername" class="dnnFormRequired dnnLabel"><span id="lblUsername">@this.LocalizeString("Username")</span></label>
+                    <input id="txtUsername" type="text" value="@this.userName" @onchange="e => this.userName = e.Value?.ToString()" />
+                </div>
+                <div class="dnnFormItem">
+                    <label for="txtPassword" class="dnnFormRequired dnnLabel"><span id="lblPassword">@this.LocalizeString("Password")</span></label>
+                    <input id="txtPassword" type="password" value="@this.password" @onchange="e => this.password = e.Value?.ToString()" />
+                </div>
+                <hr />
+                <ul class="dnnForm dnnActions dnnClear">
+                    <li>
+                        @* enable("#continueLink") ran unconditionally on load, so this action starts enabled. *@
+                        <a id="continueLink" href="javascript:void(0);"
+                           class="dnnPrimaryAction @(this.continueEnabled ? null : "dnnDisabledAction")"
+                           @onclick="this.ContinueAsync" @onclick:preventDefault="true">@this.LocalizeString("NextStep")</a>
+                    </li>
+                </ul>
+            </div>
+        }
+
+        @if (this.step == WizardStep.Security)
+        {
+            <div class="upgradeSecurity dnnClear" id="upgradeSecurity">
+                @if (!string.IsNullOrEmpty(this.securityError))
+                {
+                    <span id="lblSecurityError" class="NormalRed" style="display:block">@this.securityError</span>
+                }
+                <div id="upgradeSecurityView">
+                    @if (this.securityTab?.View != null)
+                    {
+                        @* The RenderFragment that replaced SecurityTabResult.View's HTML string. *@
+                        @this.securityTab.View
+                    }
+                    else
+                    {
+                        @* Was the inline "checking security" placeholder and its SVG spinner. *@
+                        <span class="upgradeSecurityMessage">@this.LocalizeString("CheckingSecurity")</span>
+                        <svg class="wizspinner" viewbox="0 0 50 50">
+                            <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle>
+                        </svg>
+                    }
+                </div>
+                <hr />
+                <ul class="dnnForm dnnActions dnnClear">
+                    <li>
+                        <a id="UpgradeNowButton" href="javascript:void(0);"
+                           class="dnnPrimaryAction @(this.UpgradeNowEnabled ? null : "dnnDisabledAction")"
+                           @onclick="this.UpgradeNowAsync" @onclick:preventDefault="true">@this.LocalizeString("Next")</a>
+                    </li>
+                </ul>
+            </div>
+        }
+
+        @if (this.step == WizardStep.Upgrade || this.step == WizardStep.ViewWebsite)
+        {
+            <div class="upgradeInstallation dnnClear" id="upgradeInstallation">
+                <span id="lblUpgradeIntroInfo" class="installIntro">@this.LocalizeString("UpgradeIntroInfo")</span>
+                <div id="upgrade" class="dnnForm">
+                    <div class="dnnFormItem">
+                        <div id="installation-progress">
+                            <span id="timer">@this.ElapsedText</span>&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;<span id="percentage" style="height: auto; max-height: 200px; overflow: auto">@this.progress% @this.progressDetails</span>
+                            <div class="dnnProgressbar">
+                                <progress id="progressbar" class="@(this.upgradeFailed ? "stoppedProgress" : "inProgress")" value="@this.progress" max="100"></progress>
+                            </div>
+                            <div id="installation-buttons">
+                                <a id="retry" href="javascript:void(0)" class="dnnPrimaryAction @(this.RetryEnabled ? null : "dnnDisabledAction")"
+                                   @onclick="this.RetryAsync" @onclick:preventDefault="true">@this.LocalizeString("Retry")</a>
+                                <a id="seeLogs" href="javascript:void(0)" class="dnnSecondaryAction @(this.SeeLogsEnabled ? null : "dnnDisabledAction")"
+                                   @onclick="this.SeeLogsAsync" @onclick:preventDefault="true">@this.LocalizeString("SeeLogs")</a>
+                            </div>
+                            @if (this.showInstallationLog)
+                            {
+                                <div id="installation-log-container" class="dnnScroll">
+                                    <div id="installation-log">@((MarkupString)this.installationLog)</div>
+                                </div>
+                            }
+                        </div>
+                        @* Was #installation-steps; $.applyCssStyle() mapped check0/check1 onto these. *@
+                        <div id="installation-steps">
+                            <p class="@StepCssClass(this.check0)" id="DatabaseUpgrade"><span class="states-icons"></span>@this.LocalizeString("DatabaseUpgrade")</p>
+                            <p class="@StepCssClass(this.check1)" id="ExtensionsUpgrade"><span class="states-icons"></span>@this.LocalizeString("ExtensionsUpgrade")</p>
+                        </div>
+                        <hr />
+                        @* Was <asp:HyperLink ID="visitSite" NavigateUrl="#">, whose href finishInstall()
+                           set to location.pathname + "?complete" - the URL CompleteUpgrade() handles. *@
+                        <a id="visitSite" href="javascript:void(0)" class="dnnPrimaryAction visitSiteLink @(this.VisitSiteEnabled ? null : "dnnDisabledAction")"
+                           @onclick="this.VisitSiteAsync" @onclick:preventDefault="true">@this.LocalizeString("VisitWebsite")</a>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@* The WebForms page ended with <asp:Label ID="txtErrorMessage" runat="server" />, which no code
+   path on the page or in its client script ever assigned or read - it was a dead placeholder. The
+   live error surfaces (accountInfoError / securityError) are preserved above, so neither the label
+   nor its backing field is carried over. *@
+
+@code {
+    /// <summary>Client ID of the hidden input containing the Telerik anti-forgery token.</summary>
+    protected static readonly string TelerikAntiForgeryTokenClientID = "telerikAntiForgeryToken";
+
+    /// <summary>Client ID of the Telerik uninstall radio buttons.</summary>
+    protected static readonly string TelerikUninstallOptionClientID = DotNetNuke.Maintenance.Constants.TelerikUninstallOptionSettingKey;
+
+    /// <summary>Form value when user selects Yes.</summary>
+    protected static readonly string OptionYes = "Y";
+
+    /// <summary>Form value when user selects No.</summary>
+    protected static readonly string OptionNo = "N";
+
+    /// <summary>The upgrade status filename.</summary>
+    /// <remarks>
+    /// Still written by <see cref="CurrentStepActivity"/> under the same name; it is no longer
+    /// fetched by the browser (Install/ is not web-served content now) - the component reads it.
+    /// </remarks>
+    protected static readonly string StatusFilename = "upgradestat.log.resources.txt";
+
+    private const string LocalesFile = "/Install/App_LocalResources/Locales.xml";
+
+    /// <summary>The flags rendered by the language selector, in the order the markup declared them.</summary>
+    private static readonly string[] LanguageFlags = ["en-US", "de-DE", "es-ES", "fr-FR", "it-IT", "nl-NL", "tr-TR"];
+
+    private static readonly ILogger Logger = DnnLoggingController.GetLogger(typeof(UpgradeWizard));
+    private static string localResourceFile = "~/Install/App_LocalResources/UpgradeWizard.aspx.resx";
+    private static string culture;
+    private static string[] supportedLanguages;
+    private static IInstallationStep currentStep;
+    private static bool upgradeRunning;
+    private static int upgradeProgress;
+
+    // steps shown in UI
+    private static IInstallationStep upgradeDatabase = new InstallDatabaseStep();
+    private static IInstallationStep upgradeExtensions = new InstallExtensionsStep();
+    private static IInstallationStep iisVerification = new IISVerificationStep();
+
+    // Ordered List of Steps (and weight in percentage) to be executed
+    private static IDictionary<IInstallationStep, int> steps = new Dictionary<IInstallationStep, int>
+        {
+        // {new AddFcnModeStep(), 1},
+            { iisVerification, 1 },
+            { upgradeDatabase, 49 },
+            { upgradeExtensions, 49 },
+            { new InstallVersionStep(), 1 },
+        };
+
+    private static readonly object StatusLock = new object();
+
+    // --- UI state (replaces the control tree and the PageLocale hidden field) ---
+    private WizardStep step = WizardStep.AccountInfo;
+    private string userName = string.Empty;
+    private string password = string.Empty;
+    private bool continueEnabled = true;
+
+    private string accountInfoError;
+    private string securityError;
+    private string versionText;
+    private string currentVersionText;
+    private string versionsMatchText;
+
+    private SecurityTabResult securityTab;
+
+    private int progress;
+    private string progressDetails = string.Empty;
+    private string check0;
+    private string check1;
+    private bool upgradeComplete;
+    private bool upgradeFailed;
+    private bool showInstallationLog;
+    private string installationLog = string.Empty;
+    private int installationLogStartLine;
+    private DateTime? progressStartedUtc;
+    private CancellationTokenSource progressCancellation;
+    private bool loaded;
+
+    /// <summary>The account information dictionary the page methods take.</summary>
+    /// <remarks>
+    /// Was `upgradeWizard.accountInfo`, the client-side object the handlers accumulated the
+    /// username/password, the anti-forgery token and the uninstall option into before each
+    /// PageMethods call. It is server state now, but it is still the same dictionary with the same
+    /// keys, because ValidateInput/GetSecurityTab/RunUpgrade read it by those keys.
+    /// </remarks>
+    private readonly Dictionary<string, string> accountInfo = new Dictionary<string, string>();
+
+    static UpgradeWizard()
+    {
+        IsAuthenticated = false;
+    }
+
+    /// <summary>Initializes a new instance of the <see cref="UpgradeWizard"/> class.</summary>
+    /// <remarks>
+    /// Blazor activates the component through its parameterless constructor. This declares it
+    /// explicitly so it chains to the non-obsolete <see cref="DotNetNuke.Framework.PageBase"/> overload rather than the
+    /// deprecated parameterless one; passing nulls is exactly what that deprecated overload did,
+    /// and PageBase resolves each service lazily from the current service provider on first use.
+    /// </remarks>
+    public UpgradeWizard()
+        : base(null, null, null, null)
+    {
+    }
+
+    /// <summary>The wizard tabs, which jQuery UI used to enable/disable.</summary>
+    private enum WizardStep
+    {
+        /// <summary>The <c>#upgradeAccountInfo</c> tab.</summary>
+        AccountInfo,
+
+        /// <summary>The <c>#upgradeSecurity</c> tab.</summary>
+        Security,
+
+        /// <summary>The <c>#upgradeInstallation</c> tab.</summary>
+        Upgrade,
+
+        /// <summary>The finish tab.</summary>
+        ViewWebsite,
+    }
+
+    /// <summary>Gets or sets the application status.</summary>
+    /// <remarks>
+    /// This and the three properties below replace the five-overload constructor chain
+    /// (<c>IPortalController</c>, <c>IApplicationStatusInfo</c>, <c>IHostSettings</c>,
+    /// <c>IUserController</c>, <c>IApplicationInfo</c>, <c>ICryptographyProvider</c>) and its
+    /// <c>GetRequiredService&lt;T&gt;()</c> fallbacks: Blazor activates a component through its
+    /// parameterless constructor, so the dependencies are injected as properties.
+    /// <see cref="DotNetNuke.Framework.PageBase"/> still resolves <c>IPortalController</c>/<c>IUserController</c>
+    /// through the same lazy mechanism its own constructors used.
+    /// </remarks>
+    [Inject]
+    protected IApplicationStatusInfo ApplicationStatus { get; set; }
+
+    /// <summary>Gets or sets the host settings.</summary>
+    [Inject]
+    protected IHostSettings HostSettingsService { get; set; }
+
+    /// <summary>Gets or sets the application info.</summary>
+    [Inject]
+    protected IApplicationInfo Application { get; set; }
+
+    /// <summary>Gets or sets the cryptography provider.</summary>
+    [Inject]
+    protected ICryptographyProvider Cryptography { get; set; }
+
+    /// <summary>Gets or sets the navigation manager used for the page's redirects.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets a value indicating whether the upgrade has been completed on this URL.</summary>
+    /// <remarks>Replaces the <c>this.Request.RawUrl.EndsWith("?complete")</c> test.</remarks>
+    [SupplyParameterFromQuery(Name = "complete")]
+    private string Complete { get; set; }
+
+    /// <summary>Gets the application version.</summary>
+    protected Version ApplicationVersion => this.Application.Version;
+
+    /// <summary>Gets the current version.</summary>
+    protected Version CurrentVersion => this.Application.CurrentVersion;
+
+    private static string StatusFile => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Install", StatusFilename);
+
+    private static bool IsAuthenticated { get; set; }
+
+    /// <summary>Gets a value indicating whether the Upgrade Now action is enabled.</summary>
+    /// <remarks>
+    /// The client enabled it when the security tab reported CanProceed. It also attached a click
+    /// handler to <c>input[name=&lt;TelerikUninstallOptionClientID&gt;]</c> to enable it, but the
+    /// security view only ever rendered that name as a HIDDEN field (CreateHiddenField), so that
+    /// handler could never fire - CanProceed is the only rule that ever applied, and it is the only
+    /// one reproduced here.
+    /// </remarks>
+    private bool UpgradeNowEnabled => this.securityTab?.CanProceed ?? false;
+
+    private bool RetryEnabled => this.upgradeFailed;
+
+    private bool SeeLogsEnabled => this.upgradeFailed || this.upgradeComplete;
+
+    private bool VisitSiteEnabled => this.upgradeComplete;
+
+    /// <summary>Gets the elapsed time, replacing the JS timer that wrote into <c>#timer</c>.</summary>
+    private string ElapsedText
+    {
+        get
+        {
+            var elapsed = this.progressStartedUtc.HasValue ? DateTime.UtcNow - this.progressStartedUtc.Value : TimeSpan.Zero;
+            return $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00} {this.LocalizeString("TimerMinutes")}";
+        }
+    }
+
+    /// <summary>Validates the user input.</summary>
+    /// <param name="accountInfo">The account information.</param>
+    /// <returns>A tuple with the result and a message.</returns>
+    /// <remarks>
+    /// Was a <c>[WebMethod]</c> page method; the signature and body are unchanged because this IS
+    /// the page's API surface. SECURITY CONTROL: it delegates to <see cref="VerifyHostUser"/>,
+    /// which is preserved verbatim.
+    /// </remarks>
+    public static Tuple<bool, string> ValidateInput(Dictionary<string, string> accountInfo)
+    {
+        var result = VerifyHostUser(accountInfo, out var errorMsg);
+
+        return new Tuple<bool, string>(result, errorMsg);
+    }
+
+    /// <summary>Gets the installation log.</summary>
+    /// <param name="startRow">At which line to start obtaining log lines.</param>
+    /// <returns>Log string from the provided line number forward.</returns>
+    /// <remarks>
+    /// SECURITY: the <c>IsAuthenticated</c> gate is preserved exactly - the installer log is only
+    /// readable once a host user has authenticated through <see cref="VerifyHostUser"/>.
+    /// </remarks>
+    public static object GetInstallationLog(int startRow)
+    {
+        const int maxLines = 500;
+        if (!IsAuthenticated)
+        {
+            return string.Empty;
+        }
+
+        var logFile = $"InstallerLog{DateTime.Now.Year}{DateTime.Now.Month}{DateTime.Now.Day}.resources";
+        try
+        {
+            var lines = File.ReadAllLines(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Portals", "_default", "logs", logFile));
+            var sb = new StringBuilder();
+            var errorLogged = false;
+            var lineCount = 0;
+
+            // Important to return empty string to stop retries.
+            if (startRow > lines.Count())
+            {
+                return string.Empty;
+            }
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].Contains("[ERROR]"))
+                {
+                    errorLogged = true;
+
+                    // Only append if error is in current lines range.
+                    if (i > startRow && lineCount < maxLines)
+                    {
+                        sb.Append(lines[i]).Append("<br />");
+                        lineCount++;
+
+                        // If we have reached the max lines, break out of loop.
+                        if (lineCount >= maxLines)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!errorLogged)
+            {
+                return Localization.GetString("NoErrorsLogged", "~/Install/App_LocalResources/UpgradeWizard.aspx.resx");
+            }
+
+            return sb.ToString();
+        }
+        catch (Exception)
+        {
+            return string.Empty;
+        }
+    }
+
+    /// <summary>Returns information to render the Security tab.</summary>
+    /// <param name="accountInfo">Username and password to validate host user.</param>
+    /// <returns>An instance of <see cref="SecurityTabResult"/>.</returns>
+    /// <remarks>
+    /// SECURITY CONTROL: the host-user verification gate and the four Telerik branches (not
+    /// installed / installed-but-not-vulnerable / installed-but-unused / installed-and-used) are
+    /// preserved exactly, in the same order, with the same uninstall-option default each branch
+    /// chose. Only the rendering of the resulting view changed from a string to a
+    /// <see cref="RenderFragment"/>.
+    /// </remarks>
+    public static Tuple<bool, string, SecurityTabResult> GetSecurityTab(Dictionary<string, string> accountInfo)
+    {
+        if (!VerifyHostUser(accountInfo, out var errorMsg))
+        {
+            return Tuple.Create(false, errorMsg, default(SecurityTabResult));
+        }
+
+        var cryptographyProvider = CreateCryptographyProvider();
+        var telerikUtils = CreateTelerikUtils();
+        if (!telerikUtils.TelerikIsInstalled())
+        {
+            return Tuple.Create(
+                true,
+                default(string),
+                GetTelerikNotInstalledResult(cryptographyProvider));
+        }
+
+        var version = telerikUtils.GetTelerikVersion();
+        if (!telerikUtils.IsTelerikVersionVulnerable(version))
+        {
+            return Tuple.Create(
+                true,
+                default(string),
+                GetTelerikInstalledWithVersionNotKnownToBeVulnerable(cryptographyProvider, version));
+        }
+
+        var assemblies = telerikUtils.GetAssembliesThatDependOnTelerik()
+            .Select(a => Path.GetFileName(a));
+
+        if (!assemblies.Any())
+        {
+            return Tuple.Create(
+                true,
+                default(string),
+                GetTelerikInstalledButNotUsedResult(cryptographyProvider, version));
+        }
+
+        return Tuple.Create(
+            true,
+            default(string),
+            GetTelerikInstalledAndUsedResult(cryptographyProvider, assemblies, version));
+    }
+
+    /// <summary>Runs the upgrade.</summary>
+    /// <param name="accountInfo">The account information.</param>
+    /// <remarks>
+    /// SECURITY CONTROL - preserved exactly, in the same order: (1) the host user must verify,
+    /// (2) the Telerik anti-forgery token must be present and valid, (3) the uninstall option must
+    /// be present. Each failure throws or returns before any upgrade work happens, and the
+    /// InstallerFilesRemoved reset at the end (DNN-9355) is kept.
+    /// </remarks>
+    public static void RunUpgrade(Dictionary<string, string> accountInfo)
+    {
+        if (!VerifyHostUser(accountInfo, out _))
+        {
+            return;
+        }
+
+        var cryptograpyProvider = CreateCryptographyProvider();
+        if (!TelerikAntiForgeryTokenIsValid(cryptograpyProvider, accountInfo))
+        {
+            throw new InvalidOperationException(LocalizeStringStatic("TelerikInvalidAntiForgeryToken"));
+        }
+
+        if (!accountInfo.TryGetValue(TelerikUninstallOptionClientID, out var option))
+        {
+            throw new InvalidOperationException(LocalizeStringStatic("TelerikUninstallOptionMissing"));
+        }
+
+        SetHostSetting(DotNetNuke.Maintenance.Constants.TelerikUninstallOptionSettingKey, option);
+
+        upgradeRunning = false;
+        LaunchUpgrade();
+
+        // DNN-9355: reset the installer files check flag after each upgrade, to make sure the installer files removed.
+        var hostSettingsService = Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettingsService>();
+        hostSettingsService.Update("InstallerFilesRemoved", "False", true);
+    }
+
+    /// <summary>Releases the progress reporting loop.</summary>
+    public void Dispose()
+    {
+        this.progressCancellation?.Cancel();
+        this.progressCancellation?.Dispose();
+        this.progressCancellation = null;
+    }
+
+    /// <summary>Localizes a string.</summary>
+    /// <param name="key">The key.</param>
+    /// <returns>The localized value for the key.</returns>
+    /// <remarks>
+    /// Deliberately still <see cref="Localization.GetString(string, string, string)"/> rather than
+    /// IStringLocalizer: these strings are subject to the per-host/per-portal overrides the
+    /// Language Editor writes beside the .resx, which IStringLocalizer cannot see, and the culture
+    /// is the one the user picked with a flag rather than the request's.
+    /// </remarks>
+    protected string LocalizeString(string key)
+    {
+        return Localization.GetString(key, localResourceFile, culture);
+    }
+
+    /// <summary>Handles an unhandled error on this page.</summary>
+    /// <param name="exc">The exception.</param>
+    /// <param name="statusCode">The status code the exception maps to.</param>
+    /// <remarks>
+    /// Replaces <c>OnError</c>, which did
+    /// <c>Response.Clear(); Server.Transfer("~/ErrorPage.aspx")</c>. <c>Server.Transfer</c> has no
+    /// ASP.NET Core counterpart and the error page is a routed component now, so the browser is
+    /// sent to it; the URL comes from the <c>CustomErrors:ErrorPagePath</c> key, which keeps it in
+    /// step with that route.
+    /// </remarks>
+    protected override void HandleError(Exception exc, int statusCode)
+    {
+        this.Navigation.NavigateTo(Globals.ResolveUrl(DotNetNuke.Common.ErrorPage.Path), forceLoad: true);
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        if (Upgrade.Upgrade.UpdateNewtonsoftVersion())
+        {
+            // Was this.Response.Redirect(this.Request.RawUrl, true): re-request so the application
+            // restarts with the updated assembly.
+            this.Navigation.NavigateTo(this.RawUrl(), forceLoad: true);
+            return;
+        }
+
+        this.SslRequiredCheck();
+        GetInstallerLocales(this.ApplicationStatus);
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        if (InstallBlocker.Instance.IsInstallInProgress())
+        {
+            // Preserved guard: a running install owns the process, so the operator is sent to the
+            // installer's streamed progress page instead.
+            this.Navigation.NavigateTo(Globals.ResolveUrl("~/Install/install.aspx"), forceLoad: true);
+            return;
+        }
+
+        base.OnLoad(e);
+        this.LocalizePage();
+
+        if (this.Complete != null)
+        {
+            // Was this.Request.RawUrl.EndsWith("?complete").
+            this.CompleteUpgrade();
+            return;
+        }
+
+        // Create Status Files
+        // Was `if (!this.Page.IsPostBack)`: there are no postbacks, so the first initialization of
+        // the component instance is the former "not a postback".
+        if (!this.loaded)
+        {
+            this.loaded = true;
+
+            if (!File.Exists(StatusFile))
+            {
+                File.CreateText(StatusFile).Close();
+            }
+
+            Upgrade.Upgrade.RemoveInvalidAntiForgeryCookie();
+        }
+    }
+
+    private static ITelerikUtils CreateTelerikUtils()
+    {
+        return Globals.GetCurrentServiceProvider().GetRequiredService<ITelerikUtils>();
+    }
+
+    private static ICryptographyProvider CreateCryptographyProvider()
+    {
+        return Globals.GetCurrentServiceProvider().GetRequiredService<ICryptographyProvider>();
+    }
+
+    /// <summary>Maps a status-file step state to its CSS class. Replaces <c>$.applyCssStyle</c>.</summary>
+    private static string StepCssClass(string state)
+    {
+        if (string.IsNullOrEmpty(state))
+        {
+            state = string.Empty;
+        }
+
+        switch (state.ToLowerInvariant())
+        {
+            case "done":
+                return "step-done";
+            case "running":
+                return "step-running";
+            case "error":
+                return "step-error";
+            default:
+                return "step-notstarted";
+        }
+    }
+
+    // =================================================================================
+    // The programmatic control builders, as RenderFragments.
+    //
+    // Each one corresponds 1:1 to the method of the same name in UpgradeWizard.aspx.cs and
+    // produces the same element shape - but as real markup in the render tree instead of a
+    // WebForms control flattened into an HTML string by RenderControls/HtmlTextWriter.
+    // =================================================================================
+
+    /// <summary>Replaces <c>CreateTelerikInstalledHeader(Version)</c>.</summary>
+    private static RenderFragment CreateTelerikInstalledHeader(Version version) =>
+        CreateBundle(
+            CreateHeading("TelerikInstalledHeading"),
+            CreateTelerikInstalledDetectedParagraph(version));
+
+    /// <summary>Replaces <c>CreateTelerikInstalledDetectedParagraph(Version)</c>: a &lt;p&gt; with the message, a space and the version in a <c>telerikVersion</c> span.</summary>
+    private static RenderFragment CreateTelerikInstalledDetectedParagraph(Version version) => builder =>
+    {
+        builder.OpenElement(0, "p");
+        builder.OpenElement(1, "span");
+        builder.AddContent(2, LocalizeStringStatic("TelerikInstalledDetected"));
+        builder.CloseElement();
+        builder.AddContent(3, " ");
+        builder.OpenElement(4, "span");
+        builder.AddAttribute(5, "class", "telerikVersion");
+        builder.AddContent(6, version.ToString());
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    /// <summary>Replaces <c>CreateBundle(params Control[])</c>: the <c>PlaceHolder</c> that grouped fragments without emitting a wrapper.</summary>
+    private static RenderFragment CreateBundle(params RenderFragment[] fragments) => builder =>
+    {
+        var sequence = 0;
+        foreach (var fragment in fragments)
+        {
+            if (fragment == null)
+            {
+                continue;
+            }
+
+            builder.OpenRegion(sequence++);
+            builder.AddContent(0, fragment);
+            builder.CloseRegion();
+        }
+    };
+
+    /// <summary>Replaces <c>CreateHeading(string)</c>.</summary>
+    private static RenderFragment CreateHeading(string localizationKey) => CreateLabel("h4", localizationKey);
+
+    /// <summary>Replaces <c>CreateParagraph(string)</c>.</summary>
+    private static RenderFragment CreateParagraph(string localizationKey) => CreateLabel("p", localizationKey);
+
+    /// <summary>Replaces <c>CreateLabel(string tag, string localizationKey)</c>: the given tag wrapping a localized label.</summary>
+    private static RenderFragment CreateLabel(string tag, string localizationKey) => builder =>
+    {
+        builder.OpenElement(0, tag);
+        builder.OpenElement(1, "span");
+        builder.AddContent(2, LocalizeStringStatic(localizationKey));
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    /// <summary>Replaces <c>CreateHiddenField(string id, string value)</c>.</summary>
+    /// <remarks>
+    /// The id matters: <see cref="RunUpgrade"/> reads the anti-forgery token and the uninstall
+    /// option out of the account dictionary by exactly these names.
+    /// </remarks>
+    private static RenderFragment CreateHiddenField(string id, string value) => builder =>
+    {
+        builder.OpenElement(0, "input");
+        builder.AddAttribute(1, "type", "hidden");
+        builder.AddAttribute(2, "id", id);
+        builder.AddAttribute(3, "name", id);
+        builder.AddAttribute(4, "value", value);
+        builder.CloseElement();
+    };
+
+    /// <summary>Replaces <c>CreateTable(IEnumerable&lt;string&gt; items, int maxRows, int maxColumns)</c>.</summary>
+    /// <remarks>
+    /// Same layout rules as the WebForms <c>Table</c>/<c>BulletedList</c> tree: one row, a new
+    /// column every <paramref name="maxRows"/> items, at most
+    /// <paramref name="maxRows"/>&#215;<paramref name="maxColumns"/>&#160;-&#160;1 items taken, a
+    /// trailing "..." when there were more, equal column widths and a 100% wide table.
+    /// </remarks>
+    private static RenderFragment CreateTable(IEnumerable<string> items, int maxRows, int maxColumns) => builder =>
+    {
+        var capacity = maxRows * maxColumns;
+
+        // StartNewColumn(row) built a TableCell containing a BulletedList and appended it to the
+        // row; here the columns are built up first and then rendered, which is the same shape.
+        var columns = new List<List<string>>();
+        var current = new List<string>();
+        columns.Add(current);
+
+        foreach (var extension in items.Take(capacity - 1))
+        {
+            current.Add(extension);
+
+            if (current.Count == maxRows)
+            {
+                current = new List<string>();
+                columns.Add(current);
+            }
+        }
+
+        if (capacity < items.Count())
+        {
+            current.Add("...");
+        }
+
+        var width = (100.0 / columns.Count).ToString("0.####", CultureInfo.InvariantCulture) + "%";
+
+        builder.OpenElement(0, "table");
+        builder.AddAttribute(1, "style", "width:100%");
+        builder.OpenElement(2, "tr");
+
+        var sequence = 3;
+        foreach (var column in columns)
+        {
+            builder.OpenRegion(sequence++);
+            builder.OpenElement(0, "td");
+            builder.AddAttribute(1, "style", $"vertical-align:top;width:{width}");
+            builder.OpenElement(2, "ul");
+
+            var itemSequence = 3;
+            foreach (var item in column)
+            {
+                builder.OpenRegion(itemSequence++);
+                builder.OpenElement(0, "li");
+                builder.AddContent(1, item);
+                builder.CloseElement();
+                builder.CloseRegion();
+            }
+
+            builder.CloseElement();
+            builder.CloseElement();
+            builder.CloseRegion();
+        }
+
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    /// <summary>Replaces <c>RenderControls(params Control[])</c>.</summary>
+    /// <remarks>
+    /// The original wrapped its arguments in a bundle and then flattened the bundle to an HTML
+    /// string with an <c>HtmlTextWriter</c>. There is nothing left to flatten: the bundle IS the
+    /// renderable value, so this is just <see cref="CreateBundle"/>.
+    /// </remarks>
+    private static RenderFragment RenderControls(params RenderFragment[] fragments) => CreateBundle(fragments);
+
+    /// <summary>Renders a literal markup fragment, replacing <c>new Literal { Text = "&lt;br /&gt;" }</c>.</summary>
+    private static RenderFragment CreateLineBreak() => builder => builder.OpenElement(0, "br");
+
+    private static string GetHostSetting(string key)
+    {
+        return Globals.GetCurrentServiceProvider()
+            .GetRequiredService<IHostSettingsService>()
+            .GetSettingsDictionary()[key];
+    }
+
+    private static void SetHostSetting(string key, string value, bool isSecure = false)
+    {
+        var setting = new ConfigurationSetting
+        {
+            IsSecure = isSecure,
+            Key = key,
+            Value = value,
+        };
+
+        Globals.GetCurrentServiceProvider()
+            .GetRequiredService<IHostSettingsService>()
+            .Update(setting);
+    }
+
+    private static void GetInstallerLocales(IApplicationStatusInfo applicationStatus)
+    {
+        var filePath = applicationStatus.ApplicationMapPath + LocalesFile.Replace("/", @"\");
+
+        if (File.Exists(filePath))
+        {
+            var doc = new XPathDocument(filePath);
+            var languages = doc.CreateNavigator().Select("root/language");
+
+            if (languages.Count > 0)
+            {
+                supportedLanguages = new string[languages.Count];
+                var i = 0;
+                foreach (XPathNavigator nav in languages)
+                {
+                    if (nav.NodeType != XPathNodeType.Comment)
+                    {
+                        supportedLanguages.SetValue(nav.GetAttribute("key", string.Empty), i);
+                    }
+
+                    i++;
+                }
+            }
+            else
+            {
+                supportedLanguages = new string[1];
+                supportedLanguages.SetValue("en-US", 0);
+            }
+        }
+        else
+        {
+            supportedLanguages = new string[1];
+            supportedLanguages.SetValue("en-US", 0);
+        }
+    }
+
+    private static string LocalizeStringStatic(string key)
+    {
+        return Localization.GetString(key, localResourceFile, culture);
+    }
+
+    private static void LaunchUpgrade()
+    {
+        // Was: scriptTimeOut = Server.ScriptTimeout; Server.ScriptTimeout = int.MaxValue; ...
+        // restore at the end. ASP.NET Core has no script timeout, and the upgrade runs off the
+        // request thread here, so no request timeout applies to it at all.
+        if (culture != null)
+        {
+            Thread.CurrentThread.CurrentUICulture = new CultureInfo(culture);
+        }
+
+        // bail out early if upgrade is in progress
+        if (upgradeRunning)
+        {
+            return;
+        }
+
+        var percentForEachStep = 100 / steps.Count;
+        var useGenericPercent = false;
+        var totalPercent = steps.Sum(step => step.Value);
+        if (totalPercent != 100)
+        {
+            useGenericPercent = true;
+        }
+
+        upgradeRunning = true;
+        upgradeProgress = 0;
+
+        // Output the current time for the user
+        CurrentStepActivity(string.Concat(
+            Localization.GetString("UpgradeStarted", localResourceFile),
+            ":",
+            DateTime.Now.ToString()));
+
+        foreach (var step in steps)
+        {
+            currentStep = step.Key;
+
+            try
+            {
+                currentStep.Activity += CurrentStepActivity;
+                currentStep.Execute();
+            }
+            catch (Exception ex)
+            {
+                CurrentStepActivity(Localization.GetString("ErrorInStep", localResourceFile) + ": " + ex.Message);
+                upgradeRunning = false;
+                return;
+            }
+
+            switch (currentStep.Status)
+            {
+                case StepStatus.AppRestart:
+                    // Was HttpContext.Current.Response.Redirect(RawUrl, true). The upgrade runs off
+                    // the request thread, so there is no response to redirect; the stop is reported
+                    // through the status file and the component's progress loop observes it. The
+                    // AppDomain restart itself still happens.
+                    upgradeRunning = false;
+                    break;
+                default:
+                    if (currentStep.Status != StepStatus.Done)
+                    {
+                        CurrentStepActivity(string.Format(
+                            Localization.GetString("ErrorInStep", localResourceFile),
+                            currentStep.Errors.Count > 0 ? string.Join(",", currentStep.Errors.ToArray()) : currentStep.Details));
+                        upgradeRunning = false;
+                        return;
+                    }
+
+                    break;
+            }
+
+            if (!upgradeRunning)
+            {
+                return;
+            }
+
+            if (useGenericPercent)
+            {
+                upgradeProgress += percentForEachStep;
+            }
+            else
+            {
+                upgradeProgress += step.Value;
+            }
+        }
+
+        currentStep = null;
+        upgradeProgress = 100;
+
+        Globals.GetCurrentServiceProvider().GetService<IDamUninstaller>().Execute();
+
+        CurrentStepActivity(Localization.GetString("UpgradeDone", localResourceFile));
+
+        // indicate we are done
+        upgradeRunning = false;
+    }
+
+    private static void CurrentStepActivity(string status)
+    {
+        var percentage = (currentStep == null) ? upgradeProgress : upgradeProgress + (currentStep.Percentage / steps.Count);
+        var obj = new
+        {
+            progress = percentage,
+            details = status,
+            check0 = upgradeDatabase.Status.ToString() + (upgradeDatabase.Errors.Count == 0 ? string.Empty : " Errors " + upgradeDatabase.Errors.Count),
+            check1 = upgradeExtensions.Status.ToString() + (upgradeExtensions.Errors.Count == 0 ? string.Empty : " Errors " + upgradeExtensions.Errors.Count),
+        };
+
+        try
+        {
+            lock (StatusLock)
+            {
+                if (!File.Exists(StatusFile))
+                {
+                    File.CreateText(StatusFile).Close();
+                }
+
+                using (var sw = new StreamWriter(StatusFile, true))
+                {
+                    sw.WriteLine(obj.ToJson());
+                    sw.Close();
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // TODO - do something
+        }
+    }
+
+    /// <summary>Verifies that the supplied credentials belong to a super user.</summary>
+    /// <param name="accountInfo">The account information.</param>
+    /// <param name="errorMsg">The error message when verification fails.</param>
+    /// <returns><see langword="true"/> when the credentials are those of a super user.</returns>
+    /// <remarks>
+    /// SECURITY CONTROL - preserved exactly: the same <c>UserController.ValidateUser</c> call with
+    /// the same arguments (portal -1, the "DNN" auth type, the caller's IP address), and the same
+    /// two-part rejection test - a <c>LOGIN_FAILURE</c> status OR a user who is not a super user.
+    /// Only on success is <see cref="IsAuthenticated"/> set, which is what gates
+    /// <see cref="GetInstallationLog"/>. Nothing is relaxed or widened.
+    /// The only change is how the IP address is obtained: the WebForms call wrapped
+    /// <c>HttpContext.Current.Request</c> in an <c>HttpRequestWrapper</c>, which does not exist on
+    /// ASP.NET Core, so the ASP.NET Core request is passed to the same
+    /// <see cref="IUserRequestIPAddressController"/>.
+    /// </remarks>
+    private static bool VerifyHostUser(Dictionary<string, string> accountInfo, out string errorMsg)
+    {
+        var result = true;
+        errorMsg = string.Empty;
+
+        UserLoginStatus loginStatus = UserLoginStatus.LOGIN_FAILURE;
+        var userRequestIpAddressController = UserRequestIPAddressController.Instance;
+        var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress(HttpContextSource.Current.Request);
+        UserInfo hostUser = DotNetNuke.Entities.Users.UserController.ValidateUser(-1, accountInfo["username"], accountInfo["password"], "DNN", string.Empty, string.Empty, ipAddress, ref loginStatus);
+
+        if (loginStatus == UserLoginStatus.LOGIN_FAILURE || !hostUser.IsSuperUser)
+        {
+            result = false;
+            errorMsg = LocalizeStringStatic("InvalidCredentials");
+        }
+        else
+        {
+            IsAuthenticated = true;
+        }
+
+        return result;
+    }
+
+    private static RenderFragment CreateTelerikAntiForgeryTokenField(ICryptographyProvider cryptographyProvider) =>
+        CreateHiddenField(TelerikAntiForgeryTokenClientID, CreateTelerikAntiForgeryToken(cryptographyProvider));
+
+    private static string CreateTelerikAntiForgeryToken(ICryptographyProvider cryptographyProvider)
+    {
+        var secret = GetHostSetting("GUID");
+        var salt = new Random().Next(int.MaxValue);
+        var token = new { secret, salt };
+        var json = JsonConvert.SerializeObject(token);
+
+        return Encrypt(cryptographyProvider, json);
+    }
+
+    /// <summary>Validates the Telerik anti-forgery token.</summary>
+    /// <remarks>
+    /// SECURITY CONTROL - preserved exactly: a missing token, a token whose secret does not match
+    /// the host GUID, and a malformed token all return <see langword="false"/>, and only an
+    /// otherwise-valid token returns <see langword="true"/>.
+    /// </remarks>
+    private static bool TelerikAntiForgeryTokenIsValid(ICryptographyProvider cryptographyProvider, Dictionary<string, string> accountInfo)
+    {
+        if (!accountInfo.TryGetValue(TelerikAntiForgeryTokenClientID, out var encryptedToken))
+        {
+            return false; // token missing somehow.
+        }
+
+        try
+        {
+            var json = Decrypt(cryptographyProvider, encryptedToken);
+            dynamic token = JsonConvert.DeserializeObject(json);
+            var expected = GetHostSetting("GUID");
+            if (token.secret != expected)
+            {
+                return false; // token mismatch.
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.UpgradeWizardAntiForgeryTokenException(ex);
+            return false; // malformed token.
+        }
+
+        return true;
+    }
+
+    private static string Encrypt(ICryptographyProvider cryptographyProvider, string token)
+    {
+        var (encryptedMessage, _, initializationVector) = cryptographyProvider.EncryptString(token, GetHostSetting("GUID"));
+        return $"{encryptedMessage}|{initializationVector}";
+    }
+
+    private static string Decrypt(ICryptographyProvider cryptographyProvider, string token)
+    {
+        var tokenParts = token.Split(['|',], 2);
+        return cryptographyProvider.DecryptString(tokenParts[0], GetHostSetting("GUID"), cryptographyProvider.EncryptStringAlgorithmName, tokenParts[1]);
+    }
+
+    private static SecurityTabResult GetTelerikNotInstalledResult(ICryptographyProvider cryptographyProvider)
+    {
+        return new SecurityTabResult
+        {
+            CanProceed = true,
+            View = RenderControls(
+                CreateTelerikAntiForgeryTokenField(cryptographyProvider),
+                CreateHiddenField(TelerikUninstallOptionClientID, OptionNo),
+                CreateHeading("TelerikNotInstalledHeading"),
+                CreateParagraph("TelerikNotInstalledInfo")),
+        };
+    }
+
+    private static SecurityTabResult GetTelerikInstalledWithVersionNotKnownToBeVulnerable(ICryptographyProvider cryptographyProvider, Version version)
+    {
+        return new SecurityTabResult
+        {
+            CanProceed = true,
+            View = RenderControls(
+                CreateTelerikAntiForgeryTokenField(cryptographyProvider),
+                CreateHiddenField(TelerikUninstallOptionClientID, DotNetNuke.Maintenance.Constants.TelerikUninstallNoValue),
+                CreateTelerikInstalledHeader(version),
+                CreateParagraph("TelerikVersionNotKnownToBeVulnerableInfo")),
+        };
+    }
+
+    private static SecurityTabResult GetTelerikInstalledButNotUsedResult(ICryptographyProvider cryptographyProvider, Version version)
+    {
+        return new SecurityTabResult
+        {
+            CanProceed = true,
+            View = RenderControls(
+                CreateTelerikAntiForgeryTokenField(cryptographyProvider),
+                CreateHiddenField(TelerikUninstallOptionClientID, DotNetNuke.Maintenance.Constants.TelerikUninstallYesValue),
+                CreateTelerikInstalledHeader(version),
+                CreateParagraph("TelerikInstalledBulletin"),
+                CreateParagraph("TelerikInstalledButNotUsedInfo"),
+                CreateParagraph("TelerikUninstallInfo")),
+        };
+    }
+
+    private static SecurityTabResult GetTelerikInstalledAndUsedResult(ICryptographyProvider cryptographyProvider, IEnumerable<string> assemblies, Version version)
+    {
+        return new SecurityTabResult
+        {
+            CanProceed = true,
+            View = RenderControls(
+                CreateTelerikAntiForgeryTokenField(cryptographyProvider),
+                CreateHiddenField(TelerikUninstallOptionClientID, DotNetNuke.Maintenance.Constants.TelerikUninstallYesValue),
+                CreateTelerikInstalledHeader(version),
+                CreateParagraph("TelerikInstalledBulletin"),
+                CreateParagraph("TelerikInstalledAndUsedInfo"),
+                CreateTable(assemblies, maxRows: 3, maxColumns: 4),
+                CreateLineBreak(),
+                CreateParagraph("TelerikInstalledAndUsedWarning")),
+        };
+    }
+
+    /// <summary>Replaces <c>upgradeWizard.changePageLocale</c>.</summary>
+    private void ChangePageLocale(string locale)
+    {
+        culture = locale;
+        Thread.CurrentThread.CurrentUICulture = new CultureInfo(locale);
+        this.LocalizePage();
+    }
+
+    /// <summary>Replaces the <c>continueLink</c> click handler.</summary>
+    private async Task ContinueAsync()
+    {
+        if (!this.continueEnabled)
+        {
+            return;
+        }
+
+        this.accountInfo["username"] = this.userName ?? string.Empty;
+        this.accountInfo["password"] = this.password ?? string.Empty;
+
+        this.continueEnabled = false;
+
+        var result = await Task.Run(() => ValidateInput(this.accountInfo));
+        if (result.Item1)
+        {
+            this.accountInfoError = null;
+            this.ShowSecurityTab();
+        }
+        else
+        {
+            this.accountInfoError = result.Item2;
+            this.continueEnabled = true;
+        }
+    }
+
+    /// <summary>Replaces <c>upgradeWizard.showSecurityTab</c> and its <c>GetSecurityTab</c> call.</summary>
+    private void ShowSecurityTab()
+    {
+        this.step = WizardStep.Security;
+
+        var result = GetSecurityTab(this.accountInfo);
+        if (result.Item1)
+        {
+            this.securityError = null;
+            this.securityTab = result.Item3;
+
+            // The hidden fields the view renders carry the token and the uninstall default; the
+            // account dictionary is populated with them here so that RunUpgrade finds them, which
+            // is what the client script did by reading the rendered inputs.
+            this.accountInfo[TelerikAntiForgeryTokenClientID] = CreateTelerikAntiForgeryToken(this.Cryptography);
+            this.accountInfo[TelerikUninstallOptionClientID] = this.DefaultUninstallOption();
+        }
+        else
+        {
+            this.securityError = result.Item2;
+            this.step = WizardStep.AccountInfo;
+            this.continueEnabled = true;
+        }
+    }
+
+    /// <summary>Determines the uninstall option the security tab defaults to, mirroring the four branches of <see cref="GetSecurityTab"/>.</summary>
+    private string DefaultUninstallOption()
+    {
+        var telerikUtils = CreateTelerikUtils();
+        if (!telerikUtils.TelerikIsInstalled())
+        {
+            return OptionNo;
+        }
+
+        var version = telerikUtils.GetTelerikVersion();
+        return telerikUtils.IsTelerikVersionVulnerable(version)
+            ? DotNetNuke.Maintenance.Constants.TelerikUninstallYesValue
+            : DotNetNuke.Maintenance.Constants.TelerikUninstallNoValue;
+    }
+
+    /// <summary>Replaces the <c>UpgradeNowButton</c> click handler.</summary>
+    private async Task UpgradeNowAsync()
+    {
+        if (!this.UpgradeNowEnabled)
+        {
+            return;
+        }
+
+        this.step = WizardStep.Upgrade;
+        await this.UpgradeAsync();
+    }
+
+    /// <summary>Replaces <c>upgradeWizard.upgrade()</c>: starts the upgrade and the progress bar.</summary>
+    private async Task UpgradeAsync()
+    {
+        this.upgradeComplete = false;
+        this.upgradeFailed = false;
+        this.progress = 0;
+        this.progressDetails = string.Empty;
+        this.StartProgressReporting();
+        this.StateHasChanged();
+
+        var info = new Dictionary<string, string>(this.accountInfo);
+
+        // Call the page method which triggers the long running operation, off the circuit's thread
+        // so the UI keeps rendering progress - which is what the AJAX call achieved.
+        await Task.Run(() =>
+        {
+            try
+            {
+                RunUpgrade(info);
+            }
+            catch (Exception ex)
+            {
+                CurrentStepActivity(Localization.GetString("ErrorInStep", localResourceFile) + ": " + ex.Message);
+            }
+        });
+    }
+
+    /// <summary>Replaces the <c>retry</c> click handler.</summary>
+    private async Task RetryAsync()
+    {
+        if (!this.RetryEnabled)
+        {
+            return;
+        }
+
+        this.showInstallationLog = false;
+        await this.UpgradeAsync();
+    }
+
+    /// <summary>Replaces the <c>seeLogs</c> click handler and its <c>GetInstallationLog</c> polling.</summary>
+    private async Task SeeLogsAsync()
+    {
+        if (!this.SeeLogsEnabled)
+        {
+            return;
+        }
+
+        this.showInstallationLog = true;
+        this.installationLog = this.LocalizeString("LoadingInstallationLog");
+        this.installationLogStartLine = 0;
+        this.StateHasChanged();
+
+        var builder = new StringBuilder();
+        while (true)
+        {
+            var chunk = await Task.Run(() => GetInstallationLog(this.installationLogStartLine) as string);
+            if (string.IsNullOrEmpty(chunk))
+            {
+                break;
+            }
+
+            builder.Append(chunk);
+            this.installationLogStartLine += 500;
+            this.installationLog = builder.ToString();
+            this.StateHasChanged();
+        }
+
+        if (builder.Length == 0)
+        {
+            this.installationLog = this.LocalizeString("NoInstallationLog");
+        }
+    }
+
+    /// <summary>Replaces the <c>visitSite</c> link, whose href was <c>location.pathname + "?complete"</c>.</summary>
+    private Task VisitSiteAsync()
+    {
+        if (!this.VisitSiteEnabled)
+        {
+            return Task.CompletedTask;
+        }
+
+        this.Navigation.NavigateTo(Globals.ResolveUrl("~/Install/UpgradeWizard.aspx") + "?complete", forceLoad: true);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Starts the server-side progress loop that replaces the browser's 500ms poll.</summary>
+    private void StartProgressReporting()
+    {
+        if (this.progressCancellation != null)
+        {
+            return;
+        }
+
+        this.progressStartedUtc = DateTime.UtcNow;
+        this.progressCancellation = new CancellationTokenSource();
+        var token = this.progressCancellation.Token;
+
+        _ = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    await this.InvokeAsync(this.ReadStatus);
+                    if (this.upgradeComplete || this.upgradeFailed)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The circuit went away.
+            }
+        });
+    }
+
+    /// <summary>Reads the upgrade status file and applies it. Replaces <c>$.updateProgressbar</c>.</summary>
+    private void ReadStatus()
+    {
+        try
+        {
+            if (!File.Exists(StatusFile))
+            {
+                return;
+            }
+
+            string content;
+            lock (StatusLock)
+            {
+                using var stream = new FileStream(StatusFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                content = reader.ReadToEnd();
+            }
+
+            var lines = content.Split('\n').Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+            if (lines.Length == 0)
+            {
+                return;
+            }
+
+            var status = Json.Deserialize<UpgradeStatus>(lines[lines.Length - 1]);
+            if (status == null || status.Progress < this.progress)
+            {
+                return;
+            }
+
+            this.progress = status.Progress;
+            this.progressDetails = status.Details ?? string.Empty;
+            this.check0 = status.Check0;
+            this.check1 = status.Check1;
+
+            // The client matched the LOCALIZED "Error" string, not the literal word - preserved.
+            var upgradeError = this.progressDetails.ToUpperInvariant()
+                .IndexOf((this.LocalizeString("Error") ?? "ERROR").ToUpperInvariant(), StringComparison.Ordinal) > -1;
+
+            if (upgradeError)
+            {
+                // The client walked check0/check1 and marked the step after the last completed one
+                // as "Error"; same rule here.
+                if (this.check0 == "Done")
+                {
+                    this.check1 = "Error";
+                }
+                else
+                {
+                    this.check0 = "Error";
+                }
+            }
+
+            if (this.progress >= 100 || this.progressDetails == this.LocalizeString("UpgradeDone"))
+            {
+                // Was upgradeWizard.finishInstall().
+                this.upgradeComplete = true;
+                this.upgradeFailed = false;
+                this.check0 = this.check1 = "Done";
+                this.step = WizardStep.ViewWebsite;
+            }
+            else if (upgradeError)
+            {
+                this.upgradeFailed = true;
+            }
+
+            this.StateHasChanged();
+        }
+        catch (Exception)
+        {
+            // The client swallowed parse failures of a partially written status line; so does this.
+        }
+    }
+
+    private void LocalizePage()
+    {
+        this.SetBrowserLanguage();
+
+        // Was this.Page.Title, which is the <PageTitle> above reading the same key.
+        if (Globals.FormatVersion(this.ApplicationVersion) == Globals.FormatVersion(this.CurrentVersion))
+        {
+            this.versionText = null;
+            this.currentVersionText = null;
+            this.versionsMatchText = this.LocalizeString("VersionsMatch");
+            if (this.ApplicationStatus.IncrementalVersionExists(this.CurrentVersion))
+            {
+                this.versionsMatchText = this.LocalizeString("VersionsMatchButIncrementalExists");
+            }
+        }
+        else
+        {
+            this.versionsMatchText = null;
+            this.versionText = string.Format(this.LocalizeString("Version"), Globals.FormatVersion(this.ApplicationVersion));
+            this.currentVersionText = string.Format(this.LocalizeString("CurrentVersion"), Globals.FormatVersion(this.CurrentVersion));
+        }
+    }
+
+    private void SetBrowserLanguage()
+    {
+        string cultureCode;
+        if (string.IsNullOrEmpty(culture))
+        {
+            cultureCode = TestableLocalization.Instance.BestCultureCodeBasedOnBrowserLanguages(supportedLanguages);
+        }
+        else
+        {
+            cultureCode = culture;
+        }
+
+        culture = cultureCode;
+
+        Thread.CurrentThread.CurrentUICulture = new CultureInfo(cultureCode);
+    }
+
+    private void CompleteUpgrade()
+    {
+        // Delete the status file.
+        try
+        {
+            File.Delete(StatusFile);
+        }
+        catch (Exception)
+        {
+            // Do nothing
+        }
+
+        // remove installwizard files added back by upgrade package
+        Upgrade.Upgrade.DeleteInstallerFiles();
+
+        Config.Touch(this.ApplicationStatus);
+        this.Navigation.NavigateTo(Globals.ResolveUrl("~/Default.aspx"), forceLoad: true);
+    }
+
+    /// <summary>Redirects to HTTPS when the host requires SSL for the upgrade.</summary>
+    /// <remarks>
+    /// SECURITY CONTROL - preserved exactly: the same <c>UpgradeForceSsl</c> + not-secure
+    /// condition, the same SslDomain resolution (fall back to the request host, strip a scheme
+    /// prefix) and the same <c>https://{sslDomain}{RawUrl}</c> target.
+    /// </remarks>
+    private void SslRequiredCheck()
+    {
+        if (this.HostSettingsService.UpgradeForceSsl && !(this.Request?.IsHttps ?? false))
+        {
+            var sslDomain = this.HostSettingsService.SslDomain;
+            if (string.IsNullOrEmpty(sslDomain))
+            {
+                sslDomain = this.Request.Host.Host;
+            }
+            else if (sslDomain.Contains("://"))
+            {
+                sslDomain = sslDomain.Substring(sslDomain.IndexOf("://") + 3);
+            }
+
+            var sslUrl = $"https://{sslDomain}{this.RawUrl()}";
+
+            this.Navigation.NavigateTo(sslUrl, forceLoad: true);
+        }
+    }
+
+    /// <summary>Replaces <c>HttpRequest.RawUrl</c>, which does not exist on ASP.NET Core.</summary>
+    private string RawUrl()
+    {
+        var request = this.Request;
+        return request == null
+            ? Globals.ResolveUrl("~/Install/UpgradeWizard.aspx")
+            : (request.PathBase + request.Path + request.QueryString).ToString();
+    }
+
+    /// <summary>The shape of a line of the upgrade status file written by <see cref="CurrentStepActivity"/>.</summary>
+    private sealed class UpgradeStatus
+    {
+        [JsonProperty("progress")]
+        public int Progress { get; set; }
+
+        [JsonProperty("details")]
+        public string Details { get; set; }
+
+        [JsonProperty("check0")]
+        public string Check0 { get; set; }
+
+        [JsonProperty("check1")]
+        public string Check1 { get; set; }
+    }
+}

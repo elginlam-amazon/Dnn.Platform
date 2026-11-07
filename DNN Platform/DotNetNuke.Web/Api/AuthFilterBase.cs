@@ -4,17 +4,24 @@
 
 namespace DotNetNuke.Web.Api
 {
-    using System;
-    using System.Net.Http;
-    using System.Threading;
     using System.Threading.Tasks;
-    using System.Web.Http.Controllers;
-    using System.Web.Http.Filters;
 
     using DotNetNuke.Common;
 
+    using Microsoft.AspNetCore.Mvc.Filters;
+
     /// <summary>A base class for implementing a Web API authorization filter.</summary>
-    public abstract class AuthFilterBase : IAuthorizationFilter
+    /// <remarks>
+    /// The legacy implementation was a Web API 2 <c>System.Web.Http.Filters.IAuthorizationFilter</c>,
+    /// whose <c>ExecuteAuthorizationFilterAsync</c> ran <see cref="OnAuthorization"/>, returned
+    /// <c>actionContext.Response</c> when the filter had produced one, and otherwise called the
+    /// continuation. In ASP.NET Core an authorization filter short-circuits by assigning
+    /// <see cref="AuthorizationFilterContext.Result"/>, which <see cref="AuthFilterContext.HandleUnauthorizedRequest"/>
+    /// does; when it is left <see langword="null"/> the pipeline continues on its own. The
+    /// <see cref="IsAuthorized(AuthFilterContext)"/> and <see cref="AllowMultiple"/> members are kept
+    /// unchanged because they are the public contract of this base class.
+    /// </remarks>
+    public abstract class AuthFilterBase : IAsyncAuthorizationFilter
     {
         /// <summary>Gets a value indicating whether more than one instance of the indicated attribute can be specified for a single program element.</summary>
         public abstract bool AllowMultiple { get; }
@@ -25,40 +32,21 @@ namespace DotNetNuke.Web.Api
         public abstract bool IsAuthorized(AuthFilterContext context);
 
         /// <inheritdoc />
-        Task<HttpResponseMessage> IAuthorizationFilter.ExecuteAuthorizationFilterAsync(HttpActionContext actionContext, CancellationToken cancellationToken, Func<Task<HttpResponseMessage>> continuation)
+        public Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
-            Requires.NotNull("actionContext", actionContext);
-            Requires.NotNull("continuation", continuation);
+            Requires.NotNull("actionContext", context);
 
-            try
-            {
-                this.OnAuthorization(actionContext);
-            }
-            catch (Exception e)
-            {
-                var tcs = new TaskCompletionSource<HttpResponseMessage>();
-                tcs.SetException(e);
-                return tcs.Task;
-            }
-
-            if (actionContext.Response != null)
-            {
-                var tcs = new TaskCompletionSource<HttpResponseMessage>();
-                tcs.SetResult(actionContext.Response);
-                return tcs.Task;
-            }
-
-            return continuation();
+            this.OnAuthorization(context);
+            return Task.CompletedTask;
         }
 
         /// <summary>Co-ordinates check of authorization and handles Auth failure.  Should rarely be overridden.</summary>
         /// <param name="actionContext">The action context.</param>
-        protected virtual void OnAuthorization(HttpActionContext actionContext)
+        protected virtual void OnAuthorization(AuthorizationFilterContext actionContext)
         {
             Requires.NotNull("actionContext", actionContext);
 
-            const string failureMessage = "Authorization has been denied for this request.";
-            var authFilterContext = new AuthFilterContext(actionContext, failureMessage);
+            var authFilterContext = new AuthFilterContext(actionContext, DnnAuthorizeBaseAttribute.AuthorizationDeniedMessage);
             if (!this.IsAuthorized(authFilterContext))
             {
                 authFilterContext.HandleUnauthorizedRequest();

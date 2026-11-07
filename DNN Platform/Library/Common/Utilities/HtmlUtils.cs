@@ -6,16 +6,19 @@ namespace DotNetNuke.Common.Utilities
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Net;
     using System.Text;
+    using System.Text.Encodings.Web;
     using System.Text.RegularExpressions;
-    using System.Web;
 
     using AngleSharp.Html.Parser;
-
+    using DotNetNuke.Common;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Services.Upgrade;
-
     using Ganss.Xss;
+    using Microsoft.AspNetCore.Html;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Http.Features;
 
     /// <summary>HtmlUtils is a Utility class that provides HTML Utility methods.</summary>
     public partial class HtmlUtils
@@ -56,14 +59,14 @@ namespace DotNetNuke.Common.Utilities
             if (html.Contains("&lt;"))
             {
                 // Fix when it is a double-encoded document
-                html = HttpUtility.HtmlDecode(html);
+                html = WebUtility.HtmlDecode(html);
             }
 
             // First remove any HTML Tags ("<....>")
             html = StripTags(html, true);
 
             // Second replace any HTML entities (&nbsp; &lt; etc) through their char symbol
-            html = HttpUtility.HtmlDecode(html);
+            html = WebUtility.HtmlDecode(html);
 
             // Thirdly remove any punctuation
             if (removePunctuation)
@@ -94,7 +97,7 @@ namespace DotNetNuke.Common.Utilities
             html = StripUnspecifiedTags(html, tagsFilter, true);
 
             // Second replace any HTML entities (&nbsp; &lt; etc.) through their char symbol
-            html = HttpUtility.HtmlDecode(html);
+            html = WebUtility.HtmlDecode(html);
 
             // Thirdly remove any punctuation
             if (removePunctuation)
@@ -385,13 +388,13 @@ namespace DotNetNuke.Common.Utilities
         /// <param name="message">The error message.</param>
         public static void WriteError(HttpResponse response, string file, string message)
         {
-            response.Write("<h2>Error Details</h2>");
-            response.Write("<table cellspacing=0 cellpadding=0 border=0>");
-            response.Write("<tr><td><b>File</b></td><td><b>" + file + "</b></td></tr>");
-            response.Write("<tr><td><b>Error</b>&nbsp;&nbsp;</td><td><b>" + message + "</b></td></tr>");
-            response.Write("</table>");
-            response.Write("<br><br>");
-            response.Flush();
+            Write(response, "<h2>Error Details</h2>");
+            Write(response, "<table cellspacing=0 cellpadding=0 border=0>");
+            Write(response, "<tr><td><b>File</b></td><td><b>" + file + "</b></td></tr>");
+            Write(response, "<tr><td><b>Error</b>&nbsp;&nbsp;</td><td><b>" + message + "</b></td></tr>");
+            Write(response, "</table>");
+            Write(response, "<br><br>");
+            Flush(response);
         }
 
         /// <summary>WriteFeedback outputs a Feedback Line during Install/Upgrade etc.</summary>
@@ -430,13 +433,14 @@ namespace DotNetNuke.Common.Utilities
                     }
 
                     strMessage += message;
-                    response.Write(strMessage);
-                    response.Flush();
+                    Write(response, strMessage);
+                    Flush(response);
                 }
             }
-            catch (HttpException ex)
+            catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException || ex is OperationCanceledException)
             {
-                // Swallowing this for when requests have timed out. Log in case a listener is implemented
+                // Swallowing this for when requests have timed out (the ASP.NET Core equivalent of
+                // the old HttpException on a disconnected client). Log in case a listener is implemented
                 System.Diagnostics.Trace.TraceError(ex.ToString());
             }
         }
@@ -444,28 +448,30 @@ namespace DotNetNuke.Common.Utilities
         /// <summary>This method adds an empty char to the response stream to avoid closing http connection on long-running tasks.</summary>
         public static void WriteKeepAlive()
         {
-            if (HttpContext.Current == null)
+            var httpContext = HttpContextSource.Current;
+            if (httpContext == null)
             {
                 return;
             }
 
-            if (!HttpContext.Current.Request.RawUrl.ToLowerInvariant().Contains("install.aspx?"))
+            var rawUrl = (httpContext.Request.PathBase + httpContext.Request.Path + httpContext.Request.QueryString).ToString();
+            if (!rawUrl.ToLowerInvariant().Contains("install.aspx?"))
             {
                 return;
             }
 
-            var response = HttpContext.Current.Response;
-            response.Write(" ");
-            response.Flush();
+            var response = httpContext.Response;
+            Write(response, " ");
+            Flush(response);
         }
 
         /// <summary>WriteFooter outputs the Footer during Install/Upgrade etc.</summary>
         /// <param name="response">The ASP.Net Response object.</param>
         public static void WriteFooter(HttpResponse response)
         {
-            response.Write("</body>");
-            response.Write("</html>");
-            response.Flush();
+            Write(response, "</body>");
+            Write(response, "</html>");
+            Flush(response);
         }
 
         /// <summary>WriteHeader outputs the Header during Install/Upgrade etc.</summary>
@@ -473,56 +479,56 @@ namespace DotNetNuke.Common.Utilities
         /// <param name="mode">The mode Install/Upgrade etc.</param>
         public static void WriteHeader(HttpResponse response, string mode)
         {
-            // Set Response buffer to False
-            response.Buffer = false;
+            // Set Response buffer to False (ASP.NET Core: disable response body buffering)
+            response.HttpContext.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
 
             // create an install page if it does not exist already
-            if (!File.Exists(HttpContext.Current.Server.MapPath("~/Install/Install.htm")))
+            if (!File.Exists(HttpContextSource.MapPath("~/Install/Install.htm")))
             {
-                if (File.Exists(HttpContext.Current.Server.MapPath("~/Install/Install.template.htm")))
+                if (File.Exists(HttpContextSource.MapPath("~/Install/Install.template.htm")))
                 {
-                    File.Copy(HttpContext.Current.Server.MapPath("~/Install/Install.template.htm"), HttpContext.Current.Server.MapPath("~/Install/Install.htm"));
+                    File.Copy(HttpContextSource.MapPath("~/Install/Install.template.htm"), HttpContextSource.MapPath("~/Install/Install.htm"));
                 }
             }
 
             // read install page and insert into response stream
-            if (File.Exists(HttpContext.Current.Server.MapPath("~/Install/Install.htm")))
+            if (File.Exists(HttpContextSource.MapPath("~/Install/Install.htm")))
             {
-                response.Write(FileSystemUtils.ReadFile(HttpContext.Current.Server.MapPath("~/Install/Install.htm")));
+                Write(response, FileSystemUtils.ReadFile(HttpContextSource.MapPath("~/Install/Install.htm")));
             }
 
             switch (mode)
             {
                 case "install":
-                    response.Write("<h1>Installing DNN</h1>");
+                    Write(response, "<h1>Installing DNN</h1>");
                     break;
                 case "upgrade":
-                    response.Write("<h1>Upgrading DNN</h1>");
+                    Write(response, "<h1>Upgrading DNN</h1>");
                     break;
                 case "addPortal":
-                    response.Write("<h1>Adding New Portal</h1>");
+                    Write(response, "<h1>Adding New Portal</h1>");
                     break;
                 case "installResources":
-                    response.Write("<h1>Installing Resources</h1>");
+                    Write(response, "<h1>Installing Resources</h1>");
                     break;
                 case "executeScripts":
-                    response.Write("<h1>Executing Scripts</h1>");
+                    Write(response, "<h1>Executing Scripts</h1>");
                     break;
                 case "none":
-                    response.Write("<h1>Nothing To Install At This Time</h1>");
+                    Write(response, "<h1>Nothing To Install At This Time</h1>");
                     break;
                 case "noDBVersion":
-                    response.Write("<h1>New DNN Database</h1>");
+                    Write(response, "<h1>New DNN Database</h1>");
                     break;
                 case "error":
-                    response.Write("<h1>Error Installing DNN</h1>");
+                    Write(response, "<h1>Error Installing DNN</h1>");
                     break;
                 default:
-                    response.Write("<h1>" + mode + "</h1>");
+                    Write(response, "<h1>" + mode + "</h1>");
                     break;
             }
 
-            response.Flush();
+            Flush(response);
         }
 
         public static void WriteSuccessError(HttpResponse response, bool bSuccess)
@@ -576,13 +582,26 @@ namespace DotNetNuke.Common.Utilities
             return html;
         }
 
-        /// <inheritdoc cref="HttpUtility.JavaScriptStringEncode(string)"/>
-        public static IHtmlString JavaScriptStringEncode(string value)
+        /// <summary>JavaScript-encodes a string for embedding in a script literal.</summary>
+        /// <param name="value">The value to encode.</param>
+        /// <returns>The encoded value.</returns>
+        public static IHtmlContent JavaScriptStringEncode(string value)
             => JavaScriptStringEncode(value, false);
 
-        /// <inheritdoc cref="HttpUtility.JavaScriptStringEncode(string,bool)"/>
-        public static IHtmlString JavaScriptStringEncode(string value, bool addDoubleQuotes)
-            => new HtmlString(HttpUtility.JavaScriptStringEncode(value, addDoubleQuotes));
+        /// <summary>JavaScript-encodes a string for embedding in a script literal.</summary>
+        /// <param name="value">The value to encode.</param>
+        /// <param name="addDoubleQuotes">Whether to wrap the encoded value in double quotes.</param>
+        /// <returns>The encoded value.</returns>
+        /// <remarks>
+        /// Replaces <c>System.Web.HttpUtility.JavaScriptStringEncode</c>.
+        /// <see cref="JavaScriptEncoder"/> has no "add quotes" overload, so the quoting is applied
+        /// here to keep the original behaviour.
+        /// </remarks>
+        public static IHtmlContent JavaScriptStringEncode(string value, bool addDoubleQuotes)
+        {
+            var encoded = JavaScriptEncoder.Default.Encode(value ?? string.Empty);
+            return new HtmlString(addDoubleQuotes ? string.Concat("\"", encoded, "\"") : encoded);
+        }
 
         /// <summary>Sanitize the given HTML, removing JavaScript while preserving non-JavaScript markup and attributes.</summary>
         /// <param name="htmlInput">The HTML to sanitize.</param>
@@ -689,6 +708,21 @@ namespace DotNetNuke.Common.Utilities
 
             // Remove all whitespace and HTML syntax characters
             return Regex.Replace(html, @"[\s<>/""'=]", string.Empty);
+        }
+
+        /// <summary>Writes text to the response, replacing the legacy synchronous <c>HttpResponse.Write</c>.</summary>
+        /// <param name="response">The response to write to.</param>
+        /// <param name="text">The text to write.</param>
+        private static void Write(HttpResponse response, string text)
+        {
+            response.WriteAsync(text).GetAwaiter().GetResult();
+        }
+
+        /// <summary>Flushes the response body, replacing the legacy <c>HttpResponse.Flush</c>.</summary>
+        /// <param name="response">The response to flush.</param>
+        private static void Flush(HttpResponse response)
+        {
+            response.Body.FlushAsync().GetAwaiter().GetResult();
         }
     }
 }

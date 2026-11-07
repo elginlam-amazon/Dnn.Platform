@@ -11,8 +11,7 @@ namespace Dnn.PersonaBar.UI.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
+    using System.Text;
 
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
@@ -23,8 +22,10 @@ namespace Dnn.PersonaBar.UI.Services
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Security.Roles;
     using DotNetNuke.Services.Localization;
+    using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -33,6 +34,10 @@ namespace Dnn.PersonaBar.UI.Services
     public class ComponentsController : PersonaBarApiController
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<ComponentsController>();
+
+        /// <summary>The cached parse of <see cref="DataCache.RoleGroupsCacheKey"/>, used on every cache-clearing request.</summary>
+        private static readonly CompositeFormat RoleGroupsCacheKeyFormat = CompositeFormat.Parse(DataCache.RoleGroupsCacheKey);
+
         private readonly RoleProvider roleProvider;
 
         /// <summary>Initializes a new instance of the <see cref="ComponentsController"/> class.</summary>
@@ -59,30 +64,30 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="reload">Whether to clear the cache.</param>
         /// <returns>An HTTP response with a list of <see cref="RoleGroupDto"/> values.</returns>
         [HttpGet]
-        public HttpResponseMessage GetRoleGroups(bool reload = false)
+        public IActionResult GetRoleGroups(bool reload = false)
         {
             try
             {
                 if (!this.UserInfo.IsInRole(this.PortalSettings.AdministratorRoleName) && !PagePermissionsAttributesHelper.HasTabPermission("VIEW"))
                 {
-                    return this.Request.CreateErrorResponse(HttpStatusCode.Unauthorized, Localization.GetString("UnauthorizedRequest", this.LocalResourcesFile));
+                    return DnnApiResults.Error(HttpStatusCode.Unauthorized, Localization.GetString("UnauthorizedRequest", this.LocalResourcesFile));
                 }
 
                 if (reload)
                 {
-                    DataCache.RemoveCache(string.Format(CultureInfo.InvariantCulture, DataCache.RoleGroupsCacheKey, this.PortalId));
+                    DataCache.RemoveCache(string.Format(CultureInfo.InvariantCulture, RoleGroupsCacheKeyFormat, this.PortalId));
                 }
 
                 var groups = RoleController.GetRoleGroups(this.roleProvider, this.PortalId)
                                 .Cast<RoleGroupInfo>()
                                 .Select(RoleGroupDto.FromRoleGroupInfo);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, groups);
+                return this.Ok(groups);
             }
             catch (Exception ex)
             {
                 Logger.ComponentsControllerGetRoleGroupsException(ex);
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError, new { Error = ex.Message });
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError, new { Error = ex.Message });
             }
         }
 
@@ -91,13 +96,13 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="count">The number of suggestions to return.</param>
         /// <returns>An HTTP response with a list of <see cref="SuggestionDto"/> values.</returns>
         [HttpGet]
-        public HttpResponseMessage GetSuggestionUsers(string keyword, int count)
+        public IActionResult GetSuggestionUsers(string keyword, int count)
         {
             try
             {
                 if (string.IsNullOrEmpty(keyword))
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new List<SuggestionDto>());
+                    return this.Ok(new List<SuggestionDto>());
                 }
 
                 var displayMatch = keyword + "%";
@@ -114,12 +119,12 @@ namespace Dnn.PersonaBar.UI.Services
                         Label = $"{u.DisplayName}",
                     });
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, finalUsers.ToList().GroupBy(x => x.Value).Select(group => group.First()));
+                return this.Ok(finalUsers.ToList().GroupBy(x => x.Value).Select(group => group.First()));
             }
             catch (Exception ex)
             {
                 Logger.ComponentsControllerGetSuggestionUsersException(ex);
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError, new { Error = ex.Message });
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError, new { Error = ex.Message });
             }
         }
 
@@ -128,13 +133,13 @@ namespace Dnn.PersonaBar.UI.Services
         /// <param name="roleGroupId">The role group ID.</param>
         /// <param name="count">The number of suggestions to return.</param>
         /// <returns>An HTTP response with a list of <see cref="SuggestionDto"/> values.</returns>
-        public HttpResponseMessage GetSuggestionRoles(string keyword, int roleGroupId, int count)
+        public IActionResult GetSuggestionRoles(string keyword, int roleGroupId, int count)
         {
             try
             {
                 if (string.IsNullOrEmpty(keyword))
                 {
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new List<SuggestionDto>());
+                    return this.Ok(new List<SuggestionDto>());
                 }
 
                 var matchedRoles = RoleController.Instance.GetRoles(this.PortalId)
@@ -160,12 +165,12 @@ namespace Dnn.PersonaBar.UI.Services
                     Label = r.Key,
                 });
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, data);
+                return this.Ok(data);
             }
             catch (Exception ex)
             {
                 Logger.ComponentsControllerGetSuggestionRolesException(ex);
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError, new { Error = ex.Message });
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError, new { Error = ex.Message });
             }
         }
     }

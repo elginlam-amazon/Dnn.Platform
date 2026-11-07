@@ -7,13 +7,15 @@ namespace DotNetNuke.UI.WebControls
     using System.Collections;
     using System.Collections.Generic;
     using System.ComponentModel;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Globalization;
 
     using DotNetNuke.Common;
-    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Users;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>
     /// The possible editor display modes.
@@ -55,8 +57,23 @@ namespace DotNetNuke.UI.WebControls
     /// <summary>
     /// The FieldEditorControl control provides a Control to display Profile Properties.
     /// </summary>
-    [ToolboxData("<{0}:FieldEditorControl runat=server></{0}:FieldEditorControl>")]
-    public class FieldEditorControl : WebControl, INamingContainer
+    /// <remarks>
+    /// <para>
+    /// <c>CreateEditor</c> still builds the editor for one property — it just builds an object graph
+    /// (<see cref="Editor"/>, the label, the visibility control and the validators) instead of a
+    /// Web Forms control tree, and <see cref="RenderContent"/> lays that graph out as a <c>div</c> or
+    /// a <c>table</c> exactly as <c>BuildDiv</c>/<c>BuildTable</c> did. The editor instance that
+    /// <see cref="EditControlFactory"/> produces is rendered through
+    /// <see cref="PropertyEditorComponentBase.Render"/>, so it is the very instance whose
+    /// <see cref="EditControl.ValueChanged"/> event this control subscribes to.
+    /// </para>
+    /// <para>
+    /// The <c>RequiredFieldValidator</c>/<c>RegularExpressionValidator</c> instances became
+    /// <see cref="PropertyEditorValidator"/> instances, which enforce the same two rules and render
+    /// the same <c>dnnFormMessage dnnFormError</c> message.
+    /// </para>
+    /// </remarks>
+    public class FieldEditorControl : PropertyEditorComponentBase
     {
         private readonly IServiceProvider serviceProvider;
         private readonly List<IValidator> validators = new List<IValidator>();
@@ -64,6 +81,9 @@ namespace DotNetNuke.UI.WebControls
         private bool isValid = true;
         private StandardEditorInfoAdapter stdAdapter;
         private bool validated;
+        private EditorInfo editInfo;
+        private PropertyLabelControl propLabel;
+        private VisibilityControl visibilityControl;
 
         /// <summary>Initializes a new instance of the <see cref="FieldEditorControl"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.0.0. Please use overload with IServiceProvider. Scheduled removal in v12.0.0.")]
@@ -83,12 +103,6 @@ namespace DotNetNuke.UI.WebControls
             this.EditorTypeName = Null.NullString;
             this.EditorDisplayMode = EditorDisplayMode.Div;
             this.HelpDisplayMode = HelpDisplayMode.Always;
-            this.VisibilityStyle = new Style();
-            this.LabelStyle = new Style();
-            this.HelpStyle = new Style();
-            this.EditControlStyle = new Style();
-            this.ErrorStyle = new Style();
-            this.ViewStateMode = ViewStateMode.Disabled;
         }
 
         /// <summary>
@@ -127,21 +141,21 @@ namespace DotNetNuke.UI.WebControls
 
         /// <summary>Gets or sets the DataSource that is bound to this control.</summary>
         [Browsable(false)]
+        [Parameter]
         public object DataSource { get; set; }
 
         /// <summary>Gets or sets the value of the Field/property that this control displays.</summary>
         /// <value>A string representing the Name of the Field.</value>
-        [Browsable(true)]
-        [Category("Data")]
-        [DefaultValue("")]
-        [Description("Enter the name of the field that is data bound to the Control.")]
+        [Parameter]
         public string DataField { get; set; }
 
         /// <summary>Gets or sets whether the control uses Divs or Tables.</summary>
+        [Parameter]
         public EditorDisplayMode EditorDisplayMode { get; set; }
 
         /// <summary>Gets or sets the Edit Mode of the Editor.</summary>
         /// <value>The mode of the editor.</value>
+        [Parameter]
         public PropertyEditorMode EditMode { get; set; }
 
         /// <summary>Gets the Edit Control associated with the Editor.</summary>
@@ -149,6 +163,7 @@ namespace DotNetNuke.UI.WebControls
 
         /// <summary>Gets or sets the Factory used to create the Control.</summary>
         /// <value>The mode of the editor.</value>
+        [Parameter]
         public IEditorInfoAdapter EditorInfoAdapter
         {
             get
@@ -176,12 +191,15 @@ namespace DotNetNuke.UI.WebControls
 
         /// <summary>Gets or sets the Editor Type to use.</summary>
         /// <value>The typename of the editor.</value>
+        [Parameter]
         public string EditorTypeName { get; set; }
 
         /// <summary>Gets or sets a value indicating whether the Validators should use client-side validation.</summary>
+        [Parameter]
         public bool EnableClientValidation { get; set; }
 
         /// <summary>Gets or sets whether the control displays Help.</summary>
+        [Parameter]
         public HelpDisplayMode HelpDisplayMode { get; set; }
 
         /// <summary>Gets a value indicating whether any of the properties have been changed.</summary>
@@ -190,43 +208,48 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>
         /// Gets or sets the label mode.
         /// </summary>
+        [Parameter]
         public LabelMode LabelMode { get; set; }
 
         /// <summary>Gets or sets the Local Resource File for the Control.</summary>
+        [Parameter]
         public string LocalResourceFile { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether the field is required.
         /// </summary>
+        [Parameter]
         public bool Required { get; set; }
 
         /// <summary>Gets or sets the Url of the Required Image.</summary>
+        [Parameter]
         public string RequiredUrl { get; set; }
 
         /// <summary>Gets or sets a value indicating whether the Required icon is used.</summary>
+        [Parameter]
         public bool ShowRequired { get; set; }
 
         /// <summary>Gets or sets a value indicating whether the Visibility control is used.</summary>
+        [Parameter]
         public bool ShowVisibility { get; set; }
 
         /// <summary>
         /// Gets or sets the user.
         /// </summary>
+        [Parameter]
         public UserInfo User { get; set; }
 
         /// <summary>
         /// Gets or sets the validation expression.
         /// </summary>
+        [Parameter]
         public string ValidationExpression { get; set; }
 
-        /// <summary>Gets the value of the Field Style.</summary>
+        /// <summary>Gets the value of the Edit Control Style.</summary>
         [Browsable(true)]
         [Category("Styles")]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [TypeConverter(typeof(ExpandableObjectConverter))]
         [Description("Set the Style for the Edit Control.")]
-        public Style EditControlStyle { get; private set; }
+        public Style EditControlStyle { get; } = new Style();
 
         /// <summary>Gets or sets the width of the Edit Control Column.</summary>
         [Browsable(true)]
@@ -237,29 +260,20 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>Gets the value of the Error Style.</summary>
         [Browsable(true)]
         [Category("Styles")]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [TypeConverter(typeof(ExpandableObjectConverter))]
         [Description("Set the Style for the Error Text.")]
-        public Style ErrorStyle { get; private set; }
+        public Style ErrorStyle { get; } = new Style();
 
-        /// <summary>Gets the value of the Label Style.</summary>
+        /// <summary>Gets the value of the Help Style.</summary>
         [Browsable(true)]
         [Category("Styles")]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [TypeConverter(typeof(ExpandableObjectConverter))]
         [Description("Set the Style for the Help Text.")]
-        public Style HelpStyle { get; private set; }
+        public Style HelpStyle { get; } = new Style();
 
         /// <summary>Gets the value of the Label Style.</summary>
         [Browsable(true)]
         [Category("Styles")]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [TypeConverter(typeof(ExpandableObjectConverter))]
         [Description("Set the Style for the Label Text")]
-        public Style LabelStyle { get; private set; }
+        public Style LabelStyle { get; } = new Style();
 
         /// <summary>Gets or sets the width of the Label Column.</summary>
         [Browsable(true)]
@@ -270,20 +284,8 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>Gets the value of the Visibility Style.</summary>
         [Browsable(true)]
         [Category("Styles")]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [TypeConverter(typeof(ExpandableObjectConverter))]
         [Description("Set the Style for the Visibility Control")]
-        public Style VisibilityStyle { get; private set; }
-
-        /// <inheritdoc />
-        protected override HtmlTextWriterTag TagKey
-        {
-            get
-            {
-                return HtmlTextWriterTag.Div;
-            }
-        }
+        public Style VisibilityStyle { get; } = new Style();
 
         /// <summary>Binds the controls to the DataSource.</summary>
         public override void DataBind()
@@ -291,20 +293,8 @@ namespace DotNetNuke.UI.WebControls
             // Invoke OnDataBinding so DataBinding Event is raised
             this.OnDataBinding(EventArgs.Empty);
 
-            // Clear Existing Controls
-            this.Controls.Clear();
-
-            // Clear Child View State as controls will be loaded from DataSource
-            this.ClearChildViewState();
-
-            // Start Tracking ViewState
-            this.TrackViewState();
-
             // Create the editor
             this.CreateEditor();
-
-            // Set flag so CreateChildConrols should not be invoked later in control's lifecycle
-            this.ChildControlsCreated = true;
         }
 
         /// <summary>Validates the data, and sets the IsValid Property.</summary>
@@ -375,14 +365,8 @@ namespace DotNetNuke.UI.WebControls
 
                 this.Visible = editInfo.Visible;
 
-                if (this.EditorDisplayMode == EditorDisplayMode.Div)
-                {
-                    this.BuildDiv(editInfo);
-                }
-                else
-                {
-                    this.BuildTable(editInfo);
-                }
+                this.editInfo = editInfo;
+                this.BuildEditorParts(editInfo);
             }
         }
 
@@ -412,10 +396,7 @@ namespace DotNetNuke.UI.WebControls
         /// <param name="e">The event arguments <see cref="PropertyEditorEventArgs"/>.</param>
         protected virtual void OnItemAdded(PropertyEditorEventArgs e)
         {
-            if (this.ItemAdded != null)
-            {
-                this.ItemAdded(this, e);
-            }
+            this.ItemAdded?.Invoke(this, e);
         }
 
         /// <summary>
@@ -424,10 +405,7 @@ namespace DotNetNuke.UI.WebControls
         /// <param name="e">The event arguments <see cref="PropertyEditorItemEventArgs"/>.</param>
         protected virtual void OnItemCreated(PropertyEditorItemEventArgs e)
         {
-            if (this.ItemCreated != null)
-            {
-                this.ItemCreated(this, e);
-            }
+            this.ItemCreated?.Invoke(this, e);
         }
 
         /// <summary>
@@ -436,10 +414,7 @@ namespace DotNetNuke.UI.WebControls
         /// <param name="e">The event arguments <see cref="PropertyEditorEventArgs"/>.</param>
         protected virtual void OnItemDeleted(PropertyEditorEventArgs e)
         {
-            if (this.ItemDeleted != null)
-            {
-                this.ItemDeleted(this, e);
-            }
+            this.ItemDeleted?.Invoke(this, e);
         }
 
         /// <inheritdoc />
@@ -481,68 +456,231 @@ namespace DotNetNuke.UI.WebControls
         /// <remarks>Raises an ItemChanged event.</remarks>
         protected virtual void ListItemChanged(object sender, PropertyEditorEventArgs e)
         {
-            if (this.ItemChanged != null)
-            {
-                this.ItemChanged(this, e);
-            }
+            this.ItemChanged?.Invoke(this, e);
         }
 
-        /// <summary>BuildDiv creates the Control as a Div.</summary>
-        /// <param name="editInfo">The EditorInfo object for this control.</param>
-        private void BuildDiv(EditorInfo editInfo)
+        /// <inheritdoc />
+        protected override void RenderContent(RenderTreeBuilder builder)
         {
-            var propLabel = new PropertyLabelControl();
-            propLabel.ViewStateMode = ViewStateMode.Disabled;
+            ArgumentNullException.ThrowIfNull(builder);
 
+            if (this.editInfo == null)
+            {
+                // The editor is created by DataBind(); create it on demand so that the control also
+                // renders when it is used declaratively as a Blazor component.
+                this.DataBind();
+                if (this.editInfo == null || !this.Visible)
+                {
+                    return;
+                }
+            }
+
+            builder.OpenElement(0, "div");
+            this.AddStyleAttributes(builder, 1);
+
+            if (this.EditorDisplayMode == EditorDisplayMode.Div)
+            {
+                this.RenderDiv(builder, 10, this.editInfo);
+            }
+            else
+            {
+                this.RenderTable(builder, 10, this.editInfo);
+            }
+
+            builder.CloseElement();
+        }
+
+        /// <summary>Builds the editor, label, visibility control and validators of this field.</summary>
+        /// <param name="editInfo">The EditorInfo object for this control.</param>
+        /// <remarks>Replaces the object construction half of <c>BuildDiv</c>/<c>BuildTable</c>.</remarks>
+        private void BuildEditorParts(EditorInfo editInfo)
+        {
             var propEditor = this.BuildEditor(editInfo);
-            var visibility = this.BuildVisibility(editInfo);
+            this.visibilityControl = this.BuildVisibility(editInfo);
 
-            if (editInfo.LabelMode != LabelMode.None)
+            this.propLabel = editInfo.LabelMode != LabelMode.None ? this.BuildLabel(editInfo) : null;
+            if (this.propLabel != null)
             {
-                propLabel = this.BuildLabel(editInfo);
-                propLabel.EditControl = propEditor;
+                this.propLabel.EditControl = propEditor;
+
+                var strValue = editInfo.Value as string;
+                if (this.ShowRequired && editInfo.Required && (editInfo.EditMode == PropertyEditorMode.Edit || (editInfo.Required && string.IsNullOrEmpty(strValue))))
+                {
+                    this.propLabel.Required = true;
+                }
             }
 
-            var strValue = editInfo.Value as string;
-            if (this.ShowRequired && editInfo.Required && (editInfo.EditMode == PropertyEditorMode.Edit || (editInfo.Required && string.IsNullOrEmpty(strValue))))
-            {
-                propLabel.Required = true;
-            }
+            this.BuildValidators(editInfo, propEditor.ID);
+        }
+
+        /// <summary>Renders the control as a Div.</summary>
+        private void RenderDiv(RenderTreeBuilder builder, int sequence, EditorInfo editInfo)
+        {
+            builder.OpenRegion(sequence);
 
             if (editInfo.LabelMode == LabelMode.Left || editInfo.LabelMode == LabelMode.Top)
             {
-                this.Controls.Add(propLabel);
-                this.Controls.Add(propEditor);
-                if (visibility != null)
+                this.RenderLabel(builder, 0);
+                builder.AddContent(1, this.Editor.Render());
+                this.RenderVisibility(builder, 2);
+            }
+            else
+            {
+                builder.AddContent(3, this.Editor.Render());
+                this.RenderVisibility(builder, 4);
+                this.RenderLabel(builder, 5);
+            }
+
+            // Render the Validators
+            this.RenderValidators(builder, 6, true);
+
+            builder.CloseRegion();
+        }
+
+        /// <summary>Renders the control as a Table.</summary>
+        private void RenderTable(RenderTreeBuilder builder, int sequence, EditorInfo editInfo)
+        {
+            builder.OpenRegion(sequence);
+
+            builder.OpenElement(0, "table");
+
+            var labelFirst = editInfo.LabelMode == LabelMode.Left;
+            var sideBySide = editInfo.LabelMode == LabelMode.Left || editInfo.LabelMode == LabelMode.Right;
+            var fullWidth = !sideBySide;
+
+            if (fullWidth)
+            {
+                if (editInfo.LabelMode == LabelMode.Top)
                 {
-                    this.Controls.Add(visibility);
+                    this.RenderLabelRow(builder, 1, 2);
+                }
+
+                this.RenderEditorRow(builder, 2, 2);
+
+                if (editInfo.LabelMode == LabelMode.Bottom)
+                {
+                    this.RenderLabelRow(builder, 3, 2);
                 }
             }
             else
             {
-                this.Controls.Add(propEditor);
-                if (visibility != null)
+                builder.OpenElement(4, "tr");
+                if (labelFirst)
                 {
-                    this.Controls.Add(visibility);
+                    this.RenderLabelCell(builder, 5, 0);
+                    this.RenderEditorCell(builder, 6, 0);
+                }
+                else
+                {
+                    this.RenderEditorCell(builder, 7, 0);
+                    this.RenderLabelCell(builder, 8, 0);
                 }
 
-                if (propLabel != null)
-                {
-                    this.Controls.Add(propLabel);
-                }
+                builder.CloseElement();
             }
 
-            // Build the Validators
-            this.BuildValidators(editInfo, propEditor.ID);
-            if (this.validators.Count > 0)
+            // Build the Validators row
+            builder.OpenElement(9, "tr");
+            builder.OpenElement(10, "td");
+            builder.AddAttribute(11, "colspan", "2");
+            this.RenderValidators(builder, 12, false);
+            builder.CloseElement();
+            builder.CloseElement();
+
+            builder.CloseElement();
+
+            builder.CloseRegion();
+        }
+
+        private void RenderLabelRow(RenderTreeBuilder builder, int sequence, int columnSpan)
+        {
+            builder.OpenElement(sequence, "tr");
+            this.RenderLabelCell(builder, sequence + 1, columnSpan);
+            builder.CloseElement();
+        }
+
+        private void RenderEditorRow(RenderTreeBuilder builder, int sequence, int columnSpan)
+        {
+            builder.OpenElement(sequence, "tr");
+            this.RenderEditorCell(builder, sequence + 1, columnSpan);
+            builder.CloseElement();
+        }
+
+        private void RenderLabelCell(RenderTreeBuilder builder, int sequence, int columnSpan)
+        {
+            builder.OpenElement(sequence, "td");
+            builder.AddAttribute(sequence + 1, "valign", "top");
+            if (columnSpan > 0)
             {
-                // Add the Validators to the editor cell
-                foreach (BaseValidator validator in this.validators)
+                builder.AddAttribute(sequence + 2, "colspan", columnSpan.ToString(CultureInfo.InvariantCulture));
+            }
+            else if (!this.LabelWidth.IsEmpty)
+            {
+                builder.AddAttribute(sequence + 3, "style", $"width:{this.LabelWidth.ToString(CultureInfo.InvariantCulture)};");
+            }
+
+            this.RenderLabel(builder, sequence + 4);
+            builder.CloseElement();
+        }
+
+        private void RenderEditorCell(RenderTreeBuilder builder, int sequence, int columnSpan)
+        {
+            builder.OpenElement(sequence, "td");
+            builder.AddAttribute(sequence + 1, "valign", "top");
+            if (columnSpan > 0)
+            {
+                builder.AddAttribute(sequence + 2, "colspan", columnSpan.ToString(CultureInfo.InvariantCulture));
+            }
+            else if (!this.EditControlWidth.IsEmpty)
+            {
+                builder.AddAttribute(sequence + 3, "style", $"width:{this.EditControlWidth.ToString(CultureInfo.InvariantCulture)};");
+            }
+
+            builder.AddContent(sequence + 4, this.Editor.Render());
+            this.RenderRequiredIcon(builder, sequence + 5, this.editInfo);
+
+            if (this.visibilityControl != null)
+            {
+                builder.AddMarkupContent(sequence + 6, "&nbsp;&nbsp;");
+                this.RenderVisibility(builder, sequence + 7);
+            }
+
+            builder.CloseElement();
+        }
+
+        private void RenderLabel(RenderTreeBuilder builder, int sequence)
+        {
+            if (this.propLabel != null)
+            {
+                builder.AddContent(sequence, this.propLabel.Render());
+            }
+        }
+
+        private void RenderVisibility(RenderTreeBuilder builder, int sequence)
+        {
+            if (this.visibilityControl != null)
+            {
+                builder.AddContent(sequence, this.visibilityControl.Render());
+            }
+        }
+
+        private void RenderValidators(RenderTreeBuilder builder, int sequence, bool applyWidth)
+        {
+            builder.OpenRegion(sequence);
+            foreach (var validator in this.validators)
+            {
+                if (validator is PropertyEditorValidator propertyValidator)
                 {
-                    validator.Width = this.Width;
-                    this.Controls.Add(validator);
+                    if (applyWidth)
+                    {
+                        propertyValidator.Width = this.Width;
+                    }
+
+                    propertyValidator.RenderContent(builder, 0);
                 }
             }
+
+            builder.CloseRegion();
         }
 
         /// <summary>BuildEditor creates the editor part of the Control.</summary>
@@ -550,7 +688,6 @@ namespace DotNetNuke.UI.WebControls
         private EditControl BuildEditor(EditorInfo editInfo)
         {
             var propEditor = EditControlFactory.CreateEditControl(this.serviceProvider, editInfo);
-            propEditor.ViewStateMode = ViewStateMode.Enabled;
             propEditor.ControlStyle.CopyFrom(this.EditControlStyle);
             propEditor.LocalResourceFile = this.LocalResourceFile;
             propEditor.User = this.User;
@@ -576,7 +713,10 @@ namespace DotNetNuke.UI.WebControls
         /// <param name="editInfo">The EditorInfo object for this control.</param>
         private PropertyLabelControl BuildLabel(EditorInfo editInfo)
         {
-            var propLabel = new PropertyLabelControl { ID = editInfo.Name + "_Label" };
+            var propLabel = this.serviceProvider == null
+                ? new PropertyLabelControl(null, null, null)
+                : ActivatorUtilities.GetServiceOrCreateInstance<PropertyLabelControl>(this.serviceProvider);
+            propLabel.ID = editInfo.Name + "_Label";
             propLabel.HelpStyle.CopyFrom(this.HelpStyle);
             propLabel.LabelStyle.CopyFrom(this.LabelStyle);
             var strValue = editInfo.Value as string;
@@ -612,123 +752,29 @@ namespace DotNetNuke.UI.WebControls
             return propLabel;
         }
 
-        /// <summary>BuildValidators creates the validators part of the Control.</summary>
+        /// <summary>Renders the required icon of the Control.</summary>
+        /// <param name="builder">The render tree builder to write to.</param>
+        /// <param name="sequence">The render tree sequence number to use.</param>
         /// <param name="editInfo">The EditorInfo object for this control.</param>
-        private Image BuildRequiredIcon(EditorInfo editInfo)
+        /// <remarks>Replaces <c>BuildRequiredIcon</c>, which returned an <c>Image</c> control.</remarks>
+        private void RenderRequiredIcon(RenderTreeBuilder builder, int sequence, EditorInfo editInfo)
         {
-            Image img = null;
             var strValue = editInfo.Value as string;
-            if (this.ShowRequired && editInfo.Required && (editInfo.EditMode == PropertyEditorMode.Edit || (editInfo.Required && string.IsNullOrEmpty(strValue))))
+            if (!(this.ShowRequired && editInfo.Required && (editInfo.EditMode == PropertyEditorMode.Edit || (editInfo.Required && string.IsNullOrEmpty(strValue)))))
             {
-                img = new Image();
-                if (string.IsNullOrEmpty(this.RequiredUrl) || this.RequiredUrl == Null.NullString)
-                {
-                    img.ImageUrl = "~/images/required.gif";
-                }
-                else
-                {
-                    img.ImageUrl = this.RequiredUrl;
-                }
-
-                img.Attributes.Add("resourcekey", editInfo.ResourceKey + ".Required");
+                return;
             }
 
-            return img;
-        }
-
-        /// <summary>BuildTable creates the Control as a Table.</summary>
-        /// <param name="editInfo">The EditorInfo object for this control.</param>
-        private void BuildTable(EditorInfo editInfo)
-        {
-            var tbl = new Table();
-            var labelCell = new TableCell();
-            var editorCell = new TableCell();
-
-            // Build Label Cell
-            labelCell.VerticalAlign = VerticalAlign.Top;
-            labelCell.Controls.Add(this.BuildLabel(editInfo));
-            if (editInfo.LabelMode == LabelMode.Left || editInfo.LabelMode == LabelMode.Right)
-            {
-                labelCell.Width = this.LabelWidth;
-            }
-
-            // Build Editor Cell
-            editorCell.VerticalAlign = VerticalAlign.Top;
-            EditControl propEditor = this.BuildEditor(editInfo);
-            Image requiredIcon = this.BuildRequiredIcon(editInfo);
-            editorCell.Controls.Add(propEditor);
-            if (requiredIcon != null)
-            {
-                editorCell.Controls.Add(requiredIcon);
-            }
-
-            if (editInfo.LabelMode == LabelMode.Left || editInfo.LabelMode == LabelMode.Right)
-            {
-                editorCell.Width = this.EditControlWidth;
-            }
-
-            VisibilityControl visibility = this.BuildVisibility(editInfo);
-            if (visibility != null)
-            {
-                editorCell.Controls.Add(new LiteralControl("&nbsp;&nbsp;"));
-                editorCell.Controls.Add(visibility);
-            }
-
-            // Add cells to table
-            var editorRow = new TableRow();
-            var labelRow = new TableRow();
-            if (editInfo.LabelMode == LabelMode.Bottom || editInfo.LabelMode == LabelMode.Top || editInfo.LabelMode == LabelMode.None)
-            {
-                editorCell.ColumnSpan = 2;
-                editorRow.Cells.Add(editorCell);
-                if (editInfo.LabelMode == LabelMode.Bottom || editInfo.LabelMode == LabelMode.Top)
-                {
-                    labelCell.ColumnSpan = 2;
-                    labelRow.Cells.Add(labelCell);
-                }
-
-                if (editInfo.LabelMode == LabelMode.Top)
-                {
-                    tbl.Rows.Add(labelRow);
-                }
-
-                tbl.Rows.Add(editorRow);
-                if (editInfo.LabelMode == LabelMode.Bottom)
-                {
-                    tbl.Rows.Add(labelRow);
-                }
-            }
-            else if (editInfo.LabelMode == LabelMode.Left)
-            {
-                editorRow.Cells.Add(labelCell);
-                editorRow.Cells.Add(editorCell);
-                tbl.Rows.Add(editorRow);
-            }
-            else if (editInfo.LabelMode == LabelMode.Right)
-            {
-                editorRow.Cells.Add(editorCell);
-                editorRow.Cells.Add(labelCell);
-                tbl.Rows.Add(editorRow);
-            }
-
-            // Build the Validators
-            this.BuildValidators(editInfo, propEditor.ID);
-
-            var validatorsRow = new TableRow();
-            var validatorsCell = new TableCell();
-            validatorsCell.ColumnSpan = 2;
-
-            // Add the Validators to the editor cell
-            foreach (BaseValidator validator in this.validators)
-            {
-                validatorsCell.Controls.Add(validator);
-            }
-
-            validatorsRow.Cells.Add(validatorsCell);
-            tbl.Rows.Add(validatorsRow);
-
-            // Add the Table to the Controls Collection
-            this.Controls.Add(tbl);
+            builder.OpenElement(sequence, "img");
+            builder.AddAttribute(
+                sequence + 1,
+                "src",
+                string.IsNullOrEmpty(this.RequiredUrl) || this.RequiredUrl == Null.NullString
+                    ? Globals.ResolveUrl("~/images/required.gif")
+                    : this.RequiredUrl);
+            builder.AddAttribute(sequence + 2, "alt", string.Empty);
+            builder.AddAttribute(sequence + 3, "resourcekey", editInfo.ResourceKey + ".Required");
+            builder.CloseElement();
         }
 
         /// <summary>BuildValidators creates the validators part of the Control.</summary>
@@ -741,41 +787,51 @@ namespace DotNetNuke.UI.WebControls
             // Add Required Validators
             if (editInfo.Required)
             {
-                var reqValidator = new RequiredFieldValidator();
-                reqValidator.ID = editInfo.Name + "_Req";
-                reqValidator.ControlToValidate = targetId;
-                reqValidator.Display = ValidatorDisplay.Dynamic;
-                reqValidator.ControlStyle.CopyFrom(this.ErrorStyle);
-                if (string.IsNullOrEmpty(reqValidator.CssClass))
+                var reqValidator = new PropertyEditorValidator(PropertyEditorValidatorType.Required, this.GetEditorValue)
                 {
-                    reqValidator.CssClass = "dnnFormMessage dnnFormError";
+                    ID = editInfo.Name + "_Req",
+                    ControlToValidate = targetId,
+                    ResourceKey = editInfo.ResourceKey + ".Required",
+                    ErrorMessage = editInfo.Name + " is Required",
+                };
+                reqValidator.ControlStyle.CopyFrom(this.ErrorStyle);
+                if (!string.IsNullOrEmpty(this.ErrorStyle.CssClass))
+                {
+                    reqValidator.CssClass = this.ErrorStyle.CssClass;
                 }
 
-                reqValidator.EnableClientScript = this.EnableClientValidation;
-                reqValidator.Attributes.Add("resourcekey", editInfo.ResourceKey + ".Required");
-                reqValidator.ErrorMessage = editInfo.Name + " is Required";
                 this.validators.Add(reqValidator);
             }
 
             // Add Regular Expression Validators
             if (!string.IsNullOrEmpty(editInfo.ValidationExpression))
             {
-                var regExValidator = new RegularExpressionValidator();
-                regExValidator.ID = editInfo.Name + "_RegEx";
-                regExValidator.ControlToValidate = targetId;
-                regExValidator.ValidationExpression = editInfo.ValidationExpression;
-                regExValidator.Display = ValidatorDisplay.Dynamic;
-                regExValidator.ControlStyle.CopyFrom(this.ErrorStyle);
-                if (string.IsNullOrEmpty(regExValidator.CssClass))
+                var regExValidator = new PropertyEditorValidator(PropertyEditorValidatorType.RegularExpression, this.GetEditorValue)
                 {
-                    regExValidator.CssClass = "dnnFormMessage dnnFormError";
+                    ID = editInfo.Name + "_RegEx",
+                    ControlToValidate = targetId,
+                    ValidationExpression = editInfo.ValidationExpression,
+                    ResourceKey = editInfo.ResourceKey + ".Validation",
+                    ErrorMessage = editInfo.Name + " is Invalid",
+                };
+                regExValidator.ControlStyle.CopyFrom(this.ErrorStyle);
+                if (!string.IsNullOrEmpty(this.ErrorStyle.CssClass))
+                {
+                    regExValidator.CssClass = this.ErrorStyle.CssClass;
                 }
 
-                regExValidator.EnableClientScript = this.EnableClientValidation;
-                regExValidator.Attributes.Add("resourcekey", editInfo.ResourceKey + ".Validation");
-                regExValidator.ErrorMessage = editInfo.Name + " is Invalid";
                 this.validators.Add(regExValidator);
             }
+        }
+
+        /// <summary>Reads the current editor value for the validators.</summary>
+        /// <returns>The value being validated.</returns>
+        /// <remarks>Replaces <c>BaseValidator.ControlToValidate</c>, which resolved the control from
+        /// the control tree and read its <c>ValidationPropertyAttribute</c> property
+        /// (<c>EditControl.Value</c>).</remarks>
+        private string GetEditorValue()
+        {
+            return Convert.ToString(this.Editor?.Value, CultureInfo.InvariantCulture);
         }
 
         /// <summary>BuildVisibility creates the visibility part of the Control.</summary>
@@ -786,13 +842,13 @@ namespace DotNetNuke.UI.WebControls
 
             if (this.ShowVisibility)
             {
-                visControl = new VisibilityControl
-                {
-                    ID = "_visibility",
-                    Name = editInfo.Name,
-                    User = this.User,
-                    Value = editInfo.ProfileVisibility,
-                };
+                visControl = this.serviceProvider == null
+                    ? new VisibilityControl(null, null)
+                    : ActivatorUtilities.GetServiceOrCreateInstance<VisibilityControl>(this.serviceProvider);
+                visControl.ID = "_visibility";
+                visControl.Name = editInfo.Name;
+                visControl.User = this.User;
+                visControl.Value = editInfo.ProfileVisibility;
                 visControl.ControlStyle.CopyFrom(this.VisibilityStyle);
                 visControl.VisibilityChanged += this.VisibilityChanged;
             }

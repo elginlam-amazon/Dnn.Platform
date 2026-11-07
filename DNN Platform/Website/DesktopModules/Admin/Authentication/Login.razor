@@ -1,0 +1,1841 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Authentication
+@inherits DotNetNuke.Entities.Modules.UserModuleBase
+
+@using System
+@using System.Collections
+@using System.Collections.Generic
+@using System.Collections.Specialized
+@using System.Globalization
+@using System.IO
+@using System.Linq
+@using System.Text.RegularExpressions
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Http
+@using Microsoft.Extensions.DependencyInjection
+@using Microsoft.Extensions.Logging
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Abstractions.Pages
+@using DotNetNuke.Abstractions.Portals
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Host
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Profile
+@using DotNetNuke.Entities.Tabs
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Instrumentation
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Membership
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.Authentication
+@using DotNetNuke.Services.Authentication.OAuth
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Services.Log.EventLog
+@using DotNetNuke.Services.Mail
+@using DotNetNuke.Services.Messaging.Data
+@using DotNetNuke.Services.UserRequest
+@using DotNetNuke.UI
+@using DotNetNuke.UI.Skins.Controls
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.UI.WebControls
+@using DotNetNuke.Website
+@using DotNetNuke.Modules.Admin.Users
+@using DesktopModules.Admin.Security
+
+@*
+    Replaces Login.ascx. The most security-sensitive control in the platform, so a few structural
+    notes first — every one of them exists to KEEP behaviour identical, not to change it:
+
+    1. SIGN-IN NEEDS A LIVE REQUEST. UserController.UserLogin -> PortalSecurity.SignInAsync writes
+       the .DOTNETNUKE authentication cookie through HttpContext, and HttpContext is null on an
+       interactive (SignalR) circuit. Every credential submission therefore travels on a real form
+       POST (plain <form method="post"> + <AntiforgeryToken />, which is exactly what a WebForms
+       postback was), and the whole authenticated-user pipeline runs in OnLoad while that request
+       is still in flight and the response has not started. Nothing authentication related happens
+       from an @@onclick handler. (@@onclick is used for ONE thing: switching provider tabs, which
+       is pure client-side UI and touches no request state.)
+
+    2. VIEWSTATE. The eight ViewState slots became LoginFlowState, held in the server session and
+       scoped by module id. They are NOT hidden fields: ViewState was MAC-protected and UserToken
+       is what binds an external identity to a DNN account, so it must not be browser-supplied.
+
+    3. ViewState sentinels are preserved verbatim: UserId "not set" is still -1 (Null.NullInteger),
+       PortalSettings.LoginTabId/HomeTabId are still compared with != -1, and
+       DataConsentConsentRedirect is still compared with == -1.
+
+    4. DNNTabStrip no longer exists. TabRenderMode="All" rendered every tab's content and switched
+       between them on the client, which is reproduced below: all provider containers are rendered,
+       the non-selected ones hidden, and the same LoginTab/LoginTabSelected/LoginContainer CSS class
+       names are emitted so the theme styles them unchanged.
+
+    5. LoadControl of a provider's login control becomes: resolve the component TYPE through the
+       platform's IDnnControlTypeResolver (ControlUtilities) and render it with DynamicComponent.
+       The renderer owns the instance, so the host subscribes to the provider's
+       UserAuthenticated through the UserAuthenticatedCallback parameter rather than the CLR event.
+
+    6. returnUrl stays open-redirect-safe: RedirectURL still runs EVERY candidate (query string,
+       cookie, appctx) through UrlUtils.ValidReturnUrl, unchanged and un-loosened, and nothing else
+       is ever redirected to.
+*@
+
+@if (this.containerVisible)
+{
+    <div class="dnnForm dnnLogin dnnClear">
+        @if (this.showLogin)
+        {
+            <div class="loginContent">
+                @if (this.tabbedControls.Count > 0)
+                {
+                    @* Replaces <dnn:DNNTabStrip ID="tsLogin" TabRenderMode="All" ... />. *@
+                    <div class="LoginTabGroup">
+                        @for (var index = 0; index < this.tabbedControls.Count; index++)
+                        {
+                            var tabIndex = index;
+                            var tab = this.tabbedControls[tabIndex];
+                            <span id="@tab.AuthenticationType"
+                                  class="@(tabIndex == this.selectedTabIndex ? "LoginTabSelected" : "LoginTab")"
+                                  @onclick="() => this.selectedTabIndex = tabIndex">@tab.Title</span>
+                        }
+                    </div>
+                    <div class="LoginContainerGroup">
+                        @for (var index = 0; index < this.tabbedControls.Count; index++)
+                        {
+                            var tabIndex = index;
+                            var tab = this.tabbedControls[tabIndex];
+                            <div class="LoginContainer" style="@(tabIndex == this.selectedTabIndex ? null : "display:none")">
+                                <DynamicComponent Type="@tab.ComponentType" Parameters="@tab.Parameters" />
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (this.plainControls.Count > 0)
+                {
+                    @* Replaces <asp:Panel ID="pnlLoginContainer" CssClass="LoginPanel" />. *@
+                    <div class="LoginPanel">
+                        @foreach (var plain in this.plainControls)
+                        {
+                            @if (plain.AddHeader)
+                            {
+                                <SectionHeadControl IncludeRule="true"
+                                                    CssClass="Head"
+                                                    Text="@plain.Title"
+                                                    Section="@plain.AuthenticationType" />
+                            }
+                            <div id="@plain.AuthenticationType">
+                                <DynamicComponent Type="@plain.ComponentType" Parameters="@plain.Parameters" />
+                            </div>
+                            @if (plain.AddFooter)
+                            {
+                                <br />
+                            }
+                        }
+                    </div>
+                }
+
+                <div class="dnnSocialRegistration">
+                    <div id="socialControls">
+                        <ul class="buttonList">
+                            @foreach (var social in this.socialControls)
+                            {
+                                <DynamicComponent Type="@social.ComponentType" Parameters="@social.Parameters" />
+                            }
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (this.showRegister)
+        {
+            @* pnlAssociate and pnlRegister were both bound to PageNo == 1. *@
+            <form method="post" class="associateContent">
+                <AntiforgeryToken />
+                <input type="hidden" name="@ActionField" value="@AssociateAction" />
+                <h2><span id="lblAuthenticatedTitle">@this.LocalizeText("AuthenticatedTitle")</span></h2>
+                <div>
+                    <span id="lblAuthenticatedHelp">@this.LocalizeText("AuthenticatedHelp")</span>
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ControlName="lblType" ResourceKey="plType" LocalResourceFile="@this.LocalResourceFile" />
+                    <span id="lblType">@this.flow.AuthenticationType</span>
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ControlName="lblToken" ResourceKey="plToken" LocalResourceFile="@this.LocalResourceFile" />
+                    <span id="lblToken">@this.flow.UserToken</span>
+                </div>
+                <div class="dnnFormItem">
+                    <span id="lblAssociateTitle">@this.LocalizeText("AssociateTitle")</span>
+                    <span id="lblAssociateHelp">@this.LocalizeText("AssociateHelp")</span>
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ControlName="txtUsername" ResourceKey="Username" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="text" id="txtUsername" name="txtUsername" value="@this.associateUsername" />
+                </div>
+                @if (this.UseCaptcha)
+                {
+                    <div class="dnnFormItem" id="divCaptcha">
+                        <LabelControl ControlName="ctlCaptcha" ResourceKey="Captcha" LocalResourceFile="@this.LocalResourceFile" />
+                        <CaptchaControl ID="@CaptchaFieldName"
+                                        CaptchaWidth="120"
+                                        CaptchaHeight="40"
+                                        ErrorMessage="@Localization.GetString("InvalidCaptcha", Localization.SharedResourceFile)"
+                                        Text="@Localization.GetString("CaptchaText", Localization.SharedResourceFile)" />
+                    </div>
+                }
+                <div class="dnnFormItem">
+                    <LabelControl ControlName="txtPassword" ResourceKey="Password" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="password" id="txtPassword" name="txtPassword" />
+                </div>
+                <ul class="dnnActions dnnClear">
+                    <li><button type="submit" id="cmdAssociate" class="dnnSecondaryAction">@this.LocalizeText("cmdAssociate")</button></li>
+                </ul>
+            </form>
+
+            <div class="registerContent">
+                <h2><span id="lblRegisterTitle">@this.registerTitle</span></h2>
+                <div class="dnnFormMessage dnnFormHelpContent">
+                    <span id="lblRegisterHelp">@this.registerHelp</span>
+                </div>
+                <div style="@(this.showUserEditor ? null : "display:none")">
+                    @* Fully qualified: 'User' is also a skin object (DotNetNuke.UI.Skins.Controls.User)
+                       and a shared control (DotNetNuke.UI.UserControls.User). *@
+                    <DotNetNuke.Modules.Admin.Users.User @ref="this.ctlUser"
+                          ModuleConfiguration="@this.ModuleConfiguration"
+                          UserCreateCompletedCallback="@(EventCallback.Factory.Create<UserUserControlBase.UserCreatedEventArgs>(this, this.UserCreateCompleted))" />
+                </div>
+                <ul class="dnnActions dnnClear">
+                    <li><button type="button" id="cmdCreateUser" class="dnnSecondaryAction" @onclick="this.CmdCreateUserClick">@this.createUserText</button></li>
+                </ul>
+            </div>
+        }
+
+        @if (this.showPassword)
+        {
+            <Password @ref="this.ctlPassword" ModuleConfiguration="@this.ModuleConfiguration" />
+            @if (this.showProceed)
+            {
+                <form method="post">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="@ActionField" value="@ProceedAction" />
+                    <button type="submit" id="cmdProceed" class="dnnSecondaryAction">@this.LocalizeText("cmdProceed")</button>
+                </form>
+            }
+        }
+
+        @if (this.showProfile)
+        {
+            <Profile @ref="this.ctlProfile" ModuleConfiguration="@this.ModuleConfiguration" />
+        }
+
+        @if (this.showDataConsent)
+        {
+            <DataConsent @ref="this.ctlDataConsent" ModuleConfiguration="@this.ModuleConfiguration" />
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Initializes a new instance of the <see cref="Login"/> class.</summary>
+    /// <remarks>
+    /// Declared explicitly because the compiler-generated default constructor would chain to the
+    /// obsolete parameterless <c>UserModuleBase()</c>. Passing <see langword="null"/> for both
+    /// services is exactly what that constructor did (<c>: this(null, null)</c>), and the
+    /// non-obsolete overload then resolves <c>ListController</c> and <c>IHostSettings</c> from
+    /// <c>DependencyProvider</c> — so this is a call-site change only, with no behaviour change.
+    /// </remarks>
+    public Login()
+        : base(null, null)
+    {
+    }
+
+    private const string LOGINPATH = "/login";
+
+    /// <summary>The hidden field that names the posted action; replaces the WebForms <c>__EVENTTARGET</c>.</summary>
+    private const string ActionField = "__dnnLoginAction";
+
+    private const string AssociateAction = "associate";
+    private const string ProceedAction = "proceed";
+
+    /// <summary>The <c>name</c> the captcha control renders on its answer box (its <c>UniqueId</c>, which is its ID when it has no naming container).</summary>
+    private const string CaptchaFieldName = "ctlCaptcha";
+
+    private static readonly ILogger Logger = DnnLoggingController.GetLogger<Login>();
+
+    private static readonly Regex UserLanguageRegex = new Regex("(.*)(&|\\?)(language=)([^&\\?]+)(.*)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private readonly List<ProviderControl> plainControls = new List<ProviderControl>();
+    private readonly List<ProviderControl> tabbedControls = new List<ProviderControl>();
+    private readonly List<ProviderControl> socialControls = new List<ProviderControl>();
+
+    private INavigationManager navigationManager;
+    private IEventLogger eventLogger;
+    private IPortalController portalController;
+    private IApplicationStatusInfo appStatus;
+    private IPortalGroupController portalGroupController;
+
+    private LoginFlowState flow = new LoginFlowState();
+
+    private bool containerVisible = true;
+    private bool showLogin;
+    private bool showRegister;
+    private bool showPassword;
+    private bool showProfile;
+    private bool showDataConsent;
+    private bool showProceed;
+    private bool loaded;
+    private int selectedTabIndex;
+
+    private string associateUsername = string.Empty;
+    private string registerTitle = string.Empty;
+    private string registerHelp = string.Empty;
+    private string createUserText = string.Empty;
+    private bool showUserEditor = true;
+
+    // The four sub-panel controls that the .ascx declared as <dnn:User>, <dnn:Password>,
+    // <dnn:Profile> and <dnn:DataConsent>. They keep the CLR events their WebForms versions had,
+    // so the host subscribes through the captured component references once they have rendered.
+    private DotNetNuke.Modules.Admin.Users.User ctlUser;
+    private Password ctlPassword;
+    private Profile ctlProfile;
+    private DataConsent ctlDataConsent;
+
+    private bool subPanelHandlersAttached;
+
+    /// <summary>Gets or sets the Blazor navigation manager; <c>Response.Redirect</c> becomes a forced navigation.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets or sets the page service, which replaces assigning <c>CDefault.Title</c>.</summary>
+    [Inject]
+    protected IPageService PageService { get; set; }
+
+    /// <summary>Gets or sets the JS runtime, used for the one popup-resize script.</summary>
+    [Inject]
+    protected Microsoft.JSInterop.IJSRuntime JsRuntime { get; set; }
+
+    /// <summary>Gets the Redirect URL (after successful login).</summary>
+    /// <remarks>
+    /// Ported verbatim from the <c>RedirectURL</c> property. Each candidate return URL — the
+    /// <c>returnurl</c> query string, the <c>returnurl</c> cookie and the LiveID <c>appctx</c>
+    /// parameter — is still passed through <see cref="UrlUtils.ValidReturnUrl"/>, which is DNN's
+    /// open-redirect guard; it is neither replaced nor relaxed, and no other value is ever
+    /// redirected to.
+    /// </remarks>
+    protected string RedirectURL
+    {
+        get
+        {
+            var redirectURL = string.Empty;
+
+            var setting = GetSetting(this.PortalId, "Redirect_AfterLogin");
+
+            var request = this.Request;
+
+            // first we need to check if there is a returnurl
+            if (request?.Query["returnurl"].Count > 0)
+            {
+                // return to the url passed to signin
+                redirectURL = Uri.UnescapeDataString(request.Query["returnurl"].ToString());
+
+                // clean the return url to avoid possible XSS attack.
+                redirectURL = UrlUtils.ValidReturnUrl(redirectURL);
+            }
+
+            if (request != null && request.Cookies.TryGetValue("returnurl", out var returnUrlCookie))
+            {
+                // return to the url passed to signin
+                redirectURL = Uri.UnescapeDataString(returnUrlCookie);
+
+                // clean the return url to avoid possible XSS attack.
+                redirectURL = UrlUtils.ValidReturnUrl(redirectURL);
+            }
+
+            var appctx = request?.GetValue("appctx");
+            if (appctx != null)
+            {
+                // HACK return to the url passed to signin (LiveID)
+                redirectURL = Uri.UnescapeDataString(appctx);
+
+                // clean the return url to avoid possible XSS attack.
+                redirectURL = UrlUtils.ValidReturnUrl(redirectURL);
+            }
+
+            var alias = this.CurrentPortalAlias.HttpAlias;
+            var comparison = StringComparison.InvariantCultureIgnoreCase;
+
+            // we need .TrimEnd('/') because a portlalias for a specific culture will not have a trailing /, while a returnurl will.
+            var isDefaultPage = redirectURL == "/"
+                || (alias.Contains("/") && redirectURL.TrimEnd('/').Equals(alias.Substring(alias.IndexOf("/", comparison)), comparison));
+
+            if (string.IsNullOrEmpty(redirectURL) || isDefaultPage)
+            {
+                if (
+                    this.NeedRedirectAfterLogin
+                    && (isDefaultPage || this.IsRedirectingFromLoginUrl())
+                    && Convert.ToInt32(setting) != Null.NullInteger)
+                {
+                    redirectURL = this.navigationManager.NavigateURL(Convert.ToInt32(setting));
+                }
+                else
+                {
+                    if (this.PortalSettings.LoginTabId != -1 && this.PortalSettings.HomeTabId != -1)
+                    {
+                        // redirect to portal home page specified
+                        redirectURL = this.navigationManager.NavigateURL(this.PortalSettings.HomeTabId);
+                    }
+                    else
+                    {
+                        // redirect to current page
+                        redirectURL = this.navigationManager.NavigateURL();
+                    }
+                }
+            }
+
+            // replace language parameter in querystring, to make sure that user will see page in correct language
+            if (this.UserId != -1 && this.User != null)
+            {
+                if (!string.IsNullOrEmpty(this.User.Profile.PreferredLocale)
+                        && this.User.Profile.PreferredLocale != CultureInfo.CurrentCulture.Name
+                        && this.LocaleEnabled(this.User.Profile.PreferredLocale))
+                {
+                    redirectURL = ReplaceLanguage(this.HostSettings, redirectURL, CultureInfo.CurrentCulture.Name, this.User.Profile.PreferredLocale);
+                }
+            }
+
+            return redirectURL;
+        }
+    }
+
+    /// <summary>Gets a value indicating whether the Captcha control is used to validate the login.</summary>
+    protected bool UseCaptcha
+    {
+        get
+        {
+            object setting = GetSetting(this.PortalId, "Security_CaptchaLogin");
+            return Convert.ToBoolean(setting);
+        }
+    }
+
+    /// <summary>Gets or sets the current AuthenticationType.</summary>
+    protected string AuthenticationType
+    {
+        get => this.flow.AuthenticationType;
+        set => this.flow.AuthenticationType = value;
+    }
+
+    /// <summary>Gets or sets a value indicating whether the user should be automatically registered.</summary>
+    protected bool AutoRegister
+    {
+        get => this.flow.AutoRegister;
+        set => this.flow.AutoRegister = value;
+    }
+
+    /// <summary>Gets or sets the profile properties an authentication provider returned.</summary>
+    protected NameValueCollection ProfileProperties
+    {
+        get => this.flow.ProfileProperties;
+        set => this.flow.ProfileProperties = value ?? new NameValueCollection();
+    }
+
+    /// <summary>Gets or sets the current Page No.</summary>
+    protected int PageNo
+    {
+        get => this.flow.PageNo;
+        set => this.flow.PageNo = value;
+    }
+
+    /// <summary>Gets or sets a value indicating whether a permanent auth cookie should be created.</summary>
+    protected bool RememberMe
+    {
+        get => this.flow.RememberMe;
+        set => this.flow.RememberMe = value;
+    }
+
+    /// <summary>Gets or sets the login status.</summary>
+    protected UserLoginStatus LoginStatus
+    {
+        get => this.flow.LoginStatus;
+        set => this.flow.LoginStatus = value;
+    }
+
+    /// <summary>Gets or sets the current UserToken.</summary>
+    protected string UserToken
+    {
+        get => this.flow.UserToken;
+        set => this.flow.UserToken = value;
+    }
+
+    /// <summary>Gets or sets the current UserName.</summary>
+    protected string UserName
+    {
+        get => this.flow.UserName;
+        set => this.flow.UserName = value;
+    }
+
+    private bool NeedRedirectAfterLogin =>
+           this.LoginStatus == UserLoginStatus.LOGIN_SUCCESS
+        || this.LoginStatus == UserLoginStatus.LOGIN_SUPERUSER
+#pragma warning disable CS0618 // UserLoginStatus.LOGIN_INSECUREHOSTPASSWORD is deprecated
+        || this.LoginStatus == UserLoginStatus.LOGIN_INSECUREHOSTPASSWORD
+        || this.LoginStatus == UserLoginStatus.LOGIN_INSECUREADMINPASSWORD;
+#pragma warning restore CS0618 // UserLoginStatus.LOGIN_INSECUREHOSTPASSWORD is deprecated
+
+    private IPortalAliasInfo CurrentPortalAlias => this.PortalSettings.PortalAlias;
+
+    /// <summary>UserAuthenticated runs when the user is authenticated by one of the child Authentication controls.</summary>
+    /// <param name="e">The event arguments.</param>
+    /// <remarks>
+    /// Ported verbatim from <c>UserAuthenticated(object, UserAuthenticatedEventArgs)</c>. It is
+    /// reached through <c>AuthenticationLoginBase.UserAuthenticatedCallback</c>, which the provider
+    /// raises synchronously from the request that carried the credentials — so HttpContext is live
+    /// here and <see cref="ValidateUser"/> can issue the authentication cookie.
+    /// </remarks>
+    public void UserAuthenticated(UserAuthenticatedEventArgs e)
+    {
+        this.LoginStatus = e.LoginStatus;
+
+        // Check the Login Status
+        switch (this.LoginStatus)
+        {
+            case UserLoginStatus.LOGIN_USERNOTAPPROVED:
+                switch (e.Message)
+                {
+                    case "UnverifiedUser":
+                        if (e.User != null)
+                        {
+                            // First update the profile (if any properties have been passed)
+                            this.AuthenticationType = e.AuthenticationType;
+                            this.ProfileProperties = e.Profile;
+                            this.RememberMe = e.RememberMe;
+                            this.UpdateProfile(e.User, true);
+                            this.ValidateUser(e.User, false);
+                        }
+
+                        break;
+                    case "EnterCode":
+                        this.AddModuleMessage(e.Message, ModuleMessage.ModuleMessageType.YellowWarning, true);
+                        break;
+                    case "InvalidCode":
+                    case "UserNotAuthorized":
+                        this.AddModuleMessage(e.Message, ModuleMessage.ModuleMessageType.RedError, true);
+                        break;
+                    default:
+                        this.AddLocalizedModuleMessage(e.Message, ModuleMessage.ModuleMessageType.RedError, true);
+                        break;
+                }
+
+                break;
+            case UserLoginStatus.LOGIN_USERLOCKEDOUT:
+                if (this.HostSettings.AutoAccountUnlockDuration > TimeSpan.Zero)
+                {
+                    this.AddLocalizedModuleMessage(string.Format(CultureInfo.CurrentCulture, Localization.GetString("UserLockedOut", this.LocalResourceFile), this.HostSettings.AutoAccountUnlockDuration.TotalMinutes), ModuleMessage.ModuleMessageType.RedError, true);
+                }
+                else
+                {
+                    this.AddLocalizedModuleMessage(Localization.GetString("UserLockedOut_ContactAdmin", this.LocalResourceFile), ModuleMessage.ModuleMessageType.RedError, true);
+                }
+
+                // notify administrator about account lockout ( possible hack attempt )
+                var custom = new ArrayList { e.UserToken };
+
+                var message = new Message
+                {
+                    FromUserID = this.PortalSettings.AdministratorId,
+                    ToUserID = this.PortalSettings.AdministratorId,
+                    Subject = Localization.GetSystemMessage(this.PortalSettings, "EMAIL_USER_LOCKOUT_SUBJECT", Localization.GlobalResourceFile, custom),
+                    Body = Localization.GetSystemMessage(this.PortalSettings, "EMAIL_USER_LOCKOUT_BODY", Localization.GlobalResourceFile, custom),
+                    Status = MessageStatusType.Unread,
+                };
+
+                ////_messagingController.SaveMessage(_message);
+                Mail.SendEmail(this.PortalSettings.Email, this.PortalSettings.Email, message.Subject, message.Body);
+                break;
+            case UserLoginStatus.LOGIN_FAILURE:
+                // A Login Failure can mean one of two things:
+                //  1 - User was authenticated by the Authentication System but is not "affiliated" with a DNN Account
+                //  2 - User was not authenticated
+                if (e.Authenticated)
+                {
+                    this.AutoRegister = e.AutoRegister;
+                    this.AuthenticationType = e.AuthenticationType;
+                    this.ProfileProperties = e.Profile;
+                    this.UserToken = e.UserToken;
+                    this.UserName = e.UserName;
+                    if (this.AutoRegister)
+                    {
+                        this.InitialiseUser();
+                        this.User.Membership.Password = UserController.GeneratePassword();
+
+                        // Create the user and raise the appropriate event(s). The WebForms control
+                        // delegated this to ctlUser.CreateUser(); in Blazor the renderer owns that
+                        // component's instance, so the auto-register path (which never shows the
+                        // User control at all) performs the same creation here and feeds the result
+                        // through the very same UserCreateCompleted handler.
+                        this.CreateUserFromRegistration(this.User, notify: true);
+                    }
+                    else
+                    {
+                        this.PageNo = 1;
+                        this.ShowPanel();
+                    }
+                }
+                else
+                {
+                    if (string.IsNullOrEmpty(e.Message))
+                    {
+                        this.AddModuleMessage("LoginFailed", ModuleMessage.ModuleMessageType.RedError, true);
+                    }
+                    else
+                    {
+                        this.AddLocalizedModuleMessage(e.Message, ModuleMessage.ModuleMessageType.RedError, true);
+                    }
+                }
+
+                break;
+            default:
+                if (e.User != null)
+                {
+                    // First update the profile (if any properties have been passed)
+                    this.AuthenticationType = e.AuthenticationType;
+                    this.ProfileProperties = e.Profile;
+                    this.RememberMe = e.RememberMe;
+                    this.UpdateProfile(e.User, true);
+                    this.ValidateUser(e.User, e.AuthenticationType != "DNN");
+                }
+
+                break;
+        }
+
+        this.flow.Save(this.ModuleId);
+    }
+
+    /// <summary>Replaces the original language with user language.</summary>
+    /// <param name="hostSettings">The host settings.</param>
+    /// <param name="url">The URL to update.</param>
+    /// <param name="originalLanguage">The original language.</param>
+    /// <param name="newLanguage">The new language.</param>
+    /// <returns>The <paramref name="url"/> with the <paramref name="newLanguage"/>.</returns>
+    private static string ReplaceLanguage(IHostSettings hostSettings, string url, string originalLanguage, string newLanguage)
+    {
+        var returnValue = hostSettings.UseFriendlyUrls
+            ? Regex.Replace(url, "(.*)(/" + originalLanguage + "/)(.*)", "$1/" + newLanguage + "/$3", RegexOptions.IgnoreCase)
+            : UserLanguageRegex.Replace(url, "$1$2$3" + newLanguage + "$5");
+        return returnValue;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Replaces <c>OnInit</c>.</remarks>
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.navigationManager ??= this.DependencyProvider.GetRequiredService<INavigationManager>();
+        this.eventLogger ??= this.DependencyProvider.GetRequiredService<IEventLogger>();
+        this.portalController ??= this.DependencyProvider.GetRequiredService<IPortalController>();
+        this.appStatus ??= this.DependencyProvider.GetRequiredService<IApplicationStatusInfo>();
+        this.portalGroupController ??= this.DependencyProvider.GetRequiredService<IPortalGroupController>();
+
+        this.flow = LoginFlowState.Load(this.ModuleId);
+
+        // Override the redirected page title if page has loaded with ctl=Login
+        var ctl = this.Request?.Query["ctl"].ToString();
+        if (!string.IsNullOrEmpty(ctl))
+        {
+            if (ctl.ToLowerInvariant() == "login")
+            {
+                if (this.PortalSettings.LoginTabId == this.TabId || this.PortalSettings.LoginTabId == -1)
+                {
+                    this.PageService.SetTitle(Localization.GetString("ControlTitle_login", this.LocalResourceFile));
+                }
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Replaces <c>OnLoad</c>. The WebForms control wired its button Click handlers here; a Blazor
+    /// component gets the posted action from the request instead, which is dispatched at the end.
+    /// </remarks>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            // OnLoad is raised from OnParametersSet, which can run more than once for one request;
+            // the WebForms Load phase ran once.
+            return;
+        }
+
+        this.loaded = true;
+
+        // Re-raise the module messages a deferred continuation left behind (see
+        // LoginFlowState.PendingMessages).
+        this.ReplayPendingMessages();
+
+        // Verify if portal has a customized login page
+        if (!Null.IsNull(this.PortalSettings.LoginTabId) && Globals.IsAdminControl())
+        {
+            if (Globals.ValidateLoginTabID(this.PortalSettings.LoginTabId))
+            {
+                // login page exists and trying to access this control directly with url param -> not allowed
+                var parameters = new string[3];
+                var returnUrl = this.Request?.Query["returnUrl"].ToString();
+                if (!string.IsNullOrEmpty(returnUrl))
+                {
+                    parameters[0] = "returnUrl=" + Uri.EscapeDataString(returnUrl);
+                }
+
+                var username = this.Request?.Query["username"].ToString();
+                if (!string.IsNullOrEmpty(username))
+                {
+                    parameters[1] = "username=" + Uri.EscapeDataString(username);
+                }
+
+                var verificationCode = this.Request?.Query["verificationcode"].ToString();
+                if (!string.IsNullOrEmpty(verificationCode))
+                {
+                    parameters[2] = "verificationcode=" + Uri.EscapeDataString(verificationCode);
+                }
+
+                this.Redirect(this.navigationManager.NavigateURL(this.PortalSettings.LoginTabId, string.Empty, parameters));
+                return;
+            }
+        }
+
+        if (!this.IsPostBack)
+        {
+            try
+            {
+                this.PageNo = 0;
+            }
+            catch (Exception ex)
+            {
+                // control not there
+                Logger.AuthenticationLoginPageNoException(ex);
+            }
+        }
+
+        if (this.Request?.IsAuthenticated() != true || this.UserNeedsVerification())
+        {
+            this.ShowPanel();
+        }
+        else
+        {
+            // user is already authenticated
+            // if a Login Page has not been specified for the portal
+            if (Globals.IsAdminControl())
+            {
+                // redirect browser
+                this.Redirect(this.RedirectURL);
+                return;
+            }
+            else
+            {
+                // make module container invisible if user is not a page admin
+                var path = this.RedirectURL.Split('?')[0];
+                if (this.NeedRedirectAfterLogin && path != this.navigationManager.NavigateURL() && path != this.navigationManager.NavigateURL(this.PortalSettings.HomeTabId))
+                {
+                    this.Redirect(this.RedirectURL);
+                    return;
+                }
+
+                if (TabPermissionController.CanAdminPage())
+                {
+                    this.ShowPanel();
+                }
+                else
+                {
+                    this.containerVisible = false;
+                }
+            }
+        }
+
+        this.DispatchPostedAction();
+
+        this.RunPendingValidate();
+
+        this.flow.Save(this.ModuleId);
+    }
+
+    /// <summary>Gets a value indicating whether there is a live HTTP request (so a cookie can be written).</summary>
+    private bool HasLiveRequest => HttpContextSource.Current != null && !HttpContextSource.Current.Response.HasStarted;
+
+    /// <summary>Subscribes to the sub-panel controls' events once the renderer has created them.</summary>
+    /// <remarks>
+    /// Replaces the <c>OnInit</c> wiring (<c>ctlPassword.PasswordUpdated += …</c> etc.). The
+    /// renderer owns these instances, so they only exist once they have rendered; the reference
+    /// capture (<c>@ref</c>) plus this one-shot subscription is the Blazor equivalent of assigning a
+    /// handler to a declared child control.
+    /// </remarks>
+    private void AttachSubPanelHandlers()
+    {
+        if (this.subPanelHandlersAttached)
+        {
+            return;
+        }
+
+        var attached = false;
+
+        if (this.ctlPassword is not null)
+        {
+            this.ctlPassword.PasswordUpdated += this.PasswordUpdated;
+            attached = true;
+        }
+
+        if (this.ctlProfile is not null)
+        {
+            this.ctlProfile.ProfileUpdated += this.ProfileUpdated;
+            attached = true;
+        }
+
+        if (this.ctlDataConsent is not null)
+        {
+            this.ctlDataConsent.DataConsentCompleted += this.DataConsentCompleted;
+            attached = true;
+        }
+
+        if (this.ctlUser is not null)
+        {
+            // ctlUser.ShowPassword = false; ctlUser.ShowUpdate = false; ctlUser.User = this.User;
+            // of BindRegister, which could only be applied once the control existed.
+            if (!this.AutoRegister || !this.showUserEditor)
+            {
+                this.ctlUser.ShowPassword = false;
+                this.ctlUser.ShowUpdate = false;
+                this.ctlUser.User = this.User;
+                this.ctlUser.DataBind();
+            }
+
+            attached = true;
+        }
+
+        this.subPanelHandlersAttached = attached;
+    }
+
+    /// <summary>
+    /// Records that <c>ValidateUser</c> must run on the next request and forces that request.
+    /// </summary>
+    /// <param name="ignoreExpiring">The <c>ignoreExpiring</c> argument to use.</param>
+    /// <remarks>
+    /// See <see cref="LoginFlowState.PendingValidate"/>: the decision and its arguments are
+    /// unchanged, only the request they execute on moves, because signing a user in writes a cookie
+    /// and that needs a live HttpContext.
+    /// </remarks>
+    private void DeferValidateUser(bool ignoreExpiring)
+    {
+        this.flow.PendingValidate = true;
+        this.flow.PendingValidateIgnoreExpiring = ignoreExpiring;
+        this.flow.Save(this.ModuleId);
+        this.Navigation.NavigateTo(this.Navigation.Uri, forceLoad: true);
+    }
+
+    /// <summary>Runs a continuation a sub-panel deferred to this request.</summary>
+    private void RunPendingValidate()
+    {
+        if (!this.flow.PendingValidate)
+        {
+            return;
+        }
+
+        this.flow.PendingValidate = false;
+        var ignoreExpiring = this.flow.PendingValidateIgnoreExpiring;
+        this.flow.Save(this.ModuleId);
+
+        var user = UserController.GetUserById(this.HostSettings, this.PortalId, this.flow.UserId);
+        if (user != null)
+        {
+            this.ValidateUser(user, ignoreExpiring);
+        }
+    }
+
+    /// <summary>Records a module message that has to survive a deferred continuation.</summary>
+    /// <param name="message">The message text or resource key.</param>
+    /// <param name="type">The message type.</param>
+    /// <param name="localized">Whether <paramref name="message"/> is already localized.</param>
+    private void DeferModuleMessage(string message, ModuleMessage.ModuleMessageType type, bool localized)
+    {
+        this.flow.PendingMessages.Add(new LoginFlowState.PendingMessage
+        {
+            Message = message,
+            MessageType = (int)type,
+            Localized = localized,
+        });
+    }
+
+    /// <summary>Re-raises the module messages a deferred continuation left behind.</summary>
+    private void ReplayPendingMessages()
+    {
+        if (this.flow.PendingMessages.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var pending in this.flow.PendingMessages)
+        {
+            var type = (ModuleMessage.ModuleMessageType)pending.MessageType;
+            if (pending.Localized)
+            {
+                this.AddLocalizedModuleMessage(pending.Message, type, true);
+            }
+            else
+            {
+                this.AddModuleMessage(pending.Message, type, true);
+            }
+        }
+
+        this.flow.PendingMessages.Clear();
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        this.AttachSubPanelHandlers();
+
+        if (firstRender && this.showProfile && UrlUtils.InPopUp())
+        {
+            // Replaces ScriptManager.RegisterClientScriptBlock(..., "ResizePopup", ...): a .razor
+            // file cannot contain <script>, so the same statement runs through JS interop.
+            await this.JsRuntime.InvokeVoidAsync(
+                "eval",
+                "if(parent.$('#iPopUp').length > 0 && parent.$('#iPopUp').dialog('isOpen')){parent.$('#iPopUp').dialog({width: 950, height: 550}).dialog({position: 'center'});};");
+        }
+    }
+
+    /// <summary>Gets a value indicating whether the current request is a form post (the WebForms <c>IsPostBack</c>).</summary>
+    private bool IsPostBack => this.Request?.HasFormContentType == true
+        && HttpMethods.IsPost(this.Request.Method);
+
+    /// <summary>Invokes the handler the posted form asked for; replaces the WebForms Click wiring.</summary>
+    private void DispatchPostedAction()
+    {
+        if (!this.IsPostBack)
+        {
+            return;
+        }
+
+        switch (this.Request.Form[ActionField].ToString())
+        {
+            case AssociateAction:
+                this.CmdAssociateClick();
+                break;
+            case ProceedAction:
+                this.CmdProceedClick();
+                break;
+        }
+    }
+
+    /// <summary>cmdAssociate_Click runs when the associate button is clicked.</summary>
+    private void CmdAssociateClick()
+    {
+        var postedUsername = this.Request.Form["txtUsername"].ToString() ?? string.Empty;
+        var postedPassword = this.Request.Form["txtPassword"].ToString() ?? string.Empty;
+        this.associateUsername = postedUsername;
+
+        var captchaIsValid = !this.UseCaptcha
+            || new CaptchaControl().Validate(this.Request.Form[CaptchaFieldName].ToString());
+
+        if ((this.UseCaptcha && captchaIsValid) || (!this.UseCaptcha))
+        {
+            UserLoginStatus loginStatus = UserLoginStatus.LOGIN_FAILURE;
+            var userRequestIpAddressController = UserRequestIPAddressController.Instance;
+            var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress(this.Request);
+            UserInfo objUser = UserController.ValidateUser(
+                this.PortalId,
+                postedUsername,
+                postedPassword,
+                "DNN",
+                string.Empty,
+                this.PortalSettings.PortalName,
+                ipAddress,
+                ref loginStatus);
+            if (loginStatus == UserLoginStatus.LOGIN_SUCCESS)
+            {
+                // Assocate alternate Login with User and proceed with Login
+                AuthenticationController.AddUserAuthentication(this.eventLogger, objUser.UserID, this.AuthenticationType, this.UserToken);
+                if (objUser != null)
+                {
+                    this.UpdateProfile(objUser, true);
+                }
+
+                this.ValidateUser(objUser, true);
+            }
+            else
+            {
+                this.AddModuleMessage("AssociationFailed", ModuleMessage.ModuleMessageType.RedError, true);
+            }
+        }
+    }
+
+    /// <summary>cmdCreateUser runs when the register (as new user) button is clicked.</summary>
+    /// <remarks>
+    /// Ported verbatim from <c>cmdCreateUser_Click</c>. The click is an interactive handler because
+    /// nothing here needs the HTTP request: the user record is written through
+    /// <c>UserController</c>, and the sign-in that follows a successful creation is deferred to the
+    /// next request by <see cref="DeferValidateUser"/>.
+    /// </remarks>
+    private void CmdCreateUserClick()
+    {
+        this.User.Membership.Password = UserController.GeneratePassword();
+
+        if (this.AutoRegister)
+        {
+            if (this.ctlUser is not null)
+            {
+                this.ctlUser.User = this.User;
+
+                // Call the Create User method of the User control so that it can create
+                // the user and raise the appropriate event(s)
+                this.ctlUser.CreateUser();
+            }
+            else
+            {
+                this.CreateUserFromRegistration(this.User, notify: true);
+            }
+        }
+        else
+        {
+            if (this.ctlUser is not null && this.ctlUser.IsValid)
+            {
+                // Call the Create User method of the User control so that it can create
+                // the user and raise the appropriate event(s)
+                this.ctlUser.CreateUser();
+            }
+        }
+    }
+
+    /// <summary>cmdProceed_Click runs when the Proceed Anyway button is clicked.</summary>
+    private void CmdProceedClick()
+    {
+        // Was this.ctlPassword.User: the user the password panel is showing, which is the user id
+        // ValidateUser stored in the flow state when it decided to show that panel.
+        var user = UserController.GetUserById(this.HostSettings, this.PortalId, this.flow.UserId);
+        this.ValidateUser(user, true);
+    }
+
+    /// <summary>PasswordUpdated runs when the password is updated.</summary>
+    /// <param name="sender">The source of the event.</param>
+    /// <param name="e">The event arguments.</param>
+    private void PasswordUpdated(object sender, Password.PasswordUpdatedEventArgs e)
+    {
+        PasswordUpdateStatus status = e.UpdateStatus;
+        if (status == PasswordUpdateStatus.Success)
+        {
+            this.DeferModuleMessage("PasswordChanged", ModuleMessage.ModuleMessageType.GreenSuccess, localized: false);
+            var user = this.ctlPassword?.User ?? UserController.GetUserById(this.HostSettings, this.PortalId, this.flow.UserId);
+            user.Membership.LastPasswordChangeDate = DateTime.Now;
+            user.Membership.UpdatePassword = false;
+            this.LoginStatus = user.IsSuperUser ? UserLoginStatus.LOGIN_SUPERUSER : UserLoginStatus.LOGIN_SUCCESS;
+            UserLoginStatus userstatus = UserLoginStatus.LOGIN_FAILURE;
+#pragma warning disable CS0618 // UserController.CheckInsecurePassword is deprecated
+            UserController.CheckInsecurePassword(user.Username, user.Membership.Password, ref userstatus);
+#pragma warning restore CS0618 // UserController.CheckInsecurePassword is deprecated
+            this.LoginStatus = userstatus;
+            this.flow.UserId = user.UserID;
+            this.DeferValidateUser(ignoreExpiring: true);
+        }
+        else
+        {
+            this.AddModuleMessage(status.ToString(), ModuleMessage.ModuleMessageType.RedError, true);
+            this.flow.Save(this.ModuleId);
+        }
+    }
+
+    /// <summary>ProfileUpdated runs when the profile is updated.</summary>
+    private void ProfileUpdated(object sender, EventArgs e)
+    {
+        // Authorize User
+        this.flow.UserId = this.ctlProfile?.User?.UserID ?? this.flow.UserId;
+        this.DeferValidateUser(ignoreExpiring: true);
+    }
+
+    /// <summary>DataConsentCompleted runs after the user has gone through the data consent screen.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void DataConsentCompleted(object sender, DataConsent.DataConsentEventArgs e)
+    {
+        switch (e.Status)
+        {
+            case DataConsent.DataConsentStatus.Consented:
+                this.flow.UserId = this.ctlDataConsent?.User?.UserID ?? this.flow.UserId;
+                this.DeferValidateUser(ignoreExpiring: true);
+                break;
+            case DataConsent.DataConsentStatus.Cancelled:
+            case DataConsent.DataConsentStatus.RemovedAccount:
+                this.Redirect(this.navigationManager.NavigateURL(this.PortalSettings.HomeTabId));
+                break;
+            case DataConsent.DataConsentStatus.FailedToRemoveAccount:
+                this.AddModuleMessage("FailedToRemoveAccount", ModuleMessage.ModuleMessageType.RedError, true);
+                this.flow.Save(this.ModuleId);
+                break;
+        }
+    }
+
+    /// <summary>UserCreateCompleted runs when a new user has been Created.</summary>
+    /// <param name="e">The event arguments.</param>
+    private void UserCreateCompleted(UserUserControlBase.UserCreatedEventArgs e)
+    {
+        try
+        {
+            if (e.CreateStatus == UserCreateStatus.Success)
+            {
+                // Associate alternate Login with User and proceed with Login
+                AuthenticationController.AddUserAuthentication(this.eventLogger, e.NewUser.UserID, this.AuthenticationType, this.UserToken);
+
+                var strMessage = this.CompleteUserCreation(e.CreateStatus, e.NewUser, e.Notify, true);
+                if (string.IsNullOrEmpty(strMessage))
+                {
+                    // First update the profile (if any properties have been passed)
+                    this.UpdateProfile(e.NewUser, true);
+
+                    this.flow.UserId = e.NewUser.UserID;
+
+                    if (this.HasLiveRequest)
+                    {
+                        this.ValidateUser(e.NewUser, true);
+                    }
+                    else
+                    {
+                        // Created from an interactive click: the sign-in needs a request, so the
+                        // continuation runs on the next one.
+                        this.DeferValidateUser(ignoreExpiring: true);
+                    }
+
+                    return;
+                }
+            }
+            else
+            {
+                this.AddLocalizedModuleMessage(UserController.GetUserCreateStatus(e.CreateStatus), ModuleMessage.ModuleMessageType.RedError, true);
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+
+        this.flow.Save(this.ModuleId);
+    }
+
+    /// <summary>Creates the user the register/auto-register flow prepared, then runs <see cref="UserCreateCompleted"/>.</summary>
+    /// <param name="objUser">The user to create.</param>
+    /// <param name="notify">Whether the new user should be notified.</param>
+    /// <remarks>
+    /// This is the auto-register path of <c>ctlUser.CreateUser()</c>: the User control is not shown
+    /// at all in that case (its own markup never rendered), and the only thing it did beyond
+    /// <c>UserController.CreateUser</c> was set the Approved flag from the portal's registration
+    /// type, which is reproduced here.
+    /// </remarks>
+    private void CreateUserFromRegistration(UserInfo objUser, bool notify)
+    {
+        objUser.Membership.Approved = this.PortalSettings.UserRegistration == (int)Globals.PortalRegistrationType.PublicRegistration;
+        objUser.PortalID = this.PortalId;
+
+        var createStatus = UserController.CreateUser(ref objUser);
+        this.UserCreateCompleted(new UserUserControlBase.UserCreatedEventArgs(objUser)
+        {
+            CreateStatus = createStatus,
+            Notify = notify,
+        });
+    }
+
+    private string GetLoginPath()
+    {
+        if (this.PortalSettings.LoginTabId == Null.NullInteger)
+        {
+            return LOGINPATH;
+        }
+
+        var tab = TabController.Instance.GetTab(this.PortalSettings.LoginTabId, this.PortalId);
+        return tab != null ? new Uri(this.navigationManager.NavigateURL(this.PortalSettings.LoginTabId), UriKind.RelativeOrAbsolute).LocalPath : LOGINPATH;
+    }
+
+    private bool IsRedirectingFromLoginUrl()
+    {
+        // Replaces Request.UrlReferrer, which does not exist on HttpRequest any more.
+        var referer = this.Request?.Headers.Referer.ToString();
+        if (string.IsNullOrEmpty(referer) || !Uri.TryCreate(referer, UriKind.Absolute, out var refererUri))
+        {
+            return false;
+        }
+
+        return refererUri.LocalPath.EndsWith(this.GetLoginPath(), StringComparison.InvariantCultureIgnoreCase);
+    }
+
+    /// <summary>Binds the enabled authentication providers' login controls.</summary>
+    /// <remarks>
+    /// Ported from <c>BindLogin</c>. Each provider's control is still instantiated here (that is how
+    /// its <c>Enabled</c> flag is read, exactly as before) but it is RENDERED by its resolved type,
+    /// because the Blazor renderer owns component instances.
+    /// </remarks>
+    private void BindLogin()
+    {
+        this.plainControls.Clear();
+        this.tabbedControls.Clear();
+        this.socialControls.Clear();
+
+        List<AuthenticationInfo> authSystems = AuthenticationController.GetEnabledAuthenticationServices(this.HostSettings);
+        ProviderControl defaultLoginControl = null;
+        var defaultAuthProvider = PortalController.GetPortalSetting(this.portalController, "DefaultAuthProvider", this.PortalId, "DNN");
+        var loginControls = new List<ProviderControl>();
+        var defaultAuthLogin = new List<ProviderControl>();
+        var oAuthControls = new List<ProviderControl>();
+
+        foreach (AuthenticationInfo authSystem in authSystems)
+        {
+            try
+            {
+                // Figure out if known Auth types are enabled (so we can improve perf and stop loading the control)
+                bool enabled = true;
+                if (authSystem.AuthenticationType.Equals("Facebook") || authSystem.AuthenticationType.Equals("Google")
+                    || authSystem.AuthenticationType.Equals("Live") || authSystem.AuthenticationType.Equals("Twitter"))
+                {
+                    enabled = AuthenticationController.IsEnabledForPortal(authSystem, this.PortalSettings.PortalId);
+                }
+
+                if (enabled)
+                {
+                    var authLoginControl = ControlUtilities.LoadControl<AuthenticationLoginBase>(this, "~/" + authSystem.LoginControlSrc);
+                    var provider = this.BindLoginControl(authLoginControl, authSystem);
+                    if (authSystem.AuthenticationType == "DNN")
+                    {
+                        defaultLoginControl = provider;
+                    }
+
+                    // Check if AuthSystem is Enabled
+                    if (authLoginControl.Enabled)
+                    {
+                        if (authLoginControl is OAuthLoginBase)
+                        {
+                            // Add Login Control to List
+                            oAuthControls.Add(provider);
+                        }
+                        else
+                        {
+                            if (authLoginControl.AuthenticationType == defaultAuthProvider)
+                            {
+                                defaultAuthLogin.Add(provider);
+                            }
+                            else
+                            {
+                                // Add Login Control to List
+                                loginControls.Add(provider);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Exceptions.LogException(ex);
+            }
+        }
+
+        this.socialControls.AddRange(oAuthControls);
+
+        int authCount = loginControls.Count + defaultAuthLogin.Count;
+        switch (authCount)
+        {
+            case 0:
+                // No enabled controls - inject default dnn control
+                if (defaultLoginControl == null)
+                {
+                    // No controls enabled for portal, and default DNN control is not enabled by host, so load system default (DNN)
+                    AuthenticationInfo authSystem = AuthenticationController.GetAuthenticationServiceByType("DNN");
+                    var authLoginControl = ControlUtilities.LoadControl<AuthenticationLoginBase>(this, "~/" + authSystem.LoginControlSrc);
+                    var provider = this.BindLoginControl(authLoginControl, authSystem);
+                    this.DisplayLoginControl(provider, false, false);
+                }
+                else
+                {
+                    // if there are social authprovider only
+                    if (oAuthControls.Count == 0)
+                    {
+                        // Portal has no login controls enabled so load default DNN control
+                        this.DisplayLoginControl(defaultLoginControl, false, false);
+                    }
+                }
+
+                break;
+            case 1:
+                // We don't want the control to render with tabbed interface
+                this.DisplayLoginControl(
+                    defaultAuthLogin.Count == 1
+                                        ? defaultAuthLogin[0]
+                                        : loginControls.Count == 1
+                                            ? loginControls[0]
+                                            : oAuthControls[0],
+                    false,
+                    false);
+                break;
+            default:
+                // make sure defaultAuth provider control is diplayed first
+                if (defaultAuthLogin.Count > 0)
+                {
+                    this.DisplayTabbedLoginControl(defaultAuthLogin[0]);
+                }
+
+                foreach (var authLoginControl in loginControls)
+                {
+                    this.DisplayTabbedLoginControl(authLoginControl);
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>Prepares a provider's login control for rendering.</summary>
+    /// <param name="authLoginControl">The probe instance, used for its <c>Enabled</c> flag and its resource file.</param>
+    /// <param name="authSystem">The authentication system.</param>
+    /// <returns>The description the markup renders.</returns>
+    private ProviderControl BindLoginControl(AuthenticationLoginBase authLoginControl, AuthenticationInfo authSystem)
+    {
+        // set the control ID to the resource file name ( ie. controlname.ascx = controlname )
+        // this is necessary for the Localization in PageBase
+        // BL0005: authLoginControl is a LOCAL probe instance this method is handed (constructed by
+        // ControlUtilities.LoadControl purely to read Enabled/SupportsRegistration and its resource
+        // file); it is never rendered as a child component. The provider's login component is
+        // rendered by TYPE through <DynamicComponent Type/Parameters>, and the values below are
+        // re-supplied through that parameter dictionary, which is the real parameter pipeline.
+#pragma warning disable BL0005
+        authLoginControl.AuthenticationType = authSystem.AuthenticationType;
+#pragma warning restore BL0005
+        var controlPath = "~/" + Path.GetDirectoryName(authSystem.LoginControlSrc).Replace('\\', '/');
+        var localResourceFile = controlPath + "/" + Localization.LocalResourceDirectory + "/" +
+                                Path.GetFileNameWithoutExtension(authSystem.LoginControlSrc);
+        authLoginControl.LocalResourceFile = localResourceFile;
+#pragma warning disable BL0005
+        authLoginControl.RedirectURL = this.RedirectURL;
+#pragma warning restore BL0005
+        authLoginControl.ModuleConfiguration = this.ModuleConfiguration;
+
+        // The WebForms control also forced ViewStateMode="Enabled" on non-DNN providers and injected
+        // AUTOCOMPLETE="off" on the provider's txtUsername/txtPassword. Neither has a counterpart:
+        // there is no ViewState, and a Blazor component's markup carries its own autocomplete
+        // attributes (the DNN provider's login component sets autocomplete="off" on both boxes).
+        var componentType = ControlUtilities.ResolveControlType("~/" + authSystem.LoginControlSrc);
+
+        var parameters = ControlUtilities.FilterDeclaredParameters(
+            componentType,
+            new Dictionary<string, object>
+            {
+                ["AuthenticationType"] = authSystem.AuthenticationType,
+                ["LocalResourceFile"] = localResourceFile,
+                ["RedirectURL"] = this.RedirectURL,
+                ["ModuleConfiguration"] = this.ModuleConfiguration,
+                ["UserAuthenticatedCallback"] = EventCallback.Factory.Create<UserAuthenticatedEventArgs>(this, this.UserAuthenticated),
+            });
+
+        return new ProviderControl
+        {
+            AuthenticationType = authSystem.AuthenticationType,
+            Title = Localization.GetString("Title", localResourceFile),
+            ComponentType = componentType,
+            Parameters = parameters,
+        };
+    }
+
+    /// <summary>Binds the register panel.</summary>
+    /// <remarks>Ported from <c>BindRegister</c>.</remarks>
+    private void BindRegister()
+    {
+        // Verify that the current user has access to this page
+        if (this.PortalSettings.UserRegistration == (int)Globals.PortalRegistrationType.NoRegistration && this.Request?.IsAuthenticated() != true)
+        {
+            this.Redirect(this.navigationManager.NavigateURL("Access Denied"));
+            return;
+        }
+
+        this.registerHelp = Localization.GetSystemMessage(this.PortalSettings, "MESSAGE_REGISTRATION_INSTRUCTIONS");
+        switch (this.PortalSettings.UserRegistration)
+        {
+            case (int)Globals.PortalRegistrationType.PrivateRegistration:
+                this.registerHelp += Localization.GetString("PrivateMembership", Localization.SharedResourceFile);
+                break;
+            case (int)Globals.PortalRegistrationType.PublicRegistration:
+                this.registerHelp += Localization.GetString("PublicMembership", Localization.SharedResourceFile);
+                break;
+            case (int)Globals.PortalRegistrationType.VerifiedRegistration:
+                this.registerHelp += Localization.GetString("VerifiedMembership", Localization.SharedResourceFile);
+                break;
+        }
+
+        if (this.AutoRegister)
+        {
+            this.InitialiseUser();
+        }
+
+        bool userValid = true;
+        if (string.IsNullOrEmpty(this.User.Username) || string.IsNullOrEmpty(this.User.Email) || string.IsNullOrEmpty(this.User.FirstName) || string.IsNullOrEmpty(this.User.LastName))
+        {
+            userValid = Null.NullBoolean;
+        }
+
+        if (this.AutoRegister && userValid)
+        {
+            this.showUserEditor = false;
+            this.registerTitle = Localization.GetString("CreateTitle", this.LocalResourceFile);
+            this.createUserText = Localization.GetString("cmdCreate", this.LocalResourceFile);
+        }
+        else
+        {
+            this.registerHelp += Localization.GetString("Required", Localization.SharedResourceFile);
+            this.registerTitle = Localization.GetString("RegisterTitle", this.LocalResourceFile);
+            this.createUserText = Localization.GetString("cmdRegister", this.LocalResourceFile);
+            this.showUserEditor = true;
+        }
+    }
+
+    /// <summary>Adds a provider's login control to the non-tabbed login panel.</summary>
+    /// <param name="provider">The provider control.</param>
+    /// <param name="addHeader">Whether to add a section header.</param>
+    /// <param name="addFooter">Whether to add a line break.</param>
+    private void DisplayLoginControl(ProviderControl provider, bool addHeader, bool addFooter)
+    {
+        provider.AddHeader = addHeader;
+        provider.AddFooter = addFooter;
+        this.plainControls.Add(provider);
+    }
+
+    /// <summary>Adds a provider's login control to the tabbed login panel.</summary>
+    /// <param name="provider">The provider control.</param>
+    private void DisplayTabbedLoginControl(ProviderControl provider)
+    {
+        this.tabbedControls.Add(provider);
+    }
+
+    /// <summary>InitialiseUser initialises a "new" user from the data an external provider returned.</summary>
+    private void InitialiseUser()
+    {
+        // Load any Profile properties that may have been returned
+        this.UpdateProfile(this.User, false);
+
+        // Set UserName to authentication Token
+        this.User.Username = this.GenerateUserName();
+
+        // Set DisplayName to UserToken if null
+        if (string.IsNullOrEmpty(this.User.DisplayName))
+        {
+            this.User.DisplayName = this.UserToken.Replace("http://", string.Empty).TrimEnd('/');
+        }
+
+        // Parse DisplayName into FirstName/LastName
+        if (this.User.DisplayName.IndexOf(' ') > 0)
+        {
+            this.User.FirstName = this.User.DisplayName.Substring(0, this.User.DisplayName.IndexOf(' '));
+            this.User.LastName = this.User.DisplayName.Substring(this.User.DisplayName.IndexOf(' ') + 1);
+        }
+
+        // Set FirstName to Authentication Type (if null)
+        if (string.IsNullOrEmpty(this.User.FirstName))
+        {
+            this.User.FirstName = this.AuthenticationType;
+        }
+
+        // Set FirstName to "User" (if null)
+        if (string.IsNullOrEmpty(this.User.LastName))
+        {
+            this.User.LastName = "User";
+        }
+    }
+
+    private string GenerateUserName()
+    {
+        if (!string.IsNullOrEmpty(this.UserName))
+        {
+            return this.UserName;
+        }
+
+        // Try Email prefix
+        var emailPrefix = string.Empty;
+        if (!string.IsNullOrEmpty(this.User.Email))
+        {
+            if (this.User.Email.IndexOf("@", StringComparison.Ordinal) != -1)
+            {
+                emailPrefix = this.User.Email.Substring(0, this.User.Email.IndexOf("@", StringComparison.Ordinal));
+                var user = UserController.GetUserByName(this.PortalId, emailPrefix);
+                if (user == null)
+                {
+                    return emailPrefix;
+                }
+            }
+        }
+
+        // Try First Name
+        if (!string.IsNullOrEmpty(this.User.FirstName))
+        {
+            var user = UserController.GetUserByName(this.PortalId, this.User.FirstName);
+            if (user == null)
+            {
+                return this.User.FirstName;
+            }
+        }
+
+        // Try Last Name
+        if (!string.IsNullOrEmpty(this.User.LastName))
+        {
+            var user = UserController.GetUserByName(this.PortalId, this.User.LastName);
+            if (user == null)
+            {
+                return this.User.LastName;
+            }
+        }
+
+        // Try First Name + space + First letter last name
+        if (!string.IsNullOrEmpty(this.User.LastName) && !string.IsNullOrEmpty(this.User.FirstName))
+        {
+            var newUserName = this.User.FirstName + " " + this.User.LastName.Substring(0, 1);
+            var user = UserController.GetUserByName(this.PortalId, newUserName);
+            if (user == null)
+            {
+                return newUserName;
+            }
+        }
+
+        // Try First letter of First Name + lastname
+        if (!string.IsNullOrEmpty(this.User.LastName) && !string.IsNullOrEmpty(this.User.FirstName))
+        {
+            var newUserName = this.User.FirstName.Substring(0, 1) + this.User.LastName;
+            var user = UserController.GetUserByName(this.PortalId, newUserName);
+            if (user == null)
+            {
+                return newUserName;
+            }
+        }
+
+        // Try Email Prefix + incremental numbers until unique name found
+        if (!string.IsNullOrEmpty(emailPrefix))
+        {
+            for (var i = 1; i < 10000; i++)
+            {
+                var newUserName = emailPrefix + i;
+                var user = UserController.GetUserByName(this.PortalId, newUserName);
+                if (user == null)
+                {
+                    return newUserName;
+                }
+            }
+        }
+
+        return this.UserToken.Replace("http://", string.Empty).TrimEnd('/');
+    }
+
+    /// <summary>ShowPanel controls what "panel" is to be displayed.</summary>
+    private void ShowPanel()
+    {
+        this.showLogin = this.PageNo == 0;
+        this.showRegister = this.PageNo == 1;
+        this.showPassword = this.PageNo == 2;
+        this.showProfile = this.PageNo == 3;
+        this.showDataConsent = this.PageNo == 4;
+
+        switch (this.PageNo)
+        {
+            case 0:
+                this.BindLogin();
+                break;
+            case 1:
+                this.BindRegister();
+                break;
+            case 2:
+                // ctlPassword.UserId = this.UserId; ctlPassword.DataBind();
+                this.flow.UserId = this.UserId;
+                break;
+            case 3:
+                // ctlProfile.UserId = this.UserId; ctlProfile.DataBind();
+                this.flow.UserId = this.UserId;
+                break;
+            case 4:
+                // ctlDataConsent.UserId = this.UserId; ctlDataConsent.DataBind();
+                this.flow.UserId = this.UserId;
+                break;
+        }
+    }
+
+    private void UpdateProfile(UserInfo objUser, bool update)
+    {
+        bool bUpdateUser = false;
+        if (this.ProfileProperties.Count > 0)
+        {
+            foreach (string key in this.ProfileProperties)
+            {
+                switch (key)
+                {
+                    case "FirstName":
+                        if (objUser.FirstName != this.ProfileProperties[key])
+                        {
+                            objUser.FirstName = this.ProfileProperties[key];
+                            bUpdateUser = true;
+                        }
+
+                        break;
+                    case "LastName":
+                        if (objUser.LastName != this.ProfileProperties[key])
+                        {
+                            objUser.LastName = this.ProfileProperties[key];
+                            bUpdateUser = true;
+                        }
+
+                        break;
+                    case "Email":
+                        if (objUser.Email != this.ProfileProperties[key])
+                        {
+                            objUser.Email = this.ProfileProperties[key];
+                            bUpdateUser = true;
+                        }
+
+                        break;
+                    case "DisplayName":
+                        if (objUser.DisplayName != this.ProfileProperties[key])
+                        {
+                            objUser.DisplayName = this.ProfileProperties[key];
+                            bUpdateUser = true;
+                        }
+
+                        break;
+                    default:
+                        objUser.Profile.SetProfileProperty(key, this.ProfileProperties[key]);
+                        break;
+                }
+            }
+
+            if (update)
+            {
+                if (bUpdateUser)
+                {
+                    UserController.UpdateUser(this.eventLogger, this.PortalId, objUser);
+                }
+
+                ProfileController.UpdateUserProfile(this.portalController, this.appStatus, this.portalGroupController, objUser);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ValidateUser runs when the user has been authorized by the data store.  It validates for
+    /// things such as an expiring password, valid profile, or missing DNN User Association.
+    /// </summary>
+    /// <param name="objUser">The logged in User.</param>
+    /// <param name="ignoreExpiring">Ignore the situation where the password is expiring (but not yet expired).</param>
+    /// <remarks>
+    /// Ported verbatim. The VALID branch is the only place a user is actually signed in: it still
+    /// goes through <c>UserController.UserLogin</c>, which signs in against the
+    /// <c>.DOTNETNUKE</c> cookie scheme with <c>IsPersistent = RememberMe</c>. It runs on the
+    /// request that carried the credentials, so HttpContext is live and the response has not
+    /// started.
+    /// </remarks>
+    private void ValidateUser(UserInfo objUser, bool ignoreExpiring)
+    {
+        string strMessage;
+        DateTime expiryDate = Null.NullDate;
+        bool okToShowPanel = true;
+
+        var validStatus = UserController.ValidateUser(objUser, this.PortalId, ignoreExpiring);
+
+        if (PasswordConfig.PasswordExpiry > 0)
+        {
+            expiryDate = objUser.Membership.LastPasswordChangeDate.AddDays(PasswordConfig.PasswordExpiry);
+        }
+
+        this.UserId = objUser.UserID;
+        this.flow.UserId = objUser.UserID;
+
+        // Check if the User has valid Password/Profile
+        switch (validStatus)
+        {
+            case UserValidStatus.VALID:
+
+                // Obtain the current client IP
+                var userRequestIpAddressController = UserRequestIPAddressController.Instance;
+                var ipAddress = userRequestIpAddressController.GetUserRequestIPAddress(this.Request);
+
+                // check if the user is an admin/host and validate their IP
+                if (this.HostSettings.EnableIPChecking)
+                {
+                    bool isAdminUser = objUser.IsSuperUser || objUser.IsInRole(this.PortalSettings.AdministratorRoleName);
+                    if (isAdminUser)
+                    {
+                        var clientIp = ipAddress;
+                        if (IPFilterController.Instance.IsIPBanned(clientIp))
+                        {
+                            PortalSecurity.Instance.SignOut();
+                            this.AddModuleMessage("IPAddressBanned", ModuleMessage.ModuleMessageType.RedError, true);
+                            okToShowPanel = false;
+                            break;
+                        }
+                    }
+                }
+
+                // Set the Page Culture(Language) based on the Users Preferred Locale
+                if ((objUser.Profile != null) && (objUser.Profile.PreferredLocale != null) && this.LocaleEnabled(objUser.Profile.PreferredLocale))
+                {
+                    Localization.SetLanguage(objUser.Profile.PreferredLocale);
+                }
+                else
+                {
+                    Localization.SetLanguage(this.PortalSettings.DefaultLanguage);
+                }
+
+                // Set the Authentication Type used
+                AuthenticationController.SetAuthenticationType(this.AuthenticationType);
+
+                // Complete Login
+                UserController.UserLogin(this.PortalId, objUser, this.PortalSettings.PortalName, ipAddress, this.RememberMe);
+
+                // check whether user request comes with IPv6 and log it to make sure admin is aware of that
+                if (string.IsNullOrWhiteSpace(ipAddress))
+                {
+                    var ipAddressV6 = userRequestIpAddressController.GetUserRequestIPAddress(this.Request, IPAddressFamily.IPv6);
+
+                    if (!string.IsNullOrWhiteSpace(ipAddressV6))
+                    {
+                        this.AddEventLog(objUser.UserID, objUser.Username, this.PortalId, "IPv6", ipAddressV6);
+                    }
+                }
+
+                // redirect browser
+                var redirectUrl = this.RedirectURL;
+
+                // Clear the cookie
+                HttpContextSource.Current?.Response.Cookies.Append(
+                    "returnurl",
+                    string.Empty,
+                    new CookieOptions
+                    {
+                        Expires = DateTime.Now.AddDays(-1),
+                        Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
+                    });
+
+                // The flow is finished, so the session slot that stood in for ViewState is dropped.
+                LoginFlowState.Clear(this.ModuleId);
+
+                this.Redirect(redirectUrl);
+                return;
+            case UserValidStatus.PASSWORDEXPIRED:
+                strMessage = string.Format(CultureInfo.CurrentCulture, Localization.GetString("PasswordExpired", this.LocalResourceFile), expiryDate.ToLongDateString());
+                this.AddLocalizedModuleMessage(strMessage, ModuleMessage.ModuleMessageType.YellowWarning, true);
+                this.PageNo = 2;
+                this.showProceed = false;
+                break;
+            case UserValidStatus.PASSWORDEXPIRING:
+                strMessage = string.Format(CultureInfo.CurrentCulture, Localization.GetString("PasswordExpiring", this.LocalResourceFile), expiryDate.ToLongDateString());
+                this.AddLocalizedModuleMessage(strMessage, ModuleMessage.ModuleMessageType.YellowWarning, true);
+                this.PageNo = 2;
+                this.showProceed = true;
+                break;
+            case UserValidStatus.UPDATEPASSWORD:
+                var portalAlias = Globals.AddHTTP(this.CurrentPortalAlias.HttpAlias);
+                if (MembershipProviderConfig.PasswordRetrievalEnabled || MembershipProviderConfig.PasswordResetEnabled)
+                {
+                    UserController.ResetPasswordToken(this.User);
+                    objUser = UserController.GetUserById(this.HostSettings, objUser.PortalID, objUser.UserID);
+                }
+
+                var redirTo = string.Format("{0}/default.aspx?ctl=PasswordReset&resetToken={1}&forced=true", portalAlias, objUser.PasswordResetToken);
+                this.Redirect(redirTo);
+                return;
+            case UserValidStatus.UPDATEPROFILE:
+                // Save UserID in the flow state so that can update profile later.
+                this.UserId = objUser.UserID;
+                this.flow.UserId = objUser.UserID;
+
+                // When the user need update its profile to complete login, we need clear the login status because if the logrin is from
+                // 3rd party login provider, it may call UserController.UserLogin because they doesn't check this situation.
+                PortalSecurity.Instance.SignOut();
+
+                // Admin has forced profile update
+                this.AddModuleMessage("ProfileUpdate", ModuleMessage.ModuleMessageType.YellowWarning, true);
+                this.PageNo = 3;
+                break;
+            case UserValidStatus.MUSTAGREETOTERMS:
+                if (this.PortalSettings.DataConsentConsentRedirect == -1)
+                {
+                    this.UserId = objUser.UserID;
+                    this.flow.UserId = objUser.UserID;
+                    this.AddModuleMessage("MustConsent", ModuleMessage.ModuleMessageType.YellowWarning, true);
+                    this.PageNo = 4;
+                }
+                else
+                {
+                    // Use the reset password token to identify the user during the redirect
+                    UserController.ResetPasswordToken(objUser);
+                    objUser = UserController.GetUserById(this.HostSettings, objUser.PortalID, objUser.UserID);
+                    this.Redirect(this.navigationManager.NavigateURL(this.PortalSettings.DataConsentConsentRedirect, string.Empty, string.Format("token={0}", objUser.PasswordResetToken)));
+                    return;
+                }
+
+                break;
+        }
+
+        if (okToShowPanel)
+        {
+            this.ShowPanel();
+        }
+    }
+
+    private bool UserNeedsVerification()
+    {
+        var userInfo = UserController.Instance.GetCurrentUserInfo();
+
+        return !userInfo.IsSuperUser && userInfo.IsInRole("Unverified Users") &&
+            this.PortalSettings.UserRegistration == (int)Globals.PortalRegistrationType.VerifiedRegistration &&
+            !string.IsNullOrEmpty(this.Request?.Query["verificationcode"].ToString());
+    }
+
+    private bool LocaleEnabled(string locale)
+    {
+        return LocaleController.Instance.GetLocales(this.PortalSettings.PortalId).ContainsKey(locale);
+    }
+
+    private void AddEventLog(int userId, string username, int portalId, string propertyName, string propertyValue)
+    {
+        ILogInfo log = new LogInfo
+        {
+            LogUserName = username,
+            LogTypeKey = nameof(EventLogType.ADMIN_ALERT),
+        };
+        log.LogPortalId = portalId;
+        log.LogUserId = userId;
+        log.AddProperty(propertyName, propertyValue);
+        this.eventLogger.AddLog(log);
+    }
+
+    /// <summary>Replaces <c>Response.Redirect(url, true)</c>.</summary>
+    /// <param name="url">The URL to redirect to.</param>
+    private void Redirect(string url)
+    {
+        this.flow.Save(this.ModuleId);
+        this.Navigation.NavigateTo(url, forceLoad: true);
+    }
+
+    /// <summary>One authentication provider's login control, as the markup needs it.</summary>
+    private sealed class ProviderControl
+    {
+        public string AuthenticationType { get; set; }
+
+        public string Title { get; set; }
+
+        public Type ComponentType { get; set; }
+
+        public IDictionary<string, object> Parameters { get; set; }
+
+        public bool AddHeader { get; set; }
+
+        public bool AddFooter { get; set; }
+    }
+}

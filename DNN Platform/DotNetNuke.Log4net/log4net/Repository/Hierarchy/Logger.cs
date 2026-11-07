@@ -69,12 +69,7 @@ namespace log4net.Repository.Hierarchy
         /// </remarks>
         protected Logger(string name) 
         {
-#if NETCF || NETSTANDARD1_3
-            // NETCF: String.Intern causes Native Exception
-            m_name = name;
-#else
             this.m_name = string.Intern(name);
-#endif
         }
 
         /// <summary>Gets or sets the parent logger in the hierarchy.</summary>
@@ -397,12 +392,6 @@ namespace log4net.Repository.Hierarchy
             {
                 LogLog.Error(declaringType, "Exception while logging", ex);
             }
-#if !NET_2_0 && !MONO_2_0 && !MONO_3_5 && !MONO_4_0 && !NETSTANDARD
-            catch
-            {
-                log4net.Util.LogLog.Error(declaringType, "Exception while logging");
-            }
-#endif
         }
 
         /// <summary>
@@ -434,12 +423,6 @@ namespace log4net.Repository.Hierarchy
             {
                 LogLog.Error(declaringType, "Exception while logging", ex);
             }
-#if !NET_2_0 && !MONO_2_0 && !MONO_3_5 && !MONO_4_0 && !NETSTANDARD
-            catch
-            {
-                log4net.Util.LogLog.Error(declaringType, "Exception while logging");
-            }
-#endif
         }
 
         /// <summary>Checks if this logger is enabled for a given <see cref="Level"/> passed as parameter.</summary>
@@ -472,12 +455,6 @@ namespace log4net.Repository.Hierarchy
             {
                 LogLog.Error(declaringType, "Exception while logging", ex);
             }
-#if !NET_2_0 && !MONO_2_0 && !MONO_3_5 && !MONO_4_0 && !NETSTANDARD
-            catch
-            {
-                log4net.Util.LogLog.Error(declaringType, "Exception while logging");
-            }
-#endif
             return false;
         }
 
@@ -565,14 +542,18 @@ namespace log4net.Repository.Hierarchy
                 {
                     LogLog.Debug(declaringType, "    Current AppDomain context information: ");
                     LogLog.Debug(declaringType, "       BaseDirectory   : " + SystemInfo.ApplicationBaseDirectory);
-#if !NETCF && !NETSTANDARD1_3
                     LogLog.Debug(declaringType, "       FriendlyName    : " + AppDomain.CurrentDomain.FriendlyName);
-                    LogLog.Debug(declaringType, "       DynamicDirectory: " + AppDomain.CurrentDomain.DynamicDirectory);
-#endif
+
+                    // AppDomain.DynamicDirectory has no meaning on modern .NET (shadow-copy
+                    // assembly loading was removed); the current working directory is the
+                    // supported equivalent for identifying which application is logging.
+                    LogLog.Debug(declaringType, "       WorkingDirectory: " + Environment.CurrentDirectory);
                 }
-                catch(System.Security.SecurityException)
+                catch (Exception ex)
                 {
-                    // Insufficient permissions to display info from the AppDomain
+                    // Unable to display context info from the host environment; the
+                    // "no appenders" warning above has already been emitted.
+                    LogLog.Debug(declaringType, "Exception while gathering AppDomain context information. Error Ignored.", ex);
                 }
             }
         }

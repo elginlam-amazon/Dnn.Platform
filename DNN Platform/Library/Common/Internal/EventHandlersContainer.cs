@@ -7,7 +7,7 @@ namespace DotNetNuke.Common.Internal
 {
     using System;
     using System.Collections.Generic;
-    using System.ComponentModel.Composition;
+    using System.Composition;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.ComponentModel;
@@ -22,8 +22,10 @@ namespace DotNetNuke.Common.Internal
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<EventHandlersContainer<T>>();
 
+        // This was a field. MEF 2's ImportManyAttribute is not valid on a field (only on a property
+        // or parameter), so the import is now a private property with the same semantics.
         [ImportMany]
-        private IEnumerable<Lazy<T>> eventHandlers = new List<Lazy<T>>();
+        private IEnumerable<Lazy<T>> ImportedEventHandlers { get; set; } = new List<Lazy<T>>();
 
         /// <summary>Initializes a new instance of the <see cref="EventHandlersContainer{T}"/> class.</summary>
         public EventHandlersContainer()
@@ -48,7 +50,7 @@ namespace DotNetNuke.Common.Internal
         {
             get
             {
-                return this.eventHandlers;
+                return this.ImportedEventHandlers;
             }
         }
 

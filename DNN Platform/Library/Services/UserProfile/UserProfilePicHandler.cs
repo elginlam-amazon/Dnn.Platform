@@ -7,17 +7,36 @@ namespace DotNetNuke.Services.UserProfile
     using System.Collections.Generic;
     using System.Globalization;
     using System.IO;
-    using System.Threading;
-    using System.Web;
+    using System.Threading.Tasks;
 
+    using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.FileSystem;
     using DotNetNuke.Services.Localization.Internal;
 
-    public class UserProfilePicHandler : IHttpHandler
+    using Microsoft.AspNetCore.Builder;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Routing;
+
+    /// <summary>
+    /// Serves a user's profile picture, resized to the requested height. This is the ASP.NET Core
+    /// replacement for the <c>UserProfilePicHandler</c> <c>IHttpHandler</c> which was registered
+    /// in <c>web.config</c> for <c>path="ProfilePic.ashx" verb="*"</c>.
+    /// </summary>
+    public static class UserProfilePicHandler
     {
+        /// <summary>The preserved profile picture URL, so existing links keep working.</summary>
+        public const string ProfilePicPath = "/ProfilePic.ashx";
+
+        /// <summary>
+        /// The preserved profile picture URL when it appears below a portal/tab folder. The IIS
+        /// handler mapping matched the file name at any folder depth, so both shapes are routed.
+        /// </summary>
+        public const string NestedProfilePicPath = "/{**dnnProfilePicPrefix}/ProfilePic.ashx";
+
         private static readonly object ResizeLocker = new object();
 
         private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -31,37 +50,46 @@ namespace DotNetNuke.Services.UserProfile
             ".ICO",
         };
 
-        /// <inheritdoc />
-        public bool IsReusable
+        /// <summary>Maps the profile picture endpoint onto its original URL(s).</summary>
+        /// <param name="endpoints">The endpoint route builder.</param>
+        /// <returns>The <paramref name="endpoints"/>, for chaining.</returns>
+        public static IEndpointRouteBuilder MapDnnUserProfilePic(this IEndpointRouteBuilder endpoints)
         {
-            get
-            {
-                return false;
-            }
+            // Map (rather than MapGet): the handler was registered with verb="*".
+            endpoints.Map(ProfilePicPath, ProcessRequestAsync);
+            endpoints.Map(NestedProfilePicPath, ProcessRequestAsync);
+            return endpoints;
         }
 
-        /// <inheritdoc />
-        public void ProcessRequest(HttpContext context)
+        /// <summary>Handles a request for a user's profile picture.</summary>
+        /// <param name="context">The HTTP context of the request.</param>
+        /// <returns>A task which completes once the image has been written to the response.</returns>
+        public static async Task ProcessRequestAsync(HttpContext context)
         {
+            ArgumentNullException.ThrowIfNull(context);
+
             SetupCulture();
 
             var userId = -1;
             var height = 55;
             try
             {
-                if (!string.IsNullOrEmpty(context.Request.QueryString["userid"]))
+                var rawUserId = context.Request.Query["userid"].ToString();
+                if (!string.IsNullOrEmpty(rawUserId))
                 {
-                    userId = Convert.ToInt32(context.Request.QueryString["userid"], CultureInfo.InvariantCulture);
+                    userId = Convert.ToInt32(rawUserId, CultureInfo.InvariantCulture);
                 }
 
-                if (!string.IsNullOrEmpty(context.Request.QueryString["h"]))
+                var rawHeight = context.Request.Query["h"].ToString();
+                if (!string.IsNullOrEmpty(rawHeight))
                 {
-                    height = Convert.ToInt32(context.Request.QueryString["h"], CultureInfo.InvariantCulture);
+                    height = Convert.ToInt32(rawHeight, CultureInfo.InvariantCulture);
                 }
             }
             catch (Exception)
             {
-                Exceptions.Exceptions.ProcessHttpException(context.Request);
+                // The userid or height are incorrectly formatted (potential DOS): raise the 404.
+                Exceptions.Exceptions.ProcessHttpException(context.Request.GetRawUrl());
             }
 
             if (height > 128)
@@ -79,14 +107,11 @@ namespace DotNetNuke.Services.UserProfile
             {
                 if (!IsImageExtension(photoFile.Extension))
                 {
-                    try
-                    {
-                        context.Response.End();
-                    }
-                    catch (ThreadAbortException)
-                    {
-                        // if ThreadAbortException will shown, should catch it and do nothing.
-                    }
+                    // The old handler called Response.End() here, ending the request with an
+                    // empty body. There is no Response.End in ASP.NET Core; returning does the
+                    // same thing.
+                    SetCachePolicy(context.Response);
+                    return;
                 }
 
                 var folder = FolderManager.Instance.GetFolder(photoFile.FolderId);
@@ -107,20 +132,20 @@ namespace DotNetNuke.Services.UserProfile
                     }
                 }
 
-                using var content = FileManager.Instance.GetFileContent(FileManager.Instance.GetFile(folder, sizedPhoto));
-                context.Response.ContentType =
-                    photoFile.Extension.ToLowerInvariant() switch
-                    {
-                        "png" => "image/png",
-                        "jpeg" or "jpg" => "image/jpeg",
-                        "gif" => "image/gif",
-                        _ => context.Response.ContentType,
-                    };
-
-                using (var memoryStream = new MemoryStream())
+                var contentType = photoFile.Extension.ToLowerInvariant() switch
                 {
-                    content.CopyTo(memoryStream);
-                    memoryStream.WriteTo(context.Response.OutputStream);
+                    "png" => "image/png",
+                    "jpeg" or "jpg" => "image/jpeg",
+                    "gif" => "image/gif",
+                    _ => context.Response.ContentType,
+                };
+                context.Response.ContentType = contentType;
+
+                SetCachePolicy(context.Response);
+
+                using (var content = FileManager.Instance.GetFileContent(FileManager.Instance.GetFile(folder, sizedPhoto)))
+                {
+                    await content.CopyToAsync(context.Response.Body, context.RequestAborted).ConfigureAwait(false);
                 }
 
                 photoLoaded = true;
@@ -129,14 +154,28 @@ namespace DotNetNuke.Services.UserProfile
             if (!photoLoaded)
             {
                 context.Response.ContentType = "image/gif";
-                context.Response.WriteFile(context.Request.MapPath("~/images/no_avatar.gif"));
+                SetCachePolicy(context.Response);
+
+                var noAvatarPath = HttpContextSource.MapPath("~/images/no_avatar.gif");
+                await context.Response.SendFileAsync(noAvatarPath, context.RequestAborted).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Writes the cache headers the old handler set via <c>Response.Cache</c>
+        /// (public cacheability, a one minute expiry/max-age, and Last-Modified).
+        /// </summary>
+        /// <param name="response">The response to write the headers to.</param>
+        private static void SetCachePolicy(HttpResponse response)
+        {
+            if (response.HasStarted)
+            {
+                return;
             }
 
-            context.Response.Cache.SetCacheability(HttpCacheability.Public);
-            context.Response.Cache.SetExpires(DateTime.Now.AddMinutes(1));
-            context.Response.Cache.SetMaxAge(new TimeSpan(0, 1, 0));
-            context.Response.AddHeader("Last-Modified", DateTime.Now.ToString("r"));
-            context.ApplicationInstance.CompleteRequest();
+            response.Headers.CacheControl = "public, max-age=60";
+            response.Headers.Expires = DateTime.Now.AddMinutes(1).ToUniversalTime().ToString("r", CultureInfo.InvariantCulture);
+            response.Headers.LastModified = DateTime.Now.ToString("r", CultureInfo.InvariantCulture);
         }
 
         // whether current user has permission to view target user's photo.

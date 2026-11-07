@@ -24,6 +24,9 @@ internal static partial class LoggerMessages
     [LoggerMessage(EventId = 1_500_002, Level = LogLevel.Error, Message = "Unable to create {fullTypeName} while registering service routes.")]
     public static partial void MvcRoutingManagerUnableToCreateMapper(this ILogger logger, Exception exception, string fullTypeName);
 
+    [LoggerMessage(EventId = 1_500_003, Level = LogLevel.Warning, Message = "Unable to determine the DNN MVC module folder for the current request; falling back to the default view locations.")]
+    public static partial void ModuleViewLocationExpanderUnableToDetermineModuleFolder(this ILogger logger, Exception exception);
+
     [LoggerMessage(EventId = 1_500_100, Level = LogLevel.Warning, Message = "The specified moniker ({Moniker}) is not defined in the system")]
     public static partial void StandardTabAndModuleInfoProviderMonikerIsNotDefined(this ILogger logger, string moniker);
 }

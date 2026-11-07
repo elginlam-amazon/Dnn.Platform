@@ -3,8 +3,7 @@
 // See the LICENSE file in the project root for more information
 
 using System.Linq;
-using System.Net.Http;
-using System.Web.Http;
+using Microsoft.AspNetCore.Mvc;
 using Dnn.ContactList.Api;
 using Dnn.ContactList.Spa.Components;
 using Dnn.ContactList.Spa.Services.ViewModels;
@@ -46,7 +45,7 @@ namespace Dnn.ContactList.Spa.Services
         /// </summary>
         /// <returns></returns>
         [HttpPost]
-        public HttpResponseMessage DeleteContact(ContactViewModel viewModel)
+        public IActionResult DeleteContact(ContactViewModel viewModel)
         {
             var contact = _contactService.GetContact(viewModel.ContactId, PortalSettings.PortalId);
 
@@ -57,7 +56,7 @@ namespace Dnn.ContactList.Spa.Services
                 success = true
             };
 
-            return Request.CreateResponse(response);
+            return this.Ok(response);
         }
 
         /// <summary>
@@ -65,7 +64,7 @@ namespace Dnn.ContactList.Spa.Services
         /// </summary>
         /// <returns></returns>
         [HttpGet]
-        public HttpResponseMessage GetContact(int contactId)
+        public IActionResult GetContact(int contactId)
         {
             var contact = new ContactViewModel(_contactService.GetContact(contactId, PortalSettings.PortalId));
 
@@ -78,7 +77,7 @@ namespace Dnn.ContactList.Spa.Services
                 }
             };
 
-            return Request.CreateResponse(response);
+            return this.Ok(response);
         }
 
         /// <summary>
@@ -86,7 +85,7 @@ namespace Dnn.ContactList.Spa.Services
         /// </summary>
         /// <returns></returns>
         [HttpGet]
-        public HttpResponseMessage GetContacts(string searchTerm, int pageSize, int pageIndex)
+        public IActionResult GetContacts(string searchTerm, int pageSize, int pageIndex)
         {
             var contactList = _contactService.GetContacts(searchTerm, PortalSettings.PortalId, pageIndex, pageSize);
             var contacts = contactList
@@ -103,7 +102,7 @@ namespace Dnn.ContactList.Spa.Services
                 }
             };
 
-            return Request.CreateResponse(response);
+            return this.Ok(response);
         }
 
         /// <summary>
@@ -112,7 +111,7 @@ namespace Dnn.ContactList.Spa.Services
         /// <param name="viewModel"></param>
         /// <returns></returns>
         [HttpPost]
-        public HttpResponseMessage SaveContact(ContactViewModel viewModel)
+        public IActionResult SaveContact(ContactViewModel viewModel)
         {
             Contact contact;
 
@@ -153,7 +152,7 @@ namespace Dnn.ContactList.Spa.Services
                 }
             };
 
-            return Request.CreateResponse(response);
+            return this.Ok(response);
 
         }
     }

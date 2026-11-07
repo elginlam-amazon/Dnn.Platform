@@ -18,7 +18,6 @@
 // limitations under the License.
 // 
 
-#if !NETCF
 using System;
 using System.Diagnostics;
 using System.Reflection;
@@ -169,4 +168,3 @@ namespace log4net.Core
         private const string NA = "?";
     }
 }
-#endif

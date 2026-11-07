@@ -6,14 +6,24 @@ namespace DotNetNuke.Web.Api
 {
     using System;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http.Filters;
 
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.AspNetCore.Http.Features;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Controllers;
+    using Microsoft.AspNetCore.Mvc.Filters;
+
     /// <summary>Automatically handles WebAPI exceptions.</summary>
-    public class DnnExceptionFilterAttribute : ExceptionFilterAttribute
+    /// <remarks>
+    /// Was an <c>System.Web.Http.Filters.ExceptionFilterAttribute</c>; it is applied to
+    /// <see cref="DnnApiController"/> (and to individual controllers/actions), not globally, so it stays a
+    /// filter rather than becoming exception-handling middleware. The status code per exception type and
+    /// the response body (an empty body with the localized reason phrase) are unchanged.
+    /// </remarks>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
+    public class DnnExceptionFilterAttribute : Attribute, IExceptionFilter
     {
         /// <summary>
         /// Gets or sets the message key for exception localization.
@@ -25,51 +35,57 @@ namespace DotNetNuke.Web.Api
         public string LocalResourceFile { get; set; }
 
         /// <inheritdoc />
-        public override void OnException(HttpActionExecutedContext actionExecutedContext)
+        public void OnException(ExceptionContext context)
         {
-            if (actionExecutedContext.Exception != null)
+            if (context?.Exception is null)
             {
-                var exception = actionExecutedContext.Exception;
-                var actionName = actionExecutedContext.ActionContext.ActionDescriptor.ActionName;
-                var controllerName = actionExecutedContext.ActionContext.ControllerContext.ControllerDescriptor.ControllerName;
-
-                var resourceFile = string.IsNullOrEmpty(this.LocalResourceFile)
-                    ? Localization.ExceptionsResourceFile
-                    : this.LocalResourceFile;
-
-                var key = string.IsNullOrEmpty(this.MessageKey) ? controllerName + "_" + actionName + ".Error" : this.MessageKey;
-
-                HttpStatusCode statusCode;
-                if (exception is NotImplementedException)
-                {
-                    statusCode = HttpStatusCode.NotImplemented;
-                }
-                else if (exception is TimeoutException)
-                {
-                    statusCode = HttpStatusCode.RequestTimeout;
-                }
-                else if (exception is WebApiException)
-                {
-                    statusCode = HttpStatusCode.BadRequest;
-                }
-                else if (exception is UnauthorizedAccessException)
-                {
-                    statusCode = HttpStatusCode.Unauthorized;
-                }
-                else
-                {
-                    statusCode = HttpStatusCode.InternalServerError;
-                }
-
-                var response = new HttpResponseMessage
-                {
-                    StatusCode = statusCode,
-                    ReasonPhrase = Localization.GetString(key, resourceFile),
-                };
-
-                actionExecutedContext.Response = response;
-                Exceptions.LogException(exception);
+                return;
             }
+
+            var exception = context.Exception;
+            var actionDescriptor = context.ActionDescriptor as ControllerActionDescriptor;
+            var actionName = actionDescriptor?.ActionName;
+            var controllerName = actionDescriptor?.ControllerName;
+
+            var resourceFile = string.IsNullOrEmpty(this.LocalResourceFile)
+                ? Localization.ExceptionsResourceFile
+                : this.LocalResourceFile;
+
+            var key = string.IsNullOrEmpty(this.MessageKey) ? controllerName + "_" + actionName + ".Error" : this.MessageKey;
+
+            HttpStatusCode statusCode;
+            if (exception is NotImplementedException)
+            {
+                statusCode = HttpStatusCode.NotImplemented;
+            }
+            else if (exception is TimeoutException)
+            {
+                statusCode = HttpStatusCode.RequestTimeout;
+            }
+            else if (exception is WebApiException)
+            {
+                statusCode = HttpStatusCode.BadRequest;
+            }
+            else if (exception is UnauthorizedAccessException)
+            {
+                statusCode = HttpStatusCode.Unauthorized;
+            }
+            else
+            {
+                statusCode = HttpStatusCode.InternalServerError;
+            }
+
+            // The legacy filter returned an HttpResponseMessage with no content and the localized message
+            // as its reason phrase; the reason phrase is set through the response feature in ASP.NET Core.
+            var responseFeature = context.HttpContext?.Features.Get<IHttpResponseFeature>();
+            if (responseFeature != null)
+            {
+                responseFeature.ReasonPhrase = Localization.GetString(key, resourceFile);
+            }
+
+            context.Result = new StatusCodeResult((int)statusCode);
+            context.ExceptionHandled = true;
+            Exceptions.LogException(exception);
         }
     }
 }

@@ -6,15 +6,14 @@
 namespace DotNetNuke.Services.UserRequest
 {
     using System;
-    using System.Linq;
     using System.Net;
     using System.Net.Sockets;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
     using DotNetNuke.Framework;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>Utilities to handle IP address of user making request to application.</summary>
@@ -36,44 +35,55 @@ namespace DotNetNuke.Services.UserRequest
         }
 
         /// <inheritdoc />
-        public string GetUserRequestIPAddress(HttpRequestBase request)
+        public string GetUserRequestIPAddress(HttpRequest request)
         {
             return this.GetUserRequestIPAddress(request, IPAddressFamily.IPv4);
         }
 
         /// <inheritdoc />
-        public string GetUserRequestIPAddress(HttpRequestBase request, IPAddressFamily ipFamily)
+        public string GetUserRequestIPAddress(HttpRequest request, IPAddressFamily ipFamily)
         {
+            if (request is null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
+            // A host setting names the (proxy) header that carries the real client address,
+            // e.g. X-Forwarded-For. When set it wins over the transport-level address, exactly
+            // as it did on ASP.NET.
             var userRequestIpHeader = this.hostSettingsService.GetString("UserRequestIPHeader");
             var userIpAddress = string.Empty;
 
-            if (!string.IsNullOrEmpty(userRequestIpHeader) && request.Headers.AllKeys.Contains(userRequestIpHeader))
+            if (!string.IsNullOrEmpty(userRequestIpHeader) && request.Headers.ContainsKey(userRequestIpHeader))
             {
-                userIpAddress = request.Headers[userRequestIpHeader];
-                userIpAddress = userIpAddress.Split(',')[0];
+                userIpAddress = request.Headers[userRequestIpHeader].ToString();
+                userIpAddress = userIpAddress.Split(',')[0].Trim();
                 if (ipFamily == IPAddressFamily.IPv4 && userIpAddress.Contains(':'))
                 {
+                    // strip the "host:port" port part
                     userIpAddress = userIpAddress.Split(':')[0];
                 }
                 else if (ipFamily == IPAddressFamily.IPv6
                     && userIpAddress.StartsWith("[", StringComparison.Ordinal) && userIpAddress.Contains(']'))
                 {
+                    // "[::1]:port" -> "::1"
                     userIpAddress = userIpAddress.Split(']')[0].Substring(1);
                 }
             }
 
             if (string.IsNullOrEmpty(userIpAddress))
             {
-                const string remoteAddrVariable = "REMOTE_ADDR";
-                if (request.ServerVariables.AllKeys.Contains(remoteAddrVariable))
+                // the Core equivalent of the REMOTE_ADDR server variable / Request.UserHostAddress
+                var remoteIpAddress = request.HttpContext?.Connection?.RemoteIpAddress;
+                if (remoteIpAddress != null)
                 {
-                    userIpAddress = request.ServerVariables[remoteAddrVariable];
-                }
-            }
+                    if (remoteIpAddress.IsIPv4MappedToIPv6)
+                    {
+                        remoteIpAddress = remoteIpAddress.MapToIPv4();
+                    }
 
-            if (string.IsNullOrEmpty(userIpAddress))
-            {
-                userIpAddress = request.UserHostAddress;
+                    userIpAddress = remoteIpAddress.ToString();
+                }
             }
 
             if (string.IsNullOrEmpty(userIpAddress) || userIpAddress.Trim() == "::1")
@@ -87,6 +97,19 @@ namespace DotNetNuke.Services.UserRequest
             }
 
             return userIpAddress;
+        }
+
+        /// <inheritdoc />
+        public string GetUserRequestIPAddress()
+        {
+            return this.GetUserRequestIPAddress(IPAddressFamily.IPv4);
+        }
+
+        /// <inheritdoc />
+        public string GetUserRequestIPAddress(IPAddressFamily ipFamily)
+        {
+            var request = HttpContextSource.Current?.Request;
+            return request is null ? string.Empty : this.GetUserRequestIPAddress(request, ipFamily);
         }
 
         /// <inheritdoc />

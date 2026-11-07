@@ -1,0 +1,398 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.Modules
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using DotNetNuke.Entities.Tabs
+@using DotNetNuke.Security.Permissions.Controls
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.Web.UI.WebControls
+@using DotNetNuke.Web.UI.WebControls.Internal
+@using Microsoft.AspNetCore.Components
+
+@*
+    Replaces admin/Modules/Modulesettings.ascx (the markup) + Modulesettings.ascx.cs +
+    Modulesettings.ascx.designer.cs (both in ModuleSettings.razor.cs), element for element.
+
+    The four tabs of the original (ModuleSettings / Permissions / PageSettings / SpecificSettings)
+    and every section inside them are preserved, with the same element ids and CSS classes, so the
+    theme's dnnTabs/dnnPanels/dnnExpandAll behaviour still applies (it is now wired from
+    wwwroot/admin/Modules/moduleSettingsInterop.js, imported after the first render, because a
+    <script> rendered from a component is never executed).
+
+    Control mapping (the designer fields are documented one by one in ModuleSettings.razor.cs):
+      - every dnn:label -> <LabelControl> with the same ControlName/ResourceKey.
+      - asp:Literal ltModuleId / asp:TextBox txtFriendlyName (Enabled=False) -> the module id text
+        and the disabled input.
+      - dnnweb:dnnlanguagelabel cultureLanguageLabel -> the migrated DnnLanguageLabel component;
+        Language is a Blazor parameter, so it is bound directly.
+      - dnnweb:termsselector termsSelector -> the migrated TermsSelector component (REUSED), sized
+        as before; PortalId/Terms are not Blazor parameters and are assigned through @@ref.
+      - every asp:CheckBox -> a checkbox input keeping the control's id (which each label's
+        ControlName pointed at) bound to the matching state. chkAllTabs had AutoPostBack: its
+        CheckedChanged handler is the @@onchange, which still calls OnAllTabsCheckChanged.
+      - the TextMode="Date" start/end date boxes -> input type="date", same yyyy-MM-dd round trip.
+      - asp:CustomValidator (compareDate) -> the end-date message below; the comparison now runs on
+        the server in Validate(), which is where the save decision is made.
+      - dnnweb:DnnGrid dgOnTabs (AllowPaging, PageSize 20, two template columns and an
+        EmptyDataTemplate) -> the table below plus its pager; GetInstalledOnSite/GetInstalledOnLink
+        are unchanged and dgOnTabs_PageIndexChanging becomes OnTabsPageIndexChanging.
+      - dnn:modulepermissionsgrid dgPermissions -> the migrated ModulePermissionsGrid (REUSED, see
+        the security notes in the code behind); chkInheritPermissions keeps its AutoPostBack as an
+        @@onchange calling OnInheritPermissionsChanged.
+      - dnn:url ctlIcon -> the migrated UrlControl component with the identical parameter set
+        (ShowImages/ShowUrls/ShowTabs/ShowLog/ShowTrack/Required/ShowNone). See the code behind for
+        why it is UrlControl and not the abstract DnnUrlControl the .ascx named.
+      - asp:RadioButtonList cboAlign / cboVisibility -> the radio inputs over the same values
+        ("left"/"center"/"right"/"" and 0/1/2) with the same resource keys.
+      - asp:CompareValidator valBorder / valCacheTime (DataTypeCheck, Integer) -> the two messages
+        below, evaluated by Validate() with the same "empty is valid" semantics WebForms had.
+      - dnnweb:DnnSkinComboBox moduleContainerCombo -> the migrated component (REUSED); its
+        PortalId/RootPath/Scope/IncludeNoneSpecificItem/NoneSpecificText are Blazor parameters and
+        are bound directly, SelectedValue is assigned through @@ref.
+      - dnnweb:DnnComboBox cboCacheProvider (AutoPostBack) / cboTab -> the migrated DnnComboBox
+        components, with the same DataValueField/DataTextField and the same change handler.
+      - asp:Panel pnlSpecific -> the <DynamicComponent> that renders the module's own settings
+        control, which is what LoadSettingsControl produced.
+      - asp:LinkButton cmdUpdate/cmdDelete and asp:HyperLink cancelHyperLink -> the three anchors,
+        with the same visibility rules (see the code behind).
+      - dnn:audit ctlAudit -> the migrated ModuleAuditControl; Entity is a Blazor parameter.
+
+    No @@rendermode directive on purpose, and this is DELIBERATE and load bearing: the component is
+    a descendant of <Routes @@rendermode="RenderModeForPage"> in Website/Components/App.razor, which
+    is InteractiveServer for every DNN page. That makes THIS page interactive, which is what the
+    module specific settings controls rendered inside <DynamicComponent> below need: they declare no
+    @@rendermode of their own (a second @@rendermode inside an interactive subtree is illegal) and
+    their fields are posted through @@onchange handlers on the circuit, not through a form POST.
+*@
+
+<div class="dnnForm dnnModuleSettings dnnClear" id="dnnModuleSettings">
+    <ul class="dnnAdminTabNav dnnClear">
+        <li><a href="#msModuleSettings">@this.LocalizeText("ModuleSettings")</a></li>
+        <li><a href="#msPermissions">@this.LocalizeText("Permissions")</a></li>
+        <li><a href="#msPageSettings">@this.LocalizeText("PageSettings")</a></li>
+        <li id="specificSettingsTab" hidden="@(!this.SpecificSettingsTabVisible)">
+            <a id="hlSpecificSettings" href="#msSpecificSettings">@this.SpecificSettingsTitle</a>
+        </li>
+    </ul>
+    <div class="msModuleSettings dnnClear" id="msModuleSettings">
+        <div class="dnnFormExpandContent">
+            <a href="">@Localization.GetString("ExpandAll", Localization.SharedResourceFile)</a>
+        </div>
+        <div class="msmsContent dnnClear">
+            <h2 id="dnnPanel-ModuleGeneralDetails" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeText("GeneralDetails")</a></h2>
+            <fieldset>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plModuleId" ControlName="ltModuleId" LocalResourceFile="@this.LocalResourceFile" />
+                    <span><span id="ltModuleId">@this.ModuleIdText</span></span>
+                </div>
+                <div class="dnnFormItem" id="cultureRow">
+                    <LabelControl ID="cultureLabel" ControlName="cultureLanguageLabel" LocalResourceFile="@this.LocalResourceFile" />
+                    <DnnLanguageLabel Language="@this.CultureCode" LocalResourceFile="@this.LocalResourceFile" />
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plFriendlyName" ControlName="txtFriendlyName" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="text" id="txtFriendlyName" disabled value="@this.FriendlyName" />
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plTitle" ControlName="txtTitle" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="text" id="txtTitle" value="@this.Title" @onchange="@(e => this.Title = e.Value?.ToString() ?? string.Empty)" />
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plTags" ControlName="termsSelector" LocalResourceFile="@this.LocalResourceFile" />
+                    @* The .ascx set height="250px" width="525px" IncludeTags="false". Width is a
+                       Blazor parameter; Height has no equivalent on the migrated control (the
+                       element is a select, sized by the theme), and IncludeTags/PortalId/Terms are
+                       plain properties, so they are assigned through @@ref. *@
+                    <TermsSelector @ref="this.termsSelector" Width="525px" />
+                </div>
+            </fieldset>
+            <h2 id="dnnPanel-ModuleSecuritySettings" class="dnnFormSectionHead"><a href="" class="dnnSectionExpanded">@this.LocalizeText("Security")</a></h2>
+            <fieldset>
+                <div class="dnnFormItem" id="rowAllTabs" hidden="@(!this.RowAllTabsVisible)">
+                    <LabelControl ID="plAllTabs" ControlName="chkAllTabs" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="chkAllTabs" checked="@this.AllTabsChecked" disabled="@(!this.AllTabsEnabled)"
+                           @onchange="@(e => this.OnAllTabsCheckChanged((bool)(e.Value ?? false)))" />
+                </div>
+                <div class="dnnFormItem" id="trnewPages" hidden="@(!this.NewPagesRowVisible)">
+                    <LabelControl ID="plNewTabs" ControlName="chkNewTabs" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="chkNewTabs" checked="@this.NewTabsChecked" disabled="@(!this.NewTabsEnabled)"
+                           @onchange="@(e => this.NewTabsChecked = (bool)(e.Value ?? false))" />
+                </div>
+                <div class="dnnFormItem" id="allowIndexRow" hidden="@(!this.AllowIndexRowVisible)">
+                    <LabelControl ID="AllowIndexLabel" ControlName="chkAllowIndex" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="chkAllowIndex" checked="@this.AllowIndexChecked" disabled="@(!this.AllowIndexEnabled)"
+                           @onchange="@(e => this.AllowIndexChecked = (bool)(e.Value ?? false))" />
+                </div>
+                <div id="isShareableRow" hidden="@(!this.IsShareableRowVisible)" class="dnnFormItem">
+                    <LabelControl ID="isShareableLabel" ControlName="isShareableCheckBox" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="isShareableCheckBox" checked="@this.IsShareableChecked"
+                           @onchange="@(e => this.IsShareableChecked = (bool)(e.Value ?? false))" />
+                </div>
+                @* Was toggled by the inline script from the isShareable checkbox; rendered
+                   declaratively from the same state instead. *@
+                <div id="isShareableRowViewOnly" class="dnnFormItem" hidden="@(!this.IsShareableChecked)">
+                    <LabelControl ID="isShareableViewOnlyLabel" ControlName="isShareableViewOnlyCheckBox" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="isShareableViewOnlyCheckBox" checked="@this.IsShareableViewOnlyChecked"
+                           @onchange="@(e => this.IsShareableViewOnlyChecked = (bool)(e.Value ?? false))" />
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plAdminBorder" ControlName="chkAdminBorder" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="chkAdminBorder" checked="@this.AdminBorderChecked"
+                           @onchange="@(e => this.AdminBorderChecked = (bool)(e.Value ?? false))" />
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plHeader" ControlName="txtHeader" LocalResourceFile="@this.LocalResourceFile" />
+                    <textarea id="txtHeader" rows="6" @onchange="@(e => this.Header = e.Value?.ToString() ?? string.Empty)">@this.Header</textarea>
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plFooter" ControlName="txtFooter" LocalResourceFile="@this.LocalResourceFile" />
+                    <textarea id="txtFooter" rows="6" @onchange="@(e => this.Footer = e.Value?.ToString() ?? string.Empty)">@this.Footer</textarea>
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plStartDate" ControlName="txtStartDate" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="date" id="startDatePicker" value="@this.StartDateText" @onchange="@(e => this.StartDateText = e.Value?.ToString() ?? string.Empty)" />
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plEndDate" ControlName="txtEndDate" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="date" id="endDatePicker" value="@this.EndDateText" @onchange="@(e => this.EndDateText = e.Value?.ToString() ?? string.Empty)" />
+                </div>
+                <div class="dnnFormItem">
+                    @if (this.endDateError)
+                    {
+                        <span class="dnnFormMessage dnnFormError">@this.LocalizeText("valEndDate2.ErrorMessage")</span>
+                    }
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plMoniker" ControlName="txtMoniker" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="text" id="txtMoniker" maxlength="100" value="@this.Moniker" @onchange="@(e => this.Moniker = e.Value?.ToString() ?? string.Empty)" />
+                </div>
+            </fieldset>
+            <h2 id="dnnPanel-ModuleAdditionalPages" class="dnnFormSectionHead">
+                <a href="" class="dnnSectionExpanded">@this.LocalizeText("ModuleInstalledOn")</a>
+            </h2>
+            <fieldset>
+                <div>
+                    <div class="dnnFormItem">
+                        @if (this.InstalledOnTabs.Count == 0)
+                        {
+                            @* Was the DnnGrid's EmptyDataTemplate. *@
+                            <div class="dnnFormMessage dnnFormWarning">
+                                <span id="lblNoRecords">@this.LocalizeText("lblNoRecords")</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <table id="dgOnTabs" class="dnnGrid">
+                                <thead>
+                                    <tr>
+                                        <th style="width:150px">Site</th>
+                                        <th>Page</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var installedOnTab in this.CurrentInstalledOnPage)
+                                    {
+                                        <tr>
+                                            <td>@this.GetInstalledOnSite(installedOnTab)</td>
+                                            <td>@(new MarkupString(this.GetInstalledOnLink(installedOnTab)))</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            @if (this.InstalledOnPageCount > 1)
+                            {
+                                @* Was the DnnGrid's pager (PagerStyle CssClass="dnn-grid-pager") and its
+                                   OnPageIndexChanging handler. *@
+                                <div class="dnn-grid-pager">
+                                    @for (var page = 0; page < this.InstalledOnPageCount; page++)
+                                    {
+                                        var pageIndex = page;
+                                        if (pageIndex == this.installedOnPageIndex)
+                                        {
+                                            <span>@(pageIndex + 1)</span>
+                                        }
+                                        else
+                                        {
+                                            <a href="javascript:void(0);" @onclick="@(() => this.OnTabsPageIndexChanging(pageIndex))" @onclick:preventDefault="true">@(pageIndex + 1)</a>
+                                        }
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </fieldset>
+        </div>
+    </div>
+    <div class="msPermissions dnnClear" id="msPermissions">
+        <div class="mspContent dnnClear">
+            <fieldset>
+                @if (this.PermissionsRowVisible)
+                {
+                    <div id="permissionsRow">
+                        <ModulePermissionsGrid @ref="this.dgPermissions" />
+                        <div class="dnnClear"></div>
+                        <span hidden="@(!this.InheritPermissionsVisible)">
+                            <input type="checkbox" id="chkInheritPermissions" checked="@this.InheritPermissionsChecked"
+                                   @onchange="@(e => this.OnInheritPermissionsChanged((bool)(e.Value ?? false)))" />
+                            <label for="chkInheritPermissions">@this.LocalizeText("InheritPermissions")</label>
+                        </span>
+                    </div>
+                }
+            </fieldset>
+        </div>
+    </div>
+    <div class="msPageSettings dnnClear" id="msPageSettings">
+        <div class="dnnFormExpandContent">
+            <a href="">@Localization.GetString("ExpandAll", Localization.SharedResourceFile)</a>
+        </div>
+        <div class="mspsContent dnnClear">
+            <h2 id="dnnPanel-ModuleAppearance" class="dnnFormSectionHead">
+                <a href="" class="dnnSectionExpanded">@this.LocalizeText("Appearance")</a>
+            </h2>
+            <fieldset>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plIcon" ControlName="ctlIcon" LocalResourceFile="@this.LocalResourceFile" />
+                    <div class="dnnLeft">
+                        <UrlControl @ref="this.ctlIcon" ShowImages="true" ShowUrls="false" ShowTabs="false"
+                                    ShowLog="false" ShowTrack="false" Required="false" ShowNone="true"
+                                    FileFilter="@DotNetNuke.Common.Globals.ImageFileTypes"
+                                    Url="@this.IconUrl"
+                                    ModuleID="@this.ModuleId" />
+                    </div>
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plAlign" ControlName="cboAlign" LocalResourceFile="@this.LocalResourceFile" />
+                    <span id="cboAlign" class="dnnFormRadioButtons">
+                        @foreach (var item in AlignOptions)
+                        {
+                            var value = item;
+                            <input type="radio" id="@("cboAlign_" + value.Key)" name="cboAlign" value="@value.Value"
+                                   checked="@(this.AlignValue == value.Value)" @onchange="@(() => this.AlignValue = value.Value)" />
+                            <label for="@("cboAlign_" + value.Key)">@this.LocalizeText(value.Key)</label>
+                        }
+                    </span>
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plColor" ControlName="txtColor" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="text" id="txtColor" value="@this.Color" @onchange="@(e => this.Color = e.Value?.ToString() ?? string.Empty)" />
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plBorder" ControlName="txtBorder" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="text" id="txtBorder" maxlength="1" value="@this.Border" @onchange="@(e => this.Border = e.Value?.ToString() ?? string.Empty)" />
+                    @if (this.borderError)
+                    {
+                        <span class="dnnFormMessage dnnFormError">@this.LocalizeText("valBorder.ErrorMessage")</span>
+                    }
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plVisibility" ControlName="cboVisibility" LocalResourceFile="@this.LocalResourceFile" />
+                    <span id="cboVisibility" class="dnnFormRadioButtons">
+                        @foreach (var item in VisibilityOptions)
+                        {
+                            var value = item;
+                            <input type="radio" id="@("cboVisibility_" + value.Value)" name="cboVisibility" value="@value.Value"
+                                   checked="@(this.VisibilityValue == value.Value)" @onchange="@(() => this.VisibilityValue = value.Value)" />
+                            <label for="@("cboVisibility_" + value.Value)">@this.LocalizeText(value.Key)</label>
+                        }
+                    </span>
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plDisplayTitle" ControlName="chkDisplayTitle" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="chkDisplayTitle" checked="@this.DisplayTitleChecked" @onchange="@(e => this.DisplayTitleChecked = (bool)(e.Value ?? false))" />
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plDisplayPrint" ControlName="chkDisplayPrint" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="chkDisplayPrint" checked="@this.DisplayPrintChecked" @onchange="@(e => this.DisplayPrintChecked = (bool)(e.Value ?? false))" />
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plDisplaySyndicate" ControlName="chkDisplaySyndicate" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="chkDisplaySyndicate" checked="@this.DisplaySyndicateChecked" @onchange="@(e => this.DisplaySyndicateChecked = (bool)(e.Value ?? false))" />
+                </div>
+                <div class="dnnFormItem dnnContainerPreview">
+                    <LabelControl ID="plModuleContainer" ControlName="ctlModuleContainer" LocalResourceFile="@this.LocalResourceFile" />
+                    <DnnSkinComboBox @ref="this.moduleContainerCombo" PortalId="@this.PortalId"
+                                     RootPath="@DotNetNuke.UI.Skins.SkinController.RootContainer"
+                                     Scope="DotNetNuke.UI.Skins.SkinScope.All"
+                                     IncludeNoneSpecificItem="true"
+                                     NoneSpecificText="@("<" + Localization.GetString("None_Specified") + ">")" />
+                    <a href="#" class="dnnSecondaryAction">@this.LocalizeText("ContainerPreview")</a>
+                </div>
+            </fieldset>
+            <h2 id="dnnPanel-ModuleCacheSettings" class="dnnFormSectionHead">
+                <a href="" class="dnnSectionExpanded">@this.LocalizeText("CacheSettings")</a>
+            </h2>
+            <fieldset>
+                <div class="dnnFormItem dnnCacheSettings">
+                    <LabelControl ID="lblCacheProvider" ControlName="cboCacheProvider" ResourceKey="CacheProvider" LocalResourceFile="@this.LocalResourceFile" />
+                    <DnnComboBox @ref="this.cboCacheProvider" AutoPostBack="true" DataValueField="Key" DataTextField="filteredkey"
+                                 SelectedIndexChangedCallback="@this.OnCacheProviderIndexChanged" />
+                    <span id="lblCacheInherited" class="labelCacheInherited" hidden="@(!this.CacheInheritedVisible)">@this.LocalizeText("CacheInherited")</span>
+                </div>
+                <div class="dnnFormItem" id="divCacheDuration" hidden="@(!this.CacheDurationVisible)">
+                    <div id="cacheWarningRow" class="dnnFormMessage dnnFormWarning" hidden="@(!this.CacheWarningVisible)">
+                        <span id="lblCacheDurationWarning">@this.LocalizeText("CacheDurationWarning")</span>
+                    </div>
+                    <LabelControl ID="lblCacheDuration" ControlName="txtCacheDuration" ResourceKey="CacheDuration" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="text" id="txtCacheDuration" class="msCacheDuration" value="@this.CacheDuration" @onchange="@(e => this.CacheDuration = e.Value?.ToString() ?? string.Empty)" />
+                    @if (this.cacheTimeError)
+                    {
+                        <span class="dnnFormMessage dnnFormError">@this.LocalizeText("valCacheTime.ErrorMessage")</span>
+                    }
+                </div>
+            </fieldset>
+            <h2 id="dnnPanel-ModuleOtherSettings" class="dnnFormSectionHead">
+                <a href="" class="dnnSectionExpanded">@this.LocalizeText("OtherSettings")</a>
+            </h2>
+            <fieldset>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plDefault" ControlName="chkDefault" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="chkDefault" checked="@this.DefaultChecked" disabled="@(!this.DefaultEnabled)"
+                           @onchange="@(e => this.DefaultChecked = (bool)(e.Value ?? false))" />
+                </div>
+                <div class="dnnFormItem">
+                    <LabelControl ID="plAllModules" ControlName="chkAllModules" LocalResourceFile="@this.LocalResourceFile" />
+                    <input type="checkbox" id="chkAllModules" checked="@this.AllModulesChecked" disabled="@(!this.AllModulesEnabled)"
+                           @onchange="@(e => this.AllModulesChecked = (bool)(e.Value ?? false))" />
+                </div>
+                <div class="dnnFormItem" id="rowTab" hidden="@(!this.RowTabVisible)">
+                    <LabelControl ID="plTab" ControlName="cboTab" LocalResourceFile="@this.LocalResourceFile" />
+                    <DnnComboBox @ref="this.cboTab" DataTextField="IndentedTabName" DataValueField="TabId" Enabled="@this.TabEnabled" />
+                </div>
+            </fieldset>
+        </div>
+    </div>
+    <div class="msSpecificSettings dnnClear" id="msSpecificSettings">
+        <div class="mspsContent dnnClear">
+            <fieldset id="fsSpecific" hidden="@(!this.SpecificSettingsVisible)">
+                <div id="pnlSpecific">
+                    @if (this.specificSettingsType != null)
+                    {
+                        <DynamicComponent @ref="this.specificSettings" Type="@this.specificSettingsType" Parameters="@this.specificSettingsParameters" />
+                    }
+                </div>
+            </fieldset>
+        </div>
+    </div>
+    <ul class="dnnActions dnnClear">
+        @if (this.CmdUpdateVisible)
+        {
+            <li><a id="cmdUpdate" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.OnUpdateClick" @onclick:preventDefault="true">@this.LocalizeText("cmdUpdate")</a></li>
+        }
+        @if (this.CmdDeleteVisible)
+        {
+            <li><a id="@DeleteButtonId" class="dnnSecondaryAction" href="javascript:void(0);" @onclick="this.OnDeleteClick" @onclick:preventDefault="true">@this.LocalizeText("cmdDelete")</a></li>
+        }
+        @if (this.CancelVisible)
+        {
+            <li><a id="cancelHyperLink" class="dnnSecondaryAction" href="@this.cancelUrl">@this.LocalizeText("cmdCancel")</a></li>
+        }
+    </ul>
+    <div class="dnnmsStat dnnClear">
+        <ModuleAuditControl Entity="@this.AuditEntity" LocalResourceFile="@this.LocalResourceFile" />
+    </div>
+</div>

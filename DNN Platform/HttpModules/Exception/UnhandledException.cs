@@ -5,31 +5,29 @@
 namespace DotNetNuke.HttpModules.Exceptions;
 
 using System;
-using System.Runtime.Serialization;
 
 /// <summary>An exception which wraps an exception that was not handled.</summary>
+/// <remarks>
+/// The <c>[Serializable]</c> attribute and the <c>(SerializationInfo, StreamingContext)</c>
+/// constructor are gone: binary serialization of exceptions is obsolete (SYSLIB0051) and
+/// disabled on modern .NET. Every other constructor is unchanged.
+/// </remarks>
 public class UnhandledException : Exception
 {
-    /// <inheritdoc />
+    /// <inheritdoc cref="Exception()" />
     public UnhandledException()
     {
     }
 
-    /// <inheritdoc />
+    /// <inheritdoc cref="Exception(string)" />
     public UnhandledException(string message)
         : base(message)
     {
     }
 
-    /// <inheritdoc />
+    /// <inheritdoc cref="Exception(string, Exception)" />
     public UnhandledException(string message, Exception innerException)
         : base(message, innerException)
-    {
-    }
-
-    /// <inheritdoc />
-    protected UnhandledException(SerializationInfo info, StreamingContext context)
-        : base(info, context)
     {
     }
 }

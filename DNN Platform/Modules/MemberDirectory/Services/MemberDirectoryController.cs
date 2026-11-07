@@ -9,11 +9,10 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Lists;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Entities.Users.Social;
@@ -23,8 +22,15 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
     using DotNetNuke.Security.Roles;
     using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    // Disambiguates the DNN services framework anti-forgery filter from the same-named
+    // Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+    // bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+    // bypass list fed by the authentication handlers.
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for the Member Directory module.</summary>
     /// <param name="listController">The list controller.</param>
@@ -35,8 +41,8 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
         : DnnApiController
     {
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<MemberDirectoryController>();
-        private readonly ListController listController = listController ?? Globals.GetCurrentServiceProvider().GetRequiredService<ListController>();
-        private readonly IHostSettings hostSettings = hostSettings ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
+        private readonly ListController listController = listController ?? HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<ListController>();
+        private readonly IHostSettings hostSettings = hostSettings ?? HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<IHostSettings>();
 
         /// <summary>Initializes a new instance of the <see cref="MemberDirectoryController"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.4. Please use overload with ListController. Scheduled removal in v12.0.0.")]
@@ -46,7 +52,7 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
         }
 
         [HttpGet]
-        public HttpResponseMessage AdvancedSearch(int userId, int groupId, int pageIndex, int pageSize, string searchTerm1, string searchTerm2, string searchTerm3, string searchTerm4)
+        public IActionResult AdvancedSearch(int userId, int groupId, int pageIndex, int pageSize, string searchTerm1, string searchTerm2, string searchTerm3, string searchTerm4)
         {
             try
             {
@@ -68,32 +74,32 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
                 AddSearchTerm(this.listController, ref propertyNames, ref propertyValues, searchField4, searchTerm4);
 
                 var members = this.GetUsers(userId, groupId, searchTerm1, pageIndex, pageSize, propertyNames, propertyValues);
-                return this.Request.CreateResponse(HttpStatusCode.OK, this.GetMembers(members));
+                return this.Ok(this.GetMembers(members));
             }
             catch (Exception exc)
             {
                 Logger.MemberDirectoryControllerAdvancedSearchException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage BasicSearch(int groupId, string searchTerm, int pageIndex, int pageSize)
+        public IActionResult BasicSearch(int groupId, string searchTerm, int pageIndex, int pageSize)
         {
             try
             {
                 var users = this.GetUsers(-1, groupId, string.IsNullOrEmpty(searchTerm) ? string.Empty : searchTerm.Trim(), pageIndex, pageSize, string.Empty, string.Empty);
-                return this.Request.CreateResponse(HttpStatusCode.OK, this.GetMembers(users));
+                return this.Ok(this.GetMembers(users));
             }
             catch (Exception exc)
             {
                 Logger.MemberDirectoryControllerBasicSearchException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetMember(int userId)
+        public IActionResult GetMember(int userId)
         {
             try
             {
@@ -101,17 +107,17 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
                 var user = UserController.GetUserById(this.hostSettings, this.PortalSettings.PortalId, userId);
                 users.Add(user);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, this.GetMembers(users));
+                return this.Ok(this.GetMembers(users));
             }
             catch (Exception exc)
             {
                 Logger.MemberDirectoryControllerGetMemberException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpGet]
-        public HttpResponseMessage GetSuggestions(int groupId, string displayName)
+        public IActionResult GetSuggestions(int groupId, string displayName)
         {
             try
             {
@@ -119,97 +125,97 @@ namespace DotNetNuke.Modules.MemberDirectory.Services
                              select new { label = user.DisplayName, value = user.DisplayName, userId = user.UserID })
                                 .ToList();
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, names);
+                return this.Ok(names);
             }
             catch (Exception exc)
             {
                 Logger.MemberDirectoryControllerGetSuggestionsException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage AcceptFriend(FriendDTO postData)
+        public IActionResult AcceptFriend(FriendDTO postData)
         {
             try
             {
                 var friend = UserController.GetUserById(this.hostSettings, this.PortalSettings.PortalId, postData.FriendId);
                 FriendsController.Instance.AcceptFriend(friend);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                return this.Ok(new { Result = "success", });
             }
             catch (Exception exc)
             {
                 Logger.MemberDirectoryControllerAcceptFriendException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage AddFriend(FriendDTO postData)
+        public IActionResult AddFriend(FriendDTO postData)
         {
             try
             {
                 var friend = UserController.GetUserById(this.hostSettings, this.PortalSettings.PortalId, postData.FriendId);
                 FriendsController.Instance.AddFriend(friend);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                return this.Ok(new { Result = "success", });
             }
             catch (Exception exc)
             {
                 Logger.MemberDirectoryControllerAddFriendException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage Follow(FollowDTO postData)
+        public IActionResult Follow(FollowDTO postData)
         {
             try
             {
                 var follow = UserController.GetUserById(this.hostSettings, this.PortalSettings.PortalId, postData.FollowId);
                 FollowersController.Instance.FollowUser(follow);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                return this.Ok(new { Result = "success", });
             }
             catch (Exception exc)
             {
                 Logger.MemberDirectoryControllerFollowException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage RemoveFriend(FriendDTO postData)
+        public IActionResult RemoveFriend(FriendDTO postData)
         {
             try
             {
                 var friend = UserController.GetUserById(this.hostSettings, this.PortalSettings.PortalId, postData.FriendId);
                 FriendsController.Instance.DeleteFriend(friend);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                return this.Ok(new { Result = "success", });
             }
             catch (Exception exc)
             {
                 Logger.MemberDirectoryControllerRemoveFriendException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage UnFollow(FollowDTO postData)
+        public IActionResult UnFollow(FollowDTO postData)
         {
             try
             {
                 var follow = UserController.GetUserById(this.hostSettings, this.PortalSettings.PortalId, postData.FollowId);
                 FollowersController.Instance.UnFollowUser(follow);
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Result = "success", });
+                return this.Ok(new { Result = "success", });
             }
             catch (Exception exc)
             {
                 Logger.MemberDirectoryControllerUnfollowException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 

@@ -12,8 +12,55 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\SocialGroups</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Module</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
-  <Import Project="$(BuildScriptsPath)\Module.Build"/>
+  <!-- The files on disk are Package.targets and Module.build; the lower-case spelling matters
+       on case-sensitive (Linux) file systems, where "Package.Targets" / "Module.Build" fail
+       with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
+  <Import Project="$(BuildScriptsPath)\Module.build"/>
+
+  <!-- The .resx files now live in Resources\ (the migrated App_LocalResources), and the eight
+       .ascx controls are gone (they are Blazor components compiled into the assembly). The
+       installed layout must not change, so the packaged content is staged under
+       obj\PackageStaging in the exact layout it has inside DesktopModules\SocialGroups
+       (notably App_LocalResources\*.resx) and Package.targets' two-step zip strips the staging
+       prefix - the same mechanism Build\BuildScripts\AEModule.build and Dnn.EditBar.UI use. -->
+  <PropertyGroup>
+    <PackageStagingPath>$(MSBuildProjectDirectory)\obj\PackageStaging</PackageStagingPath>
+    <UseResourceZipWorkingDirectory>True</UseResourceZipWorkingDirectory>
+    <ResourceZipWorkingDirectory>$(MSBuildProjectDirectory)\Package\Resources\obj\PackageStaging</ResourceZipWorkingDirectory>
+  </PropertyGroup>
+
+  <!-- Overrides the shared Build\BuildScripts\Module.build GetFiles (last definition wins).
+       The shared DebugProject target is reused as-is: it copies @(TextFiles)/@(SourceFiles) to
+       the module folder, @(ResourceFiles) to its App_LocalResources and @(Images) to Images. -->
+  <Target Name="GetFiles">
+    <ItemGroup>
+      <_StageText Include="*.txt" Exclude="license.txt;releasenotes.txt" />
+      <_StageRoot Include="*.css" />
+      <_StageImages Include="Images\*.*" />
+      <_StageResx Include="Resources\*.resx" />
+      <_StageJs Include="js\*.js" />
+    </ItemGroup>
+    <RemoveDir Directories="$(PackageStagingPath)" ContinueOnError="WarnAndContinue" />
+    <Copy SourceFiles="@(_StageText);@(_StageRoot)" DestinationFolder="$(PackageStagingPath)" />
+    <Copy SourceFiles="@(_StageImages)" DestinationFolder="$(PackageStagingPath)\Images" />
+    <Copy SourceFiles="@(_StageResx)" DestinationFolder="$(PackageStagingPath)\App_LocalResources" />
+    <Copy SourceFiles="@(_StageJs)" DestinationFolder="$(PackageStagingPath)\js" />
+    <ItemGroup>
+      <TextFiles Include="$(PackageStagingPath)\*.txt" />
+      <SourceFiles Include="$(PackageStagingPath)\*.css" />
+      <Images Include="$(PackageStagingPath)\Images\*.*" />
+      <ResourceFiles Include="$(PackageStagingPath)\App_LocalResources\*.resx" />
+      <!-- js\groupViewInterop.js and js\groupListInterop.js are the client side seams of
+           GroupView.razor and List.razor (the inline <script> blocks GroupView.ascx and
+           List.ascx emitted). The shared DebugProject copies @(JsFiles) to the module folder's
+           js subfolder, which is the URL the components import them by
+           (Constants.ModulePath + "js/<file>.js"). -->
+      <JsFiles Include="$(PackageStagingPath)\js\*.js" />
+      <Resources Include="obj\PackageStaging\**\*.*" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="UpdateFiles">
     <ItemGroup>
       <Resources Remove="web.config" />

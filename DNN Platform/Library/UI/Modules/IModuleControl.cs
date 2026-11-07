@@ -3,13 +3,14 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.UI.Modules
 {
-    using System.Web.UI;
+    using Microsoft.AspNetCore.Components;
 
     /// <summary>IModuleControl provides a common Interface for Module Controls.</summary>
     public interface IModuleControl
     {
         /// <summary>Gets the control.</summary>
-        Control Control { get; }
+        /// <remarks>Was a <c>System.Web.UI.Control</c>; module controls are Blazor components now.</remarks>
+        IComponent Control { get; }
 
         /// <summary>Gets the control path.</summary>
         string ControlPath { get; }

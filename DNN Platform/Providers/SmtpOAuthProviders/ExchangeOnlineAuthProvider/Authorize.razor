@@ -1,0 +1,280 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@page "/Providers/SmtpOAuthProviders/ExchangeOnline/Authorize.aspx"
+@namespace Dnn.ExchangeOnlineAuthProvider
+@inherits DotNetNuke.UI.DnnComponentBase
+
+@using System
+@using System.Collections.Generic
+@using System.Linq
+@using System.Text.RegularExpressions
+@using System.Threading
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Http
+@using Microsoft.JSInterop
+@using Dnn.ExchangeOnlineAuthProvider.Components
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Mail.OAuth
+
+@*
+    This is Authorize.aspx, the Microsoft Entra OAuth callback of the Exchange Online SMTP
+    provider. The route is deliberately the ORIGINAL URL: Components/Constants.CallbackUrl formats
+    "{0}/Providers/SmtpOAuthProviders/ExchangeOnline/Authorize.aspx?state=portal_{1}_" and that
+    exact value is the redirect URI every existing site has registered in its Azure app
+    registration, so it must not change. Note the install folder is ExchangeOnline, not
+    ExchangeOnlineAuthProvider.
+
+    ANONYMOUS BY DESIGN. The WebForms page carried no authorization attribute and none is added
+    here. Microsoft redirects the browser back to this URL and that request is not guaranteed to
+    carry the DNN authentication cookie; the portal the authorization belongs to is identified by
+    the "state" query string parameter (portal_<id>_), exactly as before. Adding [Authorize] would
+    break the callback leg of the flow.
+
+    The four services the WebForms constructor resolved - directly or through the
+    HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<T>() fallbacks and the
+    two [Obsolete] constructor overloads - are injected below. A Blazor component is activated by
+    the framework through its parameterless constructor, so those fallbacks and overloads have no
+    counterpart and are not reproduced.
+
+    The <html>/<head>/<body> document belongs to the host (DNN Platform/Website/Components/
+    App.razor), and the page is a descendant of <Routes @rendermode="InteractiveServer"> there, so
+    it must not repeat a per-page @rendermode directive.
+
+    Mirrors the already-migrated sibling Dnn.GoogleMailAuthProvider's Authorize.razor.
+
+    Like that sibling, this component contributes NO <PageTitle> and no <HeadContent>: the
+    original Authorize.aspx was a bare async page that rendered no markup of its own beyond the
+    window.close() script, so there is no title to carry over.
+*@
+
+@if (this.authorizationUrl != null)
+{
+    @*
+        The server side redirect below (NavigateTo with forceLoad) is what carries the browser to
+        Microsoft's authorization server. This anchor is the fallback for the case where the
+        redirect could not be issued - the administrator clicks a real link. It is a plain <a href>
+        and not a NavLink, because the target is an external URL, and it is NOT an @onclick
+        handler: resuming the flow from a click would run inside the interactive circuit, where
+        HttpContext is null.
+    *@
+    <p>
+        <a href="@this.authorizationUrl">Continue to Microsoft to authorize this site's mail account</a>
+    </p>
+}
+else if (this.closeRequested)
+{
+    @*
+        A terminal state the original did not need to render: it wrote window.close() inline, so
+        the popup was always gone by the time anything could be seen. Here the close runs from
+        OnAfterRenderAsync (one render later, and not at all if the JS module cannot be imported),
+        so the page must say what happened rather than appear blank.
+    *@
+    <p>Authorization complete. You can close this window.</p>
+}
+
+@code {
+    private string authorizationUrl;
+    private bool closeRequested;
+    private bool exchanged;
+
+    /// <summary>Gets or sets the SMTP OAuth controller.</summary>
+    [Inject]
+    protected ISmtpOAuthController SmtpOAuthController { get; set; }
+
+    /// <summary>Gets or sets the host settings service.</summary>
+    [Inject]
+    protected IHostSettingsService HostSettingsService { get; set; }
+
+    /// <summary>Gets or sets the host settings.</summary>
+    [Inject]
+    protected IHostSettings HostSettings { get; set; }
+
+    /// <summary>Gets or sets the portal controller.</summary>
+    [Inject]
+    protected IPortalController PortalController { get; set; }
+
+    /// <summary>Gets or sets the navigation manager the authorization redirect is issued through.</summary>
+    [Inject]
+    protected NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets or sets the JavaScript runtime the window.close() seam is called through.</summary>
+    [Inject]
+    protected IJSRuntime JsRuntime { get; set; }
+
+    /// <summary>Runs the OAuth exchange.</summary>
+    /// <remarks>
+    /// This is <c>OnLoad</c> + <c>RegisterAsyncTask(new PageAsyncTask(this.OnLoadAsync))</c> of
+    /// <c>Authorize.aspx.cs</c>. It runs while the component initializes, which is during the
+    /// request that Microsoft redirected to this URL, so <see cref="DotNetNuke.UI.DnnComponentBase.Request"/>
+    /// (captured by the base class from <c>HttpContextSource.Current</c>) is the callback request -
+    /// the equivalent of the <c>PageAsyncTask</c> running inside the WebForms page lifecycle.
+    ///
+    /// When the component is re-initialized for the interactive circuit there is no HTTP request
+    /// behind it any more, so <see cref="DotNetNuke.UI.DnnComponentBase.Request"/> is null. The
+    /// exchange has already happened on the request above and an OAuth authorization code is
+    /// single use, so it must NOT run a second time; all that is left of both terminal paths of
+    /// the original is closing the popup, which is what the guard does.
+    /// </remarks>
+    /// <returns>A task.</returns>
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+
+        var request = this.Request;
+
+        // RE-ENTRANCY GUARD. OnInitializedAsync runs twice: once for the static server side
+        // render of the callback request, and again when the interactive circuit for the same
+        // component starts. An OAuth authorization code is SINGLE USE, so the exchange below must
+        // happen on the first pass only - replaying it would fail with invalid_grant and tear the
+        // circuit down. RendererInfo.IsInteractive is the authoritative signal for "this is the
+        // circuit pass"; the null request and the exchanged flag are belt-and-braces for the case
+        // where an ambient HttpContextSource.Current makes DnnComponentBase.Request non-null.
+        // All that is left of both terminal paths of the original is closing the popup.
+        if (this.RendererInfo.IsInteractive || request is null || this.exchanged)
+        {
+            this.CloseWindow();
+            return;
+        }
+
+        var cancellationToken = request.HttpContext.RequestAborted;
+
+        // Replaces this.Request.QueryString["state"].
+        var state = request.Query["state"].FirstOrDefault();
+
+        var portalId = Null.NullInteger;
+        if (state != null)
+        {
+            var portalIdStr = RegexUtils.GetCachedRegex("portal_([0-9\\-]+?)_", RegexOptions.IgnoreCase).Match(state).Groups[1].Value;
+            if (!string.IsNullOrWhiteSpace(portalIdStr))
+            {
+                portalId = Convert.ToInt32(portalIdStr);
+            }
+        }
+
+        var authProvider = this.SmtpOAuthController.GetOAuthProvider(Constants.Name);
+        var clientApplication = ExchangeOnlineOAuthProvider.CreateClientApplication(this.SmtpOAuthController, this.HostSettingsService, this.HostSettings, this.PortalController, portalId);
+
+        // The || short circuit is load bearing: IsAuthorizedAsync is not called when there is no
+        // client application to call it for.
+        if (clientApplication == null || await authProvider.IsAuthorizedAsync(portalId, cancellationToken))
+        {
+            this.CloseWindow();
+            return;
+        }
+
+        var scopes = ExchangeOnlineOAuthProvider.GetAuthenticationScopes();
+
+        // Replaces this.Request["code"]. The WebForms indexer searched QueryString, then Form,
+        // then Cookies, then ServerVariables; Microsoft returns the code on the query string and
+        // an installation configured with response_mode=form_post posts it, so both of those
+        // collections are searched, in that order.
+        var code = await GetRequestValueAsync(request, "code", cancellationToken);
+        if (code != null)
+        {
+            // Guards the single-use authorization code against a replayed exchange (see the
+            // re-entrancy guard at the top of this method).
+            this.exchanged = true;
+
+            // The result is intentionally discarded, as in the original: acquiring the token is
+            // what writes it into the serialized token cache (TokenCacheHelper).
+            _ = await clientApplication.AcquireTokenByAuthorizationCode(scopes, code).ExecuteAsync(cancellationToken);
+        }
+        else
+        {
+            var queryStrings = new Dictionary<string, (string Value, bool IncludeInCacheKey)>
+            {
+                { "state", (state, false) },
+            };
+            var msUri = await clientApplication.GetAuthorizationRequestUrl(scopes)
+                .WithExtraQueryParameters(queryStrings)
+                .ExecuteAsync(cancellationToken);
+
+            // Replaces this.Response.Redirect(msUri.ToString(), true). The response of a component
+            // render is written by the Blazor endpoint, so the redirect is issued through the
+            // NavigationManager, which during server side rendering turns into the HTTP redirect
+            // the original wrote directly. The URL is also rendered as a real link above, so the
+            // flow is still completable if the redirect cannot be issued. The original's
+            // endResponse: true meant nothing after it ran; the return preserves that.
+            this.authorizationUrl = msUri.ToString();
+            this.Navigation.NavigateTo(this.authorizationUrl, forceLoad: true);
+            return;
+        }
+
+        this.CloseWindow();
+    }
+
+    /// <summary>Runs the client side window.close() once the component has rendered.</summary>
+    /// <param name="firstRender">Whether this is the first render.</param>
+    /// <returns>A task.</returns>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender || !this.closeRequested)
+        {
+            return;
+        }
+
+        IJSObjectReference module;
+        try
+        {
+            module = await this.JsRuntime.InvokeAsync<IJSObjectReference>(
+                "import", "/Providers/SmtpOAuthProviders/ExchangeOnline/js/authorizeInterop.js");
+        }
+        catch (JSException ex)
+        {
+            // The extension's assets are not reachable, so the popup cannot close itself. The
+            // rendered terminal message above tells the administrator the flow finished; the
+            // cause is logged rather than discarded.
+            Exceptions.LogException(ex);
+            return;
+        }
+
+        await module.InvokeVoidAsync("closeWindow");
+    }
+
+    /// <summary>Closes the popup the authorization was started from.</summary>
+    /// <remarks>
+    /// Replaces <c>Response.Write("&lt;script type='text/javascript'&gt;window.close();&lt;/script&gt;")</c>
+    /// of <c>CloseWindow()</c>. A script element written by a Blazor render is never executed, so
+    /// the call is made through js/authorizeInterop.js from <see cref="OnAfterRenderAsync"/> -
+    /// the same seam the migrated CKEditor provider uses for its self.close() start-up script.
+    /// </remarks>
+    private void CloseWindow()
+    {
+        this.closeRequested = true;
+    }
+
+    /// <summary>Reads a value the way the WebForms <c>Request[name]</c> indexer did.</summary>
+    /// <param name="request">The callback request.</param>
+    /// <param name="name">The name of the value.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The value, or <see langword="null"/> when neither collection carries it.</returns>
+    /// <remarks>
+    /// The form is read with <c>ReadFormAsync</c> rather than through the <c>Form</c> property:
+    /// that property reads synchronously, and Kestrel disallows synchronous IO by default
+    /// (<c>AllowSynchronousIO = false</c>), so on the <c>response_mode=form_post</c> leg the
+    /// indexer would throw instead of yielding the authorization code.
+    /// </remarks>
+    private static async Task<string> GetRequestValueAsync(HttpRequest request, string name, CancellationToken cancellationToken)
+    {
+        var queryValue = request.Query[name].FirstOrDefault();
+        if (queryValue != null)
+        {
+            return queryValue;
+        }
+
+        if (!request.HasFormContentType)
+        {
+            return null;
+        }
+
+        var form = await request.ReadFormAsync(cancellationToken);
+        return form[name].FirstOrDefault();
+    }
+}

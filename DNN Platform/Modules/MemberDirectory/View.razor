@@ -1,0 +1,93 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.UI.Modules.ProfileModuleUserControlBase
+@using Microsoft.AspNetCore.Components.Web
+@using DotNetNuke.Services.Localization
+
+@*
+    Replaces View.ascx. Every data-bind attribute is a contract with Scripts/MemberDirectory.js and
+    is copied verbatim. The eight DnnJsInclude / DnnCssInclude controls became
+    IClientResourceController registrations in View.razor.cs (same file paths, same priorities), and
+    the five runat="server" HtmlGenericControls became component state: the "memberDirectory" div is
+    the wrapper whose id is this.ClientId (what md.init('#…') targets), and searchBar /
+    advancedSearchBar / popUpPanel / loadMore became the conditionals below, driven by the very
+    settings their Visible flags were assigned from. The inline <script> moved to
+    Scripts/memberDirectoryInterop.js (a render tree never executes a rendered script element).
+*@
+
+@if (this.RenderIe7StyleSheet)
+{
+    @* Replaces Page.Header.Controls.Add(new LiteralControl(cssLink)) in AddIe7StyleSheet(). *@
+    <HeadContent>
+        <link href="/DesktopModules/MemberDirectory/ie-member-directory.css" rel="stylesheet" type="text/css" />
+    </HeadContent>
+}
+
+<div id="@this.ClientId" class="dnnForm dnnMemberDirectory">
+    @if (this.ShowSearchBar)
+    {
+        <div id="searchBar" class="mdSearch dnnClear">
+            <div class="mdSearchBar" id="mdBasicSearchBar">
+                <div class="searchWrapper">
+                    <a href="#" id="refreshResults" data-bind="visible: ResetEnabled, click: resetSearch" title="@this.LocalizeString("Refresh")"><span>@this.LocalizeString("Refresh")</span></a>
+                    <input type="text" id="mdBasicSearch" data-bind="value: SearchTerm" placeholder="@this.LocalizeString("SearchConnections")" />
+                </div>
+                <a href="" title="search" data-bind="click: basicSearch" class="dnnPrimaryAction">@this.LocalizeString("Search")</a>
+            </div>
+            @if (this.ShowAdvancedSearchBar)
+            {
+                <span class="selectDrop" id="advancedSearchBar">
+                    <a href="#" id="mdAdvancedSearch" class="mdAdvancedSearch dnnTertiaryAction" title="advanced search">@this.LocalizeString("AdvancedSearch")</a>
+                    <div class="mdAdvancedSearchForm" id="mdAdvancedSearchForm">
+                        <div class="dnnFormItem">
+                            <label for="@this.SearchField1">@Localization.GetString("ProfileProperties_" + this.SearchField1, this.ProfileResourceFile)</label>
+                            <input type="text" placeholder="" id="" name="@this.SearchField1" data-bind="value: AdvancedSearchTerm1" />
+                        </div>
+                        <div class="dnnFormItem">
+                            <label for="@this.SearchField2">@Localization.GetString("ProfileProperties_" + this.SearchField2, this.ProfileResourceFile)</label>
+                            <input type="text" placeholder="" id="" name="@this.SearchField2" data-bind="value: AdvancedSearchTerm2" />
+                        </div>
+                        <div class="dnnFormItem">
+                            <label for="@this.SearchField3">@Localization.GetString("ProfileProperties_" + this.SearchField3, this.ProfileResourceFile)</label>
+                            <input type="text" placeholder="" id="" name="@this.SearchField3" data-bind="value: AdvancedSearchTerm3" />
+                        </div>
+                        <div class="dnnFormItem">
+                            <label for="@this.SearchField4">@Localization.GetString("ProfileProperties_" + this.SearchField4, this.ProfileResourceFile)</label>
+                            <input type="text" placeholder="" id="" name="@this.SearchField4" data-bind="value: AdvancedSearchTerm4" />
+                        </div>
+                        <a href="" class="dnnPrimaryAction" data-bind="click: advancedSearch">@this.LocalizeString("Search")</a>
+                    </div><!--close mdAdvancedSearchForm-->
+                </span>
+            }
+        </div>
+    }
+    <div id="loading" data-bind="visible: loadingData">
+        <img src="@this.AjaxLoaderUrl" alt="@this.LocalizeString("Loading")" />@this.LocalizeString("Loading")
+    </div>
+    <div class="dnnFormMessage dnnFormInfo" style="display:none" data-bind="visible: !HasMembers()">@this.LocalizeString("NoMembers")</div>
+    <ul id="mdMemberList" class="mdMemberList dnnClear" style="display:none" data-bind="foreach: { data: Members, afterRender: handleAfterRender }, css: { mdMemberListVisible : Visible }, visible: HasMembers()">
+        <li>
+            <div data-bind="visible: $parent.isEven($data)">
+                @this.ItemTemplateMarkup
+            </div>
+            <div data-bind="visible: !$parent.isEven($data)">
+                @this.AlternateItemTemplateMarkup
+            </div>
+            @if (this.EnablePopUp)
+            {
+                <div id="popUpPanel" class="mdHoverContent dnnClear">
+                    <div class="mdHoverContentTop">
+                        @this.PopUpTemplateMarkup
+                    </div>
+                    <div class="mdHoverContentBt"></div>
+                    <span class="tooltipArrow"></span>
+                </div>
+            }
+        </li>
+    </ul>
+    @if (!this.DisablePaging)
+    {
+        <div id="loadMore" class="mdLoadMore" style="display:none" data-bind="visible: CanLoadMore()"><a href="" class="dnnTertiaryAction" title="" data-bind="click: loadMore">&darr; @this.LocalizeString("LoadMore")</a></div>
+    }
+</div>

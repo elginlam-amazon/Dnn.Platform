@@ -7,8 +7,8 @@ namespace DotNetNuke.Data.PetaPoco
     using System;
     using System.Collections.Generic;
     using System.Reflection;
-    using System.Web.Caching;
 
+    using DotNetNuke.Services.Cache;
     using global::PetaPoco;
 
     [CLSCompliant(false)]

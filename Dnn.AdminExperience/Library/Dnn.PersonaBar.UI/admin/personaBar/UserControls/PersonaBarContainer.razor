@@ -1,0 +1,36 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace Dnn.PersonaBar.UI.UserControls
+@inherits DotNetNuke.UI.ControlPanels.ControlPanelBase
+
+@*
+    Replaces PersonaBarContainer.ascx, element for element.
+
+    - <asp:Panel runat="server" ID="PersonaBarPanel" Visible="False"
+      CssClass="personaBarContainer personalBarContainer"> is the <div> below. A Panel rendered a
+      <div> with its CssClass; its Visible was False in markup and assigned from
+      InjectPersonaBar() in OnLoad, which is the PersonaBarPanelVisible state of the code behind.
+      ResponseIsSuccessful carries what OnPreRender derived from the response status code (an
+      invisible server control rendered nothing at all).
+    - the #personabar-placeholder div and the #personaBar-iframe iframe are unchanged, including
+      allowTransparency/frameBorder/scrolling, which the Persona Bar's own client code and CSS
+      address by id.
+    - the inline <script> is gone from the markup: a <script> element produced by a Blazor render
+      tree is never executed by the browser. It moved to
+      admin/personaBar/scripts/personaBarContainerInterop.js, which the code behind imports and
+      calls from OnAfterRenderAsync with the same PersonaBarSettings/AppPath/BuildNumber values
+      the script interpolated server side.
+*@
+
+@if (this.ResponseIsSuccessful && this.PersonaBarPanelVisible)
+{
+    <div class="personaBarContainer personalBarContainer">
+        <div id="personabar-placeholder" class="personabar-placeholder">
+            @*
+                A temporary UI placeholder to avoid the sliding effect when PersonaBar loads
+            *@
+        </div>
+        <iframe id="personaBar-iframe" allowTransparency="true" frameBorder="0" scrolling="false"></iframe>
+    </div>
+}

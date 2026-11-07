@@ -1,0 +1,38 @@
+@* Replacement for the dnn:LOGO skin object (~/Admin/Skins/Logo.ascx).
+   Preserves the InjectSvg="true" behaviour declared in partials/_header.ascx: when the portal logo
+   is an SVG and injection is requested, the markup is inlined so it can be styled by the theme;
+   otherwise an <img> element is rendered. *@
+@inject IApertureSkinContext SkinContext
+
+@if (this.logo.SvgMarkup is { Length: > 0 } svg)
+{
+    <a class="aperture-logo" href="@this.logo.Href" aria-label="@this.logo.Text">@((MarkupString)svg)</a>
+}
+else if (this.logo.ImageHref.Length > 0)
+{
+    <a class="aperture-logo" href="@this.logo.Href">
+        <img src="@this.logo.ImageHref" alt="@this.logo.Text" />
+    </a>
+}
+else
+{
+    @* Logo.ascx falls back to the portal name when no logo file is configured. *@
+    <a class="aperture-logo aperture-logo-text" href="@this.logo.Href">@this.logo.Text</a>
+}
+
+@code {
+    private ApertureLogo logo;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether an SVG logo should be inlined into the markup.
+    /// </summary>
+    /// <remarks>Replaces the <c>InjectSvg</c> attribute of the WebForms skin object.</remarks>
+    [Parameter]
+    public bool InjectSvg { get; set; }
+
+    /// <inheritdoc />
+    protected override async Task OnParametersSetAsync()
+    {
+        this.logo = await this.SkinContext.GetLogoAsync(this.InjectSvg);
+    }
+}

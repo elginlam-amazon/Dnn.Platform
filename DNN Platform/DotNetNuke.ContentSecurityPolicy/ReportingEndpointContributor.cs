@@ -50,10 +50,7 @@ namespace DotNetNuke.ContentSecurityPolicy
                 this.ValidateReportingEndpoint(endpoint);
             }
 
-            if (!this.ReportingEndpoints.ContainsKey(name))
-            {
-                this.ReportingEndpoints.Add(name, endpoint);
-            }
+            this.ReportingEndpoints.TryAdd(name, endpoint);
         }
 
         /// <summary>

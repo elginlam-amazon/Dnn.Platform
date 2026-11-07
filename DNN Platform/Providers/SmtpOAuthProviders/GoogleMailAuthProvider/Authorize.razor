@@ -1,0 +1,226 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@page "/Providers/SmtpOAuthProviders/GoogleMail/Authorize.aspx"
+@namespace Dnn.GoogleMailAuthProvider
+@inherits DotNetNuke.UI.DnnComponentBase
+@attribute [ExcludeFromInteractiveRouting]
+
+@using System
+@using System.Linq
+@using System.Text.RegularExpressions
+@using System.Threading
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Http
+@using Microsoft.AspNetCore.Http.Extensions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Services.Mail.OAuth
+@using Google.Apis.Auth.OAuth2.Web
+
+@*
+    This is Authorize.aspx, the Google OAuth callback. The route is deliberately the ORIGINAL
+    URL: Components/Constants.CallbackUrl formats
+    "{0}/Providers/SmtpOAuthProviders/GoogleMail/Authorize.aspx?state=portal_{1}_" and that exact
+    value is the redirect_uri every existing site has registered with Google, so it must not
+    change.
+
+    STATIC SERVER SIDE RENDERING. This page is not interactive UI - it is a request handler that
+    reads the callback's query string and either writes a redirect to the authorization server or
+    closes the popup. In an interactive Blazor circuit HttpContext is null (the response is long
+    gone), so the component opts out of interactive routing with
+    [ExcludeFromInteractiveRouting]; the host's Components/App.razor honours that by rendering it
+    with no render mode. Rendering statically is what makes the HttpContext cascading parameter
+    below available, makes OnInitializedAsync run exactly ONCE per request (an OAuth authorization
+    code is single use, so a second exchange would fail with invalid_grant), and makes the
+    window.close() script below real HTML that the browser executes - the same output
+    Response.Write produced. Nothing here runs from an @onclick handler.
+
+    ANONYMOUS BY DESIGN. The WebForms page carried no authorization attribute and none is added
+    here. Google redirects the browser back to this URL and that request is not guaranteed to
+    carry the DNN authentication cookie; the portal the authorization belongs to is identified by
+    the "state" query string parameter (portal_<id>_), exactly as before. Adding [Authorize] would
+    break the callback leg of the flow.
+
+    The four services the WebForms constructor resolved - directly or through the
+    HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<T>() fallbacks and the
+    three [Obsolete] constructor overloads - are injected below. A Blazor component is activated by
+    the framework through its parameterless constructor, so the fallbacks and the overloads have no
+    counterpart and are not reproduced.
+
+    Authorize.aspx carried NO markup beyond its @Page directive - its only output was the
+    window.close() script - so this component contributes no <PageTitle> and no <HeadContent>.
+*@
+
+@if (this.authorizationUrl != null)
+{
+    @*
+        The server side redirect (NavigateTo with forceLoad, below) is what carries the browser to
+        Google's authorization server. This anchor is the fallback for the case where the redirect
+        could not be issued - the administrator clicks a real link. It is a plain <a href> and not
+        a NavLink, because the target is an external URL, and it is deliberately NOT an @onclick
+        handler.
+    *@
+    <p>
+        <a href="@this.authorizationUrl">Continue to Google to authorize this site's mail account</a>
+    </p>
+}
+else if (this.closeRequested)
+{
+    @*
+        Replaces CloseWindow()'s
+        Response.Write("<script type='text/javascript'>window.close();</script>").
+        Because this component renders statically, this is plain HTML in the response and the
+        browser executes it, exactly as the WebForms output did.
+    *@
+    <script type='text/javascript'>window.close();</script>
+}
+
+@code {
+    private string authorizationUrl;
+    private bool closeRequested;
+
+    /// <summary>Gets or sets the context of the callback request.</summary>
+    /// <remarks>
+    /// Replaces the WebForms page's <c>Request</c>/<c>Response</c>. The Blazor endpoint cascades
+    /// this only to statically rendered components, which is why this page opts out of
+    /// interactive routing.
+    /// </remarks>
+    [CascadingParameter]
+    public HttpContext HttpContext { get; set; }
+
+    /// <summary>Gets or sets the SMTP OAuth controller.</summary>
+    [Inject]
+    protected ISmtpOAuthController SmtpOAuthController { get; set; }
+
+    /// <summary>Gets or sets the host settings service.</summary>
+    [Inject]
+    protected IHostSettingsService HostSettingsService { get; set; }
+
+    /// <summary>Gets or sets the host settings.</summary>
+    [Inject]
+    protected IHostSettings HostSettings { get; set; }
+
+    /// <summary>Gets or sets the portal controller.</summary>
+    [Inject]
+    protected IPortalController PortalController { get; set; }
+
+    /// <summary>Gets or sets the navigation manager the authorization redirect is issued through.</summary>
+    [Inject]
+    protected NavigationManager Navigation { get; set; }
+
+    /// <summary>Runs the OAuth exchange.</summary>
+    /// <remarks>
+    /// This is <c>OnLoad</c> + <c>RegisterAsyncTask(new PageAsyncTask(this.OnLoadAsync))</c> of
+    /// <c>Authorize.aspx.cs</c>: an asynchronous step that runs while the page is being served,
+    /// before the response is written.
+    /// </remarks>
+    /// <returns>A task.</returns>
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+
+        var request = this.HttpContext.Request;
+        var cancellationToken = this.HttpContext.RequestAborted;
+        var state = request.Query["state"].FirstOrDefault();
+
+        var portalId = Null.NullInteger;
+        if (state != null)
+        {
+            var portalIdStr = RegexUtils.GetCachedRegex("portal_([0-9\\-]+?)_", RegexOptions.IgnoreCase).Match(state).Groups[1].Value;
+            if (!string.IsNullOrWhiteSpace(portalIdStr))
+            {
+                portalId = Convert.ToInt32(portalIdStr);
+            }
+        }
+
+        var authProvider = this.SmtpOAuthController.GetOAuthProvider(Constants.Name);
+
+        var settings = authProvider.GetSettings(portalId);
+        var accountEmail = settings.FirstOrDefault(i => i.Name == Constants.AccountEmailSettingName)?.Value ?? string.Empty;
+
+        var codeFlow = GoogleMailOAuthProvider.CreateAuthorizationCodeFlow(this.SmtpOAuthController, this.HostSettingsService, this.HostSettings, this.PortalController, portalId);
+        if (codeFlow == null || await authProvider.IsAuthorizedAsync(portalId, cancellationToken))
+        {
+            this.CloseWindow();
+            return;
+        }
+
+        // Replaces this.Request.Url.ToString(): the full URL of the callback request, truncated at
+        // the first '?'. The result is sent to Google as redirect_uri and must stay identical to
+        // the value the WebForms page produced.
+        var uri = request.GetDisplayUrl();
+        var questionMarkIndex = uri.IndexOf('?');
+        if (questionMarkIndex > -1)
+        {
+            uri = uri.Substring(0, questionMarkIndex);
+        }
+
+        // Replaces this.Request["code"]. The WebForms indexer searched QueryString, then Form,
+        // then Cookies, then ServerVariables; Google returns the code on the query string and an
+        // OAuth provider may post it, so both of those collections are searched, in that order.
+        var code = await this.GetRequestValueAsync(request, "code", cancellationToken);
+        if (code != null)
+        {
+            _ = await codeFlow.ExchangeCodeForTokenAsync(accountEmail, code, uri, cancellationToken);
+        }
+        else
+        {
+            var result = await new AuthorizationCodeWebApp(codeFlow, uri, state).AuthorizeAsync(accountEmail, cancellationToken);
+            if (result.RedirectUri != null)
+            {
+                // Redirect the user to the authorization server.
+                // Replaces this.Response.Redirect(result.RedirectUri, true). The response of a
+                // component render is written by the Blazor endpoint, so the redirect is issued
+                // through the NavigationManager: during static server side rendering that becomes
+                // the same HTTP redirect, and it ends processing of this render, which is what the
+                // original's endResponse: true did. The URL is also rendered as a real link above,
+                // so the flow stays completable if the redirect cannot be issued.
+                this.authorizationUrl = result.RedirectUri;
+                this.Navigation.NavigateTo(result.RedirectUri, forceLoad: true);
+                return;
+            }
+        }
+
+        this.CloseWindow();
+    }
+
+    /// <summary>Closes the popup the authorization was started from.</summary>
+    /// <remarks>
+    /// Replaces <c>CloseWindow()</c>. The script it wrote to the response is rendered as markup
+    /// above; because this component renders statically, that markup is executed by the browser.
+    /// </remarks>
+    private void CloseWindow()
+    {
+        this.closeRequested = true;
+    }
+
+    /// <summary>Reads a value the way the WebForms <c>Request[name]</c> indexer did.</summary>
+    /// <param name="request">The callback request.</param>
+    /// <param name="name">The name of the value.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    /// <returns>The value, or <see langword="null"/> when neither collection carries it.</returns>
+    /// <remarks>
+    /// The form is read asynchronously: Kestrel defaults <c>AllowSynchronousIO</c> to <see langword="false"/>,
+    /// so the synchronous <c>request.Form</c> indexer throws on exactly the form-post leg that carries the
+    /// authorization code.
+    /// </remarks>
+    private async Task<string> GetRequestValueAsync(HttpRequest request, string name, CancellationToken cancellationToken)
+    {
+        var queryValue = request.Query[name].FirstOrDefault();
+        if (queryValue != null)
+        {
+            return queryValue;
+        }
+
+        if (!request.HasFormContentType)
+        {
+            return null;
+        }
+
+        var form = await request.ReadFormAsync(cancellationToken);
+        return form[name].FirstOrDefault();
+    }
+}

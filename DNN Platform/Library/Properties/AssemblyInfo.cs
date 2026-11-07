@@ -14,7 +14,10 @@ using DotNetNuke.Application;
 // Review the values of the assembly attributes
 [assembly: AssemblyTitle("DotNetNuke")]
 [assembly: AssemblyDescription("Open Source Web Application Framework")]
-[assembly: CLSCompliant(true)]
+// ASP.NET Core's public surface (HttpContext, IHeaderDictionary, IJSRuntime, Blazor's
+// ComponentBase, ...) is not CLS-compliant, and it is now part of this assembly's public API,
+// so the assembly can no longer claim CLS compliance.
+[assembly: CLSCompliant(false)]
 
 [assembly: AssemblyStatus(ReleaseMode.Beta)]
 

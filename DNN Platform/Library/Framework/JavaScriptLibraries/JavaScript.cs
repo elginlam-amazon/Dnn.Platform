@@ -8,8 +8,7 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web;
-    using System.Web.UI;
+    using System.Text;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
@@ -28,6 +27,8 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
     using DotNetNuke.UI.Utilities;
     using DotNetNuke.Web.Client.ClientResourceManagement;
     using DotNetNuke.Web.Client.ResourceManager;
+
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     using Globals = DotNetNuke.Common.Globals;
@@ -96,13 +97,27 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
         /// <param name="appStatus">The application status.</param>
         /// <returns>whether to use the debug script.</returns>
         public static bool UseDebugScript(IApplicationStatusInfo appStatus)
+            => UseDebugScript(appStatus, null);
+
+        /// <summary>determine whether to use the debug script for a file.</summary>
+        /// <param name="appStatus">The application status.</param>
+        /// <param name="hostSettings">The host settings.</param>
+        /// <returns>whether to use the debug script.</returns>
+        /// <remarks>
+        /// Replaces <c>HttpContext.IsDebuggingEnabled</c> (the <c>&lt;compilation debug="true"&gt;</c>
+        /// switch, which does not exist on ASP.NET Core) with <see cref="IHostSettings.DebugMode"/>,
+        /// which is the same decision DNN's client-resource providers now make.
+        /// </remarks>
+        public static bool UseDebugScript(IApplicationStatusInfo appStatus, IHostSettings hostSettings)
         {
+            appStatus ??= Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
             if (appStatus.Status != UpgradeStatus.None)
             {
                 return false;
             }
 
-            return HttpContextSource.Current.IsDebuggingEnabled;
+            hostSettings ??= Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
+            return hostSettings.DebugMode;
         }
 
         /// <summary>Returns the version of a javascript library from the database.</summary>
@@ -229,10 +244,10 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
         }
 
         /// <summary>method is called once per page event cycle and will load all scripts requested during that page processing cycle.</summary>
-        /// <param name="page">reference to the current page.</param>
+        /// <param name="context">The HTTP context of the current request.</param>
         [DnnDeprecated(10, 0, 2, "Use overload taking IHostSettings")]
-        public static partial void Register(Page page)
-            => Register(null, null, null, null, null, page);
+        public static partial void Register(HttpContext context)
+            => Register(null, null, null, null, null, context);
 
         /// <summary>method is called once per page event cycle and will load all scripts requested during that page processing cycle.</summary>
         /// <param name="hostSettings">The host settings.</param>
@@ -240,8 +255,8 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
         /// <param name="appStatus">The application status.</param>
         /// <param name="eventLogger">The event logger.</param>
         /// <param name="portalSettings">The portal settings.</param>
-        /// <param name="page">reference to the current page.</param>
-        public static void Register(IHostSettings hostSettings, IHostSettingsService hostSettingsService, IApplicationStatusInfo appStatus, IEventLogger eventLogger, IPortalSettings portalSettings, Page page)
+        /// <param name="context">The HTTP context of the current request.</param>
+        public static void Register(IHostSettings hostSettings, IHostSettingsService hostSettingsService, IApplicationStatusInfo appStatus, IEventLogger eventLogger, IPortalSettings portalSettings, HttpContext context)
         {
             hostSettings ??= Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
             hostSettingsService ??= Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettingsService>();
@@ -253,7 +268,7 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
             var finalScripts = ResolveVersionConflicts(eventLogger, portalSettings, scripts);
             foreach (var jsl in finalScripts)
             {
-                RegisterScript(hostSettings, hostSettingsService, page, jsl);
+                RegisterScript(hostSettings, hostSettingsService, context, jsl);
             }
         }
 
@@ -319,38 +334,54 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
             return GetScriptPath(hostSettings, hostSettingsService, library, HttpContextSource.Current?.Request);
         }
 
-        /// <summary>Request one of the <see cref="ClientAPI.ClientNamespaceReferences"/> be added to the <paramref name="page"/>.</summary>
-        /// <param name="page">The page.</param>
+        /// <summary>Request one of the <see cref="ClientAPI.ClientNamespaceReferences"/> be added to the current page.</summary>
+        /// <param name="context">The HTTP context of the current request.</param>
         /// <param name="reference">The reference to add.</param>
-        public static void RegisterClientReference(Page page, ClientAPI.ClientNamespaceReferences reference)
+        /// <remarks>
+        /// Was <c>RegisterClientReference(System.Web.UI.Page, …)</c>. The script registration goes
+        /// through the client-resource controller (keyed off the request) and the page-scoped client
+        /// variables/script blocks go through the request's <see cref="IClientApiPage"/>.
+        /// </remarks>
+        public static void RegisterClientReference(HttpContext context, ClientAPI.ClientNamespaceReferences reference)
         {
+            if (context == null)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(RegisterClientReference)} requires a request in flight: client references are registered per request.");
+            }
+
             switch (reference)
             {
                 case ClientAPI.ClientNamespaceReferences.dnn:
                 case ClientAPI.ClientNamespaceReferences.dnn_dom:
-                    if (HttpContextSource.Current.Items.Contains(LegacyPrefix + "dnn.js"))
+                    if (context.Items.ContainsKey(LegacyPrefix + "dnn.js"))
                     {
                         break;
                     }
 
-                    ClientResourceManager.RegisterScript(page, ClientAPI.ScriptPath + "dnn.js", 12);
-                    HttpContextSource.Current.Items.Add(LegacyPrefix + "dnn.js", true);
-                    page.ClientScript.RegisterClientScriptBlock(page.GetType(), "dnn.js", string.Empty);
+                    ClientResourceManager.RegisterScript(context, ClientAPI.ScriptPath + "dnn.js", 12);
+                    context.Items[LegacyPrefix + "dnn.js"] = true;
 
-                    if (!ClientAPI.BrowserSupportsFunctionality(ClientAPI.ClientFunctionality.SingleCharDelimiters))
+                    var page = ClientApiPageAccessor.GetPage(context, nameof(RegisterClientReference));
+                    if (page != null)
                     {
-                        ClientAPI.RegisterClientVariable(page, "__scdoff", "1", true);
-                    }
+                        page.RegisterClientScriptBlock(page.GetType(), "dnn.js", string.Empty);
 
-                    if (!ClientAPI.UseExternalScripts)
-                    {
-                        ClientAPI.RegisterEmbeddedResource(page, "dnn.scripts.js", typeof(ClientAPI));
+                        if (!ClientAPI.BrowserSupportsFunctionality(ClientAPI.ClientFunctionality.SingleCharDelimiters))
+                        {
+                            ClientAPI.RegisterClientVariable(page, "__scdoff", "1", true);
+                        }
+
+                        if (!ClientAPI.UseExternalScripts)
+                        {
+                            ClientAPI.RegisterEmbeddedResource(page, "dnn.scripts.js", typeof(ClientAPI));
+                        }
                     }
 
                     break;
                 case ClientAPI.ClientNamespaceReferences.dnn_dom_positioning:
-                    RegisterClientReference(page, ClientAPI.ClientNamespaceReferences.dnn);
-                    ClientResourceManager.RegisterScript(page, ClientAPI.ScriptPath + "dnn.dom.positioning.js", 13);
+                    RegisterClientReference(context, ClientAPI.ClientNamespaceReferences.dnn);
+                    ClientResourceManager.RegisterScript(context, ClientAPI.ScriptPath + "dnn.dom.positioning.js", 13);
                     break;
             }
         }
@@ -526,7 +557,7 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
             }
         }
 
-        private static string GetScriptPath(IHostSettings hostSettings, IHostSettingsService hostSettingsService, JavaScriptLibrary js, HttpRequestBase request)
+        private static string GetScriptPath(IHostSettings hostSettings, IHostSettingsService hostSettingsService, JavaScriptLibrary js, HttpRequest request)
         {
             if (hostSettings.CdnEnabled)
             {
@@ -552,7 +583,7 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
             }
 
             var formatVersion = Globals.FormatVersion(js.Version, "00", 3, "_");
-            return $"~/Resources/libraries/{js.LibraryName}/{formatVersion}/{js.FileName}";
+            return $"~/resources/Libraries/{js.LibraryName}/{formatVersion}/{js.FileName}";
         }
 
         private static string GetScriptLocation(JavaScriptLibrary js)
@@ -633,44 +664,45 @@ namespace DotNetNuke.Framework.JavaScriptLibraries
             }
         }
 
-        private static void RegisterScript(IHostSettings hostSettings, IHostSettingsService hostSettingsService, Page page, JavaScriptLibrary jsl)
+        private static void RegisterScript(IHostSettings hostSettings, IHostSettingsService hostSettingsService, HttpContext context, JavaScriptLibrary jsl)
         {
             if (string.IsNullOrEmpty(jsl.FileName))
             {
                 return;
             }
 
-            ClientResourceManager.RegisterScript(page, GetScriptPath(hostSettings, hostSettingsService, jsl, new HttpRequestWrapper(page.Request)), GetFileOrder(jsl), GetScriptLocation(jsl), jsl.LibraryName, jsl.Version.ToString(3));
+            ClientResourceManager.RegisterScript(context, GetScriptPath(hostSettings, hostSettingsService, jsl, context?.Request), GetFileOrder(jsl), GetScriptLocation(jsl), jsl.LibraryName, jsl.Version.ToString(3));
 
             if (hostSettings.CdnEnabled && !string.IsNullOrEmpty(jsl.ObjectName))
             {
-                string pagePortion;
-                switch (jsl.PreferredScriptLocation)
-                {
-                    case ScriptLocation.PageHead:
-
-                        pagePortion = "ClientDependencyHeadJs";
-                        break;
-                    case ScriptLocation.BodyBottom:
-                        pagePortion = "ClientResourcesFormBottom";
-                        break;
-                    case ScriptLocation.BodyTop:
-                        pagePortion = "BodySCRIPTS";
-                        break;
-                    default:
-                        pagePortion = "BodySCRIPTS";
-                        break;
-                }
-
-                var scriptloader = page.FindControl(pagePortion);
-                var fallback = new DnnJsIncludeFallback(jsl.ObjectName, VirtualPathUtility.ToAbsolute("~/Resources/libraries/" + jsl.LibraryName + "/" + Globals.FormatVersion(jsl.Version, "00", 3, "_") + "/" + jsl.FileName));
-                if (scriptloader != null)
-                {
-                    // add the fallback control after script loader.
-                    var index = scriptloader.Parent.Controls.IndexOf(scriptloader);
-                    scriptloader.Parent.Controls.AddAt(index + 1, fallback);
-                }
+                // The CDN fallback used to be a DnnJsIncludeFallback control inserted right after the
+                // script loader control for the library's preferred location. On ASP.NET Core the
+                // equivalent control is DnnJsIncludeFallbackTagHelper, which cannot be inserted from
+                // code, so the identical markup it renders is handed to IPageService, which emits the
+                // page's head. The priority keeps the fallback after the script it falls back for.
+                var localPath = Globals.ResolveUrl("~/resources/Libraries/" + jsl.LibraryName + "/" + Globals.FormatVersion(jsl.Version, "00", 3, "_") + "/" + jsl.FileName);
+                var pageService = (context?.RequestServices ?? Globals.GetCurrentServiceProvider()).GetRequiredService<IPageService>();
+                pageService.AddToHead(new PageTag(BuildJsIncludeFallback(jsl.ObjectName, localPath), GetFileOrder(jsl) + 1));
             }
+        }
+
+        /// <summary>Builds the CDN fallback script block for a library.</summary>
+        /// <param name="objectName">The JS object/function name that proves the library loaded.</param>
+        /// <param name="fileName">The locally served path to fall back to.</param>
+        /// <returns>The script markup.</returns>
+        /// <remarks>Identical output to <see cref="DnnJsIncludeFallbackTagHelper"/>, which is the tag-helper form of the same control.</remarks>
+        private static string BuildJsIncludeFallback(string objectName, string fileName)
+        {
+            var script = new StringBuilder();
+            script.Append("<script type=\"text/javascript\">");
+            script.Append(
+                objectName.Contains('.')
+                    ? $"if (typeof {objectName} != 'function') {{"
+                    : $"if (typeof {objectName} == 'undefined') {{");
+            script.Append(CultureInfo.InvariantCulture, $"document.write('<script src=\"{fileName}\" type=\"text/javascript\"></' + 'script>');");
+            script.Append('}');
+            script.Append("</script>");
+            return script.ToString();
         }
 
         private static int GetFileOrder(JavaScriptLibrary jsl)

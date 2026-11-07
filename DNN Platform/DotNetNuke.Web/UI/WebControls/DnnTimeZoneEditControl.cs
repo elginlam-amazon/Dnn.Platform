@@ -4,57 +4,55 @@
 namespace DotNetNuke.Web.UI.WebControls
 {
     using System;
+    using System.Collections.Specialized;
     using System.Globalization;
-    using System.Web.UI;
+    using System.Net;
 
     using DotNetNuke.UI.WebControls;
-    using DotNetNuke.Web.UI.WebControls.Extensions;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
 
     /// <summary>A time zone edit control.</summary>
+    /// <remarks>
+    /// The control still edits its value through a <see cref="DnnTimeZoneComboBox"/>. The combo box
+    /// used to live in the control's <c>Controls</c> collection and be rendered by
+    /// <c>RenderChildren</c>; a <see cref="EditControl"/> has no child collection on ASP.NET Core,
+    /// so it is rendered as a child component by <see cref="RenderEditMode"/> instead and its
+    /// selection arrives through the component's selection-changed callback, which feeds
+    /// <c>LoadPostData</c>/<c>RaisePostDataChangedEvent</c> exactly as the postback used to.
+    /// </remarks>
     public class DnnTimeZoneEditControl : TextEditControl
     {
-        private DnnTimeZoneComboBox timeZones;
-
         /// <summary>Initializes a new instance of the <see cref="DnnTimeZoneEditControl"/> class.</summary>
         public DnnTimeZoneEditControl()
         {
         }
 
         /// <inheritdoc />
-        public override string EditControlClientId
-        {
-            get
-            {
-                this.EnsureChildControls();
-                return this.timeZones.ClientID;
-            }
-        }
+        public override string EditControlClientId => this.TimeZonesClientId;
+
+        /// <summary>Gets the identifier emitted onto the time zone combo box.</summary>
+        private string TimeZonesClientId => this.ClientID + "_TimeZones";
+
+        /// <summary>Gets or sets the rendered combo box instance.</summary>
+        private DnnTimeZoneComboBox TimeZones { get; set; }
 
         /// <inheritdoc />
-        public override bool LoadPostData(string postDataKey, System.Collections.Specialized.NameValueCollection postCollection)
+        public override bool LoadPostData(string postDataKey, NameValueCollection postCollection)
         {
+            ArgumentNullException.ThrowIfNull(postCollection);
+
             bool dataChanged = false;
             string presentValue = this.StringValue;
-            string postedValue = this.timeZones.SelectedValue;
-            if (!presentValue.Equals(postedValue, StringComparison.Ordinal))
+            string postedValue = postCollection[this.UniqueID];
+            if (!string.Equals(presentValue, postedValue, StringComparison.Ordinal))
             {
                 this.Value = postedValue;
                 dataChanged = true;
             }
 
             return dataChanged;
-        }
-
-        /// <inheritdoc />
-        protected override void CreateChildControls()
-        {
-            this.timeZones = new DnnTimeZoneComboBox();
-            this.timeZones.ViewStateMode = ViewStateMode.Disabled;
-
-            this.Controls.Clear();
-            this.Controls.Add(this.timeZones);
-
-            base.CreateChildControls();
         }
 
         /// <inheritdoc />
@@ -68,39 +66,38 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void OnInit(System.EventArgs e)
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            this.EnsureChildControls();
-            base.OnInit(e);
+            ArgumentNullException.ThrowIfNull(builder);
+
+            builder.OpenComponent<DnnTimeZoneComboBox>(0);
+            builder.AddAttribute(1, "ID", this.TimeZonesClientId);
+            builder.AddAttribute(2, "InitialValue", this.StringValue);
+            builder.AddAttribute(
+                3,
+                "SelectedIndexChangedCallback",
+                EventCallback.Factory.Create<EventArgs>(this, this.OnTimeZoneSelected));
+            builder.AddComponentReferenceCapture(4, instance => this.TimeZones = instance as DnnTimeZoneComboBox);
+            builder.CloseComponent();
         }
 
         /// <inheritdoc />
-        protected override void OnPreRender(System.EventArgs e)
+        protected override void RenderViewMode(RenderTreeBuilder builder)
         {
-            base.OnPreRender(e);
+            ArgumentNullException.ThrowIfNull(builder);
 
-            this.timeZones.DataBind(this.StringValue);
+            string propValue = WebUtility.HtmlDecode(Convert.ToString(this.Value, CultureInfo.InvariantCulture));
 
-            if ((this.Page != null) && this.EditMode == PropertyEditorMode.Edit)
-            {
-                this.Page.RegisterRequiresPostBack(this);
-            }
+            builder.OpenElement(0, "span");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddContent(5, propValue);
+            builder.CloseElement();
         }
 
-        /// <inheritdoc />
-        protected override void RenderEditMode(System.Web.UI.HtmlTextWriter writer)
+        private void OnTimeZoneSelected(EventArgs e)
         {
-            this.RenderChildren(writer);
-        }
-
-        /// <inheritdoc />
-        protected override void RenderViewMode(System.Web.UI.HtmlTextWriter writer)
-        {
-            string propValue = this.Page.Server.HtmlDecode(Convert.ToString(this.Value, CultureInfo.InvariantCulture));
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.RenderBeginTag(HtmlTextWriterTag.Span);
-            writer.Write(propValue);
-            writer.RenderEndTag();
+            this.SetPostValue(string.Empty, this.TimeZones?.SelectedValue);
+            this.CommitPostData();
         }
     }
 }

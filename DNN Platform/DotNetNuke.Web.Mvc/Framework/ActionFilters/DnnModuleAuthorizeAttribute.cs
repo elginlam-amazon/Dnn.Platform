@@ -4,15 +4,15 @@
 namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 {
     using System;
-    using System.Web;
-    using System.Web.Mvc;
 
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Security;
     using DotNetNuke.Security.Permissions;
-    using DotNetNuke.Web.Mvc.Framework.Controllers;
+    using DotNetNuke.Web.Mvc.Framework.Modules;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc.Filters;
 
-    public class DnnModuleAuthorizeAttribute : AuthorizeAttributeBase
+    public class DnnModuleAuthorizeAttribute : DnnAuthorizeBaseAttribute
     {
         private ModuleInfo module;
 
@@ -26,9 +26,16 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
         public string PermissionKey { get; set; }
 
         /// <inheritdoc />
-        public override void OnAuthorization(AuthorizationContext filterContext)
+        /// <remarks>This rule needs the DNN module controller, so it is evaluated on the action stage.</remarks>
+        protected override bool RequiresController => true;
+
+        /// <inheritdoc />
+        public override void OnAuthorization(AuthorizationFilterContext context)
         {
-            var controller = filterContext.Controller as IDnnController;
+            // The module application publishes the configured DNN controller on the request, which is
+            // where it is read from (the filter context exposes the controller only on the action stage,
+            // and this rule is evaluated there - see RequiresController).
+            var controller = ModuleApplication.GetCurrentDnnController(context.HttpContext);
 
             if (controller == null)
             {
@@ -37,11 +44,11 @@ namespace DotNetNuke.Web.Mvc.Framework.ActionFilters
 
             this.module = controller.ModuleContext.Configuration;
 
-            base.OnAuthorization(filterContext);
+            base.OnAuthorization(context);
         }
 
         /// <inheritdoc />
-        protected override bool AuthorizeCore(HttpContextBase httpContext)
+        protected override bool AuthorizeCore(HttpContext httpContext)
         {
             if (this.module != null)
             {

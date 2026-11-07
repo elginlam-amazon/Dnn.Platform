@@ -6,7 +6,6 @@ namespace DotNetNuke.Tests.Integration.Modules.DigitalAssets
 {
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
     using System.IO;
     using System.Threading.Tasks;
 
@@ -28,7 +27,7 @@ namespace DotNetNuke.Tests.Integration.Modules.DigitalAssets
 
             var folder = this.CreateNewFolder(connector);
             var folderId = Convert.ToInt32(folder.FolderID);
-            var filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Files\\Test.png");
+            var filePath = Path.Combine(AppContext.BaseDirectory, "Files", "Test.png");
             await connector.UploadCmsFile(filePath, folder.FolderPath.ToString());
             var fileId = this.GetFileId(folderId, "Test.png");
 

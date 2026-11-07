@@ -5,8 +5,8 @@ namespace DotNetNuke.Web.Mvp
 {
     using System;
     using System.Collections.Generic;
-    using System.Web.UI;
 
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Internal;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
@@ -15,12 +15,13 @@ namespace DotNetNuke.Web.Mvp
     using DotNetNuke.UI.Modules;
     using DotNetNuke.UI.Skins.Controls;
     using DotNetNuke.Web.Validators;
-    using WebFormsMvp;
+
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Represents a class that is a presenter for a module in a Web Forms Model-View-Presenter application.</summary>
     /// <typeparam name="TView">The type of the view.</typeparam>
     [DnnDeprecated(9, 2, 0, "Replace WebFormsMvp and DotNetNuke.Web.Mvp with MVC or SPA patterns instead")]
-    public abstract partial class ModulePresenterBase<TView> : Presenter<TView>
+    public abstract partial class ModulePresenterBase<TView> : PresenterBase<TView>
         where TView : class, IModuleViewBase
     {
         /// <summary>Initializes a new instance of the <see cref="ModulePresenterBase{TView}"/> class.</summary>
@@ -28,12 +29,14 @@ namespace DotNetNuke.Web.Mvp
         protected ModulePresenterBase(TView view)
             : base(view)
         {
-            // Try and cast view to Control to get common control properties
-            var control = view as Control;
-            if (control != null && control.Page != null)
-            {
-                this.IsPostBack = control.Page.IsPostBack;
-            }
+            // There is no post-back in ASP.NET Core. The condition WebForms expressed as
+            // Page.IsPostBack - "the user submitted this view rather than requesting it" - is the
+            // request not being a plain GET, which is what presenters use the flag for (skipping
+            // the initial population of a form they are about to read back).
+            var method = this.Request?.Method;
+            this.IsPostBack = method != null
+                && !HttpMethods.IsGet(method)
+                && !HttpMethods.IsHead(method);
 
             // Try and cast view to IModuleControl to get the Context
             var moduleControl = view as IModuleControl;
@@ -106,18 +109,32 @@ namespace DotNetNuke.Web.Mvp
             }
         }
 
-        /// <summary>Restores the view state.</summary>
-        /// <param name="stateBag">The state bag.</param>
-        public virtual void RestoreState(StateBag stateBag)
+        /// <summary>Restores this presenter's <see cref="ViewStateAttribute"/> properties from the view's state.</summary>
+        /// <param name="stateBag">The state bag owned by the view component.</param>
+        /// <remarks>Replaces the former <c>StateBag</c> (view state) overload; see <see cref="MvpStateBag"/>.</remarks>
+        public virtual void RestoreState(MvpStateBag stateBag)
         {
             AttributeBasedViewStateSerializer.DeSerialize(this, stateBag);
         }
 
-        /// <summary>Saves the view state.</summary>
-        /// <param name="stateBag">The state bag.</param>
-        public virtual void SaveState(StateBag stateBag)
+        /// <summary>Saves this presenter's <see cref="ViewStateAttribute"/> properties into the view's state.</summary>
+        /// <param name="stateBag">The state bag owned by the view component.</param>
+        /// <remarks>Replaces the former <c>StateBag</c> (view state) overload; see <see cref="MvpStateBag"/>.</remarks>
+        public virtual void SaveState(MvpStateBag stateBag)
         {
             AttributeBasedViewStateSerializer.Serialize(this, stateBag);
+        }
+
+        /// <inheritdoc />
+        public override void ReleaseView()
+        {
+            if (this.View != null)
+            {
+                this.View.Initialize -= this.InitializeInternal;
+                this.View.Load -= this.LoadInternal;
+            }
+
+            base.ReleaseView();
         }
 
         /// <summary>Checks the auth policy.</summary>
@@ -215,7 +232,7 @@ namespace DotNetNuke.Web.Mvp
         /// <summary>Redirects to the login page.</summary>
         protected void RedirectToLogin()
         {
-            this.Response.Redirect(TestableGlobals.Instance.LoginURL(this.Request.RawUrl, false), true);
+            this.Response.Redirect(TestableGlobals.Instance.LoginURL(this.Request.GetRawUrl(), false), true);
         }
 
         /// <summary>Processes an exception from the module loading.</summary>

@@ -4,16 +4,17 @@
 namespace DotNetNuke.Services.Exceptions
 {
     using System;
-    using System.Web;
-    using System.Web.UI;
+    using System.Net;
 
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
+    using DotNetNuke.UI;
     using DotNetNuke.UI.Skins.Controls;
 
     using Localization = DotNetNuke.Services.Localization.Localization;
 
-    public class ErrorContainer : Control
+    /// <remarks>Was a <c>System.Web.UI.Control</c>; it is now a DNN skinning component.</remarks>
+    public class ErrorContainer : DnnComponentBase
     {
         /// <summary>Initializes a new instance of the <see cref="ErrorContainer"/> class.</summary>
         /// <param name="strError">The error message.</param>
@@ -61,7 +62,7 @@ namespace DotNetNuke.Services.Exceptions
             ModuleMessage m;
             if (exc != null)
             {
-                m = UI.Skins.Skin.GetModuleMessageControl(strError, HttpUtility.HtmlEncode(exc.ToString()), ModuleMessage.ModuleMessageType.RedError);
+                m = UI.Skins.Skin.GetModuleMessageControl(strError, WebUtility.HtmlEncode(exc.ToString()), ModuleMessage.ModuleMessageType.RedError);
             }
             else
             {

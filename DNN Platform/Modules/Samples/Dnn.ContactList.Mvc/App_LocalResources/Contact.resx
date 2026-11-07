@@ -159,4 +159,13 @@
   <data name="SocialRequired.Text" xml:space="preserve">
     <value>Social handle is required</value>
   </data>
+  <data name="ContactPerson.Text" xml:space="preserve">
+    <value>Contact Person</value>
+  </data>
+  <data name="Delete.Text" xml:space="preserve">
+    <value>Delete</value>
+  </data>
+  <data name="EditDescription.Text" xml:space="preserve">
+    <value>Enter the contact details below.</value>
+  </data>
 </root>

@@ -861,3 +861,26 @@ DDR.Menu.registerMenu = function (clientID, dnnNavParams) {
 		}
 	});
 }
+
+// Replaces the WebForms post back pipeline for menu nodes whose url was "postback:<argument>".
+// On WebForms those nodes rendered "javascript:__doPostBack('<controlId>','<argument>')", which
+// put the argument in __EVENTARGUMENT and ended up in DDRMenuControl.RaisePostBackEvent. When the
+// menu renders interactively there is no form post, so the control registers itself here under its
+// client id and the node script calls back into it with its own argument.
+DDR.Menu.PostBackTargets = DDR.Menu.PostBackTargets || {};
+
+DDR.Menu.registerPostBack = function (clientID, dotNetRef) {
+	DDR.Menu.PostBackTargets[clientID] = dotNetRef;
+};
+
+DDR.Menu.unregisterPostBack = function (clientID) {
+	delete DDR.Menu.PostBackTargets[clientID];
+};
+
+DDR.Menu.postBack = function (clientID, argument) {
+	var target = DDR.Menu.PostBackTargets[clientID];
+	if (target) {
+		target.invokeMethodAsync("RaiseNodeClick", argument);
+	}
+	return false;
+};

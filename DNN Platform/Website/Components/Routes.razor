@@ -1,0 +1,26 @@
+@* Routable components live in this assembly AND in the DotNetNuke platform RCL (the migrated
+   .aspx/.ascx UI) and in the skin RCLs. Every assembly that contributes routes must be named
+   here as well as in Program.cs's AddAdditionalAssemblies(...), or its routes 404. *@
+<Router AppAssembly="@typeof(Program).Assembly"
+        AdditionalAssemblies="AdditionalAssemblies">
+    <Found Context="routeData">
+        @* Pages that do not declare their own @layout get the DNN 10 default theme's skin layout
+           (the replacement for Portals/_default/Skins/Aperture/default.ascx), so a routable page
+           never renders without its portal chrome. A page or a portal skin resolution that
+           selects another layout still wins, because @layout and RouteView's own resolution take
+           precedence over this fallback. *@
+        <RouteView RouteData="@routeData" DefaultLayout="typeof(Dnn.Skins.Aperture.ApertureLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+</Router>
+
+@code {
+    private static readonly System.Reflection.Assembly[] AdditionalAssemblies =
+    [
+        DotNetNuke.Common.DnnPlatformComponents.Assembly,
+        DotNetNuke.Web.DnnWebComponents.Assembly,
+        DNNConnect.CKEditorProvider.CKEditorProviderComponents.Assembly,
+        Dnn.GoogleMailAuthProvider.GoogleMailAuthProviderComponents.Assembly,
+        Dnn.ExchangeOnlineAuthProvider.ExchangeOnlineAuthProviderComponents.Assembly,
+    ];
+}

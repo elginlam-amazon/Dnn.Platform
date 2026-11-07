@@ -64,7 +64,6 @@ namespace log4net
         {
         }
 
-#if !NETSTANDARD1_3 // Excluded because GetCallingAssembly() is not available in CoreFX (https://github.com/dotnet/corefx/issues/2221).
         /// <overloads>Returns the named logger if it exists.</overloads>
         /// <summary>Returns the named logger if it exists.</summary>
         /// <remarks>
@@ -111,7 +110,6 @@ namespace log4net
         {
             return GetLogger(Assembly.GetCallingAssembly(), name);
         }
-#endif // !NETSTANDARD1_3
 
         /// <summary>Returns the named logger if it exists.</summary>
         /// <remarks>
@@ -225,11 +223,7 @@ namespace log4net
         /// <returns>The logger with the name specified.</returns>
         public static ILog GetLogger(Type type) 
         {
-#if NETSTANDARD1_3
-            return GetLogger(type.GetTypeInfo().Assembly, type.FullName);
-#else
             return GetLogger(Assembly.GetCallingAssembly(), type.FullName);
-#endif
         }
 
         /// <summary>Shorthand for <see cref="M:LogManager.GetLogger(string)"/>.</summary>
@@ -278,7 +272,6 @@ namespace log4net
             LoggerManager.Shutdown();
         }
 
-#if !NETSTANDARD1_3
         /// <overloads>Shutdown a logger repository.</overloads>
         /// <summary>Shuts down the default repository.</summary>
         /// <remarks>
@@ -300,7 +293,6 @@ namespace log4net
         {
             ShutdownRepository(Assembly.GetCallingAssembly());
         }
-#endif
 
         /// <summary>Shuts down the repository for the repository specified.</summary>
         /// <remarks>
@@ -350,7 +342,6 @@ namespace log4net
             LoggerManager.ShutdownRepository(repositoryAssembly);
         }
 
-#if !NETSTANDARD1_3
         /// <overloads>Reset the configuration of a repository</overloads>
         /// <summary>Resets all values contained in this repository instance to their defaults.</summary>
         /// <remarks>
@@ -367,7 +358,6 @@ namespace log4net
         {
             ResetConfiguration(Assembly.GetCallingAssembly());
         }
-#endif
 
         /// <summary>Resets all values contained in this repository instance to their defaults.</summary>
         /// <remarks>
@@ -403,7 +393,6 @@ namespace log4net
             LoggerManager.ResetConfiguration(repositoryAssembly);
         }
 
-#if !NETSTANDARD1_3
         /// <overloads>Get the logger repository.</overloads>
         /// <summary>Returns the default <see cref="ILoggerRepository"/> instance.</summary>
         /// <remarks>
@@ -418,7 +407,6 @@ namespace log4net
         {
             return GetRepository(Assembly.GetCallingAssembly());
         }
-#endif
 
         /// <summary>Returns the default <see cref="ILoggerRepository"/> instance.</summary>
         /// <returns>The default <see cref="ILoggerRepository"/> instance.</returns>
@@ -450,7 +438,6 @@ namespace log4net
             return GetRepository(repositoryAssembly);
         }
 
-#if !NETSTANDARD1_3
         /// <overloads>Get a logger repository.</overloads>
         /// <summary>Returns the default <see cref="ILoggerRepository"/> instance.</summary>
         /// <remarks>
@@ -464,7 +451,6 @@ namespace log4net
         {
             return GetRepository(Assembly.GetCallingAssembly());
         }
-#endif
 
         /// <summary>Returns the default <see cref="ILoggerRepository"/> instance.</summary>
         /// <returns>The default <see cref="ILoggerRepository"/> instance.</returns>
@@ -494,7 +480,6 @@ namespace log4net
             return LoggerManager.GetRepository(repositoryAssembly);
         }
 
-#if !NETSTANDARD1_3
         /// <overloads>Create a domain</overloads>
         /// <summary>Creates a repository with the specified repository type.</summary>
         /// <remarks>
@@ -534,7 +519,6 @@ namespace log4net
         {
             return CreateRepository(Assembly.GetCallingAssembly(), repositoryType);
         }
-#endif
 
         /// <summary>Creates a repository with the specified name.</summary>
         /// <remarks>
@@ -675,7 +659,6 @@ namespace log4net
             /// <returns><c>True</c> if all logging events were flushed successfully, else <c>false</c>.</returns>
             public static bool Flush(int millisecondsTimeout)
             {
-#if !NETSTANDARD1_3 // Excluded because GetCallingAssembly() is not available in CoreFX (https://github.com/dotnet/corefx/issues/2221).
                 Appender.IFlushable flushableRepository = LoggerManager.GetRepository(Assembly.GetCallingAssembly()) as Appender.IFlushable;
                 if (flushableRepository == null)
                 {
@@ -685,9 +668,6 @@ namespace log4net
                 {
                     return flushableRepository.Flush(millisecondsTimeout);
                 }
-#else
-                return false;
-#endif
             }
 
             /// <summary>Looks up the wrapper object for the logger specified.</summary>

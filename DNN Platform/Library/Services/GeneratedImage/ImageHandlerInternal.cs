@@ -8,24 +8,42 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
-using System.Web;
+using System.Threading.Tasks;
 
 using DotNetNuke.Abstractions.Logging;
+using DotNetNuke.Common;
 using DotNetNuke.Common.Utilities;
 using DotNetNuke.Entities.Portals;
 using DotNetNuke.Entities.Users;
-using DotNetNuke.Services.GeneratedImage.ImageQuantization;
 using DotNetNuke.Services.Log.EventLog;
 using DotNetNuke.Services.UserRequest;
 
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Net.Http.Headers;
+
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
+using SixLabors.ImageSharp.Formats.Bmp;
+using SixLabors.ImageSharp.Formats.Gif;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Formats.Tiff;
+using SixLabors.ImageSharp.Formats.Webp;
+using SixLabors.ImageSharp.Processing.Processors.Quantization;
+
 /// <summary>A helper for <see cref="ImageHandler"/>.</summary>
+/// <remarks>
+/// Ported from <c>System.Web</c> to ASP.NET Core and from <c>System.Drawing</c> to ImageSharp.
+/// Every security check, every cache decision and the response status codes are unchanged; the
+/// request handling is now asynchronous because writing the response body and transmitting a
+/// cached file are asynchronous on ASP.NET Core.
+/// </remarks>
 internal class ImageHandlerInternal
 {
     private static readonly TimeSpan DefaultClientCacheExpiration = new TimeSpan(0, 10, 0);
@@ -41,7 +59,7 @@ internal class ImageHandlerInternal
     {
         this.eventLogger = eventLogger;
 
-        this.ContentType = ImageFormat.Jpeg;
+        this.ContentType = JpegFormat.Instance;
         this.ImageCompression = 95;
         this.ImageTransforms = [];
         this.AllowStandalone = false;
@@ -77,18 +95,16 @@ internal class ImageHandlerInternal
         }
     }
 
-    public ImageFormat ContentType { get; set; }
+    public IImageFormat ContentType { get; set; }
 
     public long ImageCompression { get; set; }
 
-    [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
     public int IPCountMax
     {
         get => IPCount.MaxCount;
         set => IPCount.MaxCount = value;
     }
 
-    [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
     public TimeSpan IpCountPurgeInterval
     {
         get => IPCount.PurgeInterval;
@@ -113,39 +129,33 @@ internal class ImageHandlerInternal
 
     private IImageStore ImageStore => this.imageStore ?? DiskImageStore.Instance;
 
-    public void HandleImageRequest(HttpContextBase context, Func<NameValueCollection, ImageInfo> imageGenCallback, string uniqueIdStringSeed)
+    public async Task HandleImageRequestAsync(HttpContext context, Func<NameValueCollection, ImageInfo> imageGenCallback, string uniqueIdStringSeed)
     {
-        context.Response.Clear();
+        // Replaces Response.Clear(): on ASP.NET Core nothing has been written yet at this point, so
+        // only the headers an earlier middleware may have added need resetting.
+        context.Response.Headers.Clear();
 
-        var ipAddress = UserRequestIPAddressController.Instance.GetUserRequestIPAddress(context.Request);
+        var request = context.Request;
+        var ipAddress = UserRequestIPAddressController.Instance.GetUserRequestIPAddress(request);
+        var referrer = GetReferrer(request);
 
         // Check if allowed standalone
-        if (!this.AllowStandalone && context.Request.UrlReferrer == null && !context.Request.IsLocal)
+        if (!this.AllowStandalone && referrer == null && !IsLocal(context))
         {
             const string Message = "Not allowed to use standalone";
             if (this.LogSecurity)
             {
-                ILogInfo logInfo = new LogInfo
-                {
-                    LogTypeKey = nameof(EventLogType.ADMIN_ALERT),
-                };
-                logInfo.LogUserId = PortalSettings.Current.UserId;
-                logInfo.LogPortalId = PortalSettings.Current.PortalId;
-                logInfo.AddProperty("DnnImageHandler", Message);
-                logInfo.AddProperty("IP", ipAddress);
-                this.eventLogger.AddLog(logInfo);
+                this.LogSecurityEvent(Message, ipAddress);
             }
 
-            context.Response.StatusCode = 403;
-            context.Response.StatusDescription = Message;
-            context.Response.End();
+            SetStatus(context, (int)HttpStatusCode.Forbidden, Message);
             return;
         }
 
         // Check if domain is allowed to embed image
         if (!string.IsNullOrEmpty(this.AllowedDomains[0]) &&
-            context.Request.UrlReferrer != null &&
-            !context.Request.UrlReferrer.Host.Equals(context.Request.Url.Host, StringComparison.OrdinalIgnoreCase))
+            referrer != null &&
+            !referrer.Host.Equals(request.Host.Host, StringComparison.OrdinalIgnoreCase))
         {
             var allowed = false;
             var allowedDomains = string.Empty;
@@ -157,7 +167,7 @@ internal class ImageHandlerInternal
                 }
 
                 allowedDomains += allowedDomain + ",";
-                if (context.Request.UrlReferrer.Host.Contains(allowedDomain, StringComparison.OrdinalIgnoreCase))
+                if (referrer.Host.Contains(allowedDomain, StringComparison.OrdinalIgnoreCase))
                 {
                     allowed = true;
                 }
@@ -165,7 +175,7 @@ internal class ImageHandlerInternal
 
             if (!allowed)
             {
-                var message = $"Not allowed to use from referrer '{context.Request.UrlReferrer.Host}'";
+                var message = $"Not allowed to use from referrer '{referrer.Host}'";
                 if (this.LogSecurity)
                 {
                     ILogInfo logInfo = new LogInfo
@@ -184,15 +194,15 @@ internal class ImageHandlerInternal
                     this.eventLogger.AddLog(logInfo);
                 }
 
-                context.Response.StatusCode = 403;
-                context.Response.StatusDescription = "Forbidden";
-                context.Response.End();
+                SetStatus(context, (int)HttpStatusCode.Forbidden, "Forbidden");
                 return;
             }
         }
 
+        var queryString = ToNameValueCollection(request.Query);
+
         // Generate Image
-        var imageMethodData = imageGenCallback(context.Request.QueryString);
+        var imageMethodData = imageGenCallback(queryString);
 
         context.Response.ContentType = GetImageMimeType(this.ContentType);
         if (imageMethodData == null)
@@ -204,20 +214,19 @@ internal class ImageHandlerInternal
         {
             using var imageOutputBuffer = new MemoryStream();
             this.RenderImage(imageMethodData.Image, imageOutputBuffer);
-            var buffer = imageOutputBuffer.GetBuffer();
-            context.Response.OutputStream.Write(buffer, 0, buffer.Length);
-            context.Response.End();
+            imageOutputBuffer.Position = 0;
+            await imageOutputBuffer.CopyToAsync(context.Response.Body).ConfigureAwait(false);
             return;
         }
 
-        string cacheId = this.GetUniqueIdString(context, uniqueIdStringSeed);
+        string cacheId = this.GetUniqueIdString(queryString, uniqueIdStringSeed);
 
         var userId = -1;
         var cacheCleared = false;
-        var isProfilePic = "profilepic".Equals(context.Request.QueryString["mode"], StringComparison.OrdinalIgnoreCase);
+        var isProfilePic = "profilepic".Equals(queryString["mode"], StringComparison.OrdinalIgnoreCase);
         if (isProfilePic)
         {
-            if (int.TryParse(context.Request.QueryString["userId"], out userId))
+            if (int.TryParse(queryString["userId"], out userId))
             {
                 cacheCleared = this.ClearDiskImageCacheIfNecessary(userId, PortalSettings.Current.PortalId, cacheId);
             }
@@ -230,52 +239,45 @@ internal class ImageHandlerInternal
 
             if (this.LogSecurity)
             {
-                ILogInfo logInfo = new LogInfo
-                {
-                    LogTypeKey = nameof(EventLogType.ADMIN_ALERT),
-                };
-                logInfo.LogUserId = PortalSettings.Current.UserId;
-                logInfo.LogPortalId = PortalSettings.Current.PortalId;
-                logInfo.AddProperty("DnnImageHandler", message);
-                logInfo.AddProperty("IP", ipAddress);
-                this.eventLogger.AddLog(logInfo);
+                this.LogSecurityEvent(message, ipAddress);
             }
 
-            ReturnDefaultProfilePicture(context);
+            await ReturnDefaultProfilePictureAsync(context).ConfigureAwait(false);
             return;
         }
 
         // Handle client cache
-        var cachePolicy = context.Response.Cache;
-        cachePolicy.SetValidUntilExpires(true);
+        var headers = context.Response.Headers;
         if (this.EnableClientCache)
         {
-            if (!string.IsNullOrEmpty(context.Request.Headers["If-Modified-Since"]) && !string.IsNullOrEmpty(context.Request.Headers["If-None-Match"]) && !cacheCleared)
+            if (!string.IsNullOrEmpty(request.Headers[HeaderNames.IfModifiedSince]) &&
+                !string.IsNullOrEmpty(request.Headers[HeaderNames.IfNoneMatch]) &&
+                !cacheCleared)
             {
                 var provider = CultureInfo.InvariantCulture;
-                var lastMod = DateTime.ParseExact(context.Request.Headers["If-Modified-Since"], "r", provider).ToLocalTime();
-                var etag = context.Request.Headers["If-None-Match"];
+                var lastMod = DateTime.ParseExact(request.Headers[HeaderNames.IfModifiedSince], "r", provider).ToLocalTime();
+                var etag = request.Headers[HeaderNames.IfNoneMatch].ToString();
                 if (lastMod + this.ClientCacheExpiration > this.DateTime_Now && etag == cacheId)
                 {
-                    context.Response.StatusCode = 304;
-                    context.Response.StatusDescription = "Not Modified";
-                    context.Response.End();
+                    SetStatus(context, (int)HttpStatusCode.NotModified, "Not Modified");
                     return;
                 }
             }
 
-            cachePolicy.SetCacheability(HttpCacheability.Public);
-            cachePolicy.SetLastModified(this.DateTime_Now);
-            cachePolicy.SetExpires(this.DateTime_Now + this.ClientCacheExpiration);
-            cachePolicy.SetETag(cacheId);
+            // Replaces HttpCachePolicy: SetCacheability(Public) + SetValidUntilExpires(true) +
+            // SetLastModified + SetExpires + SetETag.
+            headers[HeaderNames.CacheControl] = "public, max-age=" + ((int)this.ClientCacheExpiration.TotalSeconds).ToString(CultureInfo.InvariantCulture);
+            headers[HeaderNames.LastModified] = this.DateTime_Now.ToUniversalTime().ToString("r", CultureInfo.InvariantCulture);
+            headers[HeaderNames.Expires] = (this.DateTime_Now + this.ClientCacheExpiration).ToUniversalTime().ToString("r", CultureInfo.InvariantCulture);
+            headers[HeaderNames.ETag] = cacheId;
         }
 
         // Handle Server cache
         if (this.EnableServerCache)
         {
-            if (this.ImageStore.TryTransmitIfContains(cacheId, context.Response))
+            if (await this.ImageStore.TryTransmitIfContainsAsync(cacheId, context.Response).ConfigureAwait(false))
             {
-                context.Response.Flush();
+                await context.Response.Body.FlushAsync().ConfigureAwait(false);
                 return;
             }
         }
@@ -289,20 +291,10 @@ internal class ImageHandlerInternal
 
                 if (this.LogSecurity)
                 {
-                    ILogInfo logInfo = new LogInfo
-                    {
-                        LogTypeKey = nameof(EventLogType.ADMIN_ALERT),
-                    };
-                    logInfo.LogUserId = PortalSettings.Current.UserId;
-                    logInfo.LogPortalId = PortalSettings.Current.PortalId;
-                    logInfo.AddProperty("DnnImageHandler", Message);
-                    logInfo.AddProperty("IP", ipAddress);
-                    this.eventLogger.AddLog(logInfo);
+                    this.LogSecurityEvent(Message, ipAddress);
                 }
 
-                context.Response.StatusCode = 429;
-                context.Response.StatusDescription = Message;
-                context.Response.End();
+                SetStatus(context, StatusCodes.Status429TooManyRequests, Message);
                 return;
             }
         }
@@ -310,7 +302,6 @@ internal class ImageHandlerInternal
         if (imageMethodData.HttpStatusCode != null)
         {
             context.Response.StatusCode = (int)imageMethodData.HttpStatusCode;
-            context.Response.End();
             return;
         }
 
@@ -326,49 +317,101 @@ internal class ImageHandlerInternal
                 this.RenderImage(this.GetImageThroughTransforms(imageMethodData.ImageByteBuffer), imageOutputBuffer);
             }
 
-            var buffer = imageOutputBuffer.GetBuffer();
+            var buffer = imageOutputBuffer.ToArray();
 
-            context.Response.OutputStream.Write(buffer, 0, buffer.Length);
+            await context.Response.Body.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
 
             if (this.EnableServerCache)
             {
                 this.ImageStore.Add(cacheId, buffer);
             }
-
-            context.Response.End();
         }
     }
 
-    internal static string GetImageMimeType(ImageFormat format)
+    /// <summary>Gets the MIME type the given image format is served with.</summary>
+    /// <param name="format">The image format.</param>
+    /// <returns>The MIME type.</returns>
+    /// <remarks>
+    /// The GDI+ <c>if/else</c> chain over <c>ImageFormat</c> singletons becomes a single read of
+    /// ImageSharp's <see cref="IImageFormat.DefaultMimeType"/>, which produces the same strings.
+    /// </remarks>
+    internal static string GetImageMimeType(IImageFormat format)
     {
-        string mimeType = "image/x-unknown";
+        return format?.DefaultMimeType ?? "image/x-unknown";
+    }
 
-        if (format.Equals(ImageFormat.Gif))
+    /// <summary>Returns the ImageSharp encoder for an image format, honoring <see cref="ImageCompression"/>.</summary>
+    /// <remarks>
+    /// Replaces <c>ImageCodecInfo.GetImageEncoders()</c> plus the <c>Encoder.Quality</c>
+    /// <c>EncoderParameter</c>. Only the lossy formats have a quality knob; the lossless ones
+    /// ignore it, exactly as GDI+ did.
+    /// </remarks>
+    private IImageEncoder GetEncoder(IImageFormat format)
+    {
+        var quality = (int)Math.Clamp(this.ImageCompression, 1, 100);
+        return format switch
         {
-            mimeType = "image/gif";
-        }
-        else if (format.Equals(ImageFormat.Jpeg))
+            PngFormat => new PngEncoder(),
+            GifFormat => new GifEncoder { Quantizer = new OctreeQuantizer(new QuantizerOptions { MaxColors = 255 }) },
+            BmpFormat => new BmpEncoder(),
+            TiffFormat => new TiffEncoder(),
+            WebpFormat => new WebpEncoder { Quality = quality },
+            _ => new JpegEncoder { Quality = quality },
+        };
+    }
+
+    private static NameValueCollection ToNameValueCollection(IQueryCollection query)
+    {
+        var collection = new NameValueCollection(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in query)
         {
-            mimeType = "image/jpeg";
-        }
-        else if (format.Equals(ImageFormat.Png))
-        {
-            mimeType = "image/png";
-        }
-        else if (format.Equals(ImageFormat.Bmp) || format.Equals(ImageFormat.MemoryBmp))
-        {
-            mimeType = "image/bmp";
-        }
-        else if (format.Equals(ImageFormat.Tiff))
-        {
-            mimeType = "image/tiff";
-        }
-        else if (format.Equals(ImageFormat.Icon))
-        {
-            mimeType = "image/x-icon";
+            foreach (var value in pair.Value)
+            {
+                collection.Add(pair.Key, value);
+            }
         }
 
-        return mimeType;
+        return collection;
+    }
+
+    /// <summary>Replaces <c>HttpRequest.UrlReferrer</c>.</summary>
+    private static Uri GetReferrer(HttpRequest request)
+    {
+        var referrer = request.Headers[HeaderNames.Referer].ToString();
+        return !string.IsNullOrEmpty(referrer) && Uri.TryCreate(referrer, UriKind.Absolute, out var uri) ? uri : null;
+    }
+
+    /// <summary>Replaces <c>HttpRequest.IsLocal</c>.</summary>
+    private static bool IsLocal(HttpContext context)
+    {
+        var connection = context.Connection;
+        if (connection.RemoteIpAddress == null)
+        {
+            // No remote address means an in-process request, which the old IsLocal also treated as local.
+            return true;
+        }
+
+        if (System.Net.IPAddress.IsLoopback(connection.RemoteIpAddress))
+        {
+            return true;
+        }
+
+        return connection.LocalIpAddress != null && connection.RemoteIpAddress.Equals(connection.LocalIpAddress);
+    }
+
+    /// <summary>
+    /// Replaces the <c>Response.StatusDescription</c> setter plus <c>Response.End()</c>: the reason
+    /// phrase lives on <see cref="IHttpResponseFeature"/>, and returning from the handler is how a
+    /// Core request is ended.
+    /// </summary>
+    private static void SetStatus(HttpContext context, int statusCode, string reasonPhrase)
+    {
+        context.Response.StatusCode = statusCode;
+        var responseFeature = context.Features.Get<IHttpResponseFeature>();
+        if (responseFeature != null)
+        {
+            responseFeature.ReasonPhrase = reasonPhrase;
+        }
     }
 
     private static string GetIdFromBytes(byte[] buffer)
@@ -381,15 +424,6 @@ internal class ImageHandlerInternal
         }
 
         return sb.ToString();
-    }
-
-    /// <summary>Returns the encoder for the specified mime type.</summary>
-    /// <param name="mimeType">The mime type of the content.</param>
-    /// <returns>ImageCodecInfo.</returns>
-    private static ImageCodecInfo GetEncoderInfo(string mimeType)
-    {
-        var encoders = ImageCodecInfo.GetImageEncoders();
-        return encoders.FirstOrDefault(x => x.MimeType == mimeType);
     }
 
     private static bool IsPicVisibleToCurrentUser(int profileUserId)
@@ -407,24 +441,43 @@ internal class ImageHandlerInternal
         return ProfilePropertyAccess.CheckAccessLevel(settings, photoProperty, currentUser, profileUser);
     }
 
-    private static void ReturnDefaultProfilePicture(HttpContextBase context)
+    private static async Task ReturnDefaultProfilePictureAsync(HttpContext context)
     {
-        context.Response.Cache.SetCacheability(HttpCacheability.Private);
-        context.Response.Cache.SetNoServerCaching();
-        context.Response.Cache.SetNoStore();
+        context.Response.Headers[HeaderNames.CacheControl] = "private, no-store, no-cache";
         context.Response.ContentType = "image/gif";
-        context.Response.WriteFile(context.Server.MapPath("~/images/no_avatar.gif"));
-        context.Response.End();
+
+        // Replaces Response.WriteFile(Server.MapPath(...)).
+        var path = HttpContextSource.MapPath("~/images/no_avatar.gif");
+        if (!File.Exists(path))
+        {
+            context.Response.StatusCode = (int)HttpStatusCode.NotFound;
+            return;
+        }
+
+        await context.Response.SendFileAsync(path).ConfigureAwait(false);
     }
 
-    private string GetUniqueIdString(HttpContextBase context, string uniqueIdStringSeed)
+    private void LogSecurityEvent(string message, string ipAddress)
+    {
+        ILogInfo logInfo = new LogInfo
+        {
+            LogTypeKey = nameof(EventLogType.ADMIN_ALERT),
+        };
+        logInfo.LogUserId = PortalSettings.Current.UserId;
+        logInfo.LogPortalId = PortalSettings.Current.PortalId;
+        logInfo.AddProperty("DnnImageHandler", message);
+        logInfo.AddProperty("IP", ipAddress);
+        this.eventLogger.AddLog(logInfo);
+    }
+
+    private string GetUniqueIdString(NameValueCollection queryString, string uniqueIdStringSeed)
     {
         var builder = new StringBuilder();
         builder.Append(uniqueIdStringSeed);
-        foreach (var key in context.Request.QueryString.AllKeys.OrderBy(k => k))
+        foreach (var key in queryString.AllKeys.OrderBy(k => k, StringComparer.Ordinal))
         {
             builder.Append(key);
-            builder.Append(context.Request.QueryString.Get(key));
+            builder.Append(queryString.Get(key));
         }
 
         foreach (var tran in this.ImageTransforms)
@@ -473,29 +526,21 @@ internal class ImageHandlerInternal
 
     private Image GetImageThroughTransforms(byte[] buffer)
     {
-        using var memoryStream = new MemoryStream(buffer);
-        return this.GetImageThroughTransforms(Image.FromStream(memoryStream));
+        return this.GetImageThroughTransforms(Image.Load(buffer));
     }
 
     private void RenderImage(Image image, Stream outStream)
     {
         try
         {
-            if (Equals(this.ContentType, ImageFormat.Gif))
+            if (image == null)
             {
-                var quantizer = new OctreeQuantizer(255, 8);
-                using var quantized = quantizer.Quantize(image);
-                quantized.Save(outStream, ImageFormat.Gif);
+                return;
             }
-            else
-            {
-                var eps = new EncoderParameters(1)
-                {
-                    Param = { [0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, this.ImageCompression) },
-                };
-                var ici = GetEncoderInfo(GetImageMimeType(this.ContentType));
-                image?.Save(outStream, ici, eps);
-            }
+
+            // The requested output format is honored rather than hard-coding one encoder, so a PNG
+            // keeps its transparency and a GIF keeps its palette.
+            image.Save(outStream, this.GetEncoder(this.ContentType));
         }
         finally
         {

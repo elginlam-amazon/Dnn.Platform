@@ -28,7 +28,7 @@
                                 <moduleControls>
                                     <moduleControl>
                                         <controlKey/>
-                                        <controlSrc>DesktopModules/Admin/Console/ViewConsole.ascx</controlSrc>
+                                        <controlSrc>DesktopModules/Admin/Console/ViewConsole.razor</controlSrc>
                                         <controlTitle>Console</controlTitle>
                                         <controlType>View</controlType>
                                         <iconFile></iconFile>
@@ -39,7 +39,7 @@
                                     </moduleControl>
                                     <moduleControl>
                                         <controlKey>Settings</controlKey>
-                                        <controlSrc>DesktopModules/Admin/Console/Settings.ascx</controlSrc>
+                                        <controlSrc>DesktopModules/Admin/Console/Settings.razor</controlSrc>
                                         <controlTitle>Console Settings</controlTitle>
                                         <controlType>Admin</controlType>
                                         <iconFile></iconFile>

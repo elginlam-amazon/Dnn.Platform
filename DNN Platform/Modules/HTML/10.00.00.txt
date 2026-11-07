@@ -1,2 +1,13 @@
 ﻿' remove old SqlDataProvider
 Providers\DataProviders\SqlDataProvider\Upgrade.SqlDataProvider
+' remove the WebForms user controls superseded by the Blazor components
+HtmlModule.ascx
+EditHTML.ascx
+MyWork.ascx
+Settings.ascx
+' remove the old App_LocalResources resx names (now HtmlModule.resx, EditHtml.resx, MyWork.resx, Settings.resx)
+App_LocalResources\HtmlModule.ascx.resx
+App_LocalResources\EditHTML.ascx.resx
+App_LocalResources\MyWork.ascx.resx
+App_LocalResources\Settings.ascx.resx
+App_LocalResources\Workflow.ascx.resx

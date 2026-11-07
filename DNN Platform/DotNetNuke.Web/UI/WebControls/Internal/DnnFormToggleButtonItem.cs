@@ -5,21 +5,25 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
+    using DotNetNuke.UI;
     using DotNetNuke.Web.UI.WebControls;
 
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>This control is only for internal use, please don't reference it in any other place as it may be removed in the future.</summary>
+    /// <remarks>
+    /// The <c>CheckBox</c> became a <see cref="DnnCheckBox"/>; its <c>CheckedChanged</c> event still
+    /// writes the value back into the data source in the mode's own vocabulary
+    /// (<c>true/false</c>, <c>Y/N</c> or <c>Yes/No</c>).
+    /// </remarks>
     public class DnnFormToggleButtonItem : DnnFormItemBase
     {
-        // private DnnRadButton _checkBox;
-        private CheckBox checkBox;
+        private DnnCheckBox checkBox;
 
         /// <summary>Initializes a new instance of the <see cref="DnnFormToggleButtonItem"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IApplicationStatusInfo. Scheduled removal in v12.0.0.")]
@@ -51,21 +55,18 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         }
 
         /// <summary>Gets or sets the checkbox mode.</summary>
+        [Parameter]
         public CheckBoxMode Mode { get; set; }
 
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
         /// <inheritdoc />
-        protected override WebControl CreateControlInternal(Control container)
+        protected override IDnnControl CreateControlInternal(IDnnControl container)
         {
-            // _checkBox = new DnnRadButton {ID = ID + "_CheckBox", ButtonType = RadButtonType.ToggleButton, ToggleType = ButtonToggleType.CheckBox, AutoPostBack = false};
-            this.checkBox = new CheckBox { ID = this.ID + "_CheckBox", AutoPostBack = false };
+            this.checkBox = new DnnCheckBox { ID = this.ID + "_CheckBox", AutoPostBack = false };
 
             this.checkBox.CheckedChanged += this.CheckedChanged;
-            container.Controls.Add(this.checkBox);
-
-            // Load from ControlState
-            if (!this.checkBox.Page.IsPostBack)
-            {
-            }
+            container?.Controls.Add(this.checkBox);
 
             switch (this.Mode)
             {
@@ -84,6 +85,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
 
             return this.checkBox;
         }
+        #pragma warning restore BL0005
 
         /// <inheritdoc />
         protected override void OnInit(EventArgs e)

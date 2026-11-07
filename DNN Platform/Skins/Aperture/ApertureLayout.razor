@@ -1,0 +1,58 @@
+@* Ported from default.ascx — the Aperture skin layout.
+
+   > This is the DNN 10 **default theme** — do not modify the distributed Aperture files directly
+   > (Skin/Container folders); they **will be overwritten on upgrade**.
+   > Need a custom version? Copy the **Skin** and **Container** folders and customize the copy instead.
+
+   The original composed itself from four <!--#include file="partials/_*.ascx" --> server-side
+   include directives. Those are replaced by real component composition: _registers.ascx became
+   @using entries in _Imports.razor, and _includes/_header/_footer became the three child components
+   rendered below.
+
+   The four <div runat="server"> panes are DNN module injection points, so they are named content
+   holes rather than plain divs: ContentPane is the primary pane and therefore maps to @Body, while
+   BannerPane, FluidPane and FooterPane are RenderFragment parameters. *@
+@inherits LayoutComponentBase
+
+<ApertureIncludes />
+
+<div class="aperture-theme">
+    @* Header/NavBar *@
+    <ApertureHeader />
+
+    @* Main Content *@
+    <main class="aperture-main">
+        <div id="BannerPane">
+            @this.BannerPane
+        </div>
+        <div id="ContentPane" class="aperture-content-pane">
+            @this.Body
+        </div>
+        <div id="FluidPane">
+            @this.FluidPane
+        </div>
+    </main>
+
+    @* Footer *@
+    <ApertureFooter FooterPane="this.FooterPane" />
+</div>
+
+@code {
+    /// <summary>Gets or sets the content rendered into the banner module pane.</summary>
+    /// <remarks>Replaces <c>&lt;div id="BannerPane" runat="server"&gt;</c>.</remarks>
+    [Parameter]
+    public RenderFragment? BannerPane { get; set; }
+
+    /// <summary>Gets or sets the content rendered into the full-width module pane.</summary>
+    /// <remarks>Replaces <c>&lt;div id="FluidPane" runat="server"&gt;</c>.</remarks>
+    [Parameter]
+    public RenderFragment? FluidPane { get; set; }
+
+    /// <summary>Gets or sets the content rendered into the footer module pane.</summary>
+    /// <remarks>
+    /// Replaces <c>&lt;div id="FooterPane" runat="server" class="footer-right"&gt;</c> and is passed
+    /// through to <see cref="ApertureFooter"/>, which owns that markup.
+    /// </remarks>
+    [Parameter]
+    public RenderFragment? FooterPane { get; set; }
+}

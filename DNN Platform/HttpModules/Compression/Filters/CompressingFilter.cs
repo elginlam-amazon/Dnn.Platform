@@ -4,7 +4,10 @@
 namespace DotNetNuke.HttpModules.Compression
 {
     using System.IO;
-    using System.Web;
+
+    using DotNetNuke.Common;
+
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Base for any HttpFilter that performing compression.</summary>
     /// <remarks>
@@ -41,8 +44,13 @@ namespace DotNetNuke.HttpModules.Compression
             // this is dangerous.  if Response.End is called before the filter is used, directly or indirectly,
             // the content will not pass through the filter.  However, this header will still be appended.
             // Look for handling cases in PreRequestSendHeaders and Pre
-            HttpContext.Current.Response.AppendHeader("Content-Encoding", this.ContentEncoding);
-            HttpContext.Current.Response.AppendHeader("X-Compressed-By", "DotNetNuke-Compression");
+            var response = HttpContextSource.Current?.Response;
+            if (response != null)
+            {
+                response.Headers.Append("Content-Encoding", this.ContentEncoding);
+                response.Headers.Append("X-Compressed-By", "DotNetNuke-Compression");
+            }
+
             this.HasWrittenHeaders = true;
         }
     }

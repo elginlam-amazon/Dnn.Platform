@@ -21,9 +21,6 @@ const deploy = settings.WebsitePath.length > 0;
 
 const packageName = packageJson.name.charAt(0).toUpperCase() + packageJson.name.substr(1).toLowerCase();
 const tempDir = "./temp";
-const containersDist = deploy
-  ? settings.WebsitePath + '/Portals/_default/Containers/' + packageName
-  : `${tempDir}/Containers`;
 const skinDist = deploy
   ? settings.WebsitePath + '/Portals/_default/Skins/' + packageName
   : `${tempDir}/Skin`;
@@ -42,26 +39,33 @@ interface StaticFileConfig {
   dest: string;
 }
 
+/**
+ * Compiled asset outputs.
+ *
+ * These now land in this project's own `wwwroot/` folder: the theme is a Razor class library, so
+ * everything under `wwwroot/` is published as a static web asset and served by the host under
+ * `_content/Dnn.Skins.Aperture/` — the path the Blazor components reference. The DNN install
+ * package is produced from those same files by `packageFiles()`.
+ */
 const transpiledFiles: TranspiledFileConfig[] = [
     {
         input: "src/scripts/main.ts",
-        output: path.resolve(skinDist, "js/skin.min.js"),
+        output: path.resolve("wwwroot/js/skin.min.js"),
     },
     {
         input: "src/scss/style.scss",
-        output: path.resolve(skinDist, "css/skin.min.css"),
+        output: path.resolve("wwwroot/css/skin.min.css"),
     },
 ];
 
 const copyFiles: StaticFileConfig[] = [
-  { src: "containers/*", dest: containersDist },
-  { src: "menus/desktop/*", dest: skinDist + "/menus/desktop" },
-  { src: "menus/footer/*", dest: skinDist + "/menus/footer" },
-  { src: "menus/mobile/*", dest: skinDist + "/menus/mobile" },
-  { src: "partials/*", dest: skinDist + "/partials" },
-  { src: "src/fonts/*", dest: skinDist + "/fonts" },
-  { src: "src/images/*", dest: skinDist + "/images" },
-  { src: "*.{ascx,png,dnn,xml,txt}", dest: skinDist },
+  { src: "wwwroot/css/*", dest: skinDist + "/css" },
+  { src: "wwwroot/js/*", dest: skinDist + "/js" },
+  { src: "wwwroot/fonts/*", dest: skinDist + "/fonts" },
+  { src: "wwwroot/images/*", dest: skinDist + "/images" },
+  // The package icon is referenced from the install-package root by manifest.dnn's <iconFile>.
+  { src: "wwwroot/images/aperture.png", dest: skinDist },
+  { src: "*.{dnn,txt}", dest: skinDist },
 ];
 
 /** Normalizes a path (windows vs linux, etc.) */
@@ -179,11 +183,8 @@ async function buildAll(firstRun = true): Promise<void> {
 /** Watch for changes (optional) */
 function watchFiles(): void {
   const watcher = chokidar.watch([
-    ...globSync(['*.ascx', '*.txt', '*.png']),
+    ...globSync(['*.razor', '**/*.razor', '*.txt', 'wwwroot/images/*']),
     "./src",
-    "./containers",
-    "./menus",
-    "./partials",
   ],
   {
     ignored: /(^|[\/\\])\../, // Ignore dotfiles
@@ -204,7 +205,6 @@ function watchFiles(): void {
       ],
       files: [
           skinDist + '/**/*',
-          containersDist + '/**/*',
       ],
       injectChanges: true,
       middleware: function (_req, res, next) {
@@ -289,11 +289,7 @@ async function packageFiles(): Promise<void> {
           `${skinDist}/css/**/*`,
           `${skinDist}/fonts/**/*`,
           `${skinDist}/js/**/*`,
-          `${skinDist}/menus/**/*`,
-          `${skinDist}/patials/**/*`,
-          `${skinDist}/**/*.ascx`,
-          `${skinDist}/**/*.xml`,
-          `${skinDist}/**/*.png`,
+          `${skinDist}/images/**/*`,
       ],
       { nodir: true }
   );
@@ -308,24 +304,9 @@ async function packageFiles(): Promise<void> {
   deleteDirectoryWithRetry(`${stagingDir}/skinResources`);
   console.log("Skin resources packaged.");
 
-  // Container resources
-  console.log("Packaging container resources...");
-  var containerResources = await glob(
-      [
-          `${containersDist}/**/*`,
-      ],
-      { nodir: true }
-  );
-  containerResources.forEach((containerResource) => {
-      const relativePath = path.relative(containersDist, containerResource).replace(/\\/g, '/');
-      const targetPath = path.resolve(`${stagingDir}/containerResources/${relativePath}`);
-      copyFileToPath(containerResource, targetPath);
-  });
-  zip = new Zip();
-  zip.addFolder(`${stagingDir}/containerResources`);
-  await zip.archive(`${stagingDir}/container.zip`);
-  deleteDirectoryWithRetry(`${stagingDir}/containerResources`);
-  console.log("Containers resources packaged.");
+  // The skin layouts, containers, partials and menus are no longer deployable template files:
+  // they are Blazor components compiled into Dnn.Skins.Aperture.dll, so only the static assets
+  // above are packaged. There is consequently no separate container.zip any more.
 
   // Root files
   console.log("Packaging root files...");

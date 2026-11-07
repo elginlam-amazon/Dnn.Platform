@@ -5,14 +5,14 @@
 namespace DotNetNuke.Tests.Integration.Tests.Jwt
 {
     using System;
-    using System.Configuration;
     using System.Net;
     using System.Net.Http;
     using System.Net.Http.Headers;
+    using System.Net.Http.Json;
     using System.Text;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Web;
 
     using DNN.Integration.Test.Framework;
     using DNN.Integration.Test.Framework.Helpers;
@@ -31,6 +31,13 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
         private const string GetMonikerQuery = "/API/web/mobilehelper/monikers?moduleList=";
         private const string GetModuleDetailsQuery = "/API/web/mobilehelper/moduledetails?moduleList=";
         private static readonly Encoding TextEncoder = Encoding.UTF8;
+
+        // Preserves the legacy wire shape: the net48 fixture posted through
+        // Microsoft.AspNet.WebApi.Client, whose JSON formatter emitted property names
+        // verbatim. System.Net.Http.Json defaults to JsonSerializerDefaults.Web (camelCase),
+        // so the naming policy is pinned to null to keep the exact same payloads.
+        private static readonly JsonSerializerOptions PascalCaseJson =
+            new JsonSerializerOptions { PropertyNamingPolicy = null };
         private readonly string _hostName;
         private readonly string _hostPass;
         private readonly HttpClient _httpClient;
@@ -43,11 +50,11 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
 
         public JwtAuthTest()
         {
-            var url = ConfigurationManager.AppSettings["siteUrl"];
+            var url = AppConfigHelper.SiteUrl;
             var siteUri = new Uri(url);
             this._httpClient = new HttpClient { BaseAddress = siteUri, Timeout = this._timeout };
-            this._hostName = ConfigurationManager.AppSettings["hostUsername"];
-            this._hostPass = ConfigurationManager.AppSettings["hostPassword"];
+            this._hostName = AppConfigHelper.HostUserName;
+            this._hostPass = AppConfigHelper.HostPassword;
         }
 
         [OneTimeSetUp]
@@ -78,7 +85,7 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
         public void InvalidUserLoginShouldFail()
         {
             var credentials = new { u = this._hostName, p = this._hostPass + "." };
-            var result = this._httpClient.PostAsJsonAsync(LoginQuery, credentials).Result;
+            var result = this._httpClient.PostAsJsonAsync(LoginQuery, credentials, PascalCaseJson).Result;
             var content = result.Content.ReadAsStringAsync().Result;
             LogText(@"content => " + content);
             Assert.That(result.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
@@ -156,7 +163,7 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
         {
             var token = this.GetAuthorizationTokenFor(this._hostName, this._hostPass);
             this.SetAuthHeaderToken(token.AccessToken);
-            var result = this._httpClient.PostAsJsonAsync(TestPostQuery, new { text = "Integraton Testing Rocks!" }).Result;
+            var result = this._httpClient.PostAsJsonAsync(TestPostQuery, new { text = "Integraton Testing Rocks!" }, PascalCaseJson).Result;
             var content = result.Content.ReadAsStringAsync().Result;
             LogText(@"content => " + content);
             using (Assert.EnterMultipleScope())
@@ -206,7 +213,7 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
             this.RenewAuthorizationToken(token1);
 
             this.SetAuthHeaderToken(token1.AccessToken);
-            var result = this._httpClient.PostAsJsonAsync(ExtendTokenQuery, new { rtoken = token1.RenewalToken }).Result;
+            var result = this._httpClient.PostAsJsonAsync(ExtendTokenQuery, new { rtoken = token1.RenewalToken }, PascalCaseJson).Result;
             Assert.That(result.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
         }
 
@@ -358,7 +365,7 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
             WebApiTestHelper.ClearHostCache();
 
             this.SetAuthHeaderToken(token1.AccessToken);
-            var result = this._httpClient.PostAsJsonAsync(ExtendTokenQuery, new { rtoken = token1.RenewalToken }).Result;
+            var result = this._httpClient.PostAsJsonAsync(ExtendTokenQuery, new { rtoken = token1.RenewalToken }, PascalCaseJson).Result;
             Assert.That(result.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
         }
 
@@ -369,7 +376,7 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
         {
             var token = this.GetAuthorizationTokenFor(this._hostName, this._hostPass);
             this.SetAuthHeaderToken(token.AccessToken);
-            var result = this._httpClient.GetAsync(query + HttpUtility.UrlEncode("ViewProfile")).Result;
+            var result = this._httpClient.GetAsync(query + Uri.EscapeDataString("ViewProfile")).Result;
             var content = result.Content.ReadAsStringAsync().Result;
             LogText(@"content => " + content);
             using (Assert.EnterMultipleScope())
@@ -401,7 +408,7 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
             this.SetMonikerHeader("myjournal");
             var postItem = new { ProfileId = 1, GroupId = -1, RowIndex = 0, MaxRows = 1 };
             var result = this._httpClient.PostAsJsonAsync(
-                "/API/Journal/Services/GetListForProfile", postItem).Result;
+                "/API/Journal/Services/GetListForProfile", postItem, PascalCaseJson).Result;
             var content = result.Content.ReadAsStringAsync().Result;
             LogText(@"content => " + content);
             Assert.That(result.StatusCode, Is.EqualTo(HttpStatusCode.OK));
@@ -428,7 +435,7 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
             this.SetMonikerHeader("myjournal");
             var postItem = new { ProfileId = 1, GroupId = -1, RowIndex = 0, MaxRows = 1 };
             var result = this._httpClient.PostAsJsonAsync(
-                "/API/Journal/Services/GetListForProfile", postItem).Result;
+                "/API/Journal/Services/GetListForProfile", postItem, PascalCaseJson).Result;
             var content = result.Content.ReadAsStringAsync().Result;
             LogText(@"content => " + content);
             Assert.That(result.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
@@ -458,9 +465,11 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
         private LoginResultData GetAuthorizationTokenFor(string uname, string upass)
         {
             var credentials = new { u = uname, p = upass };
-            var result = this._httpClient.PostAsJsonAsync(LoginQuery, credentials).Result;
+            var result = this._httpClient.PostAsJsonAsync(LoginQuery, credentials, PascalCaseJson).Result;
             Assert.That(result.StatusCode, Is.EqualTo(HttpStatusCode.OK));
-            var token = result.Content.ReadAsAsync<LoginResultData>().Result;
+            // Replaces the removed Microsoft.AspNet.WebApi.Client ReadAsAsync<T>(); Newtonsoft is kept
+            // deliberately so the [JsonProperty] names on LoginResultData still bind.
+            var token = JsonConvert.DeserializeObject<LoginResultData>(result.Content.ReadAsStringAsync().Result);
             Assert.That(token, Is.Not.Null);
             LogText(@"AuthToken => " + JsonConvert.SerializeObject(token));
             this._httpClient.DefaultRequestHeaders.Clear();
@@ -471,9 +480,11 @@ namespace DotNetNuke.Tests.Integration.Tests.Jwt
         {
             Thread.Sleep(1000); // must delay at least 1 second so the expiry time is different
             this.SetAuthHeaderToken(currentToken.AccessToken);
-            var result = this._httpClient.PostAsJsonAsync(ExtendTokenQuery, new { rtoken = currentToken.RenewalToken }).Result;
+            var result = this._httpClient.PostAsJsonAsync(ExtendTokenQuery, new { rtoken = currentToken.RenewalToken }, PascalCaseJson).Result;
             Assert.That(result.StatusCode, Is.EqualTo(HttpStatusCode.OK));
-            var token = result.Content.ReadAsAsync<LoginResultData>().Result;
+            // Replaces the removed Microsoft.AspNet.WebApi.Client ReadAsAsync<T>(); Newtonsoft is kept
+            // deliberately so the [JsonProperty] names on LoginResultData still bind.
+            var token = JsonConvert.DeserializeObject<LoginResultData>(result.Content.ReadAsStringAsync().Result);
             Assert.That(token, Is.Not.Null);
             LogText(@"RenewedToken => " + JsonConvert.SerializeObject(token));
             return token;

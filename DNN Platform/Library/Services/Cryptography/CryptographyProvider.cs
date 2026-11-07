@@ -20,16 +20,16 @@ namespace DotNetNuke.Services.Cryptography
         : ICryptographyProvider
     {
         /// <summary>Gets the algorithm name used by <see cref="EncryptParameter(string,string)"/>.</summary>
-        public virtual string EncryptParameterAlgorithmName => nameof(DESCryptoServiceProvider);
+        public virtual string EncryptParameterAlgorithmName => "DESCryptoServiceProvider";
 
         /// <summary>Gets the algorithm name used by <see cref="EncryptString(string,string)"/>.</summary>
         public string EncryptStringAlgorithmName => $"{this.EncryptStringHashAlgorithmName}|{this.EncryptStringSymmetricAlgorithmName}";
 
         /// <summary>Gets the algorithm name used by <see cref="EncryptString(string,string)"/>.</summary>
-        protected virtual string EncryptStringHashAlgorithmName => nameof(MD5CryptoServiceProvider);
+        protected virtual string EncryptStringHashAlgorithmName => "MD5CryptoServiceProvider";
 
         /// <summary>Gets the algorithm name used by <see cref="EncryptString(string,string)"/>.</summary>
-        protected virtual string EncryptStringSymmetricAlgorithmName => nameof(TripleDESCryptoServiceProvider);
+        protected virtual string EncryptStringSymmetricAlgorithmName => "TripleDESCryptoServiceProvider";
 
         /// <summary>Gets an instance of <see cref="CryptographyProvider"/>.</summary>
         /// <returns>A <see cref="CryptographyProvider"/> instance.</returns>
@@ -214,7 +214,7 @@ namespace DotNetNuke.Services.Cryptography
             return algorithmName switch
             {
 #pragma warning disable CA5351
-                nameof(DESCryptoServiceProvider) => new DESCryptoServiceProvider(),
+                "DESCryptoServiceProvider" => DES.Create(),
 #pragma warning restore CA5351
                 nameof(Aes) => Aes.Create(),
                 _ => throw new ArgumentOutOfRangeException(nameof(algorithmName), algorithmName, null),
@@ -231,9 +231,11 @@ namespace DotNetNuke.Services.Cryptography
         {
             switch (algorithmName)
             {
-                case nameof(TripleDESCryptoServiceProvider):
+                case "TripleDESCryptoServiceProvider":
 #pragma warning disable CA5350
-                    var tripleDes = new TripleDESCryptoServiceProvider { Mode = CipherMode.ECB, Padding = PaddingMode.PKCS7, };
+                    var tripleDes = TripleDES.Create();
+                    tripleDes.Mode = CipherMode.ECB;
+                    tripleDes.Padding = PaddingMode.PKCS7;
 #pragma warning restore CA5350
                     return WithKey(tripleDes, key);
                 case nameof(Aes):
@@ -302,7 +304,7 @@ namespace DotNetNuke.Services.Cryptography
             return algorithmName switch
             {
 #pragma warning disable CA5351
-                nameof(MD5CryptoServiceProvider) => new MD5CryptoServiceProvider(),
+                "MD5CryptoServiceProvider" => MD5.Create(),
 #pragma warning restore CA5351
                 nameof(SHA512) => CryptographyUtils.CreateSHA512(),
                 _ => throw new ArgumentOutOfRangeException(nameof(algorithmName), algorithmName, null),

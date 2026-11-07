@@ -6,8 +6,8 @@ namespace DotNetNuke.Services.Upgrade.InternalController.Steps
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Upgrade.Internals.Steps;
@@ -29,8 +29,8 @@ namespace DotNetNuke.Services.Upgrade.InternalController.Steps
 
             var verifiers = new List<FileSystemPermissionVerifier>
                                 {
-                                    new FileSystemPermissionVerifier(HttpContext.Current.Server.MapPath("~")),
-                                    new FileSystemPermissionVerifier(HttpContext.Current.Server.MapPath("~/App_Data")),
+                                    new FileSystemPermissionVerifier(HttpContextSource.MapPath("~")),
+                                    new FileSystemPermissionVerifier(HttpContextSource.MapPath("~/App_Data")),
                                 };
 
             this.Details = Localization.GetString("FolderCreateCheck", this.LocalInstallResourceFile)

@@ -7,12 +7,12 @@ namespace DotNetNuke.Common.Utilities
     using System.Globalization;
     using System.IO;
     using System.Text.RegularExpressions;
-    using System.Web;
 
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Services.FileSystem;
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>The default <see cref="IPathUtils"/> implementation.</summary>
     public class PathUtils : ComponentBase<IPathUtils, PathUtils>, IPathUtils
@@ -145,7 +145,7 @@ namespace DotNetNuke.Common.Utilities
                 convertedPath = convertedPath.Substring(applicationPath.Length);
             }
 
-            convertedPath = convertedPath.Replace("/", @"\");
+            convertedPath = convertedPath.Replace('/', Path.DirectorySeparatorChar);
 
             if (path.StartsWith("~", StringComparison.Ordinal) | path.StartsWith(".", StringComparison.Ordinal) | path.StartsWith("/", StringComparison.Ordinal))
             {
@@ -156,7 +156,9 @@ namespace DotNetNuke.Common.Utilities
 
             if (!convertedPath.StartsWith(applicationMapPath, StringComparison.OrdinalIgnoreCase))
             {
-                throw new HttpException();
+                // The requested path escaped the application root — a path-traversal attempt.
+                // Replaces System.Web's parameterless HttpException, which does not exist in ASP.NET Core.
+                throw new BadHttpRequestException("The requested path resolves outside of the application root.", 400);
             }
 
             return convertedPath;

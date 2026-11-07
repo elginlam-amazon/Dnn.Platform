@@ -1,0 +1,307 @@
+@* ---------------------------------------------------------------------------------------------
+    DnnLabelEdit — the Blazor replacement of the DotNetNuke.UI.WebControls.DNNLabelEdit control.
+
+    Render mode: InteractiveServer. The in-place edit is driven by @onclick/@onblur/@onkeydown and
+    the save raises a server event, so the component must be interactive.
+
+    Ported from DNNLabelEdit.cs:
+      * the state-bag/ClientProperty surface (Text, EditEnabled, LostFocusSave, SaveOnEnter,
+        MultiLine, RichTextEnabled, EventName, RenderAsDiv, UrlFormat and the four CSS class
+        properties) became [Parameter]s with the very same defaults the view state getters
+        returned,
+      * dnn.controls.dnnlabeledit.js's label -> textbox swap became the `editing` state below:
+        the label element is replaced by an input (or a textarea when MultiLine) carrying the
+        LabelEditCssClass, exactly as the script did,
+      * IPostBackDataHandler.LoadPostData (the posted edited text) became the two-way bound Value;
+        HttpContext is null over the circuit, so there is no form collection to read,
+      * RaiseClientAPICallbackEvent / RaisePostBackEvent, which raised UpdateLabel with the
+        preserved DNNLabelEditEventArgs and wrote back e.ReturnedText, became SaveAsync raising
+        OnUpdateLabel with the very same event args and honouring ReturnedText,
+      * UrlFormat still strips the server part of the saved URL through WebControls.StripUrlPaths,
+        which now takes the markup and the format only (no page, no ambient request),
+      * WorkCssClass is applied while the save handler runs, as the script did while its XMLHTTP
+        request was in flight.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+@inherits DnnControlBase
+@rendermode InteractiveServer
+
+@if (this.editing)
+{
+    @if (this.MultiLine)
+    {
+        <textarea id="@(this.ClientId + "_edit")"
+                  class="@this.EditCssClass"
+                  @bind="this.editValue"
+                  @bind:event="oninput"
+                  @onblur="this.BlurAsync"
+                  @onkeydown="this.KeyDownAsync"></textarea>
+    }
+    else
+    {
+        <input type="text"
+               id="@(this.ClientId + "_edit")"
+               class="@this.EditCssClass"
+               @bind="this.editValue"
+               @bind:event="oninput"
+               @onblur="this.BlurAsync"
+               @onkeydown="this.KeyDownAsync" />
+    }
+}
+else if (this.RenderAsDiv)
+{
+    <div id="@this.ClientId"
+         class="@this.LabelCssClass"
+         title="@this.ToolTip"
+         @ref="this.RootElementBinding"
+         @onclick="this.ClickAsync"
+         @ondblclick="this.DoubleClickAsync"
+         @onmouseover="() => this.hovered = true"
+         @onmouseout="() => this.hovered = false">@this.Value</div>
+}
+else
+{
+    <span id="@this.ClientId"
+          class="@this.LabelCssClass"
+          title="@this.ToolTip"
+          @ref="this.RootElementBinding"
+          @onclick="this.ClickAsync"
+          @ondblclick="this.DoubleClickAsync"
+          @onmouseover="() => this.hovered = true"
+          @onmouseout="() => this.hovered = false">@this.Value</span>
+}
+
+@code {
+    private string editValue = string.Empty;
+    private bool editing;
+    private bool hovered;
+    private bool saving;
+
+    /// <summary>Gets or sets the text of the label.</summary>
+    /// <remarks>Replaces <c>DNNLabelEdit.Text</c>; bind with <c>@@bind-Value</c>.</remarks>
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>Occurs when the text of the label changes.</summary>
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>
+    /// Occurs when the edited text is saved.
+    /// </summary>
+    /// <remarks>
+    /// Replaces the <c>UpdateLabel</c> event. The handler receives the preserved
+    /// <see cref="DNNLabelEditEventArgs"/> and may rewrite the stored text through its
+    /// <see cref="DNNLabelEditEventArgs.ReturnedText"/>, as the callback did.
+    /// </remarks>
+    [Parameter]
+    public EventCallback<DNNLabelEditEventArgs> OnUpdateLabel { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the text can be edited.</summary>
+    [Parameter]
+    public bool EditEnabled { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether losing focus saves the edit.</summary>
+    [Parameter]
+    public bool LostFocusSave { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether pressing enter saves the edit.</summary>
+    [Parameter]
+    public bool SaveOnEnter { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether the editor accepts multiple lines.</summary>
+    [Parameter]
+    public bool MultiLine { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the label renders as a <c>div</c>.</summary>
+    [Parameter]
+    public bool RenderAsDiv { get; set; }
+
+    /// <summary>Gets or sets the client side event that starts an edit.</summary>
+    /// <remarks>Accepts the original <c>onclick</c>, <c>ondblclick</c> and <c>none</c> values.</remarks>
+    [Parameter]
+    public string EventName { get; set; } = "onclick";
+
+    /// <summary>Gets or sets how much of the server part of a URL is stripped when saving.</summary>
+    [Parameter]
+    public UrlFormatType UrlFormat { get; set; } = UrlFormatType.AbsoluteWithoutServer;
+
+    /// <summary>Gets or sets the CSS class of the label.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class of the editor.</summary>
+    [Parameter]
+    public string LabelEditCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class applied while a save is in flight.</summary>
+    [Parameter]
+    public string WorkCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class applied while the pointer is over the label.</summary>
+    [Parameter]
+    public string MouseOverCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the tooltip of the label.</summary>
+    [Parameter]
+    public string ToolTip { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the legacy control used as the source of the marshalled client properties.
+    /// </summary>
+    /// <remarks>Optional; only needed by hosts that still drive <c>dnn.controls.initLabelEdit</c>.</remarks>
+    [Parameter]
+    public DNNLabelEdit Control { get; set; }
+
+    /// <summary>Gets a value indicating whether the label is being edited.</summary>
+    public bool IsEditing => this.editing;
+
+    /// <summary>Gets the CSS class the label renders with.</summary>
+    private string LabelCssClass
+    {
+        get
+        {
+            if (this.saving && !string.IsNullOrEmpty(this.WorkCssClass))
+            {
+                return this.WorkCssClass;
+            }
+
+            return this.hovered && !string.IsNullOrEmpty(this.MouseOverCssClass)
+                ? this.MouseOverCssClass
+                : this.CssClass;
+        }
+    }
+
+    /// <summary>Gets the CSS class the editor renders with.</summary>
+    private string EditCssClass =>
+        !string.IsNullOrEmpty(this.LabelEditCssClass) ? this.LabelEditCssClass : this.CssClass;
+
+    /// <summary>Gets or sets the root element, exposing the protected base member to the markup.</summary>
+    private ElementReference RootElementBinding
+    {
+        get => this.RootElement;
+        set => this.RootElement = value;
+    }
+
+    /// <inheritdoc/>
+    protected override string ClientInitFunction => "initLabelEdit";
+
+    /// <inheritdoc/>
+    protected override object ClientPropertySource => this.Control;
+
+    /// <summary>Starts an in-place edit.</summary>
+    /// <remarks>Replaces the script's handler of <see cref="EventName"/>.</remarks>
+    public void BeginEdit()
+    {
+        if (!this.EditEnabled || this.editing)
+        {
+            return;
+        }
+
+        this.editValue = this.Value ?? string.Empty;
+        this.editing = true;
+    }
+
+    /// <summary>Abandons an in-place edit, as the escape key and the tool bar's cancel did.</summary>
+    public void CancelEdit()
+    {
+        this.editing = false;
+        this.editValue = this.Value ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Saves the edited text.
+    /// </summary>
+    /// <returns>A task that completes once the handlers have run.</returns>
+    /// <remarks>
+    /// Ported from <c>RaiseClientAPICallbackEvent</c>: the text is stripped of its server part
+    /// when <see cref="UrlFormat"/> asks for it, the preserved event args are raised, and whatever
+    /// the handler left in <c>ReturnedText</c> becomes the new text of the label.
+    /// </remarks>
+    public async Task SaveAsync()
+    {
+        if (!this.editing)
+        {
+            return;
+        }
+
+        var text = this.editValue ?? string.Empty;
+        if (this.UrlFormat != UrlFormatType.None)
+        {
+            text = WebControls.StripUrlPaths(text, this.UrlFormat);
+        }
+
+        this.saving = true;
+        try
+        {
+            var args = new DNNLabelEditEventArgs(text);
+            await this.OnUpdateLabel.InvokeAsync(args);
+            this.Value = args.ReturnedText;
+        }
+        finally
+        {
+            this.saving = false;
+            this.editing = false;
+        }
+
+        await this.ValueChanged.InvokeAsync(this.Value);
+    }
+
+    /// <summary>Handles the label being clicked.</summary>
+    /// <returns>A task that completes once the edit has started.</returns>
+    private Task ClickAsync()
+    {
+        if (string.Equals(this.EventName, "onclick", StringComparison.OrdinalIgnoreCase))
+        {
+            this.BeginEdit();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles the label being double clicked.</summary>
+    /// <returns>A task that completes once the edit has started.</returns>
+    private Task DoubleClickAsync()
+    {
+        if (string.Equals(this.EventName, "ondblclick", StringComparison.OrdinalIgnoreCase))
+        {
+            this.BeginEdit();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Handles the editor losing focus.</summary>
+    /// <returns>A task that completes once the edit has been saved or abandoned.</returns>
+    private async Task BlurAsync()
+    {
+        if (this.LostFocusSave)
+        {
+            await this.SaveAsync();
+        }
+        else
+        {
+            this.CancelEdit();
+        }
+    }
+
+    /// <summary>Handles a key being pressed in the editor.</summary>
+    /// <param name="args">The arguments of the key event.</param>
+    /// <returns>A task that completes once the key has been handled.</returns>
+    private async Task KeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args is null)
+        {
+            return;
+        }
+
+        if (args.Key == "Escape")
+        {
+            this.CancelEdit();
+        }
+        else if (args.Key == "Enter" && this.SaveOnEnter && !this.MultiLine)
+        {
+            await this.SaveAsync();
+        }
+    }
+}

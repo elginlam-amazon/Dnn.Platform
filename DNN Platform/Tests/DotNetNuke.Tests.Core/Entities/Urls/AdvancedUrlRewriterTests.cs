@@ -5,8 +5,8 @@
     using System.Collections.Specialized;
     using System.Data;
     using System.IO;
+    using System.Net;
     using System.Reflection;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -134,13 +134,19 @@
                 services.AddSingleton<IPortalController>(portalController);
             });
             Host.PerformanceSetting = Globals.PerformanceSettings.ModerateCaching;
-            var uri = new Uri(Assembly.GetExecutingAssembly().CodeBase);
-            var path = HttpUtility.UrlDecode(Path.GetFullPath(uri.AbsolutePath));
+            // No URL-decoding here: the net48 code decoded Uri.AbsolutePath (where percent-escaping
+            // was real), whereas AppContext.BaseDirectory is already an unescaped filesystem path —
+            // decoding it would corrupt any path containing '+' or '%'. Matches the rule documented
+            // in DotNetNuke.Tests.Utilities/DnnUnitTest.cs.
+            var path = Path.GetFullPath(AppContext.BaseDirectory);
             var websiteRootPath = path.Substring(0, path.IndexOf(DNNPlatformText, StringComparison.Ordinal));
             var physicalAppPath = Path.Combine(websiteRootPath, WebsiteText);
             var simulator = new HttpSimulator(ApplicationPath, physicalAppPath);
             simulator.SimulateRequest(new Uri(SampleHttpsUrl));
-            HttpContext.Current.Items.Add(UrlRewriteItemName, FullUrl);
+
+            // The simulator publishes its Microsoft.AspNetCore.Http context via HttpContextSource;
+            // the rewriter reads the original URL out of the request Items bag.
+            simulator.Context.Items.Add(UrlRewriteItemName, FullUrl);
 
             var urlRewriter = new AdvancedUrlRewriter();
             var checkForRedirectsMethod = typeof(AdvancedUrlRewriter)

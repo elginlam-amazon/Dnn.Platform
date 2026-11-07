@@ -1,28 +1,41 @@
 ﻿<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <PropertyGroup>
-    <RootDirectory>$(MSBuildProjectDirectory)\..\..\..\..</RootDirectory>
+    <RootDirectory>$(MSBuildProjectDirectory)/../../../..</RootDirectory>
   </PropertyGroup>
-  <Import Project="..\..\..\..\DNN_Platform.build" />
+  <Import Project="../../../../DNN_Platform.build" />
   <PropertyGroup>
     <Extension>zip</Extension>
     <DNNFileName>ExchangeOnlineAuthProvider</DNNFileName>
     <PackageName>DNNCE_ExchangeOnlineAuthProvider</PackageName>
     <Providers></Providers>
-    <InstallPath>$(WebsiteInstallPath)\Provider</InstallPath>
+    <InstallPath>$(WebsiteInstallPath)/Provider</InstallPath>
+    <!-- The extension's runtime folder. It is ExchangeOnline, not ExchangeOnlineAuthProvider:
+         it is the folder named by Constants.CallbackUrl and Constants.LocalResourcesFile. -->
+    <ProviderFolderName>$(WebsitePath)/Providers/SmtpOAuthProviders/ExchangeOnline</ProviderFolderName>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <!-- The file on disk is Package.targets; the lower-case "t" matters on case-sensitive
+       (Linux) file systems, where the old "Package.Targets" spelling fails with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)/Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="GetFiles;DebugProject;Package" />
-    <Target Name="GetFiles">
+  <Target Name="GetFiles">
     <ItemGroup>
       <TextFiles Include="*.txt" Exclude="license.txt;releasenotes.txt" />
-      <ResourceFiles Include="App_LocalResources\*.resx" />
-      <Controls Include="*.aspx" />
-      <Resources Include="@(ResourceFiles);@(Controls)" />
+      <ResourceFiles Include="App_LocalResources/*.resx" />
+      <!-- js/authorizeInterop.js carries the window.close() that Authorize.aspx used to write
+           inline; Authorize.razor imports it from this folder's runtime URL. -->
+      <JsFiles Include="js/*.js" />
+      <!-- The .aspx surface is gone: Authorize.aspx is now Authorize.razor, a Blazor component
+           compiled into the assembly and routed by the website, so no markup is packaged. -->
+      <Resources Include="@(ResourceFiles);@(JsFiles)" />
     </ItemGroup>
   </Target>
   <Target Name="DebugProject" Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <Copy SourceFiles="$(MSBuildProjectDirectory)/bin$(Providers)/$(AssemblyName).dll" DestinationFolder="$(WebsitePath)/bin$(Providers)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)/bin$(Providers)/$(AssemblyName).pdb" DestinationFolder="$(WebsitePath)/bin$(Providers)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)/bin$(Providers)/$(AssemblyName).xml" DestinationFolder="$(WebsitePath)/bin$(Providers)" />
+    <!-- The .resx must also reach the runtime App_LocalResources folder so the F5 debug layout
+         matches the packaged layout and Constants.LocalResourcesFile resolves. -->
+    <Copy SourceFiles="@(ResourceFiles)" DestinationFolder="$(ProviderFolderName)/App_LocalResources/%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(JsFiles)" DestinationFolder="$(ProviderFolderName)/js/%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>

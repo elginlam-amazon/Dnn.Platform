@@ -7,14 +7,12 @@ namespace DotNetNuke.UI.Containers
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
-    using System.Web.UI;
-    using System.Web.UI.HtmlControls;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Application;
     using DotNetNuke.Collections.Internal;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Modules.Actions;
@@ -27,16 +25,34 @@ namespace DotNetNuke.UI.Containers
     using DotNetNuke.UI.Containers.EventListeners;
     using DotNetNuke.UI.Modules;
     using DotNetNuke.UI.Skins;
+    using DotNetNuke.UI.Utilities;
     using DotNetNuke.UI.WebControls;
+
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
+    using Globals = DotNetNuke.Common.Globals;
+
     /// <summary>Container is the base for the Containers.</summary>
-    public partial class Container : UserControl
+    /// <remarks>
+    /// <para>
+    /// A container wraps a single module: it renders the module's chrome around the
+    /// <see cref="ModuleHost"/> that hosts the module control, and hosts the module's action
+    /// controls (<see cref="IActionControl"/>) and skin objects (<see cref="ISkinControl"/>).
+    /// </para>
+    /// <para>
+    /// The base class changed from <c>System.Web.UI.UserControl</c> to
+    /// <see cref="DnnComponentBase"/>, the DNN skinning component. The container also cascades
+    /// itself under the name <c>ModuleContainer</c> so that
+    /// <c>PortalModuleBase.ContainerControl</c> is populated.
+    /// </para>
+    /// </remarks>
+    public partial class Container : DnnComponentBase
     {
         private readonly ILogger tracelLogger = DnnLoggingController.GetLogger("DNN.Trace");
         private readonly IClientResourceController clientResourceController;
-        private HtmlContainerControl contentPane;
+        private IDnnControl contentPane;
         private ModuleInfo moduleConfiguration;
         private ModuleHost moduleHost;
 
@@ -96,8 +112,8 @@ namespace DotNetNuke.UI.Containers
         internal bool InjectActionMenu { get; set; }
 
         /// <summary>Gets the Content Pane Control (Id="ContentPane").</summary>
-        /// <returns>An HtmlContainerControl.</returns>
-        protected HtmlContainerControl ContentPane => this.contentPane ??= this.FindControl(Globals.glbDefaultPane) as HtmlContainerControl;
+        /// <returns>The content pane control.</returns>
+        protected IDnnControl ContentPane => this.contentPane ??= this.FindControl(Globals.glbDefaultPane) as IDnnControl;
 
         /// <summary>Gets the Portal Settings for the current Portal.</summary>
         /// <returns>A PortalSettings object.</returns>
@@ -108,6 +124,31 @@ namespace DotNetNuke.UI.Containers
         {
             this.moduleConfiguration = configuration;
             this.ProcessModule();
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// The container cascades itself under the name <c>ModuleContainer</c>, which is how
+        /// <c>DotNetNuke.Entities.Modules.PortalModuleBase.ContainerControl</c> (a
+        /// <c>[CascadingParameter(Name = "ModuleContainer")]</c>) finds its container. This replaces
+        /// the WebForms control-tree walk that looked for the <c>"ctr" + ModuleId</c> control.
+        /// </remarks>
+        protected override void RenderContents(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, ref int sequence)
+        {
+            var contentSequence = sequence;
+            builder.OpenComponent<CascadingValue<Microsoft.AspNetCore.Components.IComponent>>(sequence++);
+            builder.AddComponentParameter(sequence++, nameof(CascadingValue<Microsoft.AspNetCore.Components.IComponent>.Name), "ModuleContainer");
+            builder.AddComponentParameter(sequence++, nameof(CascadingValue<Microsoft.AspNetCore.Components.IComponent>.Value), this);
+            builder.AddComponentParameter(sequence++, nameof(CascadingValue<Microsoft.AspNetCore.Components.IComponent>.IsFixed), true);
+            builder.AddComponentParameter(
+                sequence++,
+                nameof(CascadingValue<Microsoft.AspNetCore.Components.IComponent>.ChildContent),
+                (RenderFragment)(childBuilder =>
+                {
+                    var childSequence = contentSequence;
+                    base.RenderContents(childBuilder, ref childSequence);
+                }));
+            builder.CloseComponent();
         }
 
         /// <summary>OnInit runs when the Container is initialized.</summary>
@@ -148,7 +189,7 @@ namespace DotNetNuke.UI.Containers
 
         private void AddAdministratorOnlyHighlighting(string message)
         {
-            this.ContentPane.Controls.Add(new LiteralControl($"<div class=\"dnnFormMessage dnnFormInfo dnnFormInfoAdminErrMssg\">{message}</div>"));
+            this.ContentPane.Controls.Add(new DnnLiteralControl($"<div class=\"dnnFormMessage dnnFormInfo dnnFormInfoAdminErrMssg\">{message}</div>"));
         }
 
         /// <summary>
@@ -157,9 +198,9 @@ namespace DotNetNuke.UI.Containers
         /// and an EventHandler to respond to the Actions Action event.  If the control is a
         /// Container Object (IContainerControl) it attaches the ModuleControl.
         /// </summary>
-        private void ProcessChildControls(Control control)
+        private void ProcessChildControls(IDnnControl control)
         {
-            foreach (Control childControl in control.Controls)
+            foreach (var childControl in control.Controls.ToList())
             {
                 // check if control is an action control
                 if (childControl is IActionControl actions)
@@ -180,10 +221,10 @@ namespace DotNetNuke.UI.Containers
                     skinControl.ModuleControl = this.ModuleControl;
                 }
 
-                if (childControl.HasControls())
+                if (childControl is IDnnControl childDnnControl && childDnnControl.HasControls())
                 {
                     // recursive call for child controls
-                    this.ProcessChildControls(childControl);
+                    this.ProcessChildControls(childDnnControl);
                 }
             }
         }
@@ -244,14 +285,14 @@ namespace DotNetNuke.UI.Containers
             // inject the footer
             if (!string.IsNullOrEmpty(this.ModuleConfiguration.Footer))
             {
-                var footer = new Literal { Text = this.ModuleConfiguration.Footer };
+                var footer = new DnnLiteralControl { Text = this.ModuleConfiguration.Footer };
                 this.ContentPane.Controls.Add(footer);
             }
 
             // inject an end comment around the module content
             if (!Globals.IsAdminControl())
             {
-                this.ContentPane.Controls.Add(new LiteralControl("<!-- End_Module_" + this.ModuleConfiguration.ModuleID + " -->"));
+                this.ContentPane.Controls.Add(new DnnLiteralControl("<!-- End_Module_" + this.ModuleConfiguration.ModuleID + " -->"));
             }
         }
 
@@ -261,13 +302,13 @@ namespace DotNetNuke.UI.Containers
             if (!Globals.IsAdminControl())
             {
                 // inject a start comment around the module content
-                this.ContentPane.Controls.Add(new LiteralControl("<!-- Start_Module_" + this.ModuleConfiguration.ModuleID + " -->"));
+                this.ContentPane.Controls.Add(new DnnLiteralControl("<!-- Start_Module_" + this.ModuleConfiguration.ModuleID + " -->"));
             }
 
             // inject the header
             if (!string.IsNullOrEmpty(this.ModuleConfiguration.Header))
             {
-                var header = new Literal { Text = this.ModuleConfiguration.Header };
+                var header = new DnnLiteralControl { Text = this.ModuleConfiguration.Header };
                 this.ContentPane.Controls.Add(header);
             }
         }
@@ -283,13 +324,17 @@ namespace DotNetNuke.UI.Containers
                 this.ProcessContentPane();
 
                 // always add the actions menu as the first item in the content pane.
-                if (this.InjectActionMenu && !ModuleHost.IsViewMode(this.ModuleConfiguration, this.PortalSettings) && this.Request.QueryString["dnnprintmode"] != "true")
+                if (this.InjectActionMenu && !ModuleHost.IsViewMode(this.ModuleConfiguration, this.PortalSettings) && this.Request?.GetValue("dnnprintmode") != "true")
                 {
                     JavaScript.RequestRegistration(CommonJs.DnnPlugins);
-                    this.ContentPane.Controls.Add(this.LoadControl(this.PortalSettings.DefaultModuleActionMenu));
+
+                    // Was this.LoadControl(virtualPath), which compiled the action menu's .ascx at
+                    // runtime; the component that replaced it is resolved by ControlUtilities.
+                    var actionMenu = ControlUtilities.LoadControl<IDnnControl>(this, this.PortalSettings.DefaultModuleActionMenu);
+                    this.ContentPane.Controls.Add(actionMenu);
 
                     // register admin.css
-                    this.clientResourceController.RegisterStylesheet(Globals.HostPath + "admin.css", FileOrder.Css.AdminCss, true);
+                    this.clientResourceController.RegisterStylesheet(Globals.ApplicationPath + "/portals/_default/admin.css", FileOrder.Css.AdminCss, true);
                 }
 
                 // Process Module Header
@@ -334,11 +379,11 @@ namespace DotNetNuke.UI.Containers
                 {
                     if (controlSrc.EndsWith(".mvc", StringComparison.OrdinalIgnoreCase))
                     {
-                        stylesheet = $"{Globals.ApplicationPath}/DesktopModules/MVC/{folderName.Replace(@"\", "/")}/module.css";
+                        stylesheet = $"{Globals.ApplicationPath}/desktopmodules/MVC/{folderName.Replace(@"\", "/")}/module.css";
                     }
                     else
                     {
-                        stylesheet = $"{Globals.ApplicationPath}/DesktopModules/{folderName.Replace(@"\", "/")}/module.css";
+                        stylesheet = $"{Globals.ApplicationPath}/desktopmodules/{folderName.Replace(@"\", "/")}/module.css";
                     }
 
                     this.clientResourceController.RegisterStylesheet(stylesheet, FileOrder.Css.ModuleCss, true);
@@ -357,9 +402,9 @@ namespace DotNetNuke.UI.Containers
         {
             if (!string.IsNullOrEmpty(this.ModuleConfiguration.Alignment))
             {
-                if (this.ContentPane.Attributes["class"] != null)
+                if (this.ContentPane.Attributes.TryGetValue("class", out var contentPaneClass))
                 {
-                    this.ContentPane.Attributes["class"] = this.ContentPane.Attributes["class"] + " DNNAlign" + this.ModuleConfiguration.Alignment.ToLowerInvariant();
+                    this.ContentPane.Attributes["class"] = contentPaneClass + " DNNAlign" + this.ModuleConfiguration.Alignment.ToLowerInvariant();
                 }
                 else
                 {

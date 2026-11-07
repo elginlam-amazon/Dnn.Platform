@@ -13,6 +13,13 @@ namespace DotNetNuke.ModulePipeline
         /// <inheritdoc />
         public void ConfigureServices(IServiceCollection services)
         {
+            // The pipeline receives every IModuleControlFactory that the other DNN startups add
+            // through TryAddEnumerable (WebForms/Html5/Reflected from DotNetNuke.Library, Razor from
+            // DotNetNuke.Web.Razor, MVC from DotNetNuke.Web.Mvc) and selects between them by Priority.
+            // Module assemblies that contribute those factories and their controllers are loaded
+            // through AssemblyLoadContext.Default and registered as MVC application parts by
+            // DotNetNuke.Web.Mvc's Startup (StartupExtensions.AddMvcControllers -> AddApplicationPart),
+            // so this project must not repeat that registration.
             services.AddSingleton<IModuleControlPipeline, ModuleControlPipeline>();
         }
     }

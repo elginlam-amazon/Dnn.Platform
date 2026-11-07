@@ -5,7 +5,6 @@ namespace DotNetNuke.Entities.Modules.Definitions
 {
     using System.Diagnostics.CodeAnalysis;
     using System.IO;
-    using System.Web;
     using System.Xml;
 
     using DotNetNuke.Common;
@@ -101,7 +100,7 @@ namespace DotNetNuke.Entities.Modules.Definitions
 
         private static string GetLocalizedString(string key)
         {
-            var objPortalSettings = (PortalSettings)HttpContext.Current.Items["PortalSettings"];
+            var objPortalSettings = PortalSettings.Current;
             if (objPortalSettings == null)
             {
                 return key;

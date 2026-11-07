@@ -5,12 +5,19 @@
 namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
 {
     using System;
-    using System.Collections;
+    using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
-    using System.Drawing;
-    using System.Drawing.Imaging;
+
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
 
     /// <summary>A <see cref="Quantizer"/> for a given color palette.</summary>
+    /// <remarks>
+    /// The nearest-color search (including the transparent-color special case and the exact-match
+    /// early exit) is unchanged. The palette is now made of ImageSharp
+    /// <see cref="SixLabors.ImageSharp.Color"/> values supplied as an <see cref="IList{T}"/>
+    /// instead of a loosely-typed <c>ArrayList</c> of <c>System.Drawing.Color</c>.
+    /// </remarks>
     [CLSCompliant(false)]
     public class PaletteQuantizer : Quantizer
     {
@@ -23,18 +30,23 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
         protected Color[] _colors;
 
         /// <summary>Lookup table for colors.</summary>
-        private readonly Hashtable colorMap;
+        private readonly Dictionary<int, byte> colorMap;
 
         /// <summary>Initializes a new instance of the <see cref="PaletteQuantizer"/> class.</summary>
         /// <param name="palette">The color palette to quantize to.</param>
         /// <remarks>Palette quantization only requires a single quantization step.</remarks>
-        public PaletteQuantizer(ArrayList palette)
+        public PaletteQuantizer(IList<Color> palette)
             : base(true)
         {
-            this.colorMap = new Hashtable();
+            if (palette == null)
+            {
+                throw new ArgumentNullException(nameof(palette));
+            }
+
+            this.colorMap = new Dictionary<int, byte>();
 
             this._colors = new Color[palette.Count];
-            palette.CopyTo(this._colors);
+            palette.CopyTo(this._colors, 0);
         }
 
         /// <summary>Override this to process the pixel in the second pass of the algorithm.</summary>
@@ -46,9 +58,9 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
             int colorHash = pixel.ARGB;
 
             // Check if the color is in the lookup table
-            if (this.colorMap.ContainsKey(colorHash))
+            if (this.colorMap.TryGetValue(colorHash, out var mapped))
             {
-                colorIndex = (byte)this.colorMap[colorHash];
+                colorIndex = mapped;
             }
             else
             {
@@ -59,7 +71,7 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
                     // Transparent. Lookup the first color with an alpha value of 0
                     for (int index = 0; index < this._colors.Length; index++)
                     {
-                        if (this._colors[index].A == 0)
+                        if (this._colors[index].ToPixel<Rgba32>().A == 0)
                         {
                             colorIndex = (byte)index;
                             break;
@@ -77,7 +89,7 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
                     // Loop through the entire palette, looking for the closest color match
                     for (int index = 0; index < this._colors.Length; index++)
                     {
-                        Color paletteColor = this._colors[index];
+                        Rgba32 paletteColor = this._colors[index].ToPixel<Rgba32>();
 
                         int redDistance = paletteColor.R - red;
                         int greenDistance = paletteColor.G - green;
@@ -101,8 +113,8 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
                     }
                 }
 
-                // Now I have the color, pop it into the hashtable for next time
-                this.colorMap.Add(colorHash, colorIndex);
+                // Now I have the color, pop it into the lookup table for next time
+                this.colorMap[colorHash] = colorIndex;
             }
 
             return colorIndex;
@@ -112,11 +124,11 @@ namespace DotNetNuke.Services.GeneratedImage.ImageQuantization
         /// <param name="palette">Any old palette, this is overwritten.</param>
         /// <returns>The new color palette.</returns>
         [SuppressMessage("Microsoft.Naming", "CA1725:ParameterNamesShouldMatchBaseDeclaration", Justification = "Breaking change")]
-        protected override ColorPalette GetPalette(ColorPalette palette)
+        protected override Color[] GetPalette(Color[] palette)
         {
-            for (int index = 0; index < this._colors.Length; index++)
+            for (int index = 0; index < this._colors.Length && index < palette.Length; index++)
             {
-                palette.Entries[index] = this._colors[index];
+                palette[index] = this._colors[index];
             }
 
             return palette;

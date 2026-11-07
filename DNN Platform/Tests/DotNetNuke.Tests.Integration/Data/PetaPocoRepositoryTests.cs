@@ -9,11 +9,13 @@ namespace DotNetNuke.Tests.Data
     using System.Data;
     using System.Linq;
 
+    using DotNetNuke.Common;
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Data;
     using DotNetNuke.Data.PetaPoco;
     using DotNetNuke.Tests.Data.Models;
     using DotNetNuke.Tests.Utilities;
+    using Microsoft.Data.SqlClient;
     using Moq;
     using NUnit.Framework;
     using PetaPoco;
@@ -63,7 +65,7 @@ namespace DotNetNuke.Tests.Data
         {
             // Arrange
             var mockMapper = new Mock<IMapper>();
-            var db = new Database(connectionStringName);
+            var db = new Database(ConfigurationSource.GetConnectionString(connectionStringName), SqlClientFactory.Instance);
 
             // Act
 #pragma warning disable 168
@@ -865,7 +867,7 @@ namespace DotNetNuke.Tests.Data
 
         private Database CreatePecaPocoDatabase()
         {
-            var db = new Database(connectionStringName);
+            var db = new Database(ConfigurationSource.GetConnectionString(connectionStringName), SqlClientFactory.Instance);
 
             return db;
         }

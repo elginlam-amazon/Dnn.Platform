@@ -10,14 +10,13 @@ namespace DotNetNuke.Services.Localization
     using System.Globalization;
     using System.Linq;
     using System.Reflection;
+    using System.Text.Encodings.Web;
     using System.Threading;
-    using System.Web;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
     using DotNetNuke.Entities.Portals;
@@ -30,8 +29,12 @@ namespace DotNetNuke.Services.Localization
     using DotNetNuke.Services.Localization.Internal;
     using DotNetNuke.Services.Log.EventLog;
     using DotNetNuke.Services.Tokens;
+    using DotNetNuke.UI;
     using DotNetNuke.UI.Modules;
-
+    using DotNetNuke.UI.UserControls;
+    using DotNetNuke.UI.WebControls;
+    using IClientApiControl = DotNetNuke.UI.Utilities.IClientApiControl;
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -489,7 +492,7 @@ namespace DotNetNuke.Services.Localization
 
         public static string GetExceptionMessage(string key, string defaultValue)
         {
-            if (HttpContext.Current == null)
+            if (HttpContextSource.Current == null)
             {
                 return defaultValue;
             }
@@ -499,7 +502,7 @@ namespace DotNetNuke.Services.Localization
 
         public static string GetExceptionMessage(string key, string defaultValue, params object[] @params)
         {
-            if (HttpContext.Current == null)
+            if (HttpContextSource.Current == null)
             {
                 return string.Format(CultureInfo.CurrentCulture, defaultValue, @params);
             }
@@ -642,13 +645,15 @@ namespace DotNetNuke.Services.Localization
         /// <returns>A valid CultureInfo if any is found.</returns>
         public static CultureInfo GetBrowserCulture(int portalId)
         {
-            if (HttpContext.Current == null || HttpContext.Current.Request == null || HttpContext.Current.Request.UserLanguages == null)
+            var browserContext = HttpContextSource.Current;
+            var userLanguages = browserContext?.Request?.GetUserLanguages();
+            if (userLanguages == null)
             {
                 return null;
             }
 
             CultureInfo culture = null;
-            foreach (string userLang in HttpContext.Current.Request.UserLanguages)
+            foreach (string userLang in userLanguages)
             {
                 // split userlanguage by ";"... all but the first language will contain a preferrence index eg. ;q=.5
                 string language = userLang.Split(';')[0];
@@ -693,15 +698,55 @@ namespace DotNetNuke.Services.Localization
             return resourceFileName;
         }
 
-        public static string GetResourceFile(Control control, string fileName)
+        /// <summary>Gets the local resource file of a control.</summary>
+        /// <param name="control">The control whose resource file is wanted.</param>
+        /// <param name="fileName">The name of the resource file.</param>
+        /// <returns>The virtual path of the resource file.</returns>
+        /// <remarks>
+        /// Was <c>GetResourceFile(System.Web.UI.Control, string)</c>. <see cref="DnnComponentBase"/>
+        /// is the Core replacement for the <c>Control</c> surface and carries the same
+        /// <see cref="DnnComponentBase.TemplateSourceDirectory"/> this method depends on.
+        /// </remarks>
+        public static string GetResourceFile(DnnComponentBase control, string fileName)
         {
+            if (control is null)
+            {
+                throw new ArgumentNullException(nameof(control));
+            }
+
             return control.TemplateSourceDirectory + "/" + LocalResourceDirectory + "/" + fileName;
         }
 
-        public static string GetString(string key, Control ctrl)
+        /// <summary>Gets the localized string for a key, resolving the resource file from the control tree.</summary>
+        /// <param name="key">The resource key to find.</param>
+        /// <param name="ctrl">The control asking for the string.</param>
+        /// <returns>The localized text.</returns>
+        /// <remarks>
+        /// Was <c>GetString(string, System.Web.UI.Control)</c>; the DNN component tree
+        /// (<see cref="IClientApiControl"/>) replaces the WebForms control tree, and the parent
+        /// walk that locates the owning module is preserved exactly.
+        /// </remarks>
+        public static string GetString(string key, IClientApiControl ctrl)
         {
+            if (ctrl is null)
+            {
+                throw new ArgumentNullException(nameof(ctrl));
+            }
+
             // We need to find the parent module
-            Control parentControl = ctrl.Parent;
+            IClientApiControl parentControl = ctrl.Parent;
+            if (parentControl == null)
+            {
+                // The control is not (yet) attached to the tree, so there is no LocalResourceFile
+                // to resolve against. Fall back to the shared resources rather than returning the
+                // raw key, which would render as a resource key in the UI.
+                Logger.LogDebug(
+                    "Localization.GetString could not resolve a resource file for key '{Key}': the control {ControlType} has no parent; falling back to the shared resource file.",
+                    key,
+                    ctrl.GetType().FullName);
+                return GetString(key, SharedResourceFile);
+            }
+
             string localizedText;
             var moduleControl = parentControl as IModuleControl;
             if (moduleControl == null)
@@ -829,7 +874,9 @@ namespace DotNetNuke.Services.Localization
                 return string.Empty;
             }
 
-            return HttpUtility.JavaScriptStringEncode(unsafeString);
+            // System.Web.HttpUtility.JavaScriptStringEncode is replaced by
+            // System.Text.Encodings.Web.JavaScriptEncoder; neither adds surrounding quotes.
+            return JavaScriptEncoder.Default.Encode(unsafeString);
         }
 
         /// <summary>this function will escape reserved character fields to their "safe" javascript equivalents.</summary>
@@ -1083,7 +1130,7 @@ namespace DotNetNuke.Services.Localization
         /// <param name="list">DropDownList to load.</param>
         /// <param name="displayType">Format of the culture to display. Must be one of the <see cref="CultureDropDownTypes"/>> values. <see cref="CultureDropDownTypes" /> for list of allowable values.</param>
         /// <param name="selectedValue">Name of the default culture to select.</param>
-        public static void LoadCultureDropDownList(DropDownList list, CultureDropDownTypes displayType, string selectedValue)
+        public static void LoadCultureDropDownList(DnnDropDownList list, CultureDropDownTypes displayType, string selectedValue)
         {
             LoadCultureDropDownList(list, displayType, selectedValue, string.Empty, false);
         }
@@ -1096,7 +1143,7 @@ namespace DotNetNuke.Services.Localization
         /// <param name="displayType">Format of the culture to display. Must be one the CultureDropDownTypes values. <see cref="CultureDropDownTypes" /> for list of allowable values.</param>
         /// <param name="selectedValue">Name of the default culture to select.</param>
         /// <param name="loadHost">Boolean that defines whether or not to load host (i.e. all available) locales.</param>
-        public static void LoadCultureDropDownList(DropDownList list, CultureDropDownTypes displayType, string selectedValue, bool loadHost)
+        public static void LoadCultureDropDownList(DnnDropDownList list, CultureDropDownTypes displayType, string selectedValue, bool loadHost)
         {
             LoadCultureDropDownList(list, displayType, selectedValue, string.Empty, loadHost);
         }
@@ -1111,23 +1158,33 @@ namespace DotNetNuke.Services.Localization
         /// <param name="selectedValue">Name of the default culture to select.</param>
         /// <param name="filter">String value that allows for filtering out a specific language.</param>
         /// <param name="host">Boolean that defines whether or not to load host (ie. all available) locales.</param>
-        public static void LoadCultureDropDownList(DropDownList list, CultureDropDownTypes displayType, string selectedValue, string filter, bool host)
+        public static void LoadCultureDropDownList(DnnDropDownList list, CultureDropDownTypes displayType, string selectedValue, string filter, bool host)
         {
+            if (list is null)
+            {
+                throw new ArgumentNullException(nameof(list));
+            }
+
             IEnumerable<ListItem> cultureListItems = LoadCultureInListItems(displayType, selectedValue, filter, host);
 
             // add the items to the list
             foreach (var cultureItem in cultureListItems)
             {
-                list.Items.Add(cultureItem);
+                list.Items.Add(new DnnListItem(cultureItem.Text, cultureItem.Value));
             }
 
             // select the default item
             if (selectedValue != null)
             {
-                ListItem item = list.Items.FindByValue(selectedValue);
+                var item = list.Items.FirstOrDefault(i => string.Equals(i.Value, selectedValue, StringComparison.Ordinal));
                 if (item != null)
                 {
-                    list.SelectedIndex = -1;
+                    // Clearing the selection first replaces the WebForms SelectedIndex = -1 reset.
+                    foreach (var listItem in list.Items)
+                    {
+                        listItem.Selected = false;
+                    }
+
                     item.Selected = true;
                 }
             }
@@ -1222,8 +1279,13 @@ namespace DotNetNuke.Services.Localization
         /// <summary>LocalizeDataGrid creates localized Headers for a DataGrid.</summary>
         /// <param name="grid">Grid to localize.</param>
         /// <param name="resourceFile">The root name of the Resource File where the localized text can be found.</param>
-        public static void LocalizeDataGrid(ref DataGrid grid, string resourceFile)
+        public static void LocalizeDataGrid(ref DNNDataGrid grid, string resourceFile)
         {
+            if (grid is null)
+            {
+                throw new ArgumentNullException(nameof(grid));
+            }
+
             string localizedText;
             foreach (DataGridColumn col in grid.Columns)
             {
@@ -1237,72 +1299,39 @@ namespace DotNetNuke.Services.Localization
                     }
                 }
 
-                if (col is EditCommandColumn)
+                // The WebForms EditCommandColumn and ButtonColumn are replaced by the DNN
+                // command columns (ImageCommandColumn / TextColumn), which express the edit,
+                // cancel and update commands as separate columns each carrying a single Text.
+                // Both the plain key and the legacy ".EditText" key are probed so that every
+                // resource key that worked before keeps working.
+                if (col is ImageCommandColumn imageCommandCol)
                 {
-                    var editCol = (EditCommandColumn)col;
-
-                    // Edit Text - maintained for backward compatibility
-                    localizedText = GetString(editCol.EditText + ".EditText", resourceFile);
+                    localizedText = GetString(imageCommandCol.Text + ".EditText", resourceFile);
                     if (!string.IsNullOrEmpty(localizedText))
                     {
-                        editCol.EditText = localizedText;
+                        imageCommandCol.Text = localizedText;
                     }
 
-                    // Edit Text
-                    localizedText = GetString(editCol.EditText, resourceFile);
+                    localizedText = GetString(imageCommandCol.Text, resourceFile);
                     if (!string.IsNullOrEmpty(localizedText))
                     {
-                        editCol.EditText = localizedText;
-                    }
-
-                    // Cancel Text
-                    localizedText = GetString(editCol.CancelText, resourceFile);
-                    if (!string.IsNullOrEmpty(localizedText))
-                    {
-                        editCol.CancelText = localizedText;
-                    }
-
-                    // Update Text
-                    localizedText = GetString(editCol.UpdateText, resourceFile);
-                    if (!string.IsNullOrEmpty(localizedText))
-                    {
-                        editCol.UpdateText = localizedText;
+                        imageCommandCol.Text = localizedText;
                     }
                 }
-                else if (col is ButtonColumn)
+                else if (col is TextColumn textCol)
                 {
-                    var buttonCol = (ButtonColumn)col;
-
-                    // Edit Text
-                    localizedText = GetString(buttonCol.Text, resourceFile);
+                    localizedText = GetString(textCol.Text + ".EditText", resourceFile);
                     if (!string.IsNullOrEmpty(localizedText))
                     {
-                        buttonCol.Text = localizedText;
+                        textCol.Text = localizedText;
+                    }
+
+                    localizedText = GetString(textCol.Text, resourceFile);
+                    if (!string.IsNullOrEmpty(localizedText))
+                    {
+                        textCol.Text = localizedText;
                     }
                 }
-            }
-        }
-
-        /// <summary>Localizes headers and fields on a <see cref="DetailsView"/> control.</summary>
-        /// <param name="detailsView">The <see cref="DetailsView"/> to localize.</param>
-        /// <param name="resourceFile">The root name of the resource file where the localized texts can be found.</param>
-        public static void LocalizeDetailsView(ref DetailsView detailsView, string resourceFile)
-        {
-            foreach (DataControlField field in detailsView.Fields)
-            {
-                LocalizeDataControlField(field, resourceFile);
-            }
-        }
-
-        /// <summary>Localizes headers and fields on a GridView control.</summary>
-        /// <param name="gridView">Grid to localize.</param>
-        /// <param name="resourceFile">The root name of the resource file where the localized
-        ///  texts can be found.</param>
-        public static void LocalizeGridView(ref GridView gridView, string resourceFile)
-        {
-            foreach (DataControlField column in gridView.Columns)
-            {
-                LocalizeDataControlField(column, resourceFile);
             }
         }
 
@@ -1533,33 +1562,27 @@ namespace DotNetNuke.Services.Localization
         {
             try
             {
-                var response = HttpContext.Current == null ? null : HttpContext.Current.Response;
+                var response = HttpContextSource.Current?.Response;
                 if (response == null)
                 {
                     return;
                 }
 
-                // save the page culture as a cookie
-                HttpCookie cookie = response.Cookies.Get("language");
-                if (cookie == null)
+                // Save the page culture as a cookie. ASP.NET Core's IResponseCookies is write-only
+                // (there is no Get of a pending cookie), so Append/Delete express the original
+                // add/set/remove behaviour: a value is written, an empty value deletes the cookie.
+                var cookieOptions = new CookieOptions
                 {
-                    if (!string.IsNullOrEmpty(value))
-                    {
-                        cookie = new HttpCookie("language", value) { Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/" };
-                        response.Cookies.Add(cookie);
-                    }
+                    Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
+                };
+
+                if (!string.IsNullOrEmpty(value))
+                {
+                    response.Cookies.Append("language", value, cookieOptions);
                 }
                 else
                 {
-                    cookie.Value = value;
-                    if (!string.IsNullOrEmpty(value))
-                    {
-                        response.Cookies.Set(cookie);
-                    }
-                    else
-                    {
-                        response.Cookies.Remove("language");
-                    }
+                    response.Cookies.Delete("language", cookieOptions);
                 }
             }
             catch
@@ -1573,7 +1596,7 @@ namespace DotNetNuke.Services.Localization
         /// <param name="portalSettings">The current portal settings.</param>
         /// <remarks>
         ///   This method will configure the Thread culture codes.  Any page which does not derive from <see cref="PageBase" /> should
-        ///   be sure to call this method in <see cref="Control.OnInit" /> to ensure localization works correctly.
+        ///   be sure to call this method in <see cref="Microsoft.AspNetCore.Components.ComponentBase.OnInitialized" /> to ensure localization works correctly.
         /// </remarks>
         [DnnDeprecated(9, 8, 0, "Use overload taking IPortalSettings instead")]
         public static partial void SetThreadCultures(CultureInfo cultureInfo, PortalSettings portalSettings)
@@ -1586,7 +1609,7 @@ namespace DotNetNuke.Services.Localization
         /// <param name="portalSettings">The current portal settings.</param>
         /// <remarks>
         ///   This method will configure the Thread culture codes.  Any page which does not derive from <see cref="PageBase" /> should
-        ///   be sure to call this method in <see cref="Control.OnInit" /> to ensure localization works correctly.
+        ///   be sure to call this method in <see cref="Microsoft.AspNetCore.Components.ComponentBase.OnInitialized" /> to ensure localization works correctly.
         /// </remarks>
         public static void SetThreadCultures(CultureInfo cultureInfo, IPortalSettings portalSettings)
         {
@@ -1603,7 +1626,7 @@ namespace DotNetNuke.Services.Localization
             Thread.CurrentThread.CurrentCulture = cultureInfo;
 
             if (portalSettings != null && portalSettings.ContentLocalizationEnabled &&
-                        HttpContext.Current.Request.IsAuthenticated &&
+                        HttpContextSource.Current?.Request.IsAuthenticated() == true &&
                         portalSettings.AllowUserUICulture)
             {
                 Thread.CurrentThread.CurrentUICulture = GetUserUICulture(cultureInfo, portalSettings);
@@ -1688,108 +1711,6 @@ namespace DotNetNuke.Services.Localization
             }
 
             return culture;
-        }
-
-        private static void LocalizeDataControlField(DataControlField controlField, string resourceFile)
-        {
-            string localizedText;
-
-            // Localize Header Text
-            if (!string.IsNullOrEmpty(controlField.HeaderText))
-            {
-                localizedText = GetString(controlField.HeaderText + ".Header", resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    controlField.HeaderText = localizedText;
-                    controlField.AccessibleHeaderText = controlField.HeaderText;
-                }
-            }
-
-            if (controlField is TemplateField)
-            {
-                // do nothing
-            }
-            else if (controlField is ButtonField)
-            {
-                var button = (ButtonField)controlField;
-                localizedText = GetString(button.Text, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    button.Text = localizedText;
-                }
-            }
-            else if (controlField is CheckBoxField)
-            {
-                var checkbox = (CheckBoxField)controlField;
-                localizedText = GetString(checkbox.Text, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    checkbox.Text = localizedText;
-                }
-            }
-            else if (controlField is CommandField)
-            {
-                var commands = (CommandField)controlField;
-                localizedText = GetString(commands.CancelText, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    commands.CancelText = localizedText;
-                }
-
-                localizedText = GetString(commands.DeleteText, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    commands.DeleteText = localizedText;
-                }
-
-                localizedText = GetString(commands.EditText, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    commands.EditText = localizedText;
-                }
-
-                localizedText = GetString(commands.InsertText, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    commands.InsertText = localizedText;
-                }
-
-                localizedText = GetString(commands.NewText, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    commands.NewText = localizedText;
-                }
-
-                localizedText = GetString(commands.SelectText, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    commands.SelectText = localizedText;
-                }
-
-                localizedText = GetString(commands.UpdateText, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    commands.UpdateText = localizedText;
-                }
-            }
-            else if (controlField is HyperLinkField)
-            {
-                var link = (HyperLinkField)controlField;
-                localizedText = GetString(link.Text, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    link.Text = localizedText;
-                }
-            }
-            else if (controlField is ImageField)
-            {
-                var image = (ImageField)controlField;
-                localizedText = GetString(image.AlternateText, resourceFile);
-                if (!string.IsNullOrEmpty(localizedText))
-                {
-                    image.AlternateText = localizedText;
-                }
-            }
         }
 
         private static void AddLanguageHttpAlias(int portalId, Locale locale)
@@ -1891,12 +1812,13 @@ namespace DotNetNuke.Services.Localization
         /// <returns>A valid CultureInfo if any is found.</returns>
         private static CultureInfo GetCultureFromQs(IPortalSettings portalSettings)
         {
-            if (HttpContext.Current == null || HttpContext.Current.Request["language"] == null)
+            var context = HttpContextSource.Current;
+            var language = context?.Request.GetValue("language");
+            if (language == null)
             {
                 return null;
             }
 
-            string language = HttpContext.Current.Request["language"];
             CultureInfo culture = GetCultureFromString(portalSettings.PortalId, language);
             return culture;
         }
@@ -1907,12 +1829,12 @@ namespace DotNetNuke.Services.Localization
         private static CultureInfo GetCultureFromCookie(IPortalSettings portalSettings)
         {
             CultureInfo culture;
-            if (HttpContext.Current == null || HttpContext.Current.Request.Cookies["language"] == null)
+            var context = HttpContextSource.Current;
+            if (context == null || !context.Request.Cookies.TryGetValue("language", out var language))
             {
                 return null;
             }
 
-            string language = HttpContext.Current.Request.Cookies["language"].Value;
             culture = GetCultureFromString(portalSettings.PortalId, language);
             return culture;
         }
@@ -1924,7 +1846,7 @@ namespace DotNetNuke.Services.Localization
         {
             UserInfo objUserInfo = UserController.Instance.GetCurrentUserInfo();
 
-            if (HttpContext.Current == null || !HttpContext.Current.Request.IsAuthenticated || objUserInfo.UserID == -1)
+            if (HttpContextSource.Current?.Request.IsAuthenticated() != true || objUserInfo.UserID == -1)
             {
                 return null;
             }

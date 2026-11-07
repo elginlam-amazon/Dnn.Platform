@@ -6,29 +6,39 @@ namespace DotNetNuke.Web.Mvc
     using System;
     using System.Globalization;
     using System.IO;
-    using System.Web;
-    using System.Web.Mvc;
-    using System.Web.Routing;
-    using System.Web.UI;
+    using System.Threading;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Modules;
-    using DotNetNuke.Collections;
     using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
-    using DotNetNuke.ComponentModel;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Modules.Actions;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.UI.Modules;
     using DotNetNuke.Web.Mvc.Common;
+    using DotNetNuke.Web.Mvc.Extensions;
     using DotNetNuke.Web.Mvc.Framework.Modules;
     using DotNetNuke.Web.Mvc.Routing;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
-    /// <summary>WebForms control for hosting an MVC module control.</summary>
+    using RouteData = Microsoft.AspNetCore.Routing.RouteData;
+
+    /// <summary>Blazor component that hosts an MVC module control.</summary>
+    /// <remarks>
+    /// Was a WebForms control: the module was executed in <c>OnInit</c> and its rendered output was
+    /// appended to the control tree as a <c>LiteralControl</c> in <c>OnPreRender</c>. On ASP.NET Core
+    /// the module is executed (asynchronously) while the component initializes and the rendered
+    /// output is emitted as markup content by <see cref="RenderContents"/>.
+    /// </remarks>
     public class MvcHostControl : ModuleControlBase, IActionable
     {
+        private string renderedOutput;
+
         /// <summary>Initializes a new instance of the <see cref="MvcHostControl"/> class.</summary>
         public MvcHostControl()
         {
@@ -45,50 +55,77 @@ namespace DotNetNuke.Web.Mvc
         /// <inheritdoc />
         public ModuleActionCollection ModuleActions { get; protected set; }
 
+        /// <summary>Gets or sets the accessor used to reach the current <see cref="HttpContext"/>.</summary>
+        /// <remarks>
+        /// Replaces the legacy <c>HttpContext.Current</c> static. In a Blazor Server circuit the
+        /// accessor is only valid during the initial (pre-)rendering request, which is exactly when
+        /// the module is executed; it is only used as a fallback for the request captured by
+        /// <see cref="DotNetNuke.UI.DnnComponentBase.Request"/>.
+        /// </remarks>
+        [Inject]
+        protected IHttpContextAccessor HttpContextAccessor { get; set; }
+
+        /// <summary>Gets or sets the result of the module execution, or <see langword="null"/> when the module has not run (yet).</summary>
         protected ModuleRequestResult Result { get; set; }
 
+        /// <summary>Gets or sets the module control key.</summary>
         protected string ControlKey { get; set; }
 
-        /// <summary>Gets or sets a value indicating whether the module controller should execute immediately (i.e. during <see cref="Control.OnInit"/> rather than <see cref="ISettingsControl.LoadSettings"/>).</summary>
+        /// <summary>Gets or sets a value indicating whether the module controller should execute immediately (i.e. while the component initializes rather than from <see cref="ISettingsControl.LoadSettings"/>).</summary>
         protected bool ExecuteModuleImmediately { get; set; } = true;
 
-        protected static IModuleExecutionEngine GetModuleExecutionEngine()
+        /// <summary>Gets the <see cref="HttpContext"/> of the request this control was created for.</summary>
+        /// <remarks>
+        /// The request is captured by the component base while it initializes, because
+        /// <c>HttpContext</c> is <see langword="null"/> once the Blazor circuit is interactive.
+        /// </remarks>
+        protected HttpContext CurrentHttpContext =>
+            this.Request?.HttpContext ?? this.HttpContextAccessor?.HttpContext;
+
+        /// <summary>Gets the module execution engine, resolving it from the container when needed.</summary>
+        /// <param name="services">The services of the current request, or <see langword="null"/> to use the application's provider.</param>
+        /// <returns>The <see cref="IModuleExecutionEngine"/> to use.</returns>
+        protected static IModuleExecutionEngine GetModuleExecutionEngine(IServiceProvider services = null)
         {
-            var moduleExecutionEngine = ComponentFactory.GetComponent<IModuleExecutionEngine>();
-
-            if (moduleExecutionEngine == null)
-            {
-                moduleExecutionEngine = new ModuleExecutionEngine();
-                ComponentFactory.RegisterComponentInstance<IModuleExecutionEngine>(moduleExecutionEngine);
-            }
-
-            return moduleExecutionEngine;
+            return ModuleExecutionExtensions.GetModuleExecutionEngine(services);
         }
 
-        protected static MvcHtmlString RenderModule(ModuleRequestResult moduleResult)
+        /// <summary>Renders the result of a module execution to markup.</summary>
+        /// <param name="moduleResult">The result of the module execution.</param>
+        /// <returns>The rendered markup of the module.</returns>
+        protected static async Task<string> RenderModuleAsync(ModuleRequestResult moduleResult)
         {
             using var writer = new StringWriter(CultureInfo.CurrentCulture);
-            var moduleExecutionEngine = ComponentFactory.GetComponent<IModuleExecutionEngine>();
+            var moduleExecutionEngine = GetModuleExecutionEngine(moduleResult?.ActionContext?.HttpContext?.RequestServices);
 
-            moduleExecutionEngine.ExecuteModuleResult(moduleResult, writer);
+            await moduleExecutionEngine.ExecuteModuleResultAsync(moduleResult, writer);
 
-            return MvcHtmlString.Create(writer.ToString());
+            return writer.ToString();
         }
 
-        /// <summary>Runs and renders the MVC action.</summary>
-        protected void ExecuteModule()
+        /// <summary>Runs the MVC action and renders its output into this component.</summary>
+        /// <param name="cancellationToken">A token to cancel the module execution.</param>
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+        protected async Task ExecuteModuleAsync(CancellationToken cancellationToken)
         {
             try
             {
-                HttpContextBase httpContext = new HttpContextWrapper(HttpContext.Current);
+                var httpContext = this.CurrentHttpContext;
+                if (httpContext == null)
+                {
+                    throw new InvalidOperationException(
+                        $"The MVC module control '{this.ControlName}' can only execute while an HTTP request is in flight (the request is captured during the initial render).");
+                }
 
-                var moduleExecutionEngine = GetModuleExecutionEngine();
+                var moduleExecutionEngine = GetModuleExecutionEngine(httpContext.RequestServices);
 
-                this.Result = moduleExecutionEngine.ExecuteModule(this.GetModuleRequestContext(httpContext));
+                this.Result = await moduleExecutionEngine.ExecuteModuleAsync(this.GetModuleRequestContext(httpContext), cancellationToken);
 
                 this.ModuleActions = this.LoadActions(this.Result);
 
                 httpContext.SetModuleRequestResult(this.Result);
+
+                await this.RenderResultAsync();
             }
             catch (Exception exc)
             {
@@ -96,42 +133,45 @@ namespace DotNetNuke.Web.Mvc
             }
         }
 
-        /// <inheritdoc />
-        protected override void OnInit(EventArgs e)
+        /// <summary>Renders <see cref="Result"/> into the markup emitted by this component.</summary>
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+        /// <remarks>Replaces appending a <c>LiteralControl</c> to the control tree in <c>OnPreRender</c>.</remarks>
+        protected async Task RenderResultAsync()
         {
-            base.OnInit(e);
-            this.OnInitInternal(e);
-        }
-
-        protected virtual void OnInitInternal(EventArgs e)
-        {
-            if (this.ExecuteModuleImmediately)
+            if (this.Result == null)
             {
-                this.ExecuteModule();
+                return;
+            }
+
+            var mvcString = await RenderModuleAsync(this.Result);
+            if (!string.IsNullOrEmpty(mvcString))
+            {
+                this.renderedOutput = mvcString;
+                this.NotifyTreeChanged();
             }
         }
 
-        /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
+        /// <summary>Runs work to completion that is asynchronous internally, but was requested through a synchronous API.</summary>
+        /// <param name="operation">The work to perform.</param>
+        /// <remarks>
+        /// <see cref="ISettingsControl.LoadSettings"/> and <see cref="ISettingsControl.UpdateSettings"/>
+        /// are a synchronous contract: the caller persists the module settings and redirects as soon
+        /// as the call returns, so the work MUST be finished before this method returns. Deferring it
+        /// to a later render (e.g. from <c>OnAfterRenderAsync</c>) would mean the settings are never
+        /// saved for callers that do not render the component again. The operation is started on the
+        /// current thread — during the initial (pre-)render, which is the only point at which a module
+        /// control executes, ASP.NET Core installs no synchronization context, so waiting for the
+        /// continuation cannot deadlock. Failures are reported through
+        /// <c>Exceptions.ProcessModuleLoadException</c> exactly as the
+        /// asynchronous path does, rather than faulting the render.
+        /// </remarks>
+        protected void RunOperation(Func<CancellationToken, Task> operation)
         {
-            base.OnPreRender(e);
-            this.OnPreRenderInternal(e);
-        }
+            ArgumentNullException.ThrowIfNull(operation);
 
-        protected virtual void OnPreRenderInternal(EventArgs e)
-        {
             try
             {
-                if (this.Result == null)
-                {
-                    return;
-                }
-
-                var mvcString = RenderModule(this.Result);
-                if (!string.IsNullOrEmpty(Convert.ToString(mvcString, CultureInfo.InvariantCulture)))
-                {
-                    this.Controls.Add(new LiteralControl(Convert.ToString(mvcString, CultureInfo.InvariantCulture)));
-                }
+                operation(CancellationToken.None).GetAwaiter().GetResult();
             }
             catch (Exception exc)
             {
@@ -139,7 +179,37 @@ namespace DotNetNuke.Web.Mvc
             }
         }
 
-        protected ModuleRequestContext GetModuleRequestContext(HttpContextBase httpContext)
+        /// <inheritdoc />
+        protected override async Task OnInitializedAsync()
+        {
+            await base.OnInitializedAsync();
+
+            if (this.ExecuteModuleImmediately)
+            {
+                await this.ExecuteModuleAsync(CancellationToken.None);
+            }
+        }
+
+        /// <inheritdoc />
+        protected override void RenderContents(RenderTreeBuilder builder, ref int sequence)
+        {
+            if (!string.IsNullOrEmpty(this.renderedOutput))
+            {
+                // Literal source-order sequence number (ASP0006). This control renders no wrapper
+                // element (TagName is null), so the base class enters RenderContents with sequence 0
+                // and the markup keeps the very same position in the render tree as before. The ref
+                // counter is advanced afterwards for the base implementation's own content.
+                builder.AddMarkupContent(0, this.renderedOutput);
+                sequence++;
+            }
+
+            base.RenderContents(builder, ref sequence);
+        }
+
+        /// <summary>Builds the context the module is executed with.</summary>
+        /// <param name="httpContext">The context of the current request.</param>
+        /// <returns>A <see cref="ModuleRequestContext"/>.</returns>
+        protected ModuleRequestContext GetModuleRequestContext(HttpContext httpContext)
         {
             var module = this.ModuleContext.Configuration;
 
@@ -156,17 +226,17 @@ namespace DotNetNuke.Web.Mvc
 
             RouteData routeData;
 
-            var queryString = httpContext.Request.QueryString;
+            var query = httpContext.Request.Query;
 
             if (string.IsNullOrEmpty(this.ControlKey))
             {
-                this.ControlKey = queryString.GetValueOrDefault("ctl", string.Empty);
+                this.ControlKey = query["ctl"].ToString() ?? string.Empty;
             }
 
             var moduleId = Null.NullInteger;
-            if (queryString["moduleid"] != null)
+            if (query.ContainsKey("moduleid"))
             {
-                if (!int.TryParse(queryString["moduleid"], out moduleId))
+                if (!int.TryParse(query["moduleid"].ToString(), out moduleId))
                 {
                     moduleId = Null.NullInteger;
                 }
@@ -185,7 +255,7 @@ namespace DotNetNuke.Web.Mvc
 
             var moduleRequestContext = new ModuleRequestContext
             {
-                DnnPage = this.Page,
+                DnnPage = this.Page as IComponent,
                 HttpContext = httpContext,
                 ModuleContext = this.ModuleContext,
                 ModuleApplication = moduleApplication,
@@ -195,6 +265,9 @@ namespace DotNetNuke.Web.Mvc
             return moduleRequestContext;
         }
 
+        /// <summary>Converts the module actions returned by the MVC action into DNN module actions.</summary>
+        /// <param name="requestResult">The result of the module execution.</param>
+        /// <returns>The module actions.</returns>
         protected ModuleActionCollection LoadActions(ModuleRequestResult requestResult)
         {
             var actions = new ModuleActionCollection();

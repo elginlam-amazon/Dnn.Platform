@@ -1,0 +1,465 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Collections
+@using System.Collections.Generic
+@using System.Globalization
+@using System.Linq
+@using System.Reflection
+@using System.Threading.Tasks
+@using DotNetNuke.Services.Localization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+@if (!string.IsNullOrEmpty(this.errorMessage))
+{
+    <div class="dnnFormMessage dnnFormError">@this.errorMessage</div>
+}
+<table cellspacing="0" cellpadding="2" border="0">
+    <tr>
+        <td align="center" class="NormalBold">@this.AvailableText</td>
+        <td align="center">&nbsp;</td>
+        <td align="center" class="NormalBold">@this.AssignedText</td>
+    </tr>
+    <tr>
+        <td align="center" valign="top">
+            <select id="@this.AvailableListId"
+                    class="NormalTextBox"
+                    multiple="multiple"
+                    disabled="@(!this.IsEnabled)"
+                    style="@this.ListBoxStyle"
+                    @onchange="this.OnAvailableSelectionChanged">
+                @foreach (var item in this.availableItems)
+                {
+                    <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+                }
+            </select>
+        </td>
+        <td align="center" valign="middle">
+            <table cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td align="center" valign="top">
+                        <a href="javascript:void(0);" class="CommandButton" title="@this.AddToolTip" @onclick="this.AddAsync" @onclick:preventDefault="true">&nbsp;&gt;&nbsp;</a>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" valign="top">
+                        <a href="javascript:void(0);" class="CommandButton" title="@this.RemoveToolTip" @onclick="this.RemoveAsync" @onclick:preventDefault="true">&nbsp;&lt;&nbsp;</a>
+                    </td>
+                </tr>
+                <tr>
+                    <td>&nbsp;</td>
+                </tr>
+                <tr>
+                    <td align="center" valign="bottom">
+                        <a href="javascript:void(0);" class="CommandButton" title="@this.AddAllToolTip" @onclick="this.AddAllAsync" @onclick:preventDefault="true">&nbsp;&gt;&gt;&nbsp;</a>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" valign="bottom">
+                        <a href="javascript:void(0);" class="CommandButton" title="@this.RemoveAllToolTip" @onclick="this.RemoveAllAsync" @onclick:preventDefault="true">&nbsp;&lt;&lt;&nbsp;</a>
+                    </td>
+                </tr>
+            </table>
+        </td>
+        <td align="center" valign="top">
+            <select id="@this.AssignedListId"
+                    class="NormalTextBox"
+                    multiple="multiple"
+                    disabled="@(!this.IsEnabled)"
+                    style="@this.ListBoxStyle"
+                    @onchange="this.OnAssignedSelectionChanged">
+                @foreach (var item in this.assignedItems)
+                {
+                    <option value="@item.Value" selected="@item.Selected">@item.Text</option>
+                }
+            </select>
+        </td>
+    </tr>
+</table>
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "DualListControl.ascx";
+
+    private readonly List<ListItem> availableItems = new List<ListItem>();
+    private readonly List<ListItem> assignedItems = new List<ListItem>();
+
+    private string instanceId = "dualList_" + Guid.NewGuid().ToString("N");
+    private string errorMessage;
+    private ArrayList assigned;
+    private ArrayList available;
+    private string dataTextField = string.Empty;
+    private string dataValueField = string.Empty;
+    private bool enabled = true;
+    private string listBoxHeight = string.Empty;
+    private string listBoxWidth = string.Empty;
+    private bool bound;
+
+    /// <summary>Gets or sets the CSS width of both list boxes.</summary>
+    [Parameter]
+    public string ListBoxWidth
+    {
+        get => this.listBoxWidth;
+        set => this.listBoxWidth = value;
+    }
+
+    /// <summary>Gets or sets the CSS height of both list boxes.</summary>
+    [Parameter]
+    public string ListBoxHeight
+    {
+        get => this.listBoxHeight;
+        set => this.listBoxHeight = value;
+    }
+
+    /// <summary>Gets or sets the items that are available for assignment.</summary>
+    /// <value>
+    /// The getter returns the <see cref="ListItem"/> instances currently in the available list; the
+    /// setter accepts either <see cref="ListItem"/> instances or arbitrary objects projected
+    /// through <see cref="DataTextField"/> / <see cref="DataValueField"/>.
+    /// </value>
+    [Parameter]
+    public ArrayList Available
+    {
+        get
+        {
+            var objList = new ArrayList();
+            foreach (var objListItem in this.availableItems)
+            {
+                objList.Add(objListItem);
+            }
+
+            return objList;
+        }
+
+        set => this.available = value;
+    }
+
+    /// <summary>Gets or sets the items that are assigned.</summary>
+    /// <value>
+    /// The getter returns the <see cref="ListItem"/> instances currently in the assigned list; the
+    /// setter accepts either <see cref="ListItem"/> instances or arbitrary objects projected
+    /// through <see cref="DataTextField"/> / <see cref="DataValueField"/>.
+    /// </value>
+    [Parameter]
+    public ArrayList Assigned
+    {
+        get
+        {
+            var objList = new ArrayList();
+            foreach (var objListItem in this.assignedItems)
+            {
+                objList.Add(objListItem);
+            }
+
+            return objList;
+        }
+
+        set => this.assigned = value;
+    }
+
+    /// <summary>Sets the name of the property of the bound objects that supplies the item text.</summary>
+    [Parameter]
+    public string DataTextField
+    {
+        get => this.dataTextField;
+        set => this.dataTextField = value;
+    }
+
+    /// <summary>Sets the name of the property of the bound objects that supplies the item value.</summary>
+    [Parameter]
+    public string DataValueField
+    {
+        get => this.dataValueField;
+        set => this.dataValueField = value;
+    }
+
+    /// <summary>Sets a value indicating whether the list boxes are enabled.</summary>
+    [Parameter]
+    public bool Enabled
+    {
+        get => this.enabled;
+        set => this.enabled = value;
+    }
+
+    /// <summary>Gets or sets the callback raised whenever items move between the two lists.</summary>
+    /// <remarks>
+    /// Replaces the <c>cmdAdd</c>/<c>cmdRemove</c>/<c>cmdAddAll</c>/<c>cmdRemoveAll</c> postbacks,
+    /// which the hosting page used to read <see cref="Assigned"/> after.
+    /// </remarks>
+    [Parameter]
+    public EventCallback<ArrayList> AssignedChanged { get; set; }
+
+    /// <summary>Gets or sets the resource file the captions are localized from.</summary>
+    [Parameter]
+    public string LocalResourceFile { get; set; }
+
+    /// <summary>Gets the <c>id</c> attribute of the available list box.</summary>
+    public string AvailableListId => this.instanceId + "_lstAvailable";
+
+    /// <summary>Gets the <c>id</c> attribute of the assigned list box.</summary>
+    public string AssignedListId => this.instanceId + "_lstAssigned";
+
+    /// <summary>Gets a value indicating whether the list boxes are enabled.</summary>
+    public bool IsEnabled => this.enabled;
+
+    /// <summary>Gets the localized caption of the available list.</summary>
+    private string AvailableText => Localization.GetString("Available", this.ResourceFile);
+
+    /// <summary>Gets the localized caption of the assigned list.</summary>
+    private string AssignedText => Localization.GetString("Assigned", this.ResourceFile);
+
+    /// <summary>Gets the localized tooltip of the add button.</summary>
+    private string AddToolTip => Localization.GetString("Add", this.ResourceFile);
+
+    /// <summary>Gets the localized tooltip of the add-all button.</summary>
+    private string AddAllToolTip => Localization.GetString("AddAll", this.ResourceFile);
+
+    /// <summary>Gets the localized tooltip of the remove button.</summary>
+    private string RemoveToolTip => Localization.GetString("Remove", this.ResourceFile);
+
+    /// <summary>Gets the localized tooltip of the remove-all button.</summary>
+    private string RemoveAllToolTip => Localization.GetString("RemoveAll", this.ResourceFile);
+
+    /// <summary>Gets the inline style applied to both list boxes.</summary>
+    private string ListBoxStyle
+    {
+        get
+        {
+            var style = string.Empty;
+            if (!string.IsNullOrEmpty(this.listBoxWidth))
+            {
+                style += "width:" + this.listBoxWidth + ";";
+            }
+
+            if (!string.IsNullOrEmpty(this.listBoxHeight))
+            {
+                style += "height:" + this.listBoxHeight + ";";
+            }
+
+            return style.Length == 0 ? null : style;
+        }
+    }
+
+    /// <summary>Gets the effective resource file of this control.</summary>
+    private string ResourceFile =>
+        string.IsNullOrEmpty(this.LocalResourceFile)
+            ? "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName
+            : this.LocalResourceFile;
+
+    /// <summary>The Page_Load server event handler on this page is used to populate the role information for the page.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.bound)
+        {
+            return;
+        }
+
+        this.bound = true;
+
+        try
+        {
+            // load available
+            this.availableItems.Clear();
+            this.availableItems.AddRange(this.Project(this.available));
+            Sort(this.availableItems);
+
+            // load selected
+            this.assignedItems.Clear();
+            this.assignedItems.AddRange(this.Project(this.assigned));
+            Sort(this.assignedItems);
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+    }
+
+    /// <summary>Sorts a list of items by their display text.</summary>
+    /// <param name="items">The items to sort in place.</param>
+    private static void Sort(List<ListItem> items)
+    {
+        var arrListItems = new ArrayList();
+        foreach (var objListItem in items)
+        {
+            arrListItems.Add(objListItem);
+        }
+
+        arrListItems.Sort(new ListItemComparer());
+        items.Clear();
+        foreach (ListItem objListItem in arrListItems)
+        {
+            items.Add(objListItem);
+        }
+    }
+
+    /// <summary>Projects the bound data source onto <see cref="ListItem"/> instances.</summary>
+    /// <param name="source">The bound data source, which may be <see langword="null"/>.</param>
+    /// <returns>The projected items.</returns>
+    /// <remarks>
+    /// This is the replacement for <c>ListBox.DataTextField</c>/<c>DataValueField</c> plus
+    /// <c>DataBind()</c>: the named properties are read off each bound object by reflection, the
+    /// same way the Web Forms data binding did.
+    /// </remarks>
+    private IEnumerable<ListItem> Project(ArrayList source)
+    {
+        if (source is null)
+        {
+            yield break;
+        }
+
+        foreach (var entry in source)
+        {
+            if (entry is null)
+            {
+                continue;
+            }
+
+            if (entry is ListItem listItem)
+            {
+                yield return listItem;
+                continue;
+            }
+
+            var type = entry.GetType();
+            var text = ReadMember(entry, type, this.dataTextField);
+            var value = ReadMember(entry, type, this.dataValueField);
+            yield return new ListItem(text ?? Convert.ToString(entry, CultureInfo.CurrentCulture), value ?? text ?? string.Empty);
+        }
+    }
+
+    /// <summary>Reads a named property or field off a bound object.</summary>
+    /// <param name="entry">The bound object.</param>
+    /// <param name="type">The type of the bound object.</param>
+    /// <param name="memberName">The name of the member to read, which may be empty.</param>
+    /// <returns>The value as a string, or <see langword="null"/> when the member does not exist.</returns>
+    private static string ReadMember(object entry, Type type, string memberName)
+    {
+        if (string.IsNullOrEmpty(memberName))
+        {
+            return null;
+        }
+
+        var property = type.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+        if (property is not null)
+        {
+            return Convert.ToString(property.GetValue(entry, null), CultureInfo.CurrentCulture);
+        }
+
+        var field = type.GetField(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+        return field is null ? null : Convert.ToString(field.GetValue(entry), CultureInfo.CurrentCulture);
+    }
+
+    /// <summary>Records the selection of the available list box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    private void OnAvailableSelectionChanged(ChangeEventArgs args)
+    {
+        ApplySelection(this.availableItems, args);
+    }
+
+    /// <summary>Records the selection of the assigned list box.</summary>
+    /// <param name="args">The change event arguments.</param>
+    private void OnAssignedSelectionChanged(ChangeEventArgs args)
+    {
+        ApplySelection(this.assignedItems, args);
+    }
+
+    /// <summary>Applies the posted selection of a multiple select element onto the item list.</summary>
+    /// <param name="items">The items of the list box.</param>
+    /// <param name="args">The change event arguments.</param>
+    private static void ApplySelection(List<ListItem> items, ChangeEventArgs args)
+    {
+        var selected = args?.Value as IEnumerable<string>;
+        var selectedValues = selected is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(selected, StringComparer.Ordinal);
+
+        if (selected is null && args?.Value is string single)
+        {
+            selectedValues.Add(single);
+        }
+
+        foreach (var item in items)
+        {
+            item.Selected = selectedValues.Contains(item.Value);
+        }
+    }
+
+    /// <summary>Moves the selected available items to the assigned list.</summary>
+    /// <returns>A task representing the operation.</returns>
+    private async Task AddAsync()
+    {
+        var objList = this.availableItems.ToList();
+        foreach (var objListItem in objList)
+        {
+            if (objListItem.Selected)
+            {
+                this.availableItems.Remove(objListItem);
+                this.assignedItems.Add(objListItem);
+            }
+        }
+
+        this.availableItems.ClearSelection();
+        this.assignedItems.ClearSelection();
+        Sort(this.assignedItems);
+        await this.AssignedChanged.InvokeAsync(this.Assigned);
+    }
+
+    /// <summary>Moves the selected assigned items back to the available list.</summary>
+    /// <returns>A task representing the operation.</returns>
+    private async Task RemoveAsync()
+    {
+        var objList = this.assignedItems.ToList();
+        foreach (var objListItem in objList)
+        {
+            if (objListItem.Selected)
+            {
+                this.assignedItems.Remove(objListItem);
+                this.availableItems.Add(objListItem);
+            }
+        }
+
+        this.availableItems.ClearSelection();
+        this.assignedItems.ClearSelection();
+        Sort(this.availableItems);
+        await this.AssignedChanged.InvokeAsync(this.Assigned);
+    }
+
+    /// <summary>Moves every available item to the assigned list.</summary>
+    /// <returns>A task representing the operation.</returns>
+    private async Task AddAllAsync()
+    {
+        foreach (var objListItem in this.availableItems)
+        {
+            this.assignedItems.Add(objListItem);
+        }
+
+        this.availableItems.Clear();
+        this.availableItems.ClearSelection();
+        this.assignedItems.ClearSelection();
+        Sort(this.assignedItems);
+        await this.AssignedChanged.InvokeAsync(this.Assigned);
+    }
+
+    /// <summary>Moves every assigned item back to the available list.</summary>
+    /// <returns>A task representing the operation.</returns>
+    private async Task RemoveAllAsync()
+    {
+        foreach (var objListItem in this.assignedItems)
+        {
+            this.availableItems.Add(objListItem);
+        }
+
+        this.assignedItems.Clear();
+        this.availableItems.ClearSelection();
+        this.assignedItems.ClearSelection();
+        Sort(this.availableItems);
+        await this.AssignedChanged.InvokeAsync(this.Assigned);
+    }
+}

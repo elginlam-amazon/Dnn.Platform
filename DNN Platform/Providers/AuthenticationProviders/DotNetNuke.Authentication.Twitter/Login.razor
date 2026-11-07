@@ -1,0 +1,124 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Authentication.Twitter
+@inherits DotNetNuke.Services.Authentication.OAuth.OAuthLoginBase
+@using System
+@using System.Collections.Specialized
+@using System.Threading.Tasks
+@using DotNetNuke.Authentication.Twitter.Components
+@using DotNetNuke.Services.Authentication
+@using DotNetNuke.Services.Authentication.OAuth
+
+@* The two <li> items replace the runat="server" HtmlGenericControls; their Visible flags are
+   now conditional rendering.
+
+   The LinkButtons became ordinary links to Twitter's authorization endpoint. On WebForms the
+   click was a postback whose handler called OAuthClient.Authorize(), and that answered with an
+   HTTP redirect to exactly this URL; a Blazor event handler cannot redirect, because there is no
+   HTTP response left to redirect once the circuit is interactive. Letting the browser navigate
+   there directly produces the same user-visible result. The original LinkButtons had
+   CausesValidation="False", and these links likewise take part in no form or validation. The
+   element ids and the "twitter" CSS class are kept because site skins target them. *@
+@if (this.Mode == AuthMode.Login)
+{
+    <li id="loginItem" class="twitter">
+        <a id="loginButton" href="@this.authorizeUrl">
+            <span>@this.LocalizeText("SignInTwitter")</span>
+        </a>
+    </li>
+}
+@if (this.Mode == AuthMode.Register)
+{
+    <li id="registerItem" class="twitter">
+        <a id="registerButton" href="@this.authorizeUrl">
+            <span>@this.LocalizeText("RegisterTwitter")</span>
+        </a>
+    </li>
+}
+
+@code {
+    /// <summary>
+    /// The user data fetched by <see cref="GetCurrentUserAsync"/>, kept so that
+    /// <see cref="AddCustomProperties"/> — which the base class invokes synchronously, right
+    /// after it awaited <see cref="GetCurrentUserAsync"/> — can read the Twitter specific
+    /// members without blocking on an asynchronous call. This replaces the second
+    /// <c>GetCurrentUser&lt;TwitterUserData&gt;()</c> call the WebForms code made; the value is
+    /// the same, with one fewer Twitter API round-trip.
+    /// </summary>
+    private TwitterUserData twitterUserData;
+
+    /// <summary>Twitter's authorization URL, resolved while the HTTP request is still in flight.</summary>
+    private string authorizeUrl;
+
+    /// <inheritdoc />
+    public override bool SupportsRegistration
+    {
+        get { return true; }
+    }
+
+    /// <inheritdoc />
+    protected override string AuthSystemApplicationName
+    {
+        get { return "Twitter"; }
+    }
+
+    /// <inheritdoc />
+    protected override async Task<UserData> GetCurrentUserAsync()
+    {
+        this.twitterUserData = await this.OAuthClient.GetCurrentUserAsync<TwitterUserData>();
+        return this.twitterUserData;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Replaces <c>OnInit</c>. The client must exist before the base class runs, because the base
+    /// uses it to decide whether this request is the OAuth callback and, if so, performs the
+    /// authorization round-trip.
+    /// </remarks>
+    protected override async Task OnInitializedAsync()
+    {
+        this.OAuthClient = new TwitterClient(this.PortalId, this.Mode);
+
+        await base.OnInitializedAsync();
+
+        // The "?state=Twitter" marker is applied only AFTER the base class ran, i.e. only for
+        // the outbound leg. On WebForms it lived in LoginButton_Click, which ran only when the
+        // user clicked; on the inbound callback request only OnLoad ran, so the base's
+        // authorize/token-exchange saw the UNMUTATED CallbackUri. Applying it earlier would
+        // change the OAuth 1.0 signature base string on the token-exchange leg and silently
+        // break sign-in.
+        this.OAuthClient.CallbackUri = new Uri(this.OAuthClient.CallbackUri + "?state=Twitter");
+
+        // Needs the HTTP request, which only exists during this initial (static) render — never
+        // in an event handler. OAuth 1.0 must fetch a request token first, which is why this is
+        // the asynchronous variant; the synchronous GetAuthorizationUrl() throws for OAuth 1.0.
+        //
+        // The gate is the base class's own callback-leg condition. Unlike OAuth 2.0, where
+        // building the URL is pure string work, OAuth 1.0 spends a real request token on
+        // Twitter's rate-limited request_token endpoint and writes the "_request" cookie. On the
+        // inbound callback render the base has just completed the token exchange and
+        // authenticated the user, so a link is neither rendered nor wanted: fetching another
+        // request token there would be a wasted call that also overwrites the "_request" cookie
+        // and the in-memory AuthToken/TokenSecret the exchange just established.
+        if (!(this.OAuthClient.IsCurrentService() && this.OAuthClient.HaveVerificationCode()))
+        {
+            this.authorizeUrl = await this.OAuthClient.GetAuthorizationUrlAsync();
+        }
+
+        // No Denied branch is ported here on purpose. The WebForms LoginButton_Click had a
+        // result == AuthorisationResult.Denied -> YellowWarning "PrivateConfirmationMessage"
+        // branch, but AuthorizeV1Async only ever returns RequestingCode or Authorized — the
+        // Denied result exists solely in AuthorizeV2Async, via error_reason, which is why the
+        // OAuth 2.0 providers need it. The branch was unreachable on net48, so omitting it
+        // preserves behaviour exactly; adding it would invent a message that never appeared.
+    }
+
+    /// <inheritdoc />
+    protected override void AddCustomProperties(NameValueCollection properties)
+    {
+        base.AddCustomProperties(properties);
+
+        properties.Add("Twitter", string.Format("http://twitter.com/{0}", this.twitterUserData.ScreenName));
+    }
+}

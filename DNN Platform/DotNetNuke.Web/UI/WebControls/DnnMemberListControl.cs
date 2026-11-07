@@ -9,78 +9,80 @@ namespace DotNetNuke.Web.UI.WebControls
     using System.Data;
     using System.Globalization;
     using System.Linq;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Text;
 
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Entities.Users.Social;
     using DotNetNuke.Services.Tokens;
+    using DotNetNuke.UI;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
 
     /// <summary>This control is used for displaying a template based list of users based upon various filter and sorting capabilities.</summary>
-    [ToolboxData("<{0}:DnnMemberListControl runat=\"server\"></{0}:DnnMemberListControl>")]
-    public class DnnMemberListControl : WebControl
+    /// <remarks>
+    /// This was a <c>WebControl</c> writing its templates straight to an <c>HtmlTextWriter</c>. On
+    /// ASP.NET Core it is a <see cref="DnnComponentBase"/> that composes the very same template
+    /// strings — header, per-row header/item/footer with their alternating variants, and footer —
+    /// and emits them as markup content. Paging (<see cref="PageIndex"/>, <see cref="PageSize"/>,
+    /// <see cref="RowSize"/>), sorting and the filter dictionary are untouched, and the per-row
+    /// token replacement still goes through <see cref="TokenReplace"/>.
+    /// </remarks>
+    public class DnnMemberListControl : DnnComponentBase
     {
         private UserInfo currentUser;
         private RelationshipController relationshipController;
 
         /// <summary>Gets or sets the template for displaying the header section of a DnnMemberListControl object.</summary>
-        [DefaultValue("")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        [Parameter]
         public string HeaderTemplate { get; set; }
 
         /// <summary>Gets or sets the template for the row header.</summary>
-        [DefaultValue("")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        [Parameter]
         public string RowHeaderTemplate { get; set; }
 
         /// <summary>Gets or sets the template for displaying an item in a DnnMemberListControl object.</summary>
-        [DefaultValue("")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        [Parameter]
         public string ItemTemplate { get; set; }
 
         /// <summary>Gets or sets the template for the row footer.</summary>
-        [DefaultValue("")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        [Parameter]
         public string RowFooterTemplate { get; set; }
 
         /// <summary>Gets or sets the template for displaying the alternating row headers in a DnnMemberListControl object.</summary>
-        [DefaultValue("")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        [Parameter]
         public string AlternatingRowHeaderTemplate { get; set; }
 
         /// <summary>Gets or sets the template for displaying the alternating items in a DnnMemberListControl object.</summary>
-        [DefaultValue("")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        [Parameter]
         public string AlternatingItemTemplate { get; set; }
 
         /// <summary>Gets or sets the template for displaying the alternating row footers in a DnnMemberListControl object.</summary>
-        [DefaultValue("")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        [Parameter]
         public string AlternatingRowFooterTemplate { get; set; }
 
         /// <summary>Gets or sets the template for displaying the footer section of a DnnMemberListControl object.</summary>
-        [DefaultValue("")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        [Parameter]
         public string FooterTemplate { get; set; }
 
         /// <summary>Gets or sets the index of the currently displayed page.</summary>
-        [DefaultValue(1)]
+        [Parameter]
         public int PageIndex { get; set; }
 
         /// <summary>Gets or sets the number of records to display on a page in a DnnMemberListControl object.</summary>
-        [DefaultValue(10)]
+        [Parameter]
         public int PageSize { get; set; }
 
         /// <summary>Gets or sets the number of items displayed on each row.</summary>
-        [DefaultValue(1)]
+        [Parameter]
         public int RowSize { get; set; }
 
         /// <summary>Gets or sets the property value to sort by.</summary>
-        [DefaultValue("UserId")]
+        [Parameter]
         public string SortBy { get; set; }
 
         /// <summary>Gets or sets a value indicating whether the sort is ascending.</summary>
-        [DefaultValue(true)]
+        [Parameter]
         public bool SortAscending { get; set; }
 
         /// <summary>Gets or sets the collection of filters to apply when getting the list of members.</summary>
@@ -99,14 +101,17 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void Render(HtmlTextWriter writer)
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
-            if (this.ItemTemplate == string.Empty)
+            ArgumentNullException.ThrowIfNull(builder);
+
+            if (!this.Visible || string.IsNullOrEmpty(this.ItemTemplate))
             {
                 return;
             }
 
-            writer.Write(this.HeaderTemplate);
+            var writer = new StringBuilder();
+            writer.Append(this.HeaderTemplate);
 
             // Filters
             if (this.Filters == null)
@@ -140,7 +145,7 @@ namespace DotNetNuke.Web.UI.WebControls
                 foreach (DataRow user in users.Rows)
                 {
                     // Row Header
-                    writer.Write(string.IsNullOrEmpty(this.AlternatingRowHeaderTemplate) || row % 2 == 0 ? this.RowHeaderTemplate : this.AlternatingRowHeaderTemplate);
+                    writer.Append(string.IsNullOrEmpty(this.AlternatingRowHeaderTemplate) || row % 2 == 0 ? this.RowHeaderTemplate : this.AlternatingRowHeaderTemplate);
 
                     var tokenReplace = new TokenReplace();
                     var tokenKeyValues = new Dictionary<string, string>();
@@ -152,16 +157,18 @@ namespace DotNetNuke.Web.UI.WebControls
 
                     var listItem = string.IsNullOrEmpty(this.AlternatingItemTemplate) || row % 2 == 0 ? this.ItemTemplate : this.AlternatingItemTemplate;
                     listItem = tokenReplace.ReplaceEnvironmentTokens(listItem, tokenKeyValues, "Member");
-                    writer.Write(listItem);
+                    writer.Append(listItem);
 
                     // Row Footer
-                    writer.Write(string.IsNullOrEmpty(this.AlternatingRowFooterTemplate) || row % 2 == 0 ? this.RowFooterTemplate : this.AlternatingRowFooterTemplate);
+                    writer.Append(string.IsNullOrEmpty(this.AlternatingRowFooterTemplate) || row % 2 == 0 ? this.RowFooterTemplate : this.AlternatingRowFooterTemplate);
 
                     row++;
                 }
             }
 
-            writer.Write(this.FooterTemplate);
+            writer.Append(this.FooterTemplate);
+
+            builder.AddMarkupContent(0, writer.ToString());
         }
     }
 }

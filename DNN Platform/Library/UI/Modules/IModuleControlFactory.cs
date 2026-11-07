@@ -4,9 +4,9 @@
 
 namespace DotNetNuke.UI.Modules
 {
-    using System.Web.UI;
-
     using DotNetNuke.Entities.Modules;
+
+    using Microsoft.AspNetCore.Components;
 
     /// <summary>Factory that creates a WebForms control for a module.</summary>
     public interface IModuleControlFactory
@@ -32,13 +32,13 @@ namespace DotNetNuke.UI.Modules
         /// <param name="controlKey">The control key.</param>
         /// <param name="controlSrc">The control source.</param>
         /// <returns>Instance of the control.</returns>
-        Control CreateControl(TemplateControl containerControl, string controlKey, string controlSrc);
+        IComponent CreateControl(IComponent containerControl, string controlKey, string controlSrc);
 
         /// <summary>Creates a new instance of a control.</summary>
         /// <param name="containerControl">The container control.</param>
         /// <param name="moduleConfiguration">The module configuration.</param>
         /// <returns>Instance of the control.</returns>
-        Control CreateModuleControl(TemplateControl containerControl, ModuleInfo moduleConfiguration);
+        IComponent CreateModuleControl(IComponent containerControl, ModuleInfo moduleConfiguration);
 
         /// <summary>Creates a new instance of a control.</summary>
         /// <param name="moduleConfiguration">The module configuration.</param>
@@ -50,6 +50,6 @@ namespace DotNetNuke.UI.Modules
         /// <param name="moduleConfiguration">The module configuration.</param>
         /// <param name="controlSrc">The control source.</param>
         /// <returns>Instance of the control.</returns>
-        Control CreateSettingsControl(TemplateControl containerControl, ModuleInfo moduleConfiguration, string controlSrc);
+        IComponent CreateSettingsControl(IComponent containerControl, ModuleInfo moduleConfiguration, string controlSrc);
     }
 }

@@ -1,0 +1,44 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* The dnn:HOSTNAME skin object (was hostname.ascx + HostName.ascx.cs).
+   Renders the <asp:HyperLink id="hypHostName" cssclass="SkinObject"> of the original markup. *@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+@using System
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Common
+@using DotNetNuke.Services.Exceptions
+@using Microsoft.AspNetCore.Components
+@inject IHostSettings HostSettings
+
+@if (this.Visible)
+{
+    <a class="@this.LinkCssClass" href="@this.navigateUrl">@((MarkupString)(this.text ?? string.Empty))</a>
+}
+
+@code {
+    private string text;
+    private string navigateUrl;
+
+    /// <summary>Gets the CSS class of the link, which defaults to the markup's "SkinObject".</summary>
+    private string LinkCssClass => string.IsNullOrEmpty(this.CssClass) ? "SkinObject" : this.CssClass;
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        try
+        {
+            // The CssClass property of the original code-behind is the inherited one; when it is
+            // not set the link keeps the "SkinObject" class declared in the markup.
+            this.text = this.HostSettings.HostTitle;
+            this.navigateUrl = Globals.AddHTTP(this.HostSettings.HostUrl);
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+}

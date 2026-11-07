@@ -35,12 +35,12 @@ namespace Dnn.Modules.ResourceManager.Components
                             var hostPage = Upgrade.AddHostPage(
                                 "Global Assets",
                                 "Manage Global assets",
-                                "~/Icons/Sigma/Files_16X16_Standard.png",
-                                "~/Icons/Sigma/Files_32X32_Standard.png",
+                                "~/icons/Sigma/Files_16X16_Standard.png",
+                                "~/icons/Sigma/Files_32X32_Standard.png",
                                 true);
 
                             // Add module to page
-                            var moduleId = Upgrade.AddModuleToPage(hostPage, mDef.ModuleDefID, "Global Assets Management", "~/Icons/Sigma/Files_32X32_Standard.png", true);
+                            var moduleId = Upgrade.AddModuleToPage(hostPage, mDef.ModuleDefID, "Global Assets Management", "~/icons/Sigma/Files_32X32_Standard.png", true);
                             ModuleController.Instance.UpdateModuleSetting(moduleId, Constants.HomeFolderSettingName, "1");
                             ModuleController.Instance.UpdateModuleSetting(moduleId, Constants.ModeSettingName, "0");
                             Logger.ResourceManagerControllerAddedGlobalAssetsHostMenuItem();

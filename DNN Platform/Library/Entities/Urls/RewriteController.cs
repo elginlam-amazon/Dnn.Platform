@@ -9,10 +9,9 @@ namespace DotNetNuke.Entities.Urls
     using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Net;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
@@ -23,7 +22,9 @@ namespace DotNetNuke.Entities.Urls
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Entities.Urls.Config;
     using DotNetNuke.Entities.Users;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Localization;
+    using Microsoft.AspNetCore.Http;
 
     public class RewriteController
     {
@@ -276,7 +277,7 @@ namespace DotNetNuke.Entities.Urls
                     pathOnly = pathOnly.Substring(aliasEnd);
                 }
 
-                pathOnly = HttpUtility.UrlDecode(pathOnly, Encoding.UTF8);
+                pathOnly = WebUtility.UrlDecode(pathOnly); // WebUtility always decodes as UTF-8
             }
 
             return pathOnly;
@@ -946,7 +947,7 @@ namespace DotNetNuke.Entities.Urls
                 absoluteUri = absoluteUri.Replace(queryString, string.Empty);
             }
 
-            absoluteUri = HttpUtility.UrlDecode(absoluteUri); // decode the incoming request
+            absoluteUri = WebUtility.UrlDecode(absoluteUri); // decode the incoming request
             string rewritePath = GetTabFromDictionary(hostSettings, portalController, appStatus, portalGroupController, absoluteUri, queryStringCol, settings, result, parentTraceId);
 
             // put the query string back on the end
@@ -1619,12 +1620,15 @@ namespace DotNetNuke.Entities.Urls
                             {
                                 // not a custom alias for a specific tab, so it must be the home page for the portal we identified,
                                 // if its first request and splash page defined, then redirect to splash page.
-                                if (portal.SplashTabId > Null.NullInteger && HttpContext.Current != null &&
-                                    !HttpContext.Current.Request.Cookies.AllKeys.Contains("SplashPageView"))
+                                var splashContext = HttpContextSource.Current;
+                                if (portal.SplashTabId > Null.NullInteger && splashContext != null &&
+                                    !splashContext.Request.Cookies.ContainsKey("SplashPageView"))
                                 {
                                     tabId = portal.SplashTabId;
-                                    HttpContext.Current.Response.Cookies.Add(
-                                        new HttpCookie("SplashPageView", "true") { Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/" });
+                                    splashContext.Response.Cookies.Append(
+                                        "SplashPageView",
+                                        "true",
+                                        new CookieOptions { Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/" });
                                     result.Action = ActionType.Redirect302;
                                     result.Reason = RedirectReason.Requested_SplashPage;
                                 }

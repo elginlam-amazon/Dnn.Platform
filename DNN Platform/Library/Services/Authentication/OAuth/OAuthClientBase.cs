@@ -3,16 +3,17 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Services.Authentication.OAuth
 {
+    using System.Net;
     using System;
     using System.Collections.Generic;
     using System.Collections.Specialized;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
-    using System.IO;
-    using System.Net;
+    using System.Net.Http;
+    using System.Net.Http.Headers;
     using System.Security.Cryptography;
     using System.Text;
-    using System.Web;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -23,7 +24,11 @@ namespace DotNetNuke.Services.Authentication.OAuth
     using DotNetNuke.Security.Membership;
     using DotNetNuke.Services.Localization;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    using SystemHttpMethod = System.Net.Http.HttpMethod;
 
     /// <summary>A base class for an OAuth client.</summary>
     public abstract class OAuthClientBase
@@ -56,16 +61,31 @@ namespace DotNetNuke.Services.Authentication.OAuth
         // Directory implementation of OAuth V2
         private const string OAuthResourceKey = "resource";
 
+        /// <summary>The named <see cref="HttpClient"/> the platform's OAuth clients use.</summary>
+        public const string HttpClientName = "DnnOAuth";
+
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<OAuthClientBase>();
 
         private readonly Random random = new Random();
+        private readonly IHttpClientFactory httpClientFactory;
 
         /// <summary>Initializes a new instance of the <see cref="OAuthClientBase"/> class.</summary>
         /// <param name="portalId">The portal ID.</param>
         /// <param name="mode">The auth mode.</param>
         /// <param name="service">The service name.</param>
         protected OAuthClientBase(int portalId, AuthMode mode, string service)
+            : this(portalId, mode, service, Globals.GetCurrentServiceProvider().GetRequiredService<IHttpClientFactory>())
         {
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="OAuthClientBase"/> class.</summary>
+        /// <param name="portalId">The portal ID.</param>
+        /// <param name="mode">The auth mode.</param>
+        /// <param name="service">The service name.</param>
+        /// <param name="httpClientFactory">The factory used to create the <see cref="HttpClient"/> instances that talk to the OAuth provider.</param>
+        protected OAuthClientBase(int portalId, AuthMode mode, string service, IHttpClientFactory httpClientFactory)
+        {
+            this.httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
             // Set default Expiry to 14 days
             // oAuth v1 tokens do not expire
             // oAuth v2 tokens have an expiry
@@ -97,12 +117,16 @@ namespace DotNetNuke.Services.Authentication.OAuth
 
         protected virtual string UserGuidKey => string.Empty;
 
+        /// <summary>Gets the cookie path the OAuth cookies are scoped to.</summary>
+        private static string CookiePath =>
+            !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/";
+
         // oAuth 1
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
-        protected string OAuthVerifier => HttpContext.Current.Request.Params[OAuthVerifierKey];
+        protected string OAuthVerifier => GetRequestValue(OAuthVerifierKey);
 
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
-        protected string VerificationCode => HttpContext.Current.Request.Params[OAuthCodeKey];
+        protected string VerificationCode => GetRequestValue(OAuthCodeKey);
 
         protected string APIKey { get; set; }
 
@@ -176,7 +200,14 @@ namespace DotNetNuke.Services.Authentication.OAuth
             return result.ToString();
         }
 
-        public virtual void AuthenticateUser(UserData user, PortalSettings settings, string ipAddress, Action<NameValueCollection> addCustomProperties, Action<UserAuthenticatedEventArgs> onAuthenticated)
+        /// <summary>Authenticates (and if needed auto-registers) the DNN user behind the OAuth identity.</summary>
+        /// <param name="user">The user data returned by the OAuth provider.</param>
+        /// <param name="settings">The portal settings.</param>
+        /// <param name="ipAddress">The client IP address.</param>
+        /// <param name="addCustomProperties">A callback that lets the provider add its own profile properties.</param>
+        /// <param name="onAuthenticated">A callback raised once the user has been authenticated.</param>
+        /// <returns>A task that completes once the token cookie has been written.</returns>
+        public virtual Task AuthenticateUserAsync(UserData user, PortalSettings settings, string ipAddress, Action<NameValueCollection> addCustomProperties, Action<UserAuthenticatedEventArgs> onAuthenticated)
         {
             var loginStatus = UserLoginStatus.LOGIN_FAILURE;
 
@@ -288,16 +319,20 @@ namespace DotNetNuke.Services.Authentication.OAuth
             }
 
             onAuthenticated(eventArgs);
+
+            return Task.CompletedTask;
         }
 
-        public virtual AuthorisationResult Authorize()
+        /// <summary>Runs the OAuth authorization flow.</summary>
+        /// <returns>The result of the authorization attempt.</returns>
+        public virtual Task<AuthorisationResult> AuthorizeAsync()
         {
             if (this.OAuthVersion == "1.0")
             {
-                return this.AuthorizeV1();
+                return this.AuthorizeV1Async();
             }
 
-            return this.AuthorizeV2();
+            return this.AuthorizeV2Async();
         }
 
         /// <summary>Generates a signature using the <see cref="SignatureMethodAlgorithm"/>.</summary>
@@ -322,7 +357,10 @@ namespace DotNetNuke.Services.Authentication.OAuth
             return GenerateSignatureUsingHash(signatureBase, hashAlgorithm);
         }
 
-        public virtual TUserData GetCurrentUser<TUserData>()
+        /// <summary>Gets the authorized user's data from the OAuth provider.</summary>
+        /// <typeparam name="TUserData">The provider-specific user data type.</typeparam>
+        /// <returns>The user data, or <see langword="null"/> when the current user is not authorized.</returns>
+        public virtual async Task<TUserData> GetCurrentUserAsync<TUserData>()
             where TUserData : UserData
         {
             this.LoadTokenCookie(string.Empty);
@@ -334,8 +372,8 @@ namespace DotNetNuke.Services.Authentication.OAuth
 
             var accessToken = string.IsNullOrEmpty(this.AccessToken) ? "access_token=" + this.AuthToken : this.AccessToken + "=" + this.AuthToken;
             string responseText = (this.OAuthVersion == "1.0")
-                            ? this.ExecuteAuthorizedRequest(HttpMethod.GET, this.MeGraphEndpoint)
-                            : this.ExecuteWebRequest(HttpMethod.GET, GenerateRequestUri(this.MeGraphEndpoint.ToString(), accessToken), null, string.Empty);
+                            ? await this.ExecuteAuthorizedRequestAsync(HttpMethod.GET, this.MeGraphEndpoint)
+                            : await this.ExecuteWebRequestAsync(HttpMethod.GET, GenerateRequestUri(this.MeGraphEndpoint.ToString(), accessToken), null, string.Empty);
             var user = Json.Deserialize<TUserData>(responseText);
             return user;
         }
@@ -347,7 +385,7 @@ namespace DotNetNuke.Services.Authentication.OAuth
 
         public bool IsCurrentService()
         {
-            string service = HttpContext.Current.Request.Params["state"];
+            string service = GetRequestValue("state");
             return !string.IsNullOrEmpty(service) && service == this.Service;
         }
 
@@ -356,14 +394,109 @@ namespace DotNetNuke.Services.Authentication.OAuth
             return !string.IsNullOrEmpty(this.AuthToken);
         }
 
+        /// <summary>Builds the URL the user's browser must be sent to in order to authorize this application.</summary>
+        /// <returns>The provider's authorization URL, including the query string.</returns>
+        /// <remarks>
+        /// <para>
+        /// On WebForms the outbound leg of the OAuth 2.0 flow was a postback whose handler called
+        /// <see cref="AuthorizeAsync"/>, which answered with an HTTP redirect
+        /// (<see cref="AuthorisationResult.RequestingCode"/>). That is not possible from a Blazor
+        /// event handler, because <see cref="HttpContextSource.Current"/> — and therefore the
+        /// response to redirect — is <see langword="null"/> once the SignalR circuit has taken
+        /// over. Login components instead obtain this URL during the initial (static) render and
+        /// render their login button as an ordinary link to it, so the browser performs the
+        /// navigation itself. The user-visible result is the same as the redirect it replaces.
+        /// </para>
+        /// <para>
+        /// This is the same URL <see cref="AuthorizeAsync"/> redirects to, built by the same code,
+        /// so the requested <see cref="Scope"/>, client id, callback and state cannot drift apart.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">The client is configured for OAuth 1.0.</exception>
+        public string GetAuthorizationUrl()
+        {
+            if (this.OAuthVersion == "1.0")
+            {
+                // OAuth 1.0 cannot produce this URL up front: it must first exchange credentials
+                // for a request token (see AuthorizeV1Async), which is a server-to-server call
+                // that has to happen while a request is in flight.
+                throw new InvalidOperationException(
+                    "An OAuth 1.0 authorization URL cannot be built in advance; it requires a request token. Use AuthorizeAsync during request processing instead.");
+            }
+
+            return this.AuthorizationEndpoint + "?" + this.GetAuthorizationParameters().ToNormalizedString();
+        }
+
+        /// <summary>
+        /// Builds the URL the user's browser must be sent to in order to authorize this
+        /// application, for either OAuth version.
+        /// </summary>
+        /// <returns>
+        /// The provider's authorization URL, including the query string, or
+        /// <see langword="null"/> when an OAuth 1.0 provider returned no request token.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// For OAuth 2.0 this simply defers to <see cref="GetAuthorizationUrl"/>, so that path
+        /// cannot drift. OAuth 1.0 needs the asynchronous variant because its authorization URL
+        /// carries a request token which must first be obtained from the provider — a
+        /// server-to-server call that can only be made while an HTTP request is in flight.
+        /// </para>
+        /// <para>
+        /// That is also why a Blazor login component must call this during its initial (static)
+        /// render rather than from an event handler: by the time the SignalR circuit is
+        /// interactive, <see cref="HttpContextSource.Current"/> is <see langword="null"/>, so
+        /// there is neither a request to sign against nor a response left to redirect. The
+        /// component renders the returned URL as an ordinary link instead.
+        /// </para>
+        /// <para>
+        /// This performs exactly the request-token leg <see cref="AuthorizeAsync"/> performs,
+        /// using the same code, including writing the <c>_request</c> token cookie that the
+        /// inbound callback leg reads back.
+        /// </para>
+        /// </remarks>
+        public async Task<string> GetAuthorizationUrlAsync()
+        {
+            if (this.OAuthVersion != "1.0")
+            {
+                return this.GetAuthorizationUrl();
+            }
+
+            string ret = null;
+
+            string response = await this.RequestTokenAsync();
+
+            if (!string.IsNullOrWhiteSpace(response))
+            {
+                // response contains token and token secret. We only need the token.
+                NameValueCollection qs = QueryStringUtils.ParseQueryString(response);
+
+                if (qs[OAuthCallbackConfirmedKey] != null)
+                {
+                    if (qs[OAuthCallbackConfirmedKey] != "true")
+                    {
+                        throw new OAuthException("OAuth callback not confirmed.");
+                    }
+                }
+
+                if (qs[OAuthTokenKey] != null)
+                {
+                    ret = this.AuthorizationEndpoint + "?" + OAuthTokenKey + "=" + qs[OAuthTokenKey];
+
+                    this.AuthToken = qs[OAuthTokenKey];
+                    this.TokenSecret = qs[OAuthTokenSecretKey];
+                    this.SaveTokenCookie("_request");
+                }
+            }
+
+            return ret;
+        }
+
         public void RemoveToken()
         {
-            var authTokenCookie = new HttpCookie(this.AuthTokenName)
-            {
-                Expires = DateTime.Now.AddDays(-30),
-                Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
-            };
-            HttpContext.Current.Response.SetCookie(authTokenCookie);
+            HttpContextSource.Current?.Response.Cookies.Delete(
+                this.AuthTokenName,
+                new CookieOptions { Path = CookiePath, });
         }
 
         /// <summary>Generate the timestamp for the signature.</summary>
@@ -393,17 +526,35 @@ namespace DotNetNuke.Services.Authentication.OAuth
             return responseText;
         }
 
+        /// <summary>
+        /// Reads the multi-value token cookie written by <c>SaveTokenCookie</c>.
+        /// </summary>
+        /// <remarks>
+        /// ASP.NET's <c>HttpCookie.Values</c> sub-keys do not exist in ASP.NET Core, so the three
+        /// values are stored as a single URL-encoded <c>key=value&amp;...</c> payload — which is
+        /// exactly the wire format ASP.NET used for sub-keyed cookies, so existing cookies still
+        /// parse.
+        /// </remarks>
+        /// <param name="suffix">The cookie name suffix (<see cref="string.Empty"/> or <c>_request</c>).</param>
         protected void LoadTokenCookie(string suffix)
         {
-            HttpCookie authTokenCookie = HttpContext.Current.Request.Cookies[this.AuthTokenName + suffix];
-            if (authTokenCookie != null)
+            var request = HttpContextSource.Current?.Request;
+            if (request == null || !request.Cookies.TryGetValue(this.AuthTokenName + suffix, out var cookieValue) || string.IsNullOrEmpty(cookieValue))
             {
-                if (authTokenCookie.HasKeys)
-                {
-                    this.AuthToken = authTokenCookie.Values[OAuthTokenKey];
-                    this.TokenSecret = authTokenCookie.Values[OAuthTokenSecretKey];
-                    this.UserGuid = authTokenCookie.Values[this.UserGuidKey];
-                }
+                return;
+            }
+
+            var values = QueryStringUtils.ParseQueryString(cookieValue);
+            if (values.Count == 0)
+            {
+                return;
+            }
+
+            this.AuthToken = values[OAuthTokenKey];
+            this.TokenSecret = values[OAuthTokenSecretKey];
+            if (!string.IsNullOrEmpty(this.UserGuidKey))
+            {
+                this.UserGuid = values[this.UserGuidKey];
             }
         }
 
@@ -473,56 +624,55 @@ namespace DotNetNuke.Services.Authentication.OAuth
             return new Uri($"{url}{separator}{parameters}");
         }
 
-        private AuthorisationResult AuthorizeV1()
+        private async Task<AuthorisationResult> AuthorizeV1Async()
         {
             if (!this.IsCurrentUserAuthorized())
             {
                 if (!this.HaveVerificationCode())
                 {
-                    string ret = null;
-
-                    string response = this.RequestToken();
-
-                    if (!string.IsNullOrWhiteSpace(response))
-                    {
-                        // response contains token and token secret. We only need the token.
-                        NameValueCollection qs = HttpUtility.ParseQueryString(response);
-
-                        if (qs[OAuthCallbackConfirmedKey] != null)
-                        {
-                            if (qs[OAuthCallbackConfirmedKey] != "true")
-                            {
-                                throw new OAuthException("OAuth callback not confirmed.");
-                            }
-                        }
-
-                        if (qs[OAuthTokenKey] != null)
-                        {
-                            ret = this.AuthorizationEndpoint + "?" + OAuthTokenKey + "=" + qs[OAuthTokenKey];
-
-                            this.AuthToken = qs[OAuthTokenKey];
-                            this.TokenSecret = qs[OAuthTokenSecretKey];
-                            this.SaveTokenCookie("_request");
-                        }
-                    }
+                    // The request-token leg, the callback-confirmed check and the "_request"
+                    // token cookie live in GetAuthorizationUrlAsync, so this redirect and a
+                    // login component's link can never request different things. This is the
+                    // same single-source-of-truth split OAuth 2.0 already uses via
+                    // GetAuthorizationParameters.
+                    string ret = await this.GetAuthorizationUrlAsync();
 
                     if (ret != null)
                     {
-                        HttpContext.Current.Response.Redirect(ret, true);
+                        HttpContextSource.CurrentOrThrow.Response.Redirect(ret);
                     }
 
                     return AuthorisationResult.RequestingCode;
                 }
 
-                this.ExchangeRequestTokenForToken();
+                await this.ExchangeRequestTokenForTokenAsync();
             }
 
             return AuthorisationResult.Authorized;
         }
 
-        private AuthorisationResult AuthorizeV2()
+        /// <summary>Builds the OAuth 2.0 authorization request parameters.</summary>
+        /// <returns>The query parameters, in the order the WebForms implementation sent them.</returns>
+        /// <remarks>
+        /// Shared by <see cref="AuthorizeV2Async"/> (which redirects to them) and
+        /// <see cref="GetAuthorizationUrl"/> (which hands them to a login component as a link),
+        /// so the requested scope and the callback can never differ between the two paths.
+        /// </remarks>
+        private List<QueryParameter> GetAuthorizationParameters()
         {
-            string errorReason = HttpContext.Current.Request.Params["error_reason"];
+            return new List<QueryParameter>
+            {
+                new QueryParameter("scope", this.Scope),
+                new QueryParameter(OAuthClientIdKey, this.APIKey),
+                new QueryParameter(OAuthRedirectUriKey, WebUtility.UrlEncode(this.CallbackUri.ToString())),
+                new QueryParameter("state", this.Service),
+                new QueryParameter("response_type", "code"),
+            };
+        }
+
+        private async Task<AuthorisationResult> AuthorizeV2Async()
+        {
+            string errorReason = GetRequestValue("error_reason");
             bool userDenied = errorReason != null;
             if (userDenied)
             {
@@ -531,33 +681,24 @@ namespace DotNetNuke.Services.Authentication.OAuth
 
             if (!this.HaveVerificationCode())
             {
-                var parameters = new List<QueryParameter>
-                {
-                    new QueryParameter("scope", this.Scope),
-                    new QueryParameter(OAuthClientIdKey, this.APIKey),
-                    new QueryParameter(OAuthRedirectUriKey, HttpContext.Current.Server.UrlEncode(this.CallbackUri.ToString())),
-                    new QueryParameter("state", this.Service),
-                    new QueryParameter("response_type", "code"),
-                };
-
-                HttpContext.Current.Response.Redirect(this.AuthorizationEndpoint + "?" + parameters.ToNormalizedString(), false);
+                HttpContextSource.CurrentOrThrow.Response.Redirect(this.GetAuthorizationUrl());
                 return AuthorisationResult.RequestingCode;
             }
 
-            this.ExchangeCodeForToken();
+            await this.ExchangeCodeForTokenAsync();
 
             return string.IsNullOrEmpty(this.AuthToken) ? AuthorisationResult.Denied : AuthorisationResult.Authorized;
         }
 
-        private void ExchangeCodeForToken()
+        private async Task ExchangeCodeForTokenAsync()
         {
             var parameters = new List<QueryParameter>
             {
                 new QueryParameter(OAuthClientIdKey, this.APIKey),
-                new QueryParameter(OAuthRedirectUriKey, HttpContext.Current.Server.UrlEncode(this.CallbackUri.ToString())),
+                new QueryParameter(OAuthRedirectUriKey, WebUtility.UrlEncode(this.CallbackUri.ToString())),
 
                 // DNN-6265 Support for OAuth V2 Secrets which are not URL Friendly
-                new QueryParameter(OAuthClientSecretKey, HttpContext.Current.Server.UrlEncode(this.APISecret)),
+                new QueryParameter(OAuthClientSecretKey, WebUtility.UrlEncode(this.APISecret)),
                 new QueryParameter(OAuthGrantTypeKey, "authorization_code"),
                 new QueryParameter(OAuthCodeKey, this.VerificationCode),
             };
@@ -568,22 +709,22 @@ namespace DotNetNuke.Services.Authentication.OAuth
                 parameters.Add(new QueryParameter("resource", this.APIResource));
             }
 
-            var responseText = this.ExecuteWebRequest(this.TokenMethod, this.TokenEndpoint, parameters.ToNormalizedString(), string.Empty);
+            var responseText = await this.ExecuteWebRequestAsync(this.TokenMethod, this.TokenEndpoint, parameters.ToNormalizedString(), string.Empty);
 
             this.AuthToken = this.GetToken(responseText);
             this.AuthTokenExpiry = this.GetExpiry(responseText);
         }
 
-        private void ExchangeRequestTokenForToken()
+        private async Task ExchangeRequestTokenForTokenAsync()
         {
             this.LoadTokenCookie("_request");
 
-            string response = this.ExecuteAuthorizedRequest(HttpMethod.POST, this.TokenEndpoint);
+            string response = await this.ExecuteAuthorizedRequestAsync(HttpMethod.POST, this.TokenEndpoint);
 
             if (response.Length > 0)
             {
                 // Store the Token and Token Secret
-                NameValueCollection qs = HttpUtility.ParseQueryString(response);
+                NameValueCollection qs = QueryStringUtils.ParseQueryString(response);
                 if (qs[OAuthTokenKey] != null)
                 {
                     this.AuthToken = qs[OAuthTokenKey];
@@ -601,7 +742,7 @@ namespace DotNetNuke.Services.Authentication.OAuth
             }
         }
 
-        private string ExecuteAuthorizedRequest(HttpMethod method, Uri uri)
+        private async Task<string> ExecuteAuthorizedRequestAsync(HttpMethod method, Uri uri)
         {
             string outUrl;
             List<QueryParameter> requestParameters;
@@ -639,80 +780,129 @@ namespace DotNetNuke.Services.Authentication.OAuth
                 headerParameters.Add(new QueryParameter(OAuthVerifierKey, this.OAuthVerifier));
             }
 
-            string ret = this.ExecuteWebRequest(method, uri, string.Empty, headerParameters.ToAuthorizationString());
+            string ret = await this.ExecuteWebRequestAsync(method, uri, string.Empty, headerParameters.ToAuthorizationString());
 
             return ret;
         }
 
-        private string ExecuteWebRequest(HttpMethod method, Uri uri, string parameters, string authHeader)
+        /// <summary>
+        /// Executes an HTTP request against the OAuth provider using a pooled
+        /// <see cref="HttpClient"/> from <see cref="IHttpClientFactory"/>.
+        /// </summary>
+        /// <param name="method">The HTTP method.</param>
+        /// <param name="uri">The target URI.</param>
+        /// <param name="parameters">The form-encoded parameters (body for POST, query string otherwise).</param>
+        /// <param name="authHeader">The raw value for the <c>Authorization</c> header, if any.</param>
+        /// <returns>The response body, or <see langword="null"/> when the request failed.</returns>
+        private async Task<string> ExecuteWebRequestAsync(HttpMethod method, Uri uri, string parameters, string authHeader)
         {
-            WebRequest request;
+            HttpRequestMessage request;
 
             if (method == HttpMethod.POST)
             {
-                byte[] byteArray = Encoding.UTF8.GetBytes(parameters);
-
-                request = WebRequest.CreateDefault(uri);
-                request.Method = "POST";
-                request.ContentType = "application/x-www-form-urlencoded";
-
-                ////request.ContentType = "text/xml";
-                request.ContentLength = byteArray.Length;
+                request = new HttpRequestMessage(SystemHttpMethod.Post, uri)
+                {
+                    Content = new StringContent(parameters ?? string.Empty, Encoding.UTF8, "application/x-www-form-urlencoded"),
+                };
 
                 if (!string.IsNullOrEmpty(this.OAuthHeaderCode))
                 {
                     byte[] api64 = Encoding.UTF8.GetBytes(this.APIKey + ":" + this.APISecret);
-                    string api64Encoded = System.Convert.ToBase64String(api64);
+                    string api64Encoded = Convert.ToBase64String(api64);
 
                     // Authentication providers needing an "Authorization: Basic/bearer base64(clientID:clientSecret)" header. OAuthHeaderCode might be: Basic/Bearer/empty.
-                    request.Headers.Add("Authorization: " + this.OAuthHeaderCode + " " + api64Encoded);
-                }
-
-                if (!string.IsNullOrEmpty(parameters))
-                {
-                    Stream dataStream = request.GetRequestStream();
-                    dataStream.Write(byteArray, 0, byteArray.Length);
-                    dataStream.Close();
+                    request.Headers.Authorization = new AuthenticationHeaderValue(this.OAuthHeaderCode, api64Encoded);
                 }
             }
             else
             {
-                request = WebRequest.CreateDefault(GenerateRequestUri(uri.ToString(), parameters));
+                request = new HttpRequestMessage(
+                    ToSystemHttpMethod(method),
+                    GenerateRequestUri(uri.ToString(), parameters));
             }
 
-            // Add Headers
+            // Add Headers — the OAuth 1 signature is passed as a pre-built Authorization value.
             if (!string.IsNullOrEmpty(authHeader))
             {
-                request.Headers.Add(HttpRequestHeader.Authorization, authHeader);
+                request.Headers.TryAddWithoutValidation("Authorization", authHeader);
             }
+
+            var client = this.httpClientFactory.CreateClient(HttpClientName);
 
             try
             {
-                using (WebResponse response = request.GetResponse())
+                using (request)
+                using (var response = await client.SendAsync(request))
                 {
-                    using (Stream responseStream = response.GetResponseStream())
+                    var responseContent = await response.Content.ReadAsStringAsync();
+                    if (!response.IsSuccessStatusCode)
                     {
-                        if (responseStream != null)
-                        {
-                            using (var responseReader = new StreamReader(responseStream))
-                            {
-                                return responseReader.ReadToEnd();
-                            }
-                        }
+                        Logger.OAuthClientBaseWebResponseException(
+                            new HttpRequestException($"The OAuth provider returned {(int)response.StatusCode} ({response.ReasonPhrase}) for {uri}."),
+                            responseContent);
+                        return null;
                     }
+
+                    return responseContent;
                 }
             }
-            catch (WebException ex)
+            catch (HttpRequestException ex)
             {
-                using var responseStream = ex.Response.GetResponseStream();
-                if (responseStream != null)
-                {
-                    using var responseReader = new StreamReader(responseStream);
-                    Logger.OAuthClientBaseWebResponseException(ex, responseReader.ReadToEnd());
-                }
+                Logger.OAuthClientBaseWebResponseException(ex, ex.Message);
+            }
+            catch (TaskCanceledException ex)
+            {
+                // The HttpClient timeout surfaces as a cancellation.
+                Logger.OAuthClientBaseWebResponseException(ex, ex.Message);
             }
 
             return null;
+        }
+
+        /// <summary>Maps DNN's <see cref="HttpMethod"/> enum onto <see cref="SystemHttpMethod"/>.</summary>
+        private static SystemHttpMethod ToSystemHttpMethod(HttpMethod method)
+        {
+            switch (method)
+            {
+                case HttpMethod.POST:
+                    return SystemHttpMethod.Post;
+                case HttpMethod.PUT:
+                    return SystemHttpMethod.Put;
+                case HttpMethod.DELETE:
+                    return SystemHttpMethod.Delete;
+                default:
+                    return SystemHttpMethod.Get;
+            }
+        }
+
+        /// <summary>
+        /// The ASP.NET Core replacement for the legacy <c>Request.Params[key]</c> collection, which
+        /// searched the query string, then the form, then the cookies.
+        /// </summary>
+        private static string GetRequestValue(string key)
+        {
+            var request = HttpContextSource.Current?.Request;
+            if (request == null)
+            {
+                return null;
+            }
+
+            var value = request.Query[key].ToString();
+            if (!string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            if (request.HasFormContentType)
+            {
+                value = request.Form[key].ToString();
+                if (!string.IsNullOrEmpty(value))
+                {
+                    return value;
+                }
+            }
+
+            return request.Cookies.TryGetValue(key, out var cookieValue) ? cookieValue : null;
         }
 
         private string GenerateSignatureBase(Uri url, string token, string callbackUrl, string oauthVerifier, string httpMethod, string timeStamp, string nonce, out string normalizedUrl, out List<QueryParameter> requestParameters)
@@ -768,7 +958,7 @@ namespace DotNetNuke.Services.Authentication.OAuth
             return signatureBase.ToString();
         }
 
-        private string RequestToken()
+        private async Task<string> RequestTokenAsync()
         {
             string nonce = this.GenerateNonce();
             string timeStamp = this.GenerateTimeStamp();
@@ -796,20 +986,37 @@ namespace DotNetNuke.Services.Authentication.OAuth
                                            new QueryParameter(OAuthVersionKey, this.OAuthVersion),
                                        };
 
-            string ret = this.ExecuteWebRequest(this.RequestTokenMethod, new Uri(outUrl), string.Empty, headerParameters.ToAuthorizationString());
+            string ret = await this.ExecuteWebRequestAsync(this.RequestTokenMethod, new Uri(outUrl), string.Empty, headerParameters.ToAuthorizationString());
 
             return ret;
         }
 
         private void SaveTokenCookie(string suffix)
         {
-            var authTokenCookie = new HttpCookie(this.AuthTokenName + suffix) { Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/" };
-            authTokenCookie.Values[OAuthTokenKey] = this.AuthToken;
-            authTokenCookie.Values[OAuthTokenSecretKey] = this.TokenSecret;
-            authTokenCookie.Values[this.UserGuidKey] = this.UserGuid;
+            var response = HttpContextSource.Current?.Response;
+            if (response == null)
+            {
+                throw new InvalidOperationException("The OAuth token cookie cannot be written because there is no HTTP response in flight.");
+            }
 
-            authTokenCookie.Expires = DateTime.Now.Add(this.AuthTokenExpiry);
-            HttpContext.Current.Response.SetCookie(authTokenCookie);
+            // ASP.NET Core has no sub-keyed cookies; store the same key/value payload ASP.NET
+            // wrote on the wire so the cookie format is unchanged.
+            var values = QueryStringUtils.ParseQueryString(string.Empty);
+            values[OAuthTokenKey] = this.AuthToken;
+            values[OAuthTokenSecretKey] = this.TokenSecret;
+            if (!string.IsNullOrEmpty(this.UserGuidKey))
+            {
+                values[this.UserGuidKey] = this.UserGuid;
+            }
+
+            response.Cookies.Append(
+                this.AuthTokenName + suffix,
+                values.ToString(),
+                new CookieOptions
+                {
+                    Path = CookiePath,
+                    Expires = DateTimeOffset.Now.Add(this.AuthTokenExpiry),
+                });
         }
     }
 }

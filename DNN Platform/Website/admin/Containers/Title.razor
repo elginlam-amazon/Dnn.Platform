@@ -1,0 +1,212 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Containers
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using System.Collections.Generic
+@using System.Net
+@using System.Threading.Tasks
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Services.Personalization
+@using DotNetNuke.UI.WebControls
+@using DotNetNuke.UI.WebControls.Components
+
+@inject IHostSettings HostSettings
+
+@*
+    Replaces title.ascx + Title.ascx.cs + Title.ascx.designer.cs.
+
+    The <%@ Register TagPrefix="dnn" Namespace="DotNetNuke.UI.WebControls" %> directive has no Blazor
+    equivalent: the dnn:DNNLabelEdit / DNN:DNNToolBar pair is rendered by the migrated DnnLabelEdit /
+    DnnToolBar components of DotNetNuke.WebControls, which carry the very same parameters the .ascx
+    attributes set (CssClass="Head", MouseOverCssClass="LabelEditOverClass",
+    LabelEditCssClass="LabelEditTextClass", EventName="none", LostFocusSave="false",
+    ToolBarId="titleToolbar", CssClass="eipbackimg containerTitle", ReuseToolbar="true",
+    DefaultButtonCssClass="eipbuttonbackimg", DefaultButtonHoverCssClass="eipborderhover"). The three
+    DNN:DNNToolBarButtons keep their IDs (tbEdit2 / tbSave2 / tbCancel2), control actions
+    (edit / save / cancel), tooltips (Edit / Update / Cancel) and CSS classes
+    (eipbutton_edit / eipbutton_save / eipbutton_cancel); they are built in code because they are the
+    objects the tool bar iterates, exactly as the WebForms Buttons collection was.
+    EnableViewState="False" has no equivalent - there is no view state.
+
+    *** SECURITY - PRESERVED VERBATIM ***
+    CanEditModule() is unchanged (old Title.ascx.cs:92-100): the module id sentinel check stays
+    "> Null.NullInteger" (a real ModuleId of 0 is still accepted), and the three conjuncts stay
+    Personalization.GetUserMode() == PortalSettings.Mode.Edit && TabPermissionController.CanAdminPage()
+    && !Globals.IsAdminControl(). It gates BOTH the inline editor being offered (the
+    EditEnabled/toolbar-visible branch of OnPreRender, old :85-89) and the write in UpdateTitle
+    (old :103-105). The rich-text branch keeps PortalSecurity.Instance.InputFilter(e.Text,
+    PortalSecurity.FilterFlag.NoScripting); the non rich-text branch keeps HtmlDecode, and the
+    display side keeps HtmlEncode when rich text is not allowed.
+*@
+
+@if (this.Visible)
+{
+    <DnnLabelEdit @ref="this.titleLabel"
+                  Id="titleLabel"
+                  CssClass="@this.TitleCssClass"
+                  MouseOverCssClass="LabelEditOverClass"
+                  LabelEditCssClass="LabelEditTextClass"
+                  EventName="none"
+                  LostFocusSave="false"
+                  EditEnabled="@this.editEnabled"
+                  Value="@this.titleText"
+                  OnUpdateLabel="this.UpdateTitleAsync" />
+
+    @if (this.toolbarVisible)
+    {
+        <DnnToolBar Id="titleToolbar"
+                    CssClass="eipbackimg containerTitle"
+                    ReuseToolBar="true"
+                    DefaultButtonCssClass="eipbuttonbackimg"
+                    DefaultButtonHoverCssClass="eipborderhover"
+                    Buttons="this.ToolBarButtons"
+                    SupportedActions="this.SupportedToolBarActions"
+                    OnButtonClick="this.ToolBarButtonClickAsync" />
+    }
+}
+
+@code {
+    private DnnLabelEdit titleLabel;
+    private IReadOnlyList<DNNToolBarButton> toolBarButtons;
+    private string titleText = string.Empty;
+    private bool editEnabled;
+    private bool toolbarVisible;
+
+    /// <summary>Gets the actions the title's inline editor understands.</summary>
+    /// <remarks>Replaces the <c>ToolBarId="titleToolbar"</c> attachment of the markup.</remarks>
+    protected string[] SupportedToolBarActions { get; } = { "edit", "save", "cancel" };
+
+    /// <summary>Gets the three buttons declared as DNN:DNNToolBarButton children in the markup.</summary>
+    protected IReadOnlyList<DNNToolBarButton> ToolBarButtons => this.toolBarButtons ??= BuildToolBarButtons();
+
+    /// <summary>Gets the CSS class applied to the element containing the title.</summary>
+    /// <remarks>
+    /// Was the control's own <c>CssClass</c> property, which <c>OnPreRender</c> copied onto
+    /// <c>titleLabel.CssClass</c> when it was set, the markup's <c>cssclass="Head"</c> otherwise.
+    /// It is the inherited <c>DnnComponentBase.CssClass</c> parameter here (declaring another one
+    /// would hide it), so the skin's <c>CssClass="..."</c> attribute keeps working.
+    /// </remarks>
+    private string TitleCssClass => string.IsNullOrEmpty(this.CssClass) ? "Head" : this.CssClass;
+
+    /// <inheritdoc />
+    protected override void OnPreRender(EventArgs e)
+    {
+        base.OnPreRender(e);
+
+        string moduleTitle = Null.NullString;
+        if (this.ModuleControl != null)
+        {
+            moduleTitle = Localization.LocalizeControlTitle(this.ModuleControl);
+        }
+
+        if (moduleTitle == Null.NullString)
+        {
+            moduleTitle = " ";
+        }
+
+        if (this.HostSettings.AllowRichTextModuleTitle)
+        {
+            this.titleText = moduleTitle;
+        }
+        else
+        {
+            this.titleText = WebUtility.HtmlEncode(moduleTitle);
+        }
+
+        this.editEnabled = false;
+        this.toolbarVisible = false;
+
+        if (this.CanEditModule() && this.PortalSettings.InlineEditorEnabled)
+        {
+            this.editEnabled = true;
+            this.toolbarVisible = true;
+        }
+    }
+
+    private static IReadOnlyList<DNNToolBarButton> BuildToolBarButtons()
+    {
+        return new[]
+        {
+            new DNNToolBarButton { ID = "tbEdit2", ControlAction = "edit", ToolTip = "Edit", CssClass = "eipbutton_edit" },
+            new DNNToolBarButton { ID = "tbSave2", ControlAction = "save", ToolTip = "Update", CssClass = "eipbutton_save" },
+            new DNNToolBarButton { ID = "tbCancel2", ControlAction = "cancel", ToolTip = "Cancel", CssClass = "eipbutton_cancel" },
+        };
+    }
+
+    private bool CanEditModule()
+    {
+        var canEdit = false;
+        if (this.ModuleControl != null && this.ModuleControl.ModuleContext.ModuleId > Null.NullInteger)
+        {
+            canEdit = (Personalization.GetUserMode() == PortalSettings.Mode.Edit) && TabPermissionController.CanAdminPage() && !Globals.IsAdminControl();
+        }
+
+        return canEdit;
+    }
+
+    /// <summary>Dispatches the tool bar's edit/save/cancel action to the inline editor.</summary>
+    /// <remarks>
+    /// Replaces the client side dispatch <c>dnn.controls.dnnlabeledit.js</c> performed when the
+    /// WebForms tool bar was attached to the label through <c>ToolBarId</c>.
+    /// </remarks>
+    private async Task ToolBarButtonClickAsync(DNNToolBarButton button)
+    {
+        if (this.titleLabel is null || button is null)
+        {
+            return;
+        }
+
+        switch (button.ControlAction)
+        {
+            case "edit":
+                this.titleLabel.BeginEdit();
+                break;
+            case "save":
+                await this.titleLabel.SaveAsync();
+                break;
+            case "cancel":
+                this.titleLabel.CancelEdit();
+                break;
+        }
+    }
+
+    private Task UpdateTitleAsync(DNNLabelEditEventArgs e)
+    {
+        this.UpdateTitle(this.titleLabel, e);
+        return Task.CompletedTask;
+    }
+
+    private void UpdateTitle(object source, DNNLabelEditEventArgs e)
+    {
+        if (this.CanEditModule())
+        {
+            ModuleInfo moduleInfo = ModuleController.Instance.GetModule(this.ModuleControl.ModuleContext.ModuleId, this.ModuleControl.ModuleContext.TabId, false);
+
+            if (this.HostSettings.AllowRichTextModuleTitle)
+            {
+#pragma warning disable CS0618 // PortalSecurity.FilterFlag.NoScripting is deprecated
+                var ps = PortalSecurity.Instance;
+                var mt = ps.InputFilter(e.Text, PortalSecurity.FilterFlag.NoScripting);
+                moduleInfo.ModuleTitle = mt;
+#pragma warning restore CS0618 // PortalSecurity.FilterFlag.NoScripting is deprecated
+            }
+            else
+            {
+                moduleInfo.ModuleTitle = WebUtility.HtmlDecode(e.Text);
+            }
+
+            ModuleController.Instance.UpdateModule(moduleInfo);
+        }
+    }
+}

@@ -6,8 +6,7 @@ namespace DotNetNuke.UI.Modules.Html5
     using System;
     using System.Globalization;
     using System.IO;
-    using System.Web;
-    using System.Web.UI;
+    using System.Net;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Modules;
@@ -20,9 +19,10 @@ namespace DotNetNuke.UI.Modules.Html5
     using DotNetNuke.Web.Client;
     using DotNetNuke.Web.Client.ClientResourceManagement;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
-    /// <summary>A WebForms control which outputs the content for a control using the HTML module pattern.</summary>
+    /// <summary>A component which outputs the content for a control using the HTML module pattern.</summary>
     /// <param name="html5File">The path to the HTML file.</param>
     /// <param name="businessControllerProvider">The business controller provider.</param>
     /// <param name="servicesFramework">The web API service framework.</param>
@@ -35,6 +35,7 @@ namespace DotNetNuke.UI.Modules.Html5
         private readonly IServicesFramework servicesFramework = servicesFramework ?? Globals.GetCurrentServiceProvider().GetRequiredService<IServicesFramework>();
         private readonly IHostSettings hostSettings = hostSettings ?? Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>();
         private string fileContent;
+        private HttpContext context;
 
         /// <summary>Initializes a new instance of the <see cref="Html5HostControl"/> class.</summary>
         /// <param name="html5File">The path to the HTML file.</param>
@@ -72,26 +73,31 @@ namespace DotNetNuke.UI.Modules.Html5
         {
             base.OnInit(e);
 
+            // Client resources are registered on the request now (they used to be registered on
+            // the WebForms Page); the context is captured here because it is null once the Blazor
+            // circuit is interactive.
+            this.context = HttpContextSource.Current;
+
             if (!string.IsNullOrEmpty(this.html5File))
             {
                 // Check if css file exists
                 var cssFile = Path.ChangeExtension(this.html5File, ".css");
                 if (this.FileExists(cssFile))
                 {
-                    ClientResourceManager.RegisterStyleSheet(this.Page, cssFile, FileOrder.Css.DefaultPriority);
+                    ClientResourceManager.RegisterStyleSheet(this.context, cssFile, FileOrder.Css.DefaultPriority);
                 }
 
                 // Check if js file exists
                 var jsFile = Path.ChangeExtension(this.html5File, ".js");
                 if (this.FileExists(jsFile))
                 {
-                    ClientResourceManager.RegisterScript(this.Page, jsFile, FileOrder.Js.DefaultPriority);
+                    ClientResourceManager.RegisterScript(this.context, jsFile, FileOrder.Js.DefaultPriority);
                 }
 
                 this.fileContent = this.GetFileContent(this.html5File);
 
                 this.ModuleActions = new ModuleActionCollection();
-                var tokenReplace = new Html5ModuleTokenReplace(this.Page, this.businessControllerProvider, this.html5File, this.ModuleContext, this.ModuleActions);
+                var tokenReplace = new Html5ModuleTokenReplace(this, this.businessControllerProvider, this.html5File, this.ModuleContext, this.ModuleActions);
                 this.fileContent = tokenReplace.ReplaceEnvironmentTokens(this.fileContent);
             }
 
@@ -106,7 +112,7 @@ namespace DotNetNuke.UI.Modules.Html5
 
             if (!string.IsNullOrEmpty(this.html5File))
             {
-                this.Controls.Add(new LiteralControl(HttpUtility.HtmlDecode(this.fileContent)));
+                this.Controls.Add(new DnnLiteralControl(WebUtility.HtmlDecode(this.fileContent)));
             }
         }
 
@@ -119,7 +125,7 @@ namespace DotNetNuke.UI.Modules.Html5
         private string GetFileContent(string filepath)
         {
             var cacheKey = string.Format(CultureInfo.InvariantCulture, DataCache.SpaModulesContentHtmlFileCacheKey, filepath);
-            var absoluteFilePath = this.Page.Server.MapPath(filepath);
+            var absoluteFilePath = HttpContextSource.MapPath(filepath);
             var cacheItemArgs = new CacheItemArgs(cacheKey, DataCache.SpaModulesHtmlFileTimeOut, DataCache.SpaModulesHtmlFileCachePriority)
             {
                 CacheDependency = new DNNCacheDependency(absoluteFilePath),
@@ -136,7 +142,7 @@ namespace DotNetNuke.UI.Modules.Html5
             return CBO.GetCachedObject<bool>(
                 this.hostSettings,
                 new CacheItemArgs(cacheKey, DataCache.SpaModulesHtmlFileTimeOut, DataCache.SpaModulesHtmlFileCachePriority),
-                _ => File.Exists(this.Page.Server.MapPath(filepath)));
+                _ => File.Exists(HttpContextSource.MapPath(filepath)));
         }
     }
 }

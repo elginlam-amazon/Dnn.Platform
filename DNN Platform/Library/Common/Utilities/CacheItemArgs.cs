@@ -4,7 +4,6 @@
 namespace DotNetNuke.Common.Utilities
 {
     using System.Collections;
-    using System.Web.Caching;
 
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Services.Cache;

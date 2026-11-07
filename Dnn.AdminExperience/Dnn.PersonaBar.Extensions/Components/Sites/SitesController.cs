@@ -12,8 +12,6 @@ namespace Dnn.PersonaBar.Sites.Components
     using System.IO.Compression;
     using System.Linq;
     using System.Threading;
-    using System.Web;
-    using System.Web.UI.WebControls;
     using System.Xml;
 
     using Dnn.PersonaBar.Library.Controllers;
@@ -86,7 +84,7 @@ namespace Dnn.PersonaBar.Sites.Components
             }
 
             var httpAlias = Globals.AddHTTP(alias.HTTPAlias);
-            var originalUrl = HttpContext.Current.Items["UrlRewrite:OriginalUrl"];
+            var originalUrl = HttpContextSource.Current?.Items["UrlRewrite:OriginalUrl"];
 
             httpAlias = Globals.AddPort(httpAlias, originalUrl?.ToString().ToLowerInvariant() ?? httpAlias);
             return new List<HttpAliasDto> { new HttpAliasDto { Url = alias.HTTPAlias, Link = httpAlias } };
@@ -118,7 +116,10 @@ namespace Dnn.PersonaBar.Sites.Components
             return PortalTemplateController.Instance.GetPortalTemplate(fileName, cultureCode);
         }
 
-        public ListItem CreateListItem(IPortalTemplateInfo template)
+        /// <summary>Creates a text/value pair describing the given portal template.</summary>
+        /// <param name="template">The portal template.</param>
+        /// <returns>A <see cref="ListItemInfo"/> with the display text and the composite value.</returns>
+        public ListItemInfo CreateListItem(IPortalTemplateInfo template)
         {
             string text, value;
             var fileName = Path.GetFileName(template.TemplateFilePath);
@@ -151,7 +152,7 @@ namespace Dnn.PersonaBar.Sites.Components
                 value = $"{fileName}|{template.CultureCode}|{GetThumbnail(fileName)}";
             }
 
-            return new ListItem(text, value);
+            return new ListItemInfo(text, value);
         }
 
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
@@ -239,7 +240,7 @@ namespace Dnn.PersonaBar.Sites.Components
             var intPortalId = -1;
 
             // check template validity
-            var schemaFilename = HttpContext.Current.Server.MapPath("~/Components/Portals/portal.template.xsd");
+            var schemaFilename = HttpContextSource.MapPath("~/Components/Portals/portal.template.xsd");
             var xmlFilename = template.TemplateFilePath;
             var xval = new PortalTemplateValidator();
             if (!xval.Validate(xmlFilename, schemaFilename))
@@ -492,9 +493,10 @@ namespace Dnn.PersonaBar.Sites.Components
         {
             try
             {
-                if (HttpContext.Current != null && HttpContext.Current.Items.Contains("CreatingPortalId"))
+                var httpContext = HttpContextSource.Current;
+                if (httpContext != null && httpContext.Items.ContainsKey("CreatingPortalId"))
                 {
-                    var creatingPortalId = Convert.ToInt32(HttpContext.Current.Items["CreatingPortalId"], CultureInfo.InvariantCulture);
+                    var creatingPortalId = Convert.ToInt32(httpContext.Items["CreatingPortalId"], CultureInfo.InvariantCulture);
                     var portalInfo = PortalController.Instance.GetPortal(creatingPortalId);
                     PortalController.DeletePortal(portalInfo, serverPath);
                 }

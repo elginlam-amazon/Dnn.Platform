@@ -18,11 +18,7 @@ namespace DotNetNuke.Common.Utilities
     using ICSharpCode.SharpZipLib.Zip;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
-
-    using Directory = SchwabenCode.QuickIO.QuickIODirectory;
-    using DirectoryInfo = SchwabenCode.QuickIO.QuickIODirectoryInfo;
-    using File = SchwabenCode.QuickIO.QuickIOFile;
-
+
     /// <summary>File System utilities.</summary>
     public partial class FileSystemUtils
     {
@@ -92,12 +88,12 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>A <see cref="Task"/> indicating completion.</returns>
         public static async Task CopyFileAsync(string sourceFileName, string destFileName)
         {
-            if (await File.ExistsAsync(destFileName))
+            if (await Task.Run(() => File.Exists(destFileName)))
             {
-                await File.SetAttributesAsync(destFileName, FileAttributes.Normal);
+                await Task.Run(() => File.SetAttributes(destFileName, FileAttributes.Normal));
             }
 
-            await File.CopyAsync(sourceFileName, destFileName, true);
+            await Task.Run(() => File.Copy(sourceFileName, destFileName, true));
         }
 
         /// <summary>
@@ -162,7 +158,7 @@ namespace DotNetNuke.Common.Utilities
         public static async Task<bool> DeleteFileWithWaitAsync(string fileName, short waitInMilliseconds, short maxAttempts, CancellationToken cancellationToken = default)
         {
             fileName = FixPath(fileName);
-            if (!await File.ExistsAsync(fileName))
+            if (!await Task.Run(() => File.Exists(fileName)))
             {
                 return true;
             }
@@ -179,9 +175,9 @@ namespace DotNetNuke.Common.Utilities
                 i = i + 1;
                 try
                 {
-                    if (await File.ExistsAsync(fileName))
+                    if (await Task.Run(() => File.Exists(fileName)))
                     {
-                        await File.DeleteAsync(fileName);
+                        await Task.Run(() => File.Delete(fileName));
                     }
 
                     fileDeleted = true; // we don't care if it didn't exist...the operation didn't fail, that's what we care about
@@ -219,10 +215,10 @@ namespace DotNetNuke.Common.Utilities
         public static async Task DeleteFileAsync(string fileName)
         {
             fileName = FixPath(fileName);
-            if (await File.ExistsAsync(fileName))
+            if (await Task.Run(() => File.Exists(fileName)))
             {
-                await File.SetAttributesAsync(fileName, FileAttributes.Normal);
-                await File.DeleteAsync(fileName);
+                await Task.Run(() => File.SetAttributes(fileName, FileAttributes.Normal));
+                await Task.Run(() => File.Delete(fileName));
             }
         }
 
@@ -275,7 +271,7 @@ namespace DotNetNuke.Common.Utilities
                     var destDir = Path.Combine(destPath, relativeDir);
                     if (!Directory.Exists(destDir))
                     {
-                        Directory.Create(destDir, true);
+                        Directory.CreateDirectory(destDir);
                     }
                 }
 
@@ -337,9 +333,9 @@ namespace DotNetNuke.Common.Utilities
                 if (!string.IsNullOrEmpty(relativeDir))
                 {
                     var destDir = Path.Combine(destPath, relativeDir);
-                    if (!await Directory.ExistsAsync(destDir))
+                    if (!await Task.Run(() => Directory.Exists(destDir)))
                     {
-                        await Directory.CreateAsync(destDir, true);
+                        await Task.Run(() => Directory.CreateDirectory(destDir));
                     }
                 }
 
@@ -351,10 +347,10 @@ namespace DotNetNuke.Common.Utilities
                 var fileNamePath = FixPath(Path.Combine(destPath, localFileName));
                 try
                 {
-                    if (await File.ExistsAsync(fileNamePath))
+                    if (await Task.Run(() => File.Exists(fileNamePath)))
                     {
-                        await File.SetAttributesAsync(fileNamePath, FileAttributes.Normal);
-                        await File.DeleteAsync(fileNamePath);
+                        await Task.Run(() => File.SetAttributes(fileNamePath, FileAttributes.Normal));
+                        await Task.Run(() => File.Delete(fileNamePath));
                     }
 
                     using var fileStream = File.Open(fileNamePath, FileMode.CreateNew);
@@ -391,17 +387,21 @@ namespace DotNetNuke.Common.Utilities
                     strPath = strPath.Substring(0, pos);
                 }
 
-                strPath = FixPath(strPath).TrimStart('\\');
+                // Both the leading separator and the containment check below use the host's own
+                // separator. Hard-coding the Windows one made every manifest path look rooted
+                // outside the application on a non-Windows host, so no folder could ever be
+                // removed and the "stay inside the application root" guard never actually ran.
+                strPath = FixPath(strPath).TrimStart(Path.DirectorySeparatorChar);
                 if (string.IsNullOrEmpty(strPath))
                 {
                     continue;
                 }
 
                 strPath = Path.Combine(appStatus.ApplicationMapPath, strPath);
-                if (strPath.EndsWith(@"\", StringComparison.Ordinal) && Directory.Exists(strPath))
+                if (strPath.EndsWith(Path.DirectorySeparatorChar) && Directory.Exists(strPath))
                 {
                     var directoryInfo = new System.IO.DirectoryInfo(strPath);
-                    var applicationPath = $@"{appStatus.ApplicationMapPath}\";
+                    var applicationPath = appStatus.ApplicationMapPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
                     if (!directoryInfo.FullName.StartsWith(applicationPath, StringComparison.OrdinalIgnoreCase) ||
                         directoryInfo.FullName.Equals(applicationPath, StringComparison.OrdinalIgnoreCase))
                     {
@@ -459,17 +459,21 @@ namespace DotNetNuke.Common.Utilities
                     strPath = strPath.Substring(0, pos);
                 }
 
-                strPath = FixPath(strPath).TrimStart('\\');
+                // Both the leading separator and the containment check below use the host's own
+                // separator. Hard-coding the Windows one made every manifest path look rooted
+                // outside the application on a non-Windows host, so no folder could ever be
+                // removed and the "stay inside the application root" guard never actually ran.
+                strPath = FixPath(strPath).TrimStart(Path.DirectorySeparatorChar);
                 if (string.IsNullOrEmpty(strPath))
                 {
                     continue;
                 }
 
                 strPath = Path.Combine(appStatus.ApplicationMapPath, strPath);
-                if (strPath.EndsWith(@"\", StringComparison.Ordinal) && await Directory.ExistsAsync(strPath))
+                if (strPath.EndsWith(Path.DirectorySeparatorChar) && await Task.Run(() => Directory.Exists(strPath)))
                 {
                     var directoryInfo = new System.IO.DirectoryInfo(strPath);
-                    var applicationPath = $@"{appStatus.ApplicationMapPath}\";
+                    var applicationPath = appStatus.ApplicationMapPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
                     if (!directoryInfo.FullName.StartsWith(applicationPath, StringComparison.OrdinalIgnoreCase) ||
                         directoryInfo.FullName.Equals(applicationPath, StringComparison.OrdinalIgnoreCase))
                     {
@@ -488,15 +492,15 @@ namespace DotNetNuke.Common.Utilities
                 }
                 else
                 {
-                    if (!await File.ExistsAsync(strPath))
+                    if (!await Task.Run(() => File.Exists(strPath)))
                     {
                         continue;
                     }
 
                     try
                     {
-                        await File.SetAttributesAsync(strPath, FileAttributes.Normal);
-                        await File.DeleteAsync(strPath);
+                        await Task.Run(() => File.SetAttributes(strPath, FileAttributes.Normal));
+                        await Task.Run(() => File.Delete(strPath));
                     }
                     catch (Exception ex)
                     {
@@ -525,7 +529,7 @@ namespace DotNetNuke.Common.Utilities
                 return;
             }
 
-            foreach (var strFolder in Directory.EnumerateDirectoryPaths(strRoot))
+            foreach (var strFolder in Directory.EnumerateDirectories(strRoot))
             {
                 var directory = new DirectoryInfo(strFolder);
                 if ((directory.Attributes & FileAttributes.Hidden) == 0 && (directory.Attributes & FileAttributes.System) == 0)
@@ -534,7 +538,7 @@ namespace DotNetNuke.Common.Utilities
                 }
             }
 
-            foreach (var strFile in Directory.EnumerateFilePaths(strRoot).Where(f => f.Contains(filter)))
+            foreach (var strFile in Directory.EnumerateFiles(strRoot).Where(f => f.Contains(filter)))
             {
                 try
                 {
@@ -560,12 +564,12 @@ namespace DotNetNuke.Common.Utilities
             }
 
             strRoot = FixPath(strRoot);
-            if (!await Directory.ExistsAsync(strRoot))
+            if (!await Task.Run(() => Directory.Exists(strRoot)))
             {
                 return;
             }
 
-            foreach (var strFolder in await Directory.EnumerateDirectoryPathsAsync(strRoot))
+            foreach (var strFolder in await Task.Run(() => Directory.EnumerateDirectories(strRoot)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var directory = new DirectoryInfo(strFolder);
@@ -575,7 +579,7 @@ namespace DotNetNuke.Common.Utilities
                 }
             }
 
-            foreach (var strFile in (await Directory.EnumerateFilePathsAsync(strRoot)).Where(f => f.Contains(filter)))
+            foreach (var strFile in (await Task.Run(() => Directory.EnumerateFiles(strRoot))).Where(f => f.Contains(filter)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -601,12 +605,12 @@ namespace DotNetNuke.Common.Utilities
                 return;
             }
 
-            foreach (var strFolder in Directory.EnumerateDirectoryPaths(strRoot))
+            foreach (var strFolder in Directory.EnumerateDirectories(strRoot))
             {
                 DeleteFolderRecursive(strFolder);
             }
 
-            foreach (var strFile in Directory.EnumerateFilePaths(strRoot))
+            foreach (var strFile in Directory.EnumerateFiles(strRoot))
             {
                 try
                 {
@@ -621,7 +625,7 @@ namespace DotNetNuke.Common.Utilities
 
             try
             {
-                Directory.SetAttributes(strRoot, FileAttributes.Normal);
+                File.SetAttributes(strRoot, FileAttributes.Normal);
                 Directory.Delete(strRoot);
             }
             catch (Exception ex)
@@ -638,19 +642,19 @@ namespace DotNetNuke.Common.Utilities
         public static async Task DeleteFolderRecursiveAsync(string strRoot, CancellationToken cancellationToken = default)
         {
             strRoot = FixPath(strRoot);
-            if (string.IsNullOrEmpty(strRoot) || !await Directory.ExistsAsync(strRoot))
+            if (string.IsNullOrEmpty(strRoot) || !await Task.Run(() => Directory.Exists(strRoot)))
             {
                 Logger.FileSystemUtilsFolderDoesNotExist(strRoot);
                 return;
             }
 
-            foreach (var strFolder in await Directory.EnumerateDirectoryPathsAsync(strRoot))
+            foreach (var strFolder in await Task.Run(() => Directory.EnumerateDirectories(strRoot)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 await DeleteFolderRecursiveAsync(strFolder, cancellationToken);
             }
 
-            foreach (var strFile in await Directory.EnumerateFilePathsAsync(strRoot))
+            foreach (var strFile in await Task.Run(() => Directory.EnumerateFiles(strRoot)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
@@ -666,8 +670,8 @@ namespace DotNetNuke.Common.Utilities
 
             try
             {
-                await Directory.SetAttributesAsync(strRoot, FileAttributes.Normal);
-                await Directory.DeleteAsync(strRoot);
+                await Task.Run(() => File.SetAttributes(strRoot, FileAttributes.Normal));
+                await Task.Run(() => Directory.Delete(strRoot));
             }
             catch (Exception ex)
             {
@@ -687,7 +691,7 @@ namespace DotNetNuke.Common.Utilities
             }
 
             // first take care of folders
-            foreach (var folder in Directory.EnumerateDirectoryPaths(path))
+            foreach (var folder in Directory.EnumerateDirectories(path))
             {
                 DeleteEmptyFoldersRecursive(folder);
             }
@@ -701,7 +705,7 @@ namespace DotNetNuke.Common.Utilities
             try
             {
                 // delete this empty folder
-                Directory.SetAttributes(path, FileAttributes.Normal);
+                File.SetAttributes(path, FileAttributes.Normal);
                 Directory.Delete(path);
             }
             catch (Exception ex)
@@ -716,21 +720,21 @@ namespace DotNetNuke.Common.Utilities
         /// <returns>A <see cref="Task"/> indicating completion.</returns>
         public static async Task DeleteEmptyFoldersRecursiveAsync(string path, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(path) || !await Directory.ExistsAsync(path))
+            if (string.IsNullOrWhiteSpace(path) || !await Task.Run(() => Directory.Exists(path)))
             {
                 Logger.FileSystemUtilsFolderDoesNotExist(path);
                 return;
             }
 
             // first take care of folders
-            foreach (var folder in await Directory.EnumerateDirectoryPathsAsync(path))
+            foreach (var folder in await Task.Run(() => Directory.EnumerateDirectories(path)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 await DeleteEmptyFoldersRecursiveAsync(folder, cancellationToken);
             }
 
             // if any files or folders left, return
-            if ((await Directory.EnumerateFileSystemEntriesAsync(path)).Any())
+            if ((await Task.Run(() => Directory.EnumerateFileSystemEntries(path))).Any())
             {
                 return;
             }
@@ -738,8 +742,8 @@ namespace DotNetNuke.Common.Utilities
             try
             {
                 // delete this empty folder
-                await Directory.SetAttributesAsync(path, FileAttributes.Normal);
-                await Directory.DeleteAsync(path);
+                await Task.Run(() => File.SetAttributes(path, FileAttributes.Normal));
+                await Task.Run(() => Directory.Delete(path));
             }
             catch (Exception ex)
             {
@@ -749,10 +753,19 @@ namespace DotNetNuke.Common.Utilities
 
         /// <summary>Fixes the path in case the path separator is not windows style.</summary>
         /// <param name="input">The path to fix.</param>
-        /// <returns>A valid Windows path.</returns>
+        /// <returns>The path with every separator normalized to the host's directory separator.</returns>
         public static string FixPath(string input)
         {
-            return string.IsNullOrEmpty(input) ? input : input.Trim().Replace("/", @"\");
+            // Normalize to the host's separator rather than unconditionally to the Windows one:
+            // on System.Web this helper only ever ran on Windows, where '/' had to become '\\';
+            // on a non-Windows host the same substitution turned a perfectly good path into a
+            // single file name containing backslashes, so every File.Exists/Delete silently
+            // no-opped.
+            return string.IsNullOrEmpty(input)
+                ? input
+                : input.Trim()
+                       .Replace('/', Path.DirectorySeparatorChar)
+                       .Replace('\\', Path.DirectorySeparatorChar);
         }
 
         /// <summary>Adds a file to a zip.</summary>
@@ -819,7 +832,7 @@ namespace DotNetNuke.Common.Utilities
                     var relativeDir = Path.GetDirectoryName(zipEntry.Name);
                     if (!string.IsNullOrEmpty(relativeDir) && (!Directory.Exists(Path.Combine(destPath, relativeDir))))
                     {
-                        Directory.Create(Path.Combine(destPath, relativeDir), true);
+                        Directory.CreateDirectory(Path.Combine(destPath, relativeDir));
                     }
 
                     if (!zipEntry.IsDirectory && (!string.IsNullOrEmpty(localFileName)))
@@ -836,8 +849,7 @@ namespace DotNetNuke.Common.Utilities
                             FileStream objFileStream = null;
                             try
                             {
-                                File.Create(fileNamePath);
-                                objFileStream = File.Open(fileNamePath);
+                                objFileStream = File.Create(fileNamePath);
                                 var arrData = new byte[2048];
                                 var intSize = zipStream.Read(arrData, 0, arrData.Length);
                                 while (intSize > 0)

@@ -1,0 +1,153 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+@using DotNetNuke.Web.UI.WebControls
+
+@*
+    Replaces View.ascx. The <asp:UpdatePanel ID="MainUpdatePanel"> wrapper is gone: a Blazor
+    component re-renders its own diff, which is what the update panel emulated - and the module
+    manifest already declared supportsPartialRendering="False", so the panel never did a partial
+    postback here either. The <asp:MultiView> controls become the two switches below, keeping the
+    ActiveViewIndex semantics of the code behind exactly (outer: 0 RegularUserView,
+    1 NotInstalledView, 2 InstalledView, 3 UninstallReportView; inner: 0 InstalledButNotUsedView,
+    1 InstalledAndUsedView). The literal id "telerikRemoval" and the class names below are a
+    contract with module.css (#telerikRemoval, #telerikRemoval.running, #telerikRemoval .loading,
+    #uninstallReport) and with Scripts/telerikRemovalInterop.js, so they are reproduced verbatim.
+
+    Every DnnLabel is given its text already resolved through PortalModuleBase.LocalizeText and
+    Localize="false": the label's own localization mutates its Text parameter in place, which is
+    safe for the single WebForms render but not for a component that re-renders. The rendered
+    markup (a span carrying the same CssClass and the same localized text) is unchanged.
+*@
+
+<div id="telerikRemoval">
+    @* The spinner the .running overlay reveals; see module.css. *@
+    <div class="loading"></div>
+    @switch (this.ActiveViewIndex)
+    {
+        case 0: @* RegularUserView *@
+            <h1>
+                <DnnLabel ID="SuperUserRequiredHeadingLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("SuperUserRequiredHeading")" />
+            </h1>
+            <p>
+                <DnnLabel ID="SuperUserRequiredInfoLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("SuperUserRequiredInfo")" />
+            </p>
+            break;
+
+        case 1: @* NotInstalledView *@
+            <h1>
+                <DnnLabel ID="TelerikNotInstalledHeadingLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("TelerikNotInstalledHeading")" />
+            </h1>
+            <p>
+                <DnnLabel ID="TelerikNotInstalledInfoLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("TelerikNotInstalledInfo")" />
+            </p>
+            break;
+
+        case 2: @* InstalledView *@
+            <h1>
+                <DnnLabel ID="TelerikInstalledButNotUsedHeadingLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("TelerikInstalledHeading")" />
+            </h1>
+            <p>
+                <DnnLabel ID="TelerikInstalledDetectedLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("TelerikInstalledDetected")" />
+                @* The version is literal text, as Localize="False" declared in the .ascx. *@
+                <DnnLabel ID="TelerikInstalledVersionLabel" CssClass="dnnFormLabel telerikVersion" Localize="false" Text="@this.TelerikInstalledVersion" />
+            </p>
+            <p>
+                <DnnLabel ID="TelerikInstalledButNotUsedBulletinLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("TelerikInstalledBulletin")" />
+            </p>
+            @switch (this.InstalledViewIndex)
+            {
+                case 0: @* InstalledButNotUsedView *@
+                    <p>
+                        <DnnLabel ID="TelerikInstalledButNotUsedInfoLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("TelerikInstalledButNotUsedInfo")" />
+                    </p>
+                    <p>
+                        @* AutoPostBack="True" + OnCheckedChanged became the change callback; the
+                           wrapper still localizes its own Text through its ported fallback chain. *@
+                        <Dnn.Modules.TelerikRemoval.UserControls.DnnCheckBox ID="BackupConfirmationCheckBox"
+                                                                            AutoPostBack="true"
+                                                                            Text="BackupConfirmation"
+                                                                            LocalResourceFile="@this.LocalResourceFile"
+                                                                            Checked="@this.BackupConfirmed"
+                                                                            CheckedChangedCallback="this.BackupConfirmationCheckBox_CheckedChanged" />
+                    </p>
+                    <div>
+                        @* OnClientClick="this.disabled = true;" was the double submit guard; the
+                           click handler disables the button server side before Execute() runs. *@
+                        <Dnn.Modules.TelerikRemoval.UserControls.DnnTextButton ID="RemoveTelerikButton"
+                                                                              CssClass="dnnPrimaryAction"
+                                                                              DisabledCssClass="dnnPrimaryAction dnnDisabledAction"
+                                                                              Localize="false"
+                                                                              Text="@this.LocalizeText("RemoveTelerik")"
+                                                                              Enabled="@this.RemoveTelerikButtonEnabled"
+                                                                              ClickCallback="this.RemoveTelerikButton_Click" />
+                    </div>
+                    break;
+
+                case 1: @* InstalledAndUsedView *@
+                    <p>
+                        <DnnLabel ID="TelerikInstalledAndUsedInfoLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.TelerikInstalledAndUsedInfo" />
+                    </p>
+                    <div>
+                        @* Replaces the AssemblyListPlaceHolder filled by CreateTable(assemblies, maxRows: 3, maxColumns: 3). *@
+                        <table style="width:100%;">
+                            <tr>
+                                @foreach (var column in this.AssemblyColumns)
+                                {
+                                    <td style="@this.AssemblyCellStyle" valign="top">
+                                        <ul>
+                                            @foreach (var assembly in column)
+                                            {
+                                                <li>@assembly</li>
+                                            }
+                                        </ul>
+                                    </td>
+                                }
+                            </tr>
+                        </table>
+                    </div>
+                    <p>
+                        <DnnLabel ID="TelerikInstalledAndUsedWarningLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.TelerikInstalledAndUsedWarning" />
+                    </p>
+                    break;
+            }
+
+            break;
+
+        case 3: @* UninstallReportView *@
+            <h1>
+                <DnnLabel ID="UninstallReportHeadingLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("UninstallReportHeading")" />
+            </h1>
+            <p>
+                @* Localize="False" in the .ascx; the detail text is assigned, never a resource key. *@
+                <DnnLabel ID="UninstallReportDetailLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.UninstallReportDetail" />
+            </p>
+            <div>
+                <table id="uninstallReport">
+                    <thead>
+                        <tr>
+                            <th>
+                                <DnnLabel ID="UninstallReportStepColumnLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("UninstallReportStepColumn")" /></th>
+                            <th>
+                                <DnnLabel ID="UninstallReportResultColumnLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("UninstallReportResultColumn")" /></th>
+                            <th>
+                                <DnnLabel ID="UninstallReportNotesColumnLabel" CssClass="dnnFormLabel" Localize="false" Text="@this.LocalizeText("UninstallReportNotesColumn")" /></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @* Replaces <asp:Repeater ID="UninstallReportRepeater"> and its ItemTemplate. *@
+                        @foreach (var item in this.UninstallReport)
+                        {
+                            <tr>
+                                <td>@item.StepName</td>
+                                <td>@this.ConvertBooleanToIconMarkup(item.Success)</td>
+                                <td>@item.Notes</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            break;
+    }
+</div>

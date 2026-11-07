@@ -6,6 +6,7 @@ namespace DotNetNuke.Web.Client.ResourceManager.Models
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Net;
     using System.Text;
 
@@ -94,7 +95,7 @@ namespace DotNetNuke.Web.Client.ResourceManager.Models
             {
                 return path;
             }
-            else if (path.StartsWith("~", StringComparison.Ordinal))
+            else if (path.StartsWith('~'))
             {
                 if (string.IsNullOrEmpty(applicationPath))
                 {
@@ -105,7 +106,7 @@ namespace DotNetNuke.Web.Client.ResourceManager.Models
                     return $"{path.Replace("~", applicationPath)}?cdv={crmVersion}";
                 }
             }
-            else if (path.StartsWith("/", StringComparison.Ordinal))
+            else if (path.StartsWith('/'))
             {
                 return $"{path}?cdv={crmVersion}";
             }
@@ -177,7 +178,7 @@ namespace DotNetNuke.Web.Client.ResourceManager.Models
         {
             if (!string.IsNullOrEmpty(this.Integrity) && !this.Attributes.ContainsKey("integrity"))
             {
-                htmlString.Append($" integrity=\"{this.Integrity}\"");
+                htmlString.Append(CultureInfo.InvariantCulture, $" integrity=\"{this.Integrity}\"");
             }
         }
 
@@ -229,7 +230,7 @@ namespace DotNetNuke.Web.Client.ResourceManager.Models
         {
             if (!string.IsNullOrEmpty(this.Type) && !this.Attributes.ContainsKey("type"))
             {
-                htmlString.Append($" type=\"{this.Type}\"");
+                htmlString.Append(CultureInfo.InvariantCulture, $" type=\"{this.Type}\"");
             }
         }
 
@@ -241,11 +242,11 @@ namespace DotNetNuke.Web.Client.ResourceManager.Models
             {
                 if (attribute.Value is null)
                 {
-                    htmlString.Append($" {attribute.Key}");
+                    htmlString.Append(CultureInfo.InvariantCulture, $" {attribute.Key}");
                 }
                 else
                 {
-                    htmlString.Append($" {attribute.Key}=\"{attribute.Value}\"");
+                    htmlString.Append(CultureInfo.InvariantCulture, $" {attribute.Key}=\"{attribute.Value}\"");
                 }
             }
         }

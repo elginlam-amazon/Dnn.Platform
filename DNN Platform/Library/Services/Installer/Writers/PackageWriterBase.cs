@@ -148,7 +148,14 @@ namespace DotNetNuke.Services.Installer.Writers
 
             set
             {
-                this.basePath = value;
+                // Writers assign DNN-convention paths that use the Windows "\" separator (e.g.
+                // "Portals\\_default\\Containers\\Foo"), but BasePath is combined with the physical
+                // application path. On Linux a backslash is a legal file-name character rather than
+                // a separator, so the un-normalized value resolves to one non-existent directory and
+                // the package is written empty. Normalize to the local separator.
+                this.basePath = string.IsNullOrEmpty(value)
+                    ? value
+                    : value.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
             }
         }
 
@@ -637,7 +644,7 @@ namespace DotNetNuke.Services.Installer.Writers
                 }
                 else
                 {
-                    filepath = Path.Combine(Path.Combine(this.applicationStatusInfo.ApplicationMapPath, basePath), packageFile.FullName.Replace(basePath + @"\", string.Empty));
+                    filepath = Path.Combine(Path.Combine(this.applicationStatusInfo.ApplicationMapPath, basePath), packageFile.FullName.Replace(basePath + Path.DirectorySeparatorChar, string.Empty));
                 }
 
                 if (File.Exists(filepath))

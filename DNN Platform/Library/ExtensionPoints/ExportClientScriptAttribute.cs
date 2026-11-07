@@ -4,7 +4,7 @@
 
 namespace DotNetNuke.ExtensionPoints
 {
-    using System.ComponentModel.Composition;
+    using System.Composition;
 
     [MetadataAttribute]
     public class ExportClientScriptAttribute : ExportAttribute

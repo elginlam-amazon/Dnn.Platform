@@ -8,8 +8,6 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.DataAccess.Models;
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.Logging;
@@ -17,6 +15,9 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using DotNetNuke.Web.Api;
+    using Microsoft.AspNetCore.Mvc;
+
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for <see cref="EventLog"/>.</summary>
     /// <param name="eventLogManager">The event log manager.</param>
@@ -33,9 +34,9 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
         /// <param name="pageSize">The page size.</param>
         /// <param name="eventType">An event type to filter by, or <see langword="null"/>.</param>
         /// <param name="severity">A <see cref="EventLogSeverity"/> to filter by, or <see langword="null"/>.</param>
-        /// <returns>A response with a list of <see cref="EventLog"/> and pagination data.</returns>
+        /// <returns>A result with a list of <see cref="EventLog"/> and pagination data.</returns>
         [HttpGet]
-        public HttpResponseMessage Browse(int pageIndex = 0, int pageSize = 30, string eventType = null, EventLogSeverity? severity = null)
+        public IActionResult Browse(int pageIndex = 0, int pageSize = 30, string eventType = null, EventLogSeverity? severity = null)
         {
             // Get event logs.
             IEnumerable<EventLog> eventLogs = this.eventLogManager.Browse(pageIndex, pageSize, eventType, severity);
@@ -45,25 +46,25 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.WebAPI
             int pageCount = (int)Math.Ceiling(rowCount / (double)pageSize);
 
             var pagination = new { Pages = pageCount, CurrentPage = pageIndex, };
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Data = eventLogs, Pagination = pagination, });
+            return this.Ok(new { Data = eventLogs, Pagination = pagination, });
         }
 
         /// <summary>Gets the total count of events.</summary>
-        /// <returns>A response with the total count.</returns>
+        /// <returns>A result with the total count.</returns>
         [HttpGet]
-        public HttpResponseMessage Count()
+        public IActionResult Count()
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, this.eventLogManager.EventCount());
+            return this.Ok(this.eventLogManager.EventCount());
         }
 
         /// <summary>Gets the event types.</summary>
-        /// <returns>A response with a list of <see cref="string"/> values.</returns>
+        /// <returns>A result with a list of <see cref="string"/> values.</returns>
         [HttpGet]
-        public HttpResponseMessage EventTypes()
+        public IActionResult EventTypes()
         {
             List<string> eventTypes = this.eventLogManager.GetEventTypes().ToList();
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, eventTypes);
+            return this.Ok(eventTypes);
         }
     }
 }

@@ -1,144 +1,101 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
   <PropertyGroup>
-    <Deterministic>true</Deterministic>
-    <NuGetPackageImportStamp>
-    </NuGetPackageImportStamp>
-  </PropertyGroup>
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>8.0.30703</ProductVersion>
-    <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{B267CE88-DFFC-4BD8-9962-319E79C52526}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <OutputPath>bin/Providers</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>DotNetNuke.Providers.FolderProviders</RootNamespace>
     <AssemblyName>DotNetNuke.Providers.FolderProviders</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
-    <TargetFrameworkProfile />
-    <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\..\</SolutionDir>
-    <RestorePackages>true</RestorePackages>
+    <Configurations>Debug;Release;Cloud_Debug;Cloud_Release</Configurations>
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Retargeting net48 -> net10.0 newly enables a wave of net10-era analyzer diagnostics
+         that the net48 build never saw. Every id below is reported in PRE-EXISTING code this
+         migration did not change (Components/BaseRemoteStorageProvider.cs,
+         AzureFolderProvider/Constants.cs and the untouched CheckSettings / GetFileUrl /
+         GetObjectList bodies): CA1305/CA1309 culture-aware string.Format and comparisons,
+         CA1845/CA1865/CA2249 string performance suggestions, CA1852 sealed-type and CA1862
+         ToLowerInvariant suggestions, and CA2201 for the provider's own
+         "Settings cannot be found." exception, whose type is part of the behavior the
+         migration must preserve. They are follow-up code-quality debt, not migration
+         defects, which matches the convention already set by the migrated DotNetNuke.Library
+         and DotNetNuke.WebControls. Compiler diagnostics (CS*) deliberately remain errors. -->
+    <WarningsNotAsErrors>SA1600,CA1305,CA1309,CA1845,CA1852,CA1862,CA1865,CA2201,CA2249</WarningsNotAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- SolutionInfo.cs (linked below) carries the assembly attributes, as it did on net48. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- This is a Razor Class Library of Blazor components, not an MVC view assembly. -->
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+
+  <!-- The four original configurations are preserved, including the CLOUD constants. -->
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\Providers</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Providers\DotNetNuke.Providers.FolderProviders.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\Providers</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Providers\DotNetNuke.Providers.FolderProviders.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>SA1600</WarningsNotAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Cloud_Debug|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Cloud_Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\Providers</OutputPath>
     <DefineConstants>DEBUG;TRACE;CLOUD;CLOUD_DEBUG</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Providers\DotNetNuke.Providers.FolderProviders.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Cloud_Release|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Cloud_Release' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\Providers</OutputPath>
     <DefineConstants>TRACE;CLOUD;CLOUD_RELEASE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Providers\DotNetNuke.Providers.FolderProviders.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
   </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Net" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Xml" />
+    <!-- Cloud SDK Code Changes: Azure Blob Storage -> Amazon S3. -->
+    <PackageReference Include="AWSSDK.S3" />
   </ItemGroup>
+
   <ItemGroup>
-    <Compile Include="..\..\..\SolutionInfo.cs">
-      <Link>SolutionInfo.cs</Link>
-    </Compile>
-    <Compile Include="AzureFolderProvider\AzureFolderProvider.cs" />
-    <Compile Include="AzureFolderProvider\AzureBlob.cs" />
-    <Compile Include="AzureFolderProvider\AzureRemoteStorageItem.cs" />
-    <Compile Include="AzureFolderProvider\BlobItemExtensions.cs" />
-    <Compile Include="AzureFolderProvider\Constants.cs" />
-    <Compile Include="AzureFolderProvider\Settings.ascx.cs">
-      <DependentUpon>Settings.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="AzureFolderProvider\Settings.ascx.designer.cs">
-      <DependentUpon>Settings.ascx.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Components\BaseRemoteStorageProvider.cs" />
-    <Compile Include="Components\BusinessController.cs" />
-    <Compile Include="Components\IRemoteStorageItem.cs" />
-    <Compile Include="LoggerMessages.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
+    <!-- The Blazor component (AzureFolderProvider/Settings.razor) takes its
+         Microsoft.AspNetCore.Components types from the shared framework. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
   <ItemGroup>
+    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
+    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="..\..\..\stylecop.json" Link="stylecop.json" />
+    <Compile Include="..\..\..\SolutionInfo.cs" Link="SolutionInfo.cs" />
+  </ItemGroup>
+
+  <!-- Resources/AzureFolderProvider.Settings.resx is picked up by the SDK's default
+       EmbeddedResource glob; its logical name resolves to
+       DotNetNuke.Providers.FolderProviders.Resources.AzureFolderProvider.Settings, which is what
+       IStringLocalizer<Settings> probes for given the ResourcesPath "Resources" that
+       DotNetNuke.Library's Startup registers with AddLocalization. -->
+
+  <ItemGroup>
+    <!-- DNN extension package content (see Provider.build). -->
     <Content Include="09.02.00.txt" />
     <Content Include="AzureFolderProvider\images\FolderAzure_16x16_Standard.png" />
     <Content Include="AzureFolderProvider\images\FolderAzure_32x32_Standard.png" />
-    <AdditionalFiles Include="..\..\..\stylecop.json">
-      <Link>stylecop.json</Link>
-    </AdditionalFiles>
-    <None Include="FolderProviders.dnn">
-      <SubType>Designer</SubType>
-    </None>
-    <Content Include="AzureFolderProvider\Settings.ascx">
-      <SubType>ASPXCodeBehind</SubType>
-    </Content>
     <Content Include="license.txt" />
     <Content Include="releaseNotes.txt" />
-    <Content Include="Provider.build">
-      <SubType>Designer</SubType>
-    </Content>
+    <Content Include="Provider.build" />
+    <None Include="FolderProviders.dnn" />
   </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="AzureFolderProvider\App_LocalResources\Settings.ascx.resx" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj">
-      <Project>{6928a9b1-f88a-4581-a132-d3eb38669bb0}</Project>
-      <Name>DotNetNuke.Abstractions</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj">
-      <Project>{3cd5f6b8-8360-4862-80b6-f402892db7dd}</Project>
-      <Name>DotNetNuke.Instrumentation</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj">
-      <Project>{6b29aded-7b56-4484-bea5-c0e09079535b}</Project>
-      <Name>DotNetNuke.Library</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="WindowsAzure.Storage" />
-  </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
   <Import Project="Provider.build" />
 </Project>

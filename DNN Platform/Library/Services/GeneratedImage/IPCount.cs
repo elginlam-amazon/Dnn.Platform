@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -9,11 +9,12 @@ namespace DotNetNuke.Services.GeneratedImage
     using System.Globalization;
     using System.IO;
     using System.Threading;
-    using System.Web;
-    using System.Web.Hosting;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Services.UserRequest;
+
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Manages counting the number of times an IP address has been seen.</summary>
     public partial class IPCount
@@ -30,13 +31,23 @@ namespace DotNetNuke.Services.GeneratedImage
         {
             PurgeInterval = new TimeSpan(0, 10, 0);
             MaxCount = 500;
-            CachePath = HostingEnvironment.MapPath(CacheAppRelativePath);
         }
 
+        /// <summary>Gets or sets the physical directory the per-IP counters are written to.</summary>
+        /// <remarks>
+        /// Resolved lazily through <see cref="HttpContextSource.MapPath"/> (replacing
+        /// <c>HostingEnvironment.MapPath</c>) because on ASP.NET Core the hosting environment is
+        /// not yet available while static constructors run.
+        /// </remarks>
         public static string CachePath
         {
             get
             {
+                if (cachePath == null)
+                {
+                    CachePath = HttpContextSource.MapPath(CacheAppRelativePath) + Path.DirectorySeparatorChar;
+                }
+
                 return cachePath;
             }
 
@@ -65,11 +76,6 @@ namespace DotNetNuke.Services.GeneratedImage
 
             set
             {
-                if (value == null)
-                {
-                    throw new ArgumentNullException(nameof(value));
-                }
-
                 if (value.Ticks < 0)
                 {
                     throw new ArgumentOutOfRangeException(nameof(value));
@@ -134,7 +140,7 @@ namespace DotNetNuke.Services.GeneratedImage
                             }
                         }
 
-                        Thread.Sleep(0);
+                        Thread.Yield();
                         foreach (var file in toTryDeleteAgain)
                         {
                             try
@@ -181,7 +187,7 @@ namespace DotNetNuke.Services.GeneratedImage
         /// <param name="context">The HTTP context.</param>
         /// <returns>IP Address of visitor.</returns>
         [DnnDeprecated(9, 2, 0, "Use UserRequestIPAddressController.Instance.GetUserRequestIPAddress")]
-        public static partial string GetVisitorIPAddress(HttpContextBase context)
+        public static partial string GetVisitorIPAddress(HttpContext context)
         {
             return UserRequestIPAddressController.Instance.GetUserRequestIPAddress(context.Request);
         }

@@ -1,0 +1,317 @@
+@* ---------------------------------------------------------------------------------------------
+    DnnMultiStateBox — the Blazor replacement of the DotNetNuke.UI.WebControls.DNNMultiStateBox
+    control.
+
+    Render mode: InteractiveServer. Clicking the box cycles its state on the server and raises
+    ValueChanged, so the component needs an interactive circuit.
+
+    Ported from DNNMultiStateBox.cs:
+      * the state-bag/ClientProperty surface (SelectedStateKey, Text, Enabled, ImagePath,
+        BehaviorID) became [Parameter]s with the very same defaults the view state getters
+        returned; SelectedStateKey is now the two-way bindable Value,
+      * IPostBackDataHandler.LoadPostData / RaisePostDataChangedEvent (which read the posted key
+        out of the form collection and signalled the change) became the @bind-Value pair:
+        Value + ValueChanged. HttpContext is null over the circuit, so there is no form value to
+        read — the hidden input below keeps the value available to a host that still posts a form,
+        and ValueChanged is raised exactly where RaisePostDataChangedEvent used to fire,
+      * the state cycling of dnn.controls.dnnmultistatebox.js (next state, wrapping around the
+        DNNMultiStateCollection) became CycleAsync,
+      * the image-per-state rendering uses ImagePath + DNNMultiState.ImageUrl (or
+        DisabledImageUrl when the box is disabled), falling back to the state sprite that used to
+        be the embedded DotNetNuke.Web.UI.WebControls.DnnTree.bmp resource and is now an RCL
+        static web asset.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+@inherits DnnControlBase
+@rendermode InteractiveServer
+
+<span id="@this.ClientId" class="@this.CssClass" @ref="this.RootElementBinding">
+    <input type="hidden" name="@this.ClientId" value="@this.Value" />
+
+    @if (this.CurrentImageUrl is { Length: > 0 } imageUrl)
+    {
+        <img src="@imageUrl"
+             alt="@this.CurrentToolTip"
+             title="@this.CurrentToolTip"
+             class="@(this.Enabled ? "dnnMultiStateBox" : "dnnMultiStateBox dnnDisabled")"
+             style="cursor:@(this.Enabled ? "pointer" : "default");"
+             @onclick="this.CycleAsync" />
+    }
+    else
+    {
+        @* No per-state image: the sprite cell of the state is shown, which is what the embedded
+           DnnTree.bmp supplied to the client script. *@
+        <span class="dnnMultiStateBox"
+              role="checkbox"
+              aria-checked="@(this.SelectedIndex > 0 ? "true" : "false")"
+              title="@this.CurrentToolTip"
+              style="@this.SpriteStyle"
+              @onclick="this.CycleAsync"></span>
+    }
+
+    @if (!string.IsNullOrEmpty(this.CurrentText))
+    {
+        <label for="@this.ClientId">@this.CurrentText</label>
+    }
+</span>
+
+@code {
+    /// <summary>The width, in pixels, of one cell of the state sprite.</summary>
+    /// <remarks>REVIEW: behavior inferred from usage — verify against the sprite's own metrics.</remarks>
+    private const int SpriteCellSize = 16;
+
+    /// <summary>Gets or sets the key of the state the box currently shows.</summary>
+    /// <remarks>Replaces <c>DNNMultiStateBox.SelectedStateKey</c>; bind with <c>@@bind-Value</c>.</remarks>
+    [Parameter]
+    public string Value { get; set; }
+
+    /// <summary>Occurs when the state of the box changes.</summary>
+    /// <remarks>Replaces <c>IPostBackDataHandler.RaisePostDataChangedEvent</c>.</remarks>
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>Gets or sets the states the box cycles through.</summary>
+    /// <remarks>
+    /// Accepts the preserved <see cref="DNNMultiStateCollection"/> as well as any other sequence
+    /// of <see cref="DNNMultiState"/> instances.
+    /// </remarks>
+    [Parameter]
+    public IEnumerable States { get; set; }
+
+    /// <summary>Gets or sets the text rendered next to the box.</summary>
+    /// <remarks>
+    /// Left unset the text of the selected state is shown, which is what the WebForms control's
+    /// pre-render did.
+    /// </remarks>
+    [Parameter]
+    public string Text { get; set; }
+
+    /// <summary>Gets or sets the CSS class of the box.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets a value indicating whether the box can be cycled.</summary>
+    [Parameter]
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Gets or sets the directory holding the images of the states.</summary>
+    [Parameter]
+    public string ImagePath { get; set; } = "images/";
+
+    /// <summary>Gets or sets the client side behavior identifier of the box.</summary>
+    [Parameter]
+    public string BehaviorID { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the URL of the state sprite.</summary>
+    /// <remarks>
+    /// Defaults to the RCL static web asset that replaced the embedded
+    /// <c>DotNetNuke.Web.UI.WebControls.DnnTree.bmp</c> resource.
+    /// </remarks>
+    [Parameter]
+    public string SpriteUrl { get; set; } = "_content/DotNetNuke.WebControls/images/dnntree.bmp";
+
+    /// <summary>
+    /// Gets or sets the legacy control used as the source of the marshalled client properties.
+    /// </summary>
+    /// <remarks>Optional; only needed by hosts that still drive <c>dnn.controls.initMultiStateBox</c>.</remarks>
+    [Parameter]
+    public DNNMultiStateBox Control { get; set; }
+
+    /// <summary>Gets the states of the box as a list.</summary>
+    public IReadOnlyList<DNNMultiState> StateList
+    {
+        get
+        {
+            var list = new List<DNNMultiState>();
+            if (this.States is not null)
+            {
+                foreach (var item in this.States)
+                {
+                    if (item is DNNMultiState state)
+                    {
+                        list.Add(state);
+                    }
+                }
+            }
+
+            return list;
+        }
+    }
+
+    /// <summary>Gets the state the box currently shows.</summary>
+    /// <remarks>Ported from <c>DNNMultiStateBox.SelectedState</c>.</remarks>
+    public DNNMultiState SelectedState
+    {
+        get
+        {
+            var states = this.StateList;
+            if (states.Count == 0)
+            {
+                return null;
+            }
+
+            var key = this.CurrentKey;
+            foreach (var state in states)
+            {
+                if (string.Equals(state.Key, key, StringComparison.Ordinal))
+                {
+                    return state;
+                }
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>Gets the index of the selected state.</summary>
+    private int SelectedIndex
+    {
+        get
+        {
+            var states = this.StateList;
+            for (var index = 0; index < states.Count; index++)
+            {
+                if (string.Equals(states[index].Key, this.CurrentKey, StringComparison.Ordinal))
+                {
+                    return index;
+                }
+            }
+
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Gets the key of the selected state, falling back to the first state as the WebForms getter
+    /// did when the posted value was empty or the unchanged "on" of a check box.
+    /// </summary>
+    private string CurrentKey
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(this.Value) && this.Value != "on")
+            {
+                return this.Value;
+            }
+
+            var states = this.StateList;
+            return states.Count == 0 ? string.Empty : states[0].Key;
+        }
+    }
+
+    /// <summary>Gets the text rendered next to the box.</summary>
+    private string CurrentText =>
+        !string.IsNullOrEmpty(this.Text) ? this.Text : this.SelectedState?.Text;
+
+    /// <summary>Gets the tooltip of the selected state.</summary>
+    private string CurrentToolTip => this.SelectedState?.ToolTip ?? string.Empty;
+
+    /// <summary>Gets the image of the selected state, resolved against <see cref="ImagePath"/>.</summary>
+    private string CurrentImageUrl
+    {
+        get
+        {
+            var state = this.SelectedState;
+            if (state is null)
+            {
+                return string.Empty;
+            }
+
+            var image = this.Enabled || string.IsNullOrEmpty(state.DisabledImageUrl)
+                ? state.ImageUrl
+                : state.DisabledImageUrl;
+
+            if (string.IsNullOrEmpty(image))
+            {
+                return string.Empty;
+            }
+
+            if (image.Contains("://", StringComparison.Ordinal) || image.StartsWith('/'))
+            {
+                return image;
+            }
+
+            var path = this.ImagePath ?? string.Empty;
+            return path.Length == 0 || path.EndsWith('/') ? path + image : path + "/" + image;
+        }
+    }
+
+    /// <summary>Gets the style showing the sprite cell of the selected state.</summary>
+    private string SpriteStyle => string.Format(
+        CultureInfo.InvariantCulture,
+        "display:inline-block;width:{0}px;height:{0}px;background-image:url('{1}');background-position:-{2}px 0;cursor:{3};",
+        SpriteCellSize,
+        this.SpriteUrl,
+        this.SelectedIndex * SpriteCellSize,
+        this.Enabled ? "pointer" : "default");
+
+    /// <summary>Gets or sets the root element, exposing the protected base member to the markup.</summary>
+    private ElementReference RootElementBinding
+    {
+        get => this.RootElement;
+        set => this.RootElement = value;
+    }
+
+    /// <inheritdoc/>
+    protected override string ClientInitFunction => "initMultiStateBox";
+
+    /// <inheritdoc/>
+    protected override object ClientPropertySource => this.Control;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Marshals the states the way <c>DNNMultiStateBox.MarshalledProperties</c> did, so a host that
+    /// still drives the client script receives the very same payload.
+    /// </remarks>
+    protected override Hashtable GetClientProperties()
+    {
+        var properties = base.GetClientProperties();
+        properties["states"] = DotNetNuke.UI.Utilities.MSAJAX.Serialize(this.StateList);
+        return properties;
+    }
+
+    /// <summary>
+    /// Moves the box to its next state.
+    /// </summary>
+    /// <returns>A task that completes once the change has been raised.</returns>
+    /// <remarks>
+    /// Ported from the client script's cycling and from <c>LoadPostData</c>, which accepted a new
+    /// key and reported whether it differed from the current one.
+    /// </remarks>
+    public async Task CycleAsync()
+    {
+        var states = this.StateList;
+        if (!this.Enabled || states.Count == 0)
+        {
+            return;
+        }
+
+        var next = states[(this.SelectedIndex + 1) % states.Count];
+        await this.SetValueAsync(next.Key);
+    }
+
+    /// <summary>
+    /// Selects a state by its key.
+    /// </summary>
+    /// <param name="key">The key of the state to select.</param>
+    /// <returns><see langword="true"/> when the state changed, as <c>LoadPostData</c> returned.</returns>
+    public async Task<bool> SelectStateAsync(string key)
+    {
+        if (string.IsNullOrEmpty(key) || string.Equals(key, this.CurrentKey, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        await this.SetValueAsync(key);
+        return true;
+    }
+
+    /// <summary>Writes the new key and raises the change.</summary>
+    /// <param name="key">The key of the state to select.</param>
+    /// <returns>A task that completes once the change has been raised.</returns>
+    private async Task SetValueAsync(string key)
+    {
+        this.Value = key;
+        await this.ValueChanged.InvokeAsync(key);
+    }
+}

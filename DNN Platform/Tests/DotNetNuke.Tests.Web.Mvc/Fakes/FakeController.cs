@@ -4,11 +4,14 @@
 
 namespace DotNetNuke.Tests.Web.Mvc.Fakes
 {
-    using System.Web.Mvc;
+    using Microsoft.AspNetCore.Mvc;
 
+    /// <summary>A plain ASP.NET Core MVC controller, used to capture the result of a non-DNN action.</summary>
     public class FakeController : Controller
     {
-        public ActionResult Index()
+        /// <summary>The default action.</summary>
+        /// <returns>An empty <see cref="ViewResult"/>.</returns>
+        public IActionResult Index()
         {
             return new ViewResult();
         }

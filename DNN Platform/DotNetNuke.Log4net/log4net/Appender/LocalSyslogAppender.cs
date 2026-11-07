@@ -19,9 +19,6 @@
 // 
 
 // .NET Compact Framework 1.0 has no support for Marshal.StringToHGlobalAnsi
-// SSCLI 1.0 has no support for Marshal.StringToHGlobalAnsi
-#if !NETCF && !SSCLI
-
 using System;
 using System.Runtime.InteropServices;
 
@@ -61,6 +58,7 @@ namespace log4net.Appender
     /// </remarks>
     /// <author>Rob Lyon</author>
     /// <author>Nicko Cadell</author>
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
     public class LocalSyslogAppender : AppenderSkeleton 
     {
         /// <summary>syslog severities</summary>
@@ -242,9 +240,6 @@ namespace log4net.Appender
         /// <see cref="ActivateOptions"/> must be called again.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecuritySafeCritical]
-#endif
         public override void ActivateOptions()
         {
             base.ActivateOptions();
@@ -263,6 +258,15 @@ namespace log4net.Appender
             // handle will keep the heap ansi string alive.
             this.m_handleToIdentity = Marshal.StringToHGlobalAnsi(identString);
 
+            if (!IsSyslogSupported)
+            {
+                // The libc syslog functions only exist on Linux/macOS (POSIX). The appender
+                // stays configured so log4net configuration parsing never fails, but Append is
+                // a documented no-op on this platform.
+                LogLog.Warn(declaringType, "LocalSyslogAppender: the POSIX libc syslog API is only available on Linux and macOS; this appender is a no-op on the current platform.");
+                return;
+            }
+
             // open syslog
             openlog(this.m_handleToIdentity, 1, this.m_facility);
         }
@@ -277,14 +281,15 @@ namespace log4net.Appender
         /// The format of the output will depend on the appender's layout.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecuritySafeCritical]
-#endif
-#if !NETSTANDARD1_3
-        [System.Security.Permissions.SecurityPermission(System.Security.Permissions.SecurityAction.Demand, UnmanagedCode = true)]
-#endif
         protected override void Append(LoggingEvent loggingEvent) 
         {
+            if (!IsSyslogSupported)
+            {
+                // Documented no-op: the libc syslog API does not exist on this platform.
+                LogLog.Debug(declaringType, "LocalSyslogAppender: dropping event, the libc syslog API is not available on this platform.");
+                return;
+            }
+
             int priority = GeneratePriority(this.m_facility, this.GetSeverity(loggingEvent.Level));
             string message = this.RenderLoggingEvent(loggingEvent);
 
@@ -299,17 +304,17 @@ namespace log4net.Appender
         /// Close the syslog when the appender is closed
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecuritySafeCritical]
-#endif
         protected override void OnClose()
         {
             base.OnClose();
 
             try
             {
-                // close syslog
-                closelog();
+                if (IsSyslogSupported)
+                {
+                    // close syslog
+                    closelog();
+                }
             }
             catch(DllNotFoundException)
             {
@@ -409,6 +414,20 @@ namespace log4net.Appender
         private LevelMapping m_levelMapping = new LevelMapping();
 
         /// <summary>Open connection to system logger.</summary>
+        /// <summary>
+        /// <c>true</c> when the POSIX libc <c>openlog</c>/<c>syslog</c>/<c>closelog</c> functions
+        /// are available, i.e. on Linux and macOS.
+        /// </summary>
+        private static bool IsSyslogSupported
+        {
+            get { return OperatingSystem.IsLinux() || OperatingSystem.IsMacOS(); }
+        }
+
+        /// <summary>
+        /// The fully qualified type of the LocalSyslogAppender class.
+        /// </summary>
+        private static readonly Type declaringType = typeof(LocalSyslogAppender);
+
         [DllImport("libc")]
         private static extern void openlog(IntPtr ident, int option, SyslogFacility facility);
 
@@ -458,5 +477,3 @@ namespace log4net.Appender
         }
     }
 }
-
-#endif

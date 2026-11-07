@@ -5,12 +5,11 @@
 namespace DotNetNuke.Tests.Integration.Tests.DotNetNukeWeb
 {
     using System;
-    using System.Configuration;
     using System.Net;
     using System.Net.Http;
-    using System.Web;
 
     using DNN.Integration.Test.Framework;
+    using DNN.Integration.Test.Framework.Helpers;
     using NUnit.Framework;
 
     [TestFixture]
@@ -25,7 +24,7 @@ namespace DotNetNuke.Tests.Integration.Tests.DotNetNukeWeb
 
         public DotNetNukeWebTests()
         {
-            var url = ConfigurationManager.AppSettings["siteUrl"];
+            var url = AppConfigHelper.SiteUrl;
             var siteUri = new Uri(url);
             this._httpClient = new HttpClient { BaseAddress = siteUri, Timeout = this._timeout };
         }
@@ -42,7 +41,7 @@ namespace DotNetNuke.Tests.Integration.Tests.DotNetNukeWeb
         [TestCase(GetModuleDetailsQuery)]
         public void CallingHelperForAnonymousUserShouldReturnSuccess(string query)
         {
-            var result = this._httpClient.GetAsync(query + HttpUtility.UrlEncode("ViewProfile")).Result;
+            var result = this._httpClient.GetAsync(query + Uri.EscapeDataString("ViewProfile")).Result;
             var content = result.Content.ReadAsStringAsync().Result;
             LogText(@"content => " + content);
             Assert.That(result.StatusCode, Is.EqualTo(HttpStatusCode.OK));

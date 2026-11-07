@@ -8,7 +8,6 @@ namespace DotNetNuke.Services.ModuleCache
     using System.Collections.Generic;
     using System.Globalization;
     using System.Text;
-    using System.Web.Caching;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Services.Cache;
@@ -60,7 +59,7 @@ namespace DotNetNuke.Services.ModuleCache
         public override void SetModule(int tabModuleId, string cacheKey, TimeSpan duration, byte[] moduleOutput)
         {
             DNNCacheDependency dep = null;
-            DataCache.SetCache(cacheKey, moduleOutput, dep, DateTime.UtcNow.Add(duration), System.Web.Caching.Cache.NoSlidingExpiration, CacheItemPriority.Default, null);
+            DataCache.SetCache(cacheKey, moduleOutput, dep, DateTime.UtcNow.Add(duration), DotNetNuke.Services.Cache.Cache.NoSlidingExpiration, CacheItemPriority.Default, null);
         }
 
         /// <inheritdoc />

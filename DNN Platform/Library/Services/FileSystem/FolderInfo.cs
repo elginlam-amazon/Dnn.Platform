@@ -5,8 +5,8 @@ namespace DotNetNuke.Services.FileSystem
 {
     using System;
     using System.Data;
+    using System.IO;
     using System.Linq;
-    using System.Web;
     using System.Xml.Serialization;
 
     using DotNetNuke.Abstractions.Portals;
@@ -98,7 +98,7 @@ namespace DotNetNuke.Services.FileSystem
             {
                 string physicalPath;
                 IPortalSettings portalSettings = null;
-                if (HttpContext.Current != null)
+                if (HttpContextSource.Current != null)
                 {
                     portalSettings = PortalController.Instance.GetCurrentSettings();
                 }
@@ -122,7 +122,7 @@ namespace DotNetNuke.Services.FileSystem
                     }
                 }
 
-                return physicalPath.Replace("/", @"\");
+                return physicalPath.Replace('/', Path.DirectorySeparatorChar);
             }
         }
 

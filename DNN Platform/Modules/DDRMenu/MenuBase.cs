@@ -7,10 +7,6 @@ namespace DotNetNuke.Web.DDRMenu
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
-    using System.Web;
-    using System.Web.Caching;
-    using System.Web.Compilation;
-    using System.Web.UI;
     using System.Xml;
     using System.Xml.Serialization;
 
@@ -21,7 +17,9 @@ namespace DotNetNuke.Web.DDRMenu
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Tabs;
     using DotNetNuke.Entities.Users;
+    using DotNetNuke.Framework;
     using DotNetNuke.Internal.SourceGenerators;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Web.DDRMenu.DNNCommon;
     using DotNetNuke.Web.DDRMenu.Localisation;
     using DotNetNuke.Web.DDRMenu.TemplateEngine;
@@ -42,7 +40,6 @@ namespace DotNetNuke.Web.DDRMenu
         private readonly IHostSettings hostSettings;
         private readonly ITabController tabController;
         private Settings menuSettings;
-        private HttpContext currentContext;
         private PortalSettings hostPortalSettings;
 
         /// <summary>Initializes a new instance of the <see cref="MenuBase"/> class.</summary>
@@ -84,8 +81,6 @@ namespace DotNetNuke.Web.DDRMenu
 
         /// <summary>Gets or sets a value indicating whether to skip localization.</summary>
         internal bool SkipLocalisation { get; set; }
-
-        private HttpContext CurrentContext => this.currentContext ??= HttpContext.Current;
 
         /// <summary>Instantiates the MenuBase.</summary>
         /// <param name="menuStyle">The menu style to use.</param>
@@ -182,8 +177,8 @@ namespace DotNetNuke.Web.DDRMenu
         }
 
         /// <summary>Renders the menu.</summary>
-        /// <param name="htmlWriter">The HTML writer to which to render the menu.</param>
-        internal void Render(HtmlTextWriter htmlWriter)
+        /// <param name="htmlWriter">The writer to which to render the menu's HTML.</param>
+        internal void Render(TextWriter htmlWriter)
         {
             if (this.hostSettings.DebugMode)
             {
@@ -207,7 +202,9 @@ namespace DotNetNuke.Web.DDRMenu
         /// <returns>The full physical path to the file.</returns>
         protected string MapPath(string path)
         {
-            return string.IsNullOrEmpty(path) ? string.Empty : Path.GetFullPath(this.CurrentContext.Server.MapPath(path));
+            // HttpContext.Current.Server.MapPath is replaced by HttpContextSource.MapPath, which
+            // maps a virtual path against the web root without needing a current request.
+            return string.IsNullOrEmpty(path) ? string.Empty : Path.GetFullPath(HttpContextSource.MapPath(path));
         }
 
         private static List<string> SplitAndTrim(string str)
@@ -227,8 +224,7 @@ namespace DotNetNuke.Web.DDRMenu
                         PathResolver.RelativeTo.Portal,
                         PathResolver.RelativeTo.Dnn));
 
-            var cache = this.CurrentContext.Cache;
-            this.RootNode = cache[this.menuSettings.NodeXmlPath] as MenuNode;
+            this.RootNode = DataCache.GetCache<MenuNode>(this.menuSettings.NodeXmlPath);
             if (this.RootNode != null)
             {
                 return;
@@ -240,7 +236,12 @@ namespace DotNetNuke.Web.DDRMenu
                 this.RootNode = (MenuNode)new XmlSerializer(typeof(MenuNode), string.Empty).Deserialize(reader);
             }
 
-            cache.Insert(this.menuSettings.NodeXmlPath, this.RootNode, new CacheDependency(this.menuSettings.NodeXmlPath));
+            // The System.Web file CacheDependency becomes a DNNCacheDependency over the same
+            // file, so the cached nodes are still dropped when the node XML changes on disk.
+            DataCache.SetCache(
+                this.menuSettings.NodeXmlPath,
+                this.RootNode,
+                new DNNCacheDependency(this.menuSettings.NodeXmlPath));
         }
 
         private void FilterNodes(string nodeString, bool exclude)
@@ -444,7 +445,7 @@ namespace DotNetNuke.Web.DDRMenu
 #pragma warning disable CS0618 // Type or member is obsolete
             this.RootNode =
                 new MenuNode(
-                    ((INodeManipulator)Activator.CreateInstance(BuildManager.GetType(this.menuSettings.NodeManipulator, true, true))).
+                    ((INodeManipulator)Activator.CreateInstance(Reflection.CreateType(this.menuSettings.NodeManipulator, true))).
                         ManipulateNodes(this.RootNode.Children, this.HostPortalSettings));
 #pragma warning restore CS0618 // Type or member is obsolete
         }

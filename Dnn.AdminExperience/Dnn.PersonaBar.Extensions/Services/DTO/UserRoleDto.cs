@@ -8,7 +8,6 @@ namespace Dnn.PersonaBar.Roles.Services.DTO
     using System.Collections.Generic;
     using System.Linq;
     using System.Runtime.Serialization;
-    using System.Web;
 
     using DotNetNuke.Security.Roles;
 

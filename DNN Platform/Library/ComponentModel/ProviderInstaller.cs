@@ -5,8 +5,7 @@ namespace DotNetNuke.ComponentModel
 {
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
-    using System.Web.Compilation;
+    using System.Runtime.Loader;
 
     using DotNetNuke.Framework.Providers;
     using DotNetNuke.Instrumentation;
@@ -85,7 +84,7 @@ namespace DotNetNuke.ComponentModel
                 // Get the provider type
                 try
                 {
-                    type = BuildManager.GetType(provider.Type, false, true);
+                    type = GetTypeFromLoadedAssemblies(provider.Type);
                 }
                 catch (TypeLoadException)
                 {
@@ -97,7 +96,7 @@ namespace DotNetNuke.ComponentModel
 
                 if (type == null)
                 {
-                    Logger.ProviderInstallerCouldNotLoadProvider(new ConfigurationErrorsException($"Could not load provider {provider.Type}"));
+                    Logger.ProviderInstallerCouldNotLoadProvider(new InvalidOperationException($"Could not load provider {provider.Type}"));
                 }
                 else
                 {
@@ -115,6 +114,51 @@ namespace DotNetNuke.ComponentModel
                     container.RegisterComponentSettings(type.FullName, settingsDict);
                 }
             }
+        }
+
+        /// <summary>Resolves a type by (optionally assembly qualified) name across the loaded assemblies.</summary>
+        /// <param name="typeName">The name of the type.</param>
+        /// <returns>The resolved <see cref="Type"/>, or <see langword="null"/> when it is in no loaded assembly.</returns>
+        /// <remarks>
+        /// Replaces <c>System.Web.Compilation.BuildManager.GetType(typeName, throwOnError: false,
+        /// ignoreCase: true)</c>, which does not exist on modern .NET. The equivalent is
+        /// <see cref="Type.GetType(string,bool,bool)"/> followed by a scan over
+        /// <see cref="AssemblyLoadContext.Default"/>, which is where DNN's provider assemblies load.
+        /// Like the original overload, failures return <see langword="null"/> rather than throwing.
+        /// </remarks>
+        private static Type GetTypeFromLoadedAssemblies(string typeName)
+        {
+            var type = Type.GetType(typeName, false, true);
+            if (type is not null)
+            {
+                return type;
+            }
+
+            foreach (var assembly in AssemblyLoadContext.Default.Assemblies)
+            {
+                if (assembly.IsDynamic)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    type = assembly.GetType(typeName, false, true);
+                }
+                catch (Exception ex)
+                {
+                    // A single unloadable assembly must not stop the scan.
+                    Logger.LogDebug(ex, "Could not search assembly {Assembly} for provider type {TypeName}", assembly.FullName, typeName);
+                    continue;
+                }
+
+                if (type is not null)
+                {
+                    return type;
+                }
+            }
+
+            return null;
         }
     }
 }

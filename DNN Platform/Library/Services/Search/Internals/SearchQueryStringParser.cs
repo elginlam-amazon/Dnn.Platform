@@ -7,8 +7,8 @@ namespace DotNetNuke.Services.Search.Internals
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Net;
     using System.Text.RegularExpressions;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -44,7 +44,7 @@ namespace DotNetNuke.Services.Search.Internals
                     var tag = m.Groups[1].ToString();
                     if (!string.IsNullOrEmpty(tag))
                     {
-                        tags.Add(HttpUtility.HtmlEncode(tag.Trim()));
+                        tags.Add(WebUtility.HtmlEncode(tag.Trim()));
                     }
 
                     m = m.NextMatch();

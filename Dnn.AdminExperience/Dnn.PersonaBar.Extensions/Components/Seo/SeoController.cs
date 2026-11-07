@@ -6,7 +6,6 @@ namespace Dnn.PersonaBar.Seo.Components
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
@@ -36,7 +35,7 @@ namespace Dnn.PersonaBar.Seo.Components
 
         public void ResetCache()
         {
-            var cacheFolder = new DirectoryInfo(this.portalSettings.HomeSystemDirectoryMapPath + "sitemap\\");
+            var cacheFolder = new DirectoryInfo(Path.Combine(this.portalSettings.HomeSystemDirectoryMapPath, "sitemap"));
 
             if (cacheFolder.Exists)
             {
@@ -54,7 +53,9 @@ namespace Dnn.PersonaBar.Seo.Components
             switch (searchEngine.ToUpperInvariant().Trim())
             {
                 case "GOOGLE":
-                    url += "http://www.google.com/addurl?q=" + Globals.HTTPPOSTEncode(Globals.AddHTTP(Globals.GetDomainName(HttpContext.Current.Request)));
+                    var currentRequest = HttpContextSource.Current?.Request;
+                    var domainName = currentRequest is null ? string.Empty : Globals.GetDomainName(currentRequest);
+                    url += "http://www.google.com/addurl?q=" + Globals.HTTPPOSTEncode(Globals.AddHTTP(domainName));
                     url += "&dq=";
                     if (!string.IsNullOrEmpty(this.portalSettings.PortalName))
                     {

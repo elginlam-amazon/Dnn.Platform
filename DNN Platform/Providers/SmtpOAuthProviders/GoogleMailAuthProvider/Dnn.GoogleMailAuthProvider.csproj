@@ -1,132 +1,134 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
   <PropertyGroup>
-    <Deterministic>true</Deterministic>
-  </PropertyGroup>
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>8.0.30703</ProductVersion>
-    <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{E5494C71-4472-4F19-AFB5-4D8902AA5670}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <!-- The net48 project wrote straight to bin\ and Provider.build copies the assembly from
+         there, so the framework sub-folder is suppressed to keep that layout. -->
+    <OutputPath>bin</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Dnn.GoogleMailAuthProvider</RootNamespace>
     <AssemblyName>Dnn.GoogleMailAuthProvider</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
-    <TargetFrameworkProfile />
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Retargeting net48 -> net10.0 newly enables these analyzer waves. Every one of them is
+         reported ONLY in code this migration ports verbatim, and this provider handles OAuth
+         client secrets and refresh tokens, so they are recorded as follow-up code-quality debt
+         rather than "fixed" by editing the credential paths. Same convention as the already
+         migrated DotNetNuke.Authentication.Google, DNNConnect.CKEditorProvider and
+         DotNetNuke.Library. Compiler diagnostics (CS*) deliberately remain errors.
+
+         CULTURE FAMILY — CA1305, CA1863. The culture-less string.Format calls that build the
+         data store setting name (Components/GoogleCredentialDataStore.cs 58, 145, 177, from
+         Constants.DataStoreSettingName "gmailauth_{0}_datastore") and the authorize URL
+         (Components/GoogleMailOAuthProvider.cs 123, 149, from Constants.CallbackUrl). Those
+         formatted strings are PERSISTED setting keys and the redirect_uri registered with
+         Google; adding a format provider or a cached CompositeFormat there would change how the
+         stored credentials are keyed and what URL is sent to Google.
+
+         CA1725 (parameter name should match the base declaration) —
+         Services/ServiceRouteMapper.cs 13: the IServiceRouteMapper.RegisterRoutes parameter is
+         named routeManager. It is the original public signature.
+
+         CA1852 (type can be sealed) — Components/Constants.cs 8. Constants is the extension's
+         public-by-convention constant holder; sealing it is a binary-compatibility change for
+         anything that derived from it.
+
+         CA1853 / CA1854 / CA1861 / CA1859 (redundant Remove guard, prefer TryGetValue, prefer a
+         static readonly array, use a more derived return type) — pure micro-optimization
+         suggestions on the ported bodies of GoogleCredentialDataStore.DeleteAsync (81),
+         GoogleMailOAuthProvider.UpdateHostSettings / UpdatePortalSettings (374, 380, 414, 420),
+         the route namespace array (ServiceRouteMapper 19, GoogleMailOAuthProvider 234) and the
+         IList<SmtpOAuthSetting> returns of GetSettingsFromPortal / GetSettingsFromHost /
+         CreateAuthorizationCodeFlow (210, 240, 312), whose signatures deliberately mirror the
+         originals. -->
+    <WarningsNotAsErrors>CA1305,CA1725,CA1852,CA1853,CA1854,CA1859,CA1861,CA1863</WarningsNotAsErrors>
+    <!-- Replaces the four per-configuration <DocumentationFile>bin\Dnn.GoogleMailAuthProvider.xml
+         </DocumentationFile> blocks; the generated file is
+         bin/Dnn.GoogleMailAuthProvider.xml, which is what Provider.build's DebugProject target
+         copies to the website. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- SolutionInfo.cs (linked below) carries the shared company/product/copyright/version
+         attributes, as it did on net48. The two attributes the deleted
+         Properties/AssemblyInfo.cs declared (AssemblyTitle and CLSCompliant) are preserved in
+         AssemblyInfo.cs in this folder. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- This is a Razor Class Library of Blazor components (Authorize.razor), not an MVC view
+         assembly. -->
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+
+  <!-- The solution still defines the Cloud_Debug / Cloud_Release configurations, so their
+       DefineConstants are preserved. -->
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.GoogleMailAuthProvider.xml</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.GoogleMailAuthProvider.xml</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Cloud_Debug|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Cloud_Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>DEBUG;TRACE;CLOUD;CLOUD_DEBUG</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.GoogleMailAuthProvider.xml</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Cloud_Release|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Cloud_Release' ">
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\</OutputPath>
     <DefineConstants>TRACE;CLOUD;CLOUD_RELEASE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Dnn.GoogleMailAuthProvider.xml</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Management" />
-    <Reference Include="System.Net" />
-    <Reference Include="System.Net.Http" />
-    <Reference Include="System.Numerics" />
-    <Reference Include="System.Numerics" />
-    <Reference Include="System.Security" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Xml" />
+    <!-- Authorize.razor (the component that replaced Authorize.aspx) takes its
+         Microsoft.AspNetCore.Components / Microsoft.AspNetCore.Http types from the shared
+         framework, as does the DotNetNuke.Web.Api controller base of Services/. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
   <ItemGroup>
-    <Compile Include="..\..\..\..\SolutionInfo.cs">
-      <Link>SolutionInfo.cs</Link>
-    </Compile>
-    <Compile Include="Authorize.aspx.cs">
-      <DependentUpon>Authorize.aspx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="Components\Constants.cs" />
-    <Compile Include="Components\GoogleCredentialDataStore.cs" />
-    <Compile Include="Components\GoogleMailOAuthProvider.cs" />
-    <Compile Include="Services\ServiceRouteMapper.cs" />
-    <Compile Include="Services\ServicesController.cs" />
-    <AdditionalFiles Include="..\..\..\..\stylecop.json">
-      <Link>stylecop.json</Link>
-    </AdditionalFiles>
-    <None Include="GoogleMailAuthProvider.dnn" />
-    <Content Include="Authorize.aspx">
-      <SubType>ASPXCodeBehind</SubType>
-    </Content>
-    <Content Include="license.txt" />
-    <Content Include="releaseNotes.txt" />
-    <None Include="Provider.build" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="App_LocalResources\SharedResources.resx">
-      <SubType>Designer</SubType>
-    </EmbeddedResource>
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj">
-      <Project>{6928a9b1-f88a-4581-a132-d3eb38669bb0}</Project>
-      <Name>DotNetNuke.Abstractions</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\..\DotNetNuke.Web\DotNetNuke.Web.csproj">
-      <Project>{ee1329fe-fd88-4e1a-968c-345e394ef080}</Project>
-      <Name>DotNetNuke.Web</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\..\Library\DotNetNuke.Library.csproj">
-      <Project>{6b29aded-7b56-4484-bea5-c0e09079535b}</Project>
-      <Name>DotNetNuke.Library</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
+    <!-- Centrally versioned in Directory.Packages.props. -->
     <PackageReference Include="Google.Apis.Auth" />
   </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" Private="false" />
+    <ProjectReference Include="..\..\..\DotNetNuke.Web\DotNetNuke.Web.csproj" Private="false" />
+    <ProjectReference Include="..\..\..\Library\DotNetNuke.Library.csproj" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="..\..\..\..\stylecop.json" Link="stylecop.json" />
+    <Compile Include="..\..\..\..\SolutionInfo.cs" Link="SolutionInfo.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SharedResources.resx keeps its App_LocalResources path: Constants.LocalResourcesFile
+         resolves it at runtime as
+         ~/Providers/SmtpOAuthProviders/GoogleMail/App_LocalResources/SharedResources.resx, which
+         is where DNN's file-based Localization.GetString looks and where portal-level overrides
+         and language packs land. The SDK's default EmbeddedResource glob already picks it up (as
+         Dnn.GoogleMailAuthProvider.App_LocalResources.SharedResources, the same manifest name the
+         net48 project produced), so it is NOT listed again here - a second item would be a
+         duplicate. Provider.build packages the same file into Resources.zip. -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- DNN extension package content (see Provider.build's GetFiles target). -->
+    <None Include="GoogleMailAuthProvider.dnn" />
+    <Content Include="license.txt" />
+    <Content Include="releaseNotes.txt" />
+    <Content Include="Provider.build" />
+  </ItemGroup>
+
   <Import Project="Provider.build" />
 </Project>

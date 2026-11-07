@@ -10,23 +10,30 @@
     <ModuleFolderName>$(WebsitePath)\DesktopModules\AuthenticationServices\JWTAuth</ModuleFolderName>
     <InstallPath>$(WebsiteInstallPath)\Provider</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
-  <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="CopyBin;Package" />
+  <!-- The file on disk is Package.targets; the lower-case "t" matters on case-sensitive
+       (Linux) file systems, where the old "Package.Targets" spelling fails with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
+  <!-- Staging and packaging must run AFTER the build, not before it. On net48 the NuGet
+       dependencies were restored into bin ahead of compilation, so a BeforeTargets="Build"
+       copy found them already there. With PackageReference the package assets are placed in
+       bin by the build's own copy-local phase, so a pre-build copy raced it and failed with
+       MSB3030 on files that did not exist yet. This matches the migrated DotNetNuke.Web. -->
+  <Target Name="CopyAndPackage" AfterTargets="Build" DependsOnTargets="CopyBin;Package" />
+  <!-- Stages this project's own output into the website bin. The net48 target also copied the
+       Microsoft.IdentityModel.* assemblies and a set of netstandard polyfills (System.Text.Json,
+       System.Text.Encodings.Web, System.Memory, System.Buffers,
+       System.Runtime.CompilerServices.Unsafe, System.Numerics.Vectors,
+       System.Threading.Tasks.Extensions, Microsoft.Bcl.AsyncInterfaces, Microsoft.Bcl.TimeProvider)
+       by hand. On net10.0 the polyfills are types in the shared framework and are never produced,
+       and the remaining transitive dependencies are staged by the SDK's own copy-local logic, so
+       only this project's own outputs are staged here - with forward slashes and Exists() guards so
+       staging works on non-Windows too. -->
   <Target Name="CopyBin">
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).pdb" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).xml" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\Microsoft.IdentityModel.Tokens.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\Microsoft.IdentityModel.JsonWebTokens.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\Microsoft.IdentityModel.Logging.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Text.Json.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Text.Encodings.Web.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Memory.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Buffers.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Runtime.CompilerServices.Unsafe.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Numerics.Vectors.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\System.Threading.Tasks.Extensions.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\Microsoft.Bcl.AsyncInterfaces.dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\Microsoft.Bcl.TimeProvider.dll" DestinationFolder="$(WebsitePath)/bin" />
+    <ItemGroup>
+      <CopyBinStagedFiles Include="$(TargetDir)$(AssemblyName).dll" Condition="Exists('$(TargetDir)$(AssemblyName).dll')" />
+      <CopyBinStagedFiles Include="$(TargetDir)$(AssemblyName).pdb" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+      <CopyBinStagedFiles Include="$(TargetDir)$(AssemblyName).xml" Condition="Exists('$(TargetDir)$(AssemblyName).xml')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CopyBinStagedFiles)" DestinationFolder="$(WebsitePath)/bin" SkipUnchangedFiles="true" />
   </Target>
 </Project>

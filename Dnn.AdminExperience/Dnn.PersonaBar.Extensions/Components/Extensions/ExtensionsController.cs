@@ -10,7 +10,6 @@ namespace Dnn.PersonaBar.Extensions.Components
     using System.IO;
     using System.Linq;
     using System.Text;
-    using System.Web;
     using System.Xml;
 
     using Dnn.PersonaBar.Extensions.Components.Dto;
@@ -359,17 +358,22 @@ namespace Dnn.PersonaBar.Extensions.Components
 
         private static bool IconExists(string imagePath)
         {
-            if (string.IsNullOrWhiteSpace(imagePath) || HttpContext.Current == null)
+            if (string.IsNullOrWhiteSpace(imagePath) || HttpContextSource.Current == null)
             {
                 return false;
             }
 
             try
             {
-                var path = HttpContextSource.Current.Server.MapPath(imagePath);
+                var path = HttpContextSource.MapPath(imagePath);
                 return File.Exists(path);
             }
-            catch (HttpException)
+            catch (ArgumentException)
+            {
+                // the legacy Server.MapPath threw an HttpException for a path it could not map.
+                return false;
+            }
+            catch (InvalidOperationException)
             {
                 return false;
             }

@@ -4,8 +4,7 @@
 namespace DotNetNuke.UI.Containers
 {
     using System;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Linq;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
@@ -16,10 +15,11 @@ namespace DotNetNuke.UI.Containers
 
     /// <summary>ActionButtonList provides a list of buttons for a group of actions of the same type.</summary>
     /// <remarks>
-    /// ActionButtonList inherits from CompositeControl, and implements the IActionControl
-    /// Interface.  It uses a single ActionCommandButton for each Action.
+    /// ActionButtonList inherited from <c>System.Web.UI.WebControls.CompositeControl</c>; it is now
+    /// a DNN skinning component (<see cref="DnnComponentBase"/>) and still implements the
+    /// IActionControl Interface. It uses a single ActionCommandButton for each Action.
     /// </remarks>
-    public class ActionButtonList : CompositeControl, IActionControl
+    public class ActionButtonList : DnnComponentBase, IActionControl
     {
         private readonly IEventLogger eventLogger;
         private ActionManager actionManager;
@@ -117,7 +117,7 @@ namespace DotNetNuke.UI.Containers
 
                     this.Controls.Add(actionButton);
 
-                    this.Controls.Add(new LiteralControl(this.ButtonSeparator));
+                    this.Controls.Add(new DnnLiteralControl(this.ButtonSeparator));
                 }
             }
 

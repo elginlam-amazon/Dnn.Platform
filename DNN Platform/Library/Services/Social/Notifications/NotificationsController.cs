@@ -112,7 +112,7 @@ namespace DotNetNuke.Services.Social.Notifications
                 count,
                 (DNNCacheDependency)null,
                 DateTime.Now.AddSeconds(DataCache.NotificationsCacheTimeInSec),
-                System.Web.Caching.Cache.NoSlidingExpiration);
+                DotNetNuke.Services.Cache.Cache.NoSlidingExpiration);
             return count;
         }
 

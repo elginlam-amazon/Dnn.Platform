@@ -3,8 +3,6 @@
 // See the LICENSE file in the project root for more information
 
 namespace DotNetNuke.UI.WebControls
-
-// ReSharper restore CheckNamespace
 {
     using System;
     using System.Collections;
@@ -12,82 +10,62 @@ namespace DotNetNuke.UI.WebControls
     using System.Data;
     using System.Globalization;
     using System.Linq;
-    using System.Text;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Security.Roles;
     using DotNetNuke.Services.Localization;
 
-    public class RolesSelectionGrid : Control, INamingContainer
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
+
+    /// <summary>A grid that lets the user pick a set of roles.</summary>
+    /// <remarks>
+    /// Was a <c>System.Web.UI.Control</c> that composed a <c>Panel</c>, a <c>DropDownList</c> and a
+    /// <c>DataGrid</c> in <c>CreateChildControls</c>. It is now a <see cref="DnnComponentBase"/>
+    /// (DNN's replacement for <c>System.Web.UI.Control</c>) that renders that same chrome, and the
+    /// inner grid is a <see cref="DNNDataGrid"/> whose table is
+    /// embedded through <see cref="DNNDataGrid.RenderTable"/>. The two view state backed properties
+    /// became ordinary fields, which survive a render over a Blazor circuit by themselves.
+    /// </remarks>
+    public class RolesSelectionGrid : DnnComponentBase
     {
-        private static readonly string[] RoleSeparator = ["##",];
         private readonly DataTable dtRoleSelections = new DataTable();
+        private readonly DNNDataGrid dgRoleSelection = new DNNDataGrid
+        {
+            AutoGenerateColumns = false,
+            CellSpacing = 0,
+            GridLines = GridLines.None,
+        };
+
         private IList<RoleInfo> roles;
         private IList<string> selectedRoles;
-        private DropDownList cboRoleGroups;
-        private DataGrid dgRoleSelection;
-        private Label lblGroups;
-        private Panel pnlRoleSlections;
+        private ArrayList roleGroups;
+        private string selectedRoleGroup = "-1";
 
-        public TableItemStyle AlternatingItemStyle
-        {
-            get
-            {
-                return this.dgRoleSelection.AlternatingItemStyle;
-            }
-        }
+        /// <summary>Gets the style of the alternating data rows.</summary>
+        public TableItemStyle AlternatingItemStyle => this.dgRoleSelection.AlternatingItemStyle;
 
-        public DataGridColumnCollection Columns
-        {
-            get
-            {
-                return this.dgRoleSelection.Columns;
-            }
-        }
+        /// <summary>Gets the columns of the grid.</summary>
+        public DataGridColumnCollection Columns => this.dgRoleSelection.Columns;
 
-        public TableItemStyle FooterStyle
-        {
-            get
-            {
-                return this.dgRoleSelection.FooterStyle;
-            }
-        }
+        /// <summary>Gets the style of the footer row.</summary>
+        public TableItemStyle FooterStyle => this.dgRoleSelection.FooterStyle;
 
-        public TableItemStyle HeaderStyle
-        {
-            get
-            {
-                return this.dgRoleSelection.HeaderStyle;
-            }
-        }
+        /// <summary>Gets the style of the header row.</summary>
+        public TableItemStyle HeaderStyle => this.dgRoleSelection.HeaderStyle;
 
-        public TableItemStyle ItemStyle
-        {
-            get
-            {
-                return this.dgRoleSelection.ItemStyle;
-            }
-        }
+        /// <summary>Gets the style of the data rows.</summary>
+        public TableItemStyle ItemStyle => this.dgRoleSelection.ItemStyle;
 
-        public DataGridItemCollection Items
-        {
-            get
-            {
-                return this.dgRoleSelection.Items;
-            }
-        }
+        /// <summary>Gets the rows of the grid.</summary>
+        public DataGridItemCollection Items => this.dgRoleSelection.Items;
 
-        public TableItemStyle SelectedItemStyle
-        {
-            get
-            {
-                return this.dgRoleSelection.SelectedItemStyle;
-            }
-        }
+        /// <summary>Gets the style of the selected data row.</summary>
+        public TableItemStyle SelectedItemStyle => this.dgRoleSelection.SelectedItemStyle;
 
+        /// <summary>Gets or sets a value indicating whether a column is generated for every field of the bound records.</summary>
         public bool AutoGenerateColumns
         {
             get
@@ -101,6 +79,7 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
+        /// <summary>Gets or sets the spacing between the cells of the grid.</summary>
         public int CellSpacing
         {
             get
@@ -114,6 +93,7 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
+        /// <summary>Gets or sets the grid lines the grid renders.</summary>
         public GridLines GridLines
         {
             get
@@ -143,45 +123,16 @@ namespace DotNetNuke.UI.WebControls
         }
 
         /// <summary>Gets or sets the ResourceFile to localize permissions.</summary>
+        [Parameter]
         public string ResourceFile { get; set; }
 
         /// <summary>Gets or sets a value indicating whether enable ShowAllUsers to display the virtual "Unauthenticated Users" role.</summary>
-        public bool ShowUnauthenticatedUsers
-        {
-            get
-            {
-                if (this.ViewState["ShowUnauthenticatedUsers"] == null)
-                {
-                    return false;
-                }
-
-                return Convert.ToBoolean(this.ViewState["ShowUnauthenticatedUsers"], CultureInfo.InvariantCulture);
-            }
-
-            set
-            {
-                this.ViewState["ShowUnauthenticatedUsers"] = value;
-            }
-        }
+        [Parameter]
+        public bool ShowUnauthenticatedUsers { get; set; }
 
         /// <summary>Gets or sets a value indicating whether enable ShowAllUsers to display the virtual "All Users" role.</summary>
-        public bool ShowAllUsers
-        {
-            get
-            {
-                if (this.ViewState["ShowAllUsers"] == null)
-                {
-                    return false;
-                }
-
-                return Convert.ToBoolean(this.ViewState["ShowAllUsers"], CultureInfo.InvariantCulture);
-            }
-
-            set
-            {
-                this.ViewState["ShowAllUsers"] = value;
-            }
-        }
+        [Parameter]
+        public bool ShowAllUsers { get; set; }
 
         private DataTable DtRolesSelection
         {
@@ -204,107 +155,33 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
-        /// <summary>Load the ViewState.</summary>
-        /// <param name="savedState">The saved state.</param>
-        protected override void LoadViewState(object savedState)
-        {
-            if (savedState != null)
-            {
-                // Load State from the array of objects that was saved with SaveViewState.
-                var myState = (object[])savedState;
-
-                // Load Base Controls ViewState
-                if (myState[0] != null)
-                {
-                    base.LoadViewState(myState[0]);
-                }
-
-                // Load TabPermissions
-                if (myState[1] != null)
-                {
-                    string state = Convert.ToString(myState[1], CultureInfo.InvariantCulture);
-                    this.CurrentRoleSelection = state != string.Empty
-                                        ? new List<string>(state.Split(RoleSeparator, StringSplitOptions.None))
-                                        : new List<string>();
-                }
-            }
-        }
+        /// <inheritdoc />
+        protected override string TagName => null;
 
         /// <inheritdoc />
-        protected override object SaveViewState()
+        /// <remarks>Replaces the <c>OnPreRender</c> override, which bound the grid to the roles.</remarks>
+        protected override void OnLoad(EventArgs e)
         {
-            var allStates = new object[2];
-
-            // Save the Base Controls ViewState
-            allStates[0] = base.SaveViewState();
-
-            // Persist the TabPermisisons
-            var sb = new StringBuilder();
-            bool addDelimiter = false;
-            foreach (string role in this.CurrentRoleSelection)
-            {
-                if (addDelimiter)
-                {
-                    sb.Append("##");
-                }
-                else
-                {
-                    addDelimiter = true;
-                }
-
-                sb.Append(role);
-            }
-
-            allStates[1] = sb.ToString();
-            return allStates;
+            base.OnLoad(e);
+            this.BindData();
         }
 
         /// <summary>Creates the Child Controls.</summary>
+        /// <remarks>
+        /// Replaces <c>CreateChildControls</c>: what is created here is the state the render tree
+        /// needs (the role groups to offer and the grid's columns), the markup itself is built by
+        /// <see cref="RenderContents"/>.
+        /// </remarks>
         protected override void CreateChildControls()
         {
-            this.pnlRoleSlections = new Panel { CssClass = "dnnRolesGrid" };
-
-            // Optionally Add Role Group Filter
             var portalSettings = PortalController.Instance.GetCurrentSettings();
-            ArrayList arrGroups = RoleController.GetRoleGroups(portalSettings.PortalId);
-            if (arrGroups.Count > 0)
-            {
-                this.lblGroups = new Label { Text = Localization.GetString("RoleGroupFilter") };
-                this.pnlRoleSlections.Controls.Add(this.lblGroups);
+            this.roleGroups = RoleController.GetRoleGroups(portalSettings.PortalId);
 
-                this.pnlRoleSlections.Controls.Add(new LiteralControl("&nbsp;&nbsp;"));
-
-                this.cboRoleGroups = new DropDownList { AutoPostBack = true };
-
-                this.cboRoleGroups.Items.Add(new ListItem(Localization.GetString("AllRoles"), "-2"));
-                var liItem = new ListItem(Localization.GetString("GlobalRoles"), "-1") { Selected = true };
-                this.cboRoleGroups.Items.Add(liItem);
-                foreach (RoleGroupInfo roleGroup in arrGroups)
-                {
-                    this.cboRoleGroups.Items.Add(new ListItem(roleGroup.RoleGroupName, roleGroup.RoleGroupID.ToString(CultureInfo.InvariantCulture)));
-                }
-
-                this.pnlRoleSlections.Controls.Add(this.cboRoleGroups);
-
-                this.pnlRoleSlections.Controls.Add(new LiteralControl("<br/><br/>"));
-            }
-
-            this.dgRoleSelection = new DataGrid { AutoGenerateColumns = false, CellSpacing = 0, GridLines = GridLines.None };
             this.dgRoleSelection.FooterStyle.CssClass = "dnnGridFooter";
             this.dgRoleSelection.HeaderStyle.CssClass = "dnnGridHeader";
             this.dgRoleSelection.ItemStyle.CssClass = "dnnGridItem";
             this.dgRoleSelection.AlternatingItemStyle.CssClass = "dnnGridAltItem";
             this.SetUpRolesGrid();
-            this.pnlRoleSlections.Controls.Add(this.dgRoleSelection);
-
-            this.Controls.Add(this.pnlRoleSlections);
-        }
-
-        /// <summary>Overrides the base OnPreRender method to Bind the Grid to the Permissions.</summary>
-        /// <param name="e">The event arguments.</param>
-        protected override void OnPreRender(EventArgs e)
-        {
-            this.BindData();
         }
 
         /// <summary>Updates a Selection.</summary>
@@ -347,18 +224,68 @@ namespace DotNetNuke.UI.WebControls
         /// <summary>Updates the permissions.</summary>
         protected void UpdateRoleSelections()
         {
-            if (this.dgRoleSelection != null)
+            foreach (var dgi in this.dgRoleSelection.Items)
             {
-                foreach (DataGridItem dgi in this.dgRoleSelection.Items)
+                const int I = 2;
+                if (dgi.Cells.Count > I && dgi.Cells[I].Controls.Count > 0)
                 {
-                    const int i = 2;
-                    if (dgi.Cells[i].Controls.Count > 0)
-                    {
-                        var cb = (CheckBox)dgi.Cells[i].Controls[0];
-                        this.UpdateSelection(dgi.Cells[0].Text, cb.Checked);
-                    }
+                    var cb = (GridCheckBox)dgi.Cells[I].Controls[0];
+                    this.UpdateSelection(dgi.Cells[0].Text, cb.Checked);
                 }
             }
+        }
+
+        /// <inheritdoc />
+        protected override void RenderContents(RenderTreeBuilder builder, ref int sequence)
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "dnnRolesGrid");
+
+            // Optionally Add Role Group Filter
+            if (this.roleGroups != null && this.roleGroups.Count > 0)
+            {
+                builder.OpenElement(2, "label");
+                builder.AddContent(3, Localization.GetString("RoleGroupFilter"));
+                builder.CloseElement();
+                builder.AddMarkupContent(4, "&nbsp;&nbsp;");
+
+                builder.OpenElement(5, "select");
+                builder.AddAttribute(6, "value", this.selectedRoleGroup);
+                builder.AddAttribute(7, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.RoleGroupChanged));
+                this.RenderOption(builder, 8, "-2", Localization.GetString("AllRoles"));
+                this.RenderOption(builder, 11, "-1", Localization.GetString("GlobalRoles"));
+                var groupSequence = 14;
+                foreach (RoleGroupInfo roleGroup in this.roleGroups)
+                {
+                    this.RenderOption(builder, groupSequence, roleGroup.RoleGroupID.ToString(CultureInfo.InvariantCulture), roleGroup.RoleGroupName);
+                    groupSequence += 3;
+                }
+
+                builder.CloseElement();
+                builder.AddMarkupContent(groupSequence, "<br/><br/>");
+            }
+
+            builder.AddContent(1000, this.dgRoleSelection.RenderTable());
+            builder.CloseElement();
+
+            sequence += 1001;
+            base.RenderContents(builder, ref sequence);
+        }
+
+        private void RenderOption(RenderTreeBuilder builder, int sequence, string value, string text)
+        {
+            builder.OpenElement(sequence, "option");
+            builder.AddAttribute(sequence + 1, "value", value);
+            builder.AddContent(sequence + 2, text);
+            builder.CloseElement();
+        }
+
+        private void RoleGroupChanged(ChangeEventArgs args)
+        {
+            this.selectedRoleGroup = args?.Value?.ToString() ?? "-1";
+            this.BindData();
         }
 
         /// <summary>Bind the data to the controls.</summary>
@@ -401,7 +328,7 @@ namespace DotNetNuke.UI.WebControls
                 this.DtRolesSelection.Rows.Add(row);
             }
 
-            this.dgRoleSelection.DataSource = this.DtRolesSelection;
+            this.dgRoleSelection.DataSource = this.DtRolesSelection.DefaultView;
             this.dgRoleSelection.DataBind();
         }
 
@@ -414,9 +341,9 @@ namespace DotNetNuke.UI.WebControls
         private void GetRoles()
         {
             int roleGroupId = -2;
-            if (this.cboRoleGroups is { SelectedValue: not null, })
+            if (this.roleGroups != null && this.roleGroups.Count > 0 && !string.IsNullOrEmpty(this.selectedRoleGroup))
             {
-                roleGroupId = int.Parse(this.cboRoleGroups.SelectedValue, CultureInfo.InvariantCulture);
+                roleGroupId = int.Parse(this.selectedRoleGroup, CultureInfo.InvariantCulture);
             }
 
             this.roles = roleGroupId > -2

@@ -6,7 +6,6 @@ namespace DotNetNuke.Services.Syndication
     using System;
     using System.Collections.Generic;
     using System.Globalization;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Internal;
@@ -17,6 +16,7 @@ namespace DotNetNuke.Services.Syndication
     using DotNetNuke.Services.Search.Entities;
     using DotNetNuke.Services.Search.Internals;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>An HTTP handler for serving an RSS feed.</summary>
@@ -95,7 +95,7 @@ namespace DotNetNuke.Services.Syndication
                                     if (Convert.ToDateTime(objModule.StartDate == Null.NullDate ? DateTime.MinValue : objModule.StartDate) < DateTime.Now &&
                                         Convert.ToDateTime(objModule.EndDate == Null.NullDate ? DateTime.MaxValue : objModule.EndDate) > DateTime.Now)
                                     {
-                                        this.Channel.Items.Add(GetRssItem(result));
+                                        this.Channel.Items.Add(GetRssItem(result, this.Request));
                                     }
                                 }
                             }
@@ -114,24 +114,32 @@ namespace DotNetNuke.Services.Syndication
         {
             base.OnPreRender(ea);
 
-            this.Context.Response.Cache.SetExpires(DateTime.Now.AddSeconds(60));
-            this.Context.Response.Cache.SetCacheability(HttpCacheability.Public);
-            this.Context.Response.Cache.VaryByParams["moduleid"] = true;
+            // ASP.NET Core has no Response.Cache; the equivalent is to write the cache headers
+            // directly. "public, max-age=60" is what SetCacheability(Public) + SetExpires(+60s)
+            // produced. The old VaryByParams["moduleid"] keyed the IIS output cache by the
+            // moduleid query string parameter; downstream caches already key on the full URL
+            // (which includes moduleid), so Vary is expressed with the query string itself.
+            var expires = DateTime.Now.AddSeconds(60);
+            this.Context.Response.Headers.CacheControl = "public, max-age=60";
+            this.Context.Response.Headers.Expires = expires.ToUniversalTime().ToString("r", CultureInfo.InvariantCulture);
         }
 
         /// <summary>Creates an RSS Item.</summary>
         /// <param name="searchResult">The search result to convert to an RSS item.</param>
+        /// <param name="request">The request being handled, used to resolve the site's host name.</param>
         /// <returns>A new <see cref="GenericRssElement"/> instance.</returns>
-        private static GenericRssElement GetRssItem(SearchResult searchResult)
+        private static GenericRssElement GetRssItem(SearchResult searchResult, HttpRequest request)
         {
             var item = new GenericRssElement();
             var url = searchResult.Url;
             if (url.Trim() == string.Empty)
             {
+                // Request.Url.Host becomes Request.Host.Host in ASP.NET Core (host without port).
+                var host = request.Host.Host;
                 url = TestableGlobals.Instance.NavigateURL(searchResult.TabId);
-                if (url.IndexOf(HttpContext.Current.Request.Url.Host, StringComparison.InvariantCultureIgnoreCase) == -1)
+                if (url.IndexOf(host, StringComparison.InvariantCultureIgnoreCase) == -1)
                 {
-                    url = TestableGlobals.Instance.AddHTTP(HttpContext.Current.Request.Url.Host) + url;
+                    url = TestableGlobals.Instance.AddHTTP(host) + url;
                 }
             }
 

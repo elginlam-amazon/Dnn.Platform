@@ -7,7 +7,6 @@ namespace DotNetNuke.Security.Roles
     using System.Collections;
     using System.Collections.Generic;
     using System.Data;
-    using System.Data.SqlClient;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
@@ -20,6 +19,7 @@ namespace DotNetNuke.Security.Roles
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Security.Membership;
 
+    using Microsoft.Data.SqlClient;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 

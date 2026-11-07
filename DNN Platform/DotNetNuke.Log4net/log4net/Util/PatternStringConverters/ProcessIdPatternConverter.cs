@@ -40,18 +40,20 @@ namespace log4net.Util.PatternStringConverters
         /// Write the current process ID to the output <paramref name="writer"/>.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0 || NETSTANDARD
-        [System.Security.SecuritySafeCritical]
-#endif
         protected override void Convert(TextWriter writer, object state) 
         {
-#if (NETCF || SSCLI)
-            // On compact framework there is no System.Diagnostics.Process class
-            writer.Write( SystemInfo.NotAvailableText );
-#else
             try
             {
-                writer.Write(System.Diagnostics.Process.GetCurrentProcess().Id);
+                // Environment.ProcessId is the supported, allocation-free replacement for
+                // Process.GetCurrentProcess().Id (which leaked a native handle) and needs
+                // no CAS SecuritySafeCritical annotation on modern .NET.
+                writer.Write(Environment.ProcessId);
+            }
+            catch (PlatformNotSupportedException)
+            {
+                LogLog.Debug(declaringType, "Process id is not available on this platform. Error Ignored.");
+
+                writer.Write(SystemInfo.NotAvailableText);
             }
             catch(System.Security.SecurityException)
             {
@@ -61,7 +63,6 @@ namespace log4net.Util.PatternStringConverters
 
                 writer.Write(SystemInfo.NotAvailableText);
             }
-#endif
         }
 
         /// <summary>The fully qualified type of the ProcessIdPatternConverter class.</summary>

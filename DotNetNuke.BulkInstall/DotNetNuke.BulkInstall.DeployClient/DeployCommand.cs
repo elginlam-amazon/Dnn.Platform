@@ -23,19 +23,15 @@ public class DeployCommand : AsyncCommand<DeployInput>
         this.fileSystem = fileSystem;
     }
 
-    /// <inheritdoc cref="Validate" />
-    internal ValidationResult GetValidationResult(CommandContext context, DeployInput settings)
-        => this.Validate(context, settings);
-
     /// <inheritdoc/>
-    protected override async Task<int> ExecuteAsync(CommandContext context, DeployInput input, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, DeployInput input, CancellationToken cancellationToken)
     {
         var exitCode = await this.deployer.StartAsync(input);
         return (int)exitCode;
     }
 
     /// <inheritdoc/>
-    protected override ValidationResult Validate(CommandContext context, DeployInput settings)
+    public override ValidationResult Validate(CommandContext context, DeployInput settings)
     {
         if (!string.IsNullOrWhiteSpace(settings.PackagesDirectoryPath) && !this.fileSystem.Directory.Exists(settings.PackagesDirectoryPath))
         {
@@ -69,4 +65,8 @@ public class DeployCommand : AsyncCommand<DeployInput>
 
         return ValidationResult.Success();
     }
+
+    /// <inheritdoc cref="Validate" />
+    internal ValidationResult GetValidationResult(CommandContext context, DeployInput settings)
+        => this.Validate(context, settings);
 }

@@ -59,8 +59,8 @@ namespace DotNetNuke.Web.Components.Controllers
             var formattedSearchTerm = string.IsNullOrEmpty(searchTerm) ? string.Empty : searchTerm.ToLower(CultureInfo.InvariantCulture);
 
             Func<KeyValuePair<string, PortalDesktopModuleInfo>, bool> filter = category == "All"
-                ? kvp => kvp.Key.ToLower(CultureInfo.InvariantCulture).Contains(formattedSearchTerm)
-                : kvp => kvp.Value.DesktopModule.Category == category && kvp.Key.ToLower(CultureInfo.InvariantCulture).Contains(formattedSearchTerm);
+                ? kvp => kvp.Key.Contains(formattedSearchTerm, global::System.StringComparison.CurrentCultureIgnoreCase)
+                : kvp => kvp.Value.DesktopModule.Category == category && kvp.Key.Contains(formattedSearchTerm, global::System.StringComparison.CurrentCultureIgnoreCase);
 
             return DesktopModuleController.GetPortalDesktopModules(this.hostSettings, portalId).Where(filter);
         }
@@ -71,7 +71,7 @@ namespace DotNetNuke.Web.Components.Controllers
             var formattedSearchTerm = string.IsNullOrEmpty(searchTerm) ? string.Empty : searchTerm.ToLower(CultureInfo.InvariantCulture);
 
             return this.GetBookmarkedModules(PortalSettings.Current.PortalId, userId)
-                .Where(kvp => kvp.Key.ToLower(CultureInfo.InvariantCulture).Contains(formattedSearchTerm));
+                .Where(kvp => kvp.Key.Contains(formattedSearchTerm, StringComparison.CurrentCultureIgnoreCase));
         }
 
         /// <inheritdoc />

@@ -1,0 +1,36 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Common.Controls
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@using System
+@using Microsoft.AspNetCore.Components
+
+@*
+    Replaces message.ascx + Message.ascx.cs + Message.ascx.designer.cs.
+
+    The control is a message surface: the .ascx was a <div> around
+    <asp:Label ID="lblMessage" CssClass="dnnFormMessage dnnFormValidationSummary" />, and the
+    code-behind did exactly one thing - `this.ID = "Message"` in InitializeComponent, which is what
+    pointed Control.ID (and therefore the WebForms localization walk) at the name "Message". The
+    component type is named Message, so that identity is preserved without an assignment.
+
+    Nothing in the solution assigned lblMessage.Text through a designer field; the text was supplied
+    by whatever loaded the control. That seam is kept as the Text parameter, so a loader can still
+    set it (DnnComponentParameters.Capture carries [Parameter] values through the module pipeline).
+    The label rendered its Text as raw markup, so Text is rendered as a MarkupString - a validation
+    summary legitimately contains markup, and encoding it would be a behaviour change.
+
+    The file is named Message.razor because a component file may not start with a lowercase letter
+    (RZ10011); the TYPE name and namespace are unchanged (DotNetNuke.Common.Controls.Message).
+*@
+
+<div><span id="lblMessage" class="dnnFormMessage dnnFormValidationSummary">@((MarkupString)(this.Text ?? string.Empty))</span></div>
+
+@code {
+    /// <summary>Gets or sets the message text. Replaces the <c>lblMessage.Text</c> designer field.</summary>
+    [Parameter]
+    public string Text { get; set; }
+}

@@ -1,0 +1,18 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@*
+    Replaces links.ascx, which was a single <asp:label id="lblLinks" enableviewstate="False">.
+    An asp:Label renders a <span>, and its Text was assigned raw anchor markup built by the
+    code-behind, so the span is kept and the built markup is rendered as markup content (the
+    equivalent of Label.Text, which did not HTML-encode).
+
+    The link list is permission filtered by Navigation.CanShowTab(tab, this.AdminMode,
+    this.ShowDisabled) in Links.razor.cs - unchanged, so a page the original hid stays hidden.
+*@
+
+<span>@((MarkupString)(this.LinksMarkup ?? string.Empty))</span>

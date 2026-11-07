@@ -19,9 +19,6 @@
 // 
 
 using System;
-#if !NETCF && !NETSTANDARD1_3
-using System.Runtime.Serialization;
-#endif
 
 namespace log4net.Core
 {
@@ -35,14 +32,8 @@ namespace log4net.Core
     /// </remarks>
     /// <author>Nicko Cadell</author>
     /// <author>Gert Driesen</author>
-#if !NETCF
     [Serializable]
-#endif
-#if NETSTANDARD1_3
-    public class LogException : Exception
-#else
-    public class LogException : ApplicationException 
-#endif
+    public class LogException : ApplicationException
     {
         /// <summary>Constructor</summary>
         /// <remarks>
@@ -78,20 +69,5 @@ namespace log4net.Core
         public LogException(String message, Exception innerException) : base(message, innerException) 
         {
         }
-
-#if !NETCF && !NETSTANDARD1_3
-        /// <summary>Serialization constructor</summary>
-        /// <param name="info">The <see cref="SerializationInfo" /> that holds the serialized object data about the exception being thrown.</param>
-        /// <param name="context">The <see cref="StreamingContext" /> that contains contextual information about the source or destination.</param>
-        /// <remarks>
-        /// <para>
-        /// Initializes a new instance of the <see cref="LogException" /> class 
-        /// with serialized data.
-        /// </para>
-        /// </remarks>
-        protected LogException(SerializationInfo info, StreamingContext context) : base(info, context) 
-        {
-        }
-#endif
     }
 }

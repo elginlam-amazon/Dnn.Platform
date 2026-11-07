@@ -82,6 +82,8 @@ namespace DotNetNuke.Services.OutputCache.Providers
         /// <inheritdoc />
         public override byte[] StopFiltering(int itemId, bool deleteData)
         {
+            this.Detach();
+
             if (this.HasErrored)
             {
                 return null;

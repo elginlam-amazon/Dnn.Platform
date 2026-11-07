@@ -6,15 +6,16 @@ namespace DotNetNuke.Web.Api.Auth
 {
     using System;
     using System.Net;
-    using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Security.Principal;
     using System.Text;
-    using System.Threading;
 
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Security.Membership;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Net.Http.Headers;
 
     /// <summary>Basic authentication message handler.</summary>
     public class BasicAuthMessageHandler : AuthMessageHandlerBase
@@ -34,39 +35,45 @@ namespace DotNetNuke.Web.Api.Auth
         public override string AuthScheme => "Basic";
 
         /// <inheritdoc />
-        public override HttpResponseMessage OnInboundRequest(HttpRequestMessage request, CancellationToken cancellationToken)
+        public override bool OnAuthenticateRequest(HttpContext context)
         {
-            if (this.NeedsAuthentication(request))
+            if (this.NeedsAuthentication(context))
             {
                 var portalSettings = PortalController.Instance.GetCurrentSettings();
                 if (portalSettings != null)
                 {
-                    this.TryToAuthenticate(request, portalSettings.PortalId);
+                    this.TryToAuthenticate(context, portalSettings.PortalId);
                 }
             }
 
-            return base.OnInboundRequest(request, cancellationToken);
+            return base.OnAuthenticateRequest(context);
         }
 
         /// <inheritdoc />
-        public override HttpResponseMessage OnOutboundResponse(HttpResponseMessage response, CancellationToken cancellationToken)
+        /// <remarks>
+        /// Adds the <c>WWW-Authenticate: Basic realm="DNNAPI"</c> challenge to a 401, exactly as the
+        /// legacy <c>OnOutboundResponse</c> did (the realm string and the header shape are unchanged).
+        /// </remarks>
+        public override void OnSendResponse(HttpContext context)
         {
-            if (response.StatusCode == HttpStatusCode.Unauthorized && SupportsBasicAuth(response.RequestMessage))
+            if (context?.Response?.StatusCode == (int)HttpStatusCode.Unauthorized && SupportsBasicAuth(context.Request))
             {
-                response.Headers.WwwAuthenticate.Add(new AuthenticationHeaderValue(this.AuthScheme, "realm=\"DNNAPI\""));
+                context.Response.Headers.Append(
+                    HeaderNames.WWWAuthenticate,
+                    new AuthenticationHeaderValue(this.AuthScheme, "realm=\"DNNAPI\"").ToString());
             }
 
-            return base.OnOutboundResponse(response, cancellationToken);
+            base.OnSendResponse(context);
         }
 
-        private static bool SupportsBasicAuth(HttpRequestMessage request)
+        private static bool SupportsBasicAuth(HttpRequest request)
         {
             return !IsXmlHttpRequest(request);
         }
 
-        private void TryToAuthenticate(HttpRequestMessage request, int portalId)
+        private void TryToAuthenticate(HttpContext context, int portalId)
         {
-            UserCredentials credentials = this.GetCredentials(request);
+            UserCredentials credentials = this.GetCredentials(context.Request);
 
             if (credentials == null)
             {
@@ -74,7 +81,7 @@ namespace DotNetNuke.Web.Api.Auth
             }
 
             var status = UserLoginStatus.LOGIN_FAILURE;
-            string ipAddress = request.GetIPAddress();
+            string ipAddress = context.Request.GetIPAddress();
 
             UserInfo user = UserController.ValidateUser(
                 portalId,
@@ -88,29 +95,41 @@ namespace DotNetNuke.Web.Api.Auth
 
             if (user != null)
             {
-                SetCurrentPrincipal(new GenericPrincipal(new GenericIdentity(credentials.UserName, this.AuthScheme), null), request);
+                SetCurrentPrincipal(new GenericPrincipal(new GenericIdentity(credentials.UserName, this.AuthScheme), null), context);
             }
         }
 
-        private UserCredentials GetCredentials(HttpRequestMessage request)
+        private UserCredentials GetCredentials(HttpRequest request)
         {
-            if (request?.Headers.Authorization == null)
+            var authorizationHeader = request?.Headers[HeaderNames.Authorization].ToString();
+            if (string.IsNullOrEmpty(authorizationHeader)
+                || !AuthenticationHeaderValue.TryParse(authorizationHeader, out var authorization)
+                || authorization == null)
             {
                 return null;
             }
 
-            if (!request.Headers.Authorization.Scheme.Equals(this.AuthScheme, StringComparison.OrdinalIgnoreCase))
+            if (!authorization.Scheme.Equals(this.AuthScheme, StringComparison.OrdinalIgnoreCase))
             {
                 return null;
             }
 
-            string authorization = request?.Headers.Authorization.Parameter;
-            if (string.IsNullOrEmpty(authorization))
+            if (string.IsNullOrEmpty(authorization.Parameter))
             {
                 return null;
             }
 
-            string decoded = this.encoding.GetString(Convert.FromBase64String(authorization));
+            string decoded;
+            try
+            {
+                decoded = this.encoding.GetString(Convert.FromBase64String(authorization.Parameter));
+            }
+            catch (FormatException)
+            {
+                // A malformed Base64 parameter is not a credential; the legacy handler let the
+                // FormatException escape into the handler chain, which produced no principal either.
+                return null;
+            }
 
             string[] parts = decoded.Split(CredentialSeparator, 2);
             if (parts.Length < 2)

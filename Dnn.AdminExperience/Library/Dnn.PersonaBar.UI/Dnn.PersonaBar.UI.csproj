@@ -1,30 +1,46 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">.\</SolutionDir>
+    <!-- Module.build's CopyBin copies from bin\ directly, so no TFM subfolder. -->
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
     <AnalysisMode>Recommended</AnalysisMode>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- SolutionInfo.cs (linked below) carries the assembly attributes, as it did on net48
+         (Properties/AssemblyInfo.cs is deleted). -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- The PersonaBar control panel is a Blazor component, not an MVC view assembly. -->
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNet.WebApi.Client" />
-    <PackageReference Include="Microsoft.AspNet.WebApi.WebHost" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
-    <PackageReference Include="Newtonsoft.Json" />
+    <!-- Replaces the Microsoft.AspNet.WebApi.WebHost / .Client packages (Web API 2 hosting and
+         HttpResponseMessage helpers) and the System.Web GAC reference: the service controllers
+         are ASP.NET Core controllers and the control panel is a Blazor component, so the
+         MVC + Components + Http types come from the shared framework. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.ComponentModel.Composition" />
-    <Reference Include="System.Web" />
+    <!-- Microsoft.Extensions.DependencyInjection is NOT referenced as a package any more: on
+         net10.0 it ships in the shared framework referenced above, so an explicit
+         PackageReference is rejected by NuGet (NU1510, warning-as-error here). The DI types used
+         by Startup.cs / the services are unchanged, they now come from the framework at the same
+         10.0.12 level the central Directory.Packages.props pins - no downgrade.
+         Newtonsoft.Json (13.0.4, central version) stays: PersonaBarSettings and
+         LocalizationController serialize with it directly; API JSON formatting comes from the
+         host's central AddNewtonsoftJson. -->
+    <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,7 +50,7 @@
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Log4net\DotNetNuke.Log4Net.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj" />
-    <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.WebUtility\DotNetNuke.WebUtility.vbproj" />
+    <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.WebUtility\DotNetNuke.WebUtility.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\DotNetNuke.Web\DotNetNuke.Web.csproj" />
     <ProjectReference Include="..\..\..\DNN Platform\Library\DotNetNuke.Library.csproj" />
     <ProjectReference Include="..\..\Library\Dnn.PersonaBar.Library\Dnn.PersonaBar.Library.csproj" />
@@ -48,6 +64,14 @@
   <ItemGroup>
     <None Remove="admin\personaBar\data\adminpages.resources" />
     <EmbeddedResource Include="admin\personaBar\data\adminpages.resources" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The JS interop module that replaces PersonaBarContainer.ascx's inline <script> block; it
+         must ship under the installed module's scripts folder so the component's module import
+         URL resolves (Scripts\consoleInterop.js precedent in Dnn.Modules.Console).
+         AEModule.build's admin/personaBar/**/scripts/**/* glob packages it into Resources.zip. -->
+    <Content Include="admin\personaBar\scripts\personaBarContainerInterop.js" />
   </ItemGroup>
 
   <Import Project="Module.build" />

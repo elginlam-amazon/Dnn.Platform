@@ -8,12 +8,12 @@ namespace DotNetNuke.Common.Utilities
     using System.Globalization;
     using System.IO;
     using System.Threading;
-    using System.Web.Configuration;
     using System.Xml;
     using System.Xml.XPath;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Application;
+    using DotNetNuke.Common.Options;
     using DotNetNuke.Common.Utilities.Internal;
     using DotNetNuke.Framework.Providers;
     using DotNetNuke.Instrumentation;
@@ -21,6 +21,7 @@ namespace DotNetNuke.Common.Utilities
     using DotNetNuke.Security;
     using DotNetNuke.Services.Exceptions;
 
+    using Microsoft.Extensions.Configuration;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -216,20 +217,19 @@ namespace DotNetNuke.Common.Utilities
         {
             var connectionString = string.Empty;
 
-            // First check if connection string is specified in <connectionStrings> (ASP.NET 2.0 / DNN v4.x)
+            // First check if the connection string is specified in the "ConnectionStrings" section
+            // (the appsettings.json replacement for the web.config <connectionStrings> element).
             if (!string.IsNullOrEmpty(name))
             {
-                // ASP.NET 2 version connection string (in <connectionStrings>)
-                // This will be for new v4.x installs or upgrades from v4.x
-                connectionString = System.Configuration.ConfigurationManager.ConnectionStrings[name].ConnectionString;
+                connectionString = ConfigurationSource.GetConnectionString(name);
             }
 
             if (string.IsNullOrEmpty(connectionString))
             {
                 if (!string.IsNullOrEmpty(name))
                 {
-                    // Next check if connection string is specified in <appSettings> (ASP.NET 1.1 / DNN v3.x)
-                    // This will accomodate upgrades from v3.x
+                    // Next check if connection string is specified in the application settings
+                    // (ASP.NET 1.1 / DNN v3.x). This will accomodate upgrades from v3.x.
                     connectionString = GetSetting(name);
                 }
             }
@@ -237,21 +237,43 @@ namespace DotNetNuke.Common.Utilities
             return connectionString;
         }
 
-        /// <summary>Returns the decryptionKey from web.config machineKey.</summary>
+        /// <summary>Returns the decryption key used by the platform's symmetric encryption helpers.</summary>
         /// <returns>decryption key.</returns>
+        /// <remarks>
+        /// Replaces the web.config <c>&lt;system.web&gt;&lt;machineKey&gt;</c> lookup, which has no
+        /// equivalent on modern .NET. The value now comes from the data-protection-backed
+        /// <see cref="MachineKeyOptions"/> (<c>MachineKey:DecryptionKey</c>). It must be configured:
+        /// returning an empty passphrase would silently produce unreadable cipher text for every
+        /// encrypted host and portal setting, so an unset key is reported as the configuration error
+        /// it is.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException"><c>MachineKey:DecryptionKey</c> is not configured.</exception>
         public static string GetDecryptionkey()
         {
-            var key = System.Configuration.ConfigurationManager.GetSection("system.web/machineKey") as MachineKeySection;
-            return key?.DecryptionKey.ToString() ?? string.Empty;
+            var machineKey = ConfigurationSource.GetOptions<MachineKeyOptions>(MachineKeyOptions.SectionName);
+            if (string.IsNullOrEmpty(machineKey.DecryptionKey))
+            {
+                throw new InvalidOperationException(
+                    $"\"{MachineKeyOptions.SectionName}:{nameof(MachineKeyOptions.DecryptionKey)}\" is not configured. " +
+                    "It replaces the web.config <machineKey decryptionKey=\"...\" /> attribute and is used as the " +
+                    "application-wide passphrase for encrypted host and portal settings, so it must be set (through an " +
+                    "environment variable, user secrets or a secrets manager) and must stay stable across restarts and " +
+                    "across every node of a web farm.");
+            }
+
+            return machineKey.DecryptionKey;
         }
 
-        /// <summary>Returns the fcnMode from web.config httpRuntime.</summary>
+        /// <summary>Returns the configured file change notification (FCN) mode.</summary>
         /// <returns>FCN mode.</returns>
+        /// <remarks>
+        /// Replaces the web.config <c>&lt;system.web&gt;&lt;httpRuntime fcnMode="..." /&gt;</c>
+        /// lookup with the <see cref="HttpRuntimeOptions"/> equivalent.
+        /// </remarks>
         public static string GetFcnMode()
         {
-            var section = System.Configuration.ConfigurationManager.GetSection("system.web/httpRuntime") as HttpRuntimeSection;
-            var mode = section?.FcnMode;
-            return ((ValueType)mode ?? FcnMode.NotSet).ToString();
+            var httpRuntime = ConfigurationSource.GetOptions<HttpRuntimeOptions>(HttpRuntimeOptions.SectionName);
+            return string.IsNullOrEmpty(httpRuntime.FcnMode) ? FcnMode.NotSet.ToString() : httpRuntime.FcnMode;
         }
 
         /// <summary>Returns the maximum file size allowed to be uploaded to the application in bytes.</summary>
@@ -532,17 +554,44 @@ namespace DotNetNuke.Common.Utilities
         /// <summary>Gets an application setting.</summary>
         /// <param name="setting">The name of the setting.</param>
         /// <returns>A string representing the application setting.</returns>
+        /// <remarks>
+        /// Replaces <c>ConfigurationManager.AppSettings[setting]</c>. The web.config
+        /// <c>&lt;appSettings&gt;</c> element is migrated to the <c>AppSettings</c> section of
+        /// <c>appsettings.json</c>; the configuration root is also consulted so that a setting
+        /// supplied as an environment variable or command-line argument is honoured.
+        /// </remarks>
         public static string GetSetting(string setting)
         {
-            return System.Configuration.ConfigurationManager.AppSettings[setting];
+            return ConfigurationSource.GetAppSetting(setting);
         }
 
         /// <summary>Gets a configuration section.</summary>
         /// <param name="section">The name of the section.</param>
-        /// <returns>An object representing the application section.</returns>
+        /// <returns>An object representing the application section, or <see langword="null"/> when it is not configured.</returns>
+        /// <remarks>
+        /// Replaces <c>WebConfigurationManager.GetWebApplicationSection</c>. The legacy
+        /// slash-delimited section names are still accepted: <c>dotnetnuke/&lt;name&gt;</c> returns
+        /// the <see cref="ProviderConfiguration"/> that the old
+        /// <c>ProviderConfigurationHandler</c> used to build, and any other name is resolved
+        /// against <see cref="ConfigurationSource"/> as a colon-delimited configuration path,
+        /// returning the <see cref="Microsoft.Extensions.Configuration.IConfigurationSection"/>.
+        /// </remarks>
         public static object GetSection(string section)
         {
-            return WebConfigurationManager.GetWebApplicationSection(section);
+            if (string.IsNullOrEmpty(section))
+            {
+                return null;
+            }
+
+            var path = section.Replace('/', ':');
+            if (path.StartsWith(ConfigurationSource.DotNetNukeSectionName + ":", StringComparison.OrdinalIgnoreCase))
+            {
+                var providerName = path.Substring(ConfigurationSource.DotNetNukeSectionName.Length + 1);
+                return ProviderConfiguration.GetProviderConfiguration(providerName);
+            }
+
+            var configSection = ConfigurationSource.GetSection(path);
+            return configSection.Exists() ? configSection : null;
         }
 
         /// <summary>Loads the web.config file into an XML document.</summary>
@@ -1058,7 +1107,7 @@ namespace DotNetNuke.Common.Utilities
             if (!File.Exists(path) || overwrite)
             {
                 // Copy from \Config
-                var pathToDefault = Path.Combine(appStatus.ApplicationMapPath, Globals.glbConfigFolder.TrimStart('\\'), fileName);
+                var pathToDefault = Path.Combine(appStatus.ApplicationMapPath, "Config", fileName);
                 if (File.Exists(pathToDefault))
                 {
                     File.Copy(pathToDefault, path, true);
@@ -1197,7 +1246,7 @@ namespace DotNetNuke.Common.Utilities
         {
             return Path.Combine(
                 appStatus.ApplicationMapPath,
-                Globals.glbConfigFolder.TrimStart('\\'),
+                "Config",
                 $"Backup_{DateTime.Now:yyyyMMddHHmm}",
                 fileName);
         }

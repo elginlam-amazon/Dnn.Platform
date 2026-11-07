@@ -4,8 +4,10 @@
 namespace DotNetNuke.UI.WebControls
 {
     using System.Diagnostics.CodeAnalysis;
-    using System.Web.UI.WebControls;
 
+    /// <summary>Handles the change of a check box in a <see cref="CheckBoxColumn"/>.</summary>
+    /// <param name="sender">The object raising the event.</param>
+    /// <param name="e">The event arguments.</param>
     [SuppressMessage("Microsoft.Design", "CA1711:IdentifiersShouldNotHaveIncorrectSuffix", Justification = "Breaking change")]
     public delegate void DNNDataGridCheckedColumnEventHandler(object sender, DNNDataGridCheckChangedEventArgs e);
 
@@ -37,12 +39,16 @@ namespace DotNetNuke.UI.WebControls
             this.Field = field;
         }
 
+        /// <summary>Gets or sets a value indicating whether the check box is checked.</summary>
         public bool Checked { get; set; }
 
+        /// <summary>Gets or sets the column the check box belongs to.</summary>
         public CheckBoxColumn Column { get; set; }
 
+        /// <summary>Gets or sets the name of the field the check box is bound to.</summary>
         public string Field { get; set; }
 
+        /// <summary>Gets or sets a value indicating whether the change came from the header check box.</summary>
         public bool IsAll { get; set; }
     }
 }

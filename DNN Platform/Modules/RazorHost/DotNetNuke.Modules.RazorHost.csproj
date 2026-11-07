@@ -1,253 +1,150 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
   <PropertyGroup>
-    <Deterministic>true</Deterministic>
-    <TargetFrameworkProfile />
-  </PropertyGroup>
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>
-    </ProductVersion>
-    <SchemaVersion>
-    </SchemaVersion>
-    <ProjectGuid>{94C9A90C-C0E9-41D0-AC33-FA5B35CB9C7D}</ProjectGuid>
-    <ProjectTypeGuids>{349c5851-65df-11da-9384-00065b846f21};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
+    <!-- Module.build's CopyBin copies from bin\ directly, so no TFM subfolder. The lower-case
+         "bin" matters on case-sensitive (Linux) file systems. -->
+    <OutputPath>bin</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TargetFramework>net10.0</TargetFramework>
     <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>
-    </RootNamespace>
+    <!-- The net48 <RootNamespace> was empty, but every type in this project is declared in the
+         DotNetNuke.Modules.RazorHost namespace; declaring it keeps the generated Razor
+         components in the same namespace as the code-behind partial classes. -->
+    <RootNamespace>DotNetNuke.Modules.RazorHost</RootNamespace>
     <AssemblyName>DotNetNuke.Modules.RazorHost</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <MyType>Custom</MyType>
-    <UseIISExpress>false</UseIISExpress>
-    <FileUpgradeFlags>
-    </FileUpgradeFlags>
-    <OldToolsVersion>4.0</OldToolsVersion>
-    <UpgradeBackupLocation />
-    <IISExpressSSLPort />
-    <IISExpressAnonymousAuthentication />
-    <IISExpressWindowsAuthentication />
-    <IISExpressUseClassicPipelineMode />
-    <UseGlobalApplicationHostFile />
-    <Use64BitIISExpress />
+    <Deterministic>true</Deterministic>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Retargeting net48 -> net10.0 newly enables net10-era analyzer diagnostics that the
+         net48 build never saw. SA1600 was already suppressed on net48 and is kept. Any id
+         added here must be reported in PRE-EXISTING code this migration did not author, and
+         must be justified in a comment, matching the convention set by the migrated
+         DotNetNuke.Library, DotNetNuke.WebControls and DotNetNuke.Modules.Html.
+         Compiler diagnostics (CS*) deliberately remain errors, with the single documented
+         exception of CS0618 below. -->
+    <!-- SA1600: pre-existing undocumented members (net48 value, kept).
+         CS0618: every public type in this project is marked [DnnDeprecated] (the razor-host
+           module is obsolete in favour of the generic Razor host), so the types reference each
+           other and their own obsolete base members; this is by design and cannot be avoided
+           without un-deprecating the shipped API.
+         The remaining ids are reported by the net10 analyzers in pre-existing code this
+         migration did not author - the module's file/IO helpers, the CreateModule installer
+         flow and the ported controls:
+         ASP0006/BL0005 (the DNN component tree builds its render tree with a running sequence
+           and assigns ID on control instances, like the WebControls components),
+         CA1031/CA1304/CA1305/CA1307/CA1309/CA1310/CA1707/CA1725/CA1822/CA1825/CA1834/CA1847/
+         CA1859/CA1862/CA1864/CA1865/CA1866/CA1514/CA2201/CA2249/CA5369 and
+         SA1201/SA1515/SA1604 - the same ids, for the same reason, as DotNetNuke.Library and
+         DotNetNuke.Modules.Html list. -->
+    <WarningsNotAsErrors>SA1600,CS0618,ASP0006,BL0005,CA1031,CA1304,CA1305,CA1307,CA1309,CA1310,CA1514,CA1707,CA1725,CA1822,CA1825,CA1834,CA1847,CA1859,CA1862,CA1864,CA1865,CA1866,CA2201,CA2249,CA5369,SA1201,SA1515,SA1604</WarningsNotAsErrors>
+    <!-- Replaces the two per-configuration
+         <DocumentationFile>bin\DotNetNuke.Modules.RazorHost.XML</DocumentationFile> entries;
+         emits bin/DotNetNuke.Modules.RazorHost.xml, which Module.build's CopyBin copies. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- SolutionInfo.cs (linked below) carries Company/Product/Copyright/Trademark/Version, as it
+         did on net48. It does NOT carry AssemblyTitle, AssemblyDescription or the typelib Guid, and
+         GenerateAssemblyInfo=false means nothing regenerates them, so a trimmed project-local
+         AssemblyInfo.cs is retained for exactly those three attributes. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- This is a Blazor component library, not an MVC view assembly. It also keeps the loose
+         Scripts\**\*.cshtml sample scripts out of build-time Razor compilation: they are
+         runtime-compiled by DotNetNuke.Web.Razor on the live site, by design. -->
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
+    <!-- The Razor SDK's ResolveRazorGenerateInputs adds every <Content> item with a .cshtml
+         extension to @(RazorGenerate), which would make the build try to compile the 20 loose
+         sample scripts under Scripts\ as MVC views (RAZORSDK1004, then compile errors naming
+         e.g. Scripts\_2_AddNumbers.cshtml). Those scripts are deliberately NOT build-time
+         artefacts: they are shipped as loose content and compiled at runtime on first use by
+         DotNetNuke.Web.Razor, which retains Razor runtime compilation for exactly this purpose
+         (a live site's third-party razor scripts work the same way). This project has no
+         .cshtml of its own to code-generate - its five controls are .razor components, which
+         come in through @(RazorComponent), not @(RazorGenerate) - so turning the default
+         RazorGenerate glob off removes the scripts from code generation without any Remove/
+         re-Include dance and without hiding a single source file. -->
+    <EnableDefaultRazorGenerateItems>false</EnableDefaultRazorGenerateItems>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+
+  <!-- The two original configurations are preserved. -->
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <OutputPath>bin\</OutputPath>
-    <DocumentationFile>bin\DotNetNuke.Modules.RazorHost.XML</DocumentationFile>
-    <WarningLevel>4</WarningLevel>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <DebugType>pdbonly</DebugType>
-    <DefineConstants>TRACE</DefineConstants>
     <Optimize>true</Optimize>
-    <OutputPath>bin\</OutputPath>
-    <DocumentationFile>bin\DotNetNuke.Modules.RazorHost.XML</DocumentationFile>
-    <LangVersion>latest</LangVersion>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <DefineConstants>TRACE</DefineConstants>
   </PropertyGroup>
+
+  <!-- DNN packaging properties consumed by Module.build / Package.targets. On net48 these were
+       only declared in Module.build; Package.targets needs them from the project too. -->
   <PropertyGroup>
+    <Extension>zip</Extension>
+    <DNNFileName>RazorHost</DNNFileName>
+    <PackageName>DNNCE_RazorHost</PackageName>
+    <BuildScriptsPath>$(MSBuildProjectDirectory)\..\..\..\Build\BuildScripts</BuildScriptsPath>
   </PropertyGroup>
-  <PropertyGroup>
-  </PropertyGroup>
-  <PropertyGroup>
-  </PropertyGroup>
-  <PropertyGroup>
-    <OptionInfer>On</OptionInfer>
-  </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="System" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Web" />
-    <Reference Include="System.Web.ApplicationServices" />
-    <Reference Include="System.Web.DynamicData" />
-    <Reference Include="System.Web.Entity" />
-    <Reference Include="System.Web.Extensions" />
-    <Reference Include="System.Xml" />
-    <Reference Include="System.Web.Services" />
-    <Reference Include="System.Xml.Linq" />
+    <!-- Replaces the bare System.Web, System.Web.ApplicationServices, System.Web.DynamicData,
+         System.Web.Entity, System.Web.Extensions and System.Web.Services references. The
+         components need Microsoft.AspNetCore.Components and Microsoft.AspNetCore.Http types.
+         System, System.Data, System.Data.DataSetExtensions, System.Xml and System.Xml.Linq are
+         implicit in the SDK. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
   <ItemGroup>
-    <Import Include="Microsoft.VisualBasic" />
-    <Import Include="System" />
-    <Import Include="System.Collections" />
-    <Import Include="System.Collections.Generic" />
-    <Import Include="System.Data" />
-    <Import Include="System.Linq" />
-    <Import Include="System.Diagnostics" />
-    <Import Include="System.Collections.Specialized" />
-    <Import Include="System.Configuration" />
-    <Import Include="System.Text" />
-    <Import Include="System.Text.RegularExpressions" />
-    <Import Include="System.Web" />
-    <Import Include="System.Web.Caching" />
-    <Import Include="System.Web.SessionState" />
-    <Import Include="System.Web.Security" />
-    <Import Include="System.Web.Profile" />
-    <Import Include="System.Web.UI" />
-    <Import Include="System.Web.UI.WebControls" />
-    <Import Include="System.Web.UI.WebControls.WebParts" />
-    <Import Include="System.Web.UI.HtmlControls" />
+    <ProjectReference Include="..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Web.Razor\DotNetNuke.Web.Razor.csproj" />
+    <ProjectReference Include="..\..\DotNetNuke.Web\DotNetNuke.Web.csproj" />
+    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj" />
   </ItemGroup>
+
   <ItemGroup>
-    <Folder Include="Properties\" />
+    <AdditionalFiles Include="..\..\..\stylecop.json" Link="stylecop.json" />
+    <Compile Include="..\..\..\SolutionInfo.cs" Link="SolutionInfo.cs" />
   </ItemGroup>
+
+  <!-- Resources/*.resx are the migrated App_LocalResources files (AddScript, CreateModule,
+       EditScript, RazorHost, Settings). Module.build packages them into the extension's
+       App_LocalResources folder under those names, which is what
+       ModuleUserControlBase.LocalResourceFile now derives from the component type name - so
+       portal-level and language-pack overrides keep working. The SDK's default EmbeddedResource
+       glob also compiles them into the assembly (logical names
+       DotNetNuke.Modules.RazorHost.Resources.*). The net48 per-file <Content Include=
+       "App_LocalResources\*.ascx.resx"> items, and the lone stray <EmbeddedResource> for
+       AddScript, are therefore gone. -->
+
   <ItemGroup>
-    <Compile Include="..\..\..\SolutionInfo.cs">
-      <Link>SolutionInfo.cs</Link>
-    </Compile>
-    <Compile Include="AssemblyInfo.cs" />
-    <Compile Include="AddScript.ascx.designer.cs">
-      <DependentUpon>AddScript.ascx</DependentUpon>
-    </Compile>
-    <Compile Include="AddScript.ascx.cs">
-      <DependentUpon>AddScript.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="CreateModule.ascx.designer.cs">
-      <DependentUpon>CreateModule.ascx</DependentUpon>
-    </Compile>
-    <Compile Include="CreateModule.ascx.cs">
-      <DependentUpon>CreateModule.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="EditScript.ascx.designer.cs">
-      <DependentUpon>EditScript.ascx</DependentUpon>
-    </Compile>
-    <Compile Include="EditScript.ascx.cs">
-      <DependentUpon>EditScript.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="LoggerMessages.cs" />
-    <Compile Include="RazorHost.ascx.designer.cs">
-      <DependentUpon>RazorHost.ascx</DependentUpon>
-    </Compile>
-    <Compile Include="RazorHost.ascx.cs">
-      <DependentUpon>RazorHost.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-    <Compile Include="RazorHostSettingsExtensions.cs" />
-    <Compile Include="Settings.ascx.designer.cs">
-      <DependentUpon>Settings.ascx</DependentUpon>
-    </Compile>
-    <Compile Include="Settings.ascx.cs">
-      <DependentUpon>Settings.ascx</DependentUpon>
-      <SubType>ASPXCodeBehind</SubType>
-    </Compile>
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="AddScript.ascx" />
-    <Content Include="CreateModule.ascx" />
-    <Content Include="EditScript.ascx" />
+    <!-- DNN extension package content (see Module.build's GetFiles). The five .ascx files are
+         gone: the view, edit, add, create-module and settings controls are now Blazor
+         components compiled into the assembly. -->
     <Content Include="license.txt" />
     <Content Include="module.css" />
     <Content Include="releaseNotes.txt" />
-    <Content Include="RazorHost.ascx" />
-    <Content Include="Settings.ascx" />
-  </ItemGroup>
-  <ItemGroup>
-    <AdditionalFiles Include="..\..\..\stylecop.json">
-      <Link>stylecop.json</Link>
-    </AdditionalFiles>
-    <None Include="Manifest.dnn">
-      <SubType>Designer</SubType>
-    </None>
     <Content Include="Module.build" />
-    <None Include="RazorHost.dnn">
-      <SubType>Designer</SubType>
-    </None>
-    <Content Include="Scripts\_2_AddNumbers.cshtml" />
-    <Content Include="Scripts\Shared\_Footer.cshtml" />
-    <Content Include="Scripts\_3a_RenderPage.cshtml" />
-    <Content Include="Scripts\Shared\_Layout.cshtml" />
-    <Content Include="Scripts\Shared\_Header2.cshtml" />
-    <Content Include="Scripts\_3b_UsingLayout.cshtml" />
-    <Content Include="Scripts\Shared\_Layout2.cshtml" />
-    <Content Include="Scripts\_3d_PassingData.cshtml" />
-    <Content Include="Scripts\Shared\_Layout3.cshtml" />
-    <Content Include="Scripts\Shared\_List.cshtml" />
-    <Content Include="Scripts\_4a_SimpleFormData.cshtml" />
-    <Content Include="Scripts\_4b_FormValidation.cshtml" />
-    <Content Include="Scripts\_4c_FormValueRetention.cshtml" />
-    <None Include="Scripts\_UserList.cshtml" />
-    <None Include="Scripts\_1_SampleRazorScript.cshtml" />
-    <None Include="Scripts\_PortalInfo.cshtml" />
-    <None Include="Scripts\_ModuleInfo.cshtml" />
-    <None Include="Scripts\_TabInfo.cshtml" />
-    <Content Include="Scripts\Shared\_Header.cshtml" />
-    <Content Include="Scripts\_3c_UsingSections.cshtml" />
+    <!-- RazorHost.dnn (the extension manifest) and Manifest.dnn (the reference copy of the
+         manifest template CreateModule writes) are already <None> items through the SDK's
+         default glob; re-declaring them would duplicate the item. -->
+    <!-- The 20 sample razor scripts are LOOSE CONTENT. They are shipped on disk into
+         DesktopModules/RazorModules/RazorHost/Scripts and compiled at runtime on first use by
+         DotNetNuke.Web.Razor, which deliberately retains Razor runtime compilation for exactly
+         this purpose. EnableDefaultRazorGenerateItems=false keeps them out of RazorGenerate;
+         they are
+         picked up automatically by the Razor SDK's default <Content> glob (verified with
+         -getItem:Content: all 20 are present exactly once), so they are NOT re-declared here -
+         an explicit <Content Include> would duplicate the glob item. Module.build's GetFiles
+         puts them in the package. -->
   </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer">
-      <Project>{5FE5D021-9C8D-47A6-BD34-F328BA3E709C}</Project>
-      <Name>DotNetNuke.Internal.SourceGenerators</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj">
-      <Project>{6928a9b1-f88a-4581-a132-d3eb38669bb0}</Project>
-      <Name>DotNetNuke.Abstractions</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj">
-      <Project>{3cd5f6b8-8360-4862-80b6-f402892db7dd}</Project>
-      <Name>DotNetNuke.Instrumentation</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Web.Razor\DotNetNuke.Web.Razor.csproj">
-      <Project>{9806c125-8ca9-48cc-940a-ccd0442c5993}</Project>
-      <Name>DotNetNuke.Web.Razor</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\DotNetNuke.Web\DotNetNuke.Web.csproj">
-      <Project>{B1699614-39D4-468A-AB1D-A2FBA97CADDF}</Project>
-      <Name>DotNetNuke.Web</Name>
-      <Private>False</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj">
-      <Project>{6b29aded-7b56-4484-bea5-c0e09079535b}</Project>
-      <Name>DotNetNuke.Library</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="App_LocalResources\RazorHost.ascx.resx" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="App_LocalResources\Settings.ascx.resx" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="App_LocalResources\EditScript.ascx.resx" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="App_LocalResources\AddScript.ascx.resx" />
-    <Content Include="App_LocalResources\CreateModule.ascx.resx" />
-  </ItemGroup>
-  <PropertyGroup>
-    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
-    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
-  </PropertyGroup>
-  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
-  <Import Project="$(VSToolsPath)\WebApplications\Microsoft.WebApplication.targets" Condition="'$(VSToolsPath)' != ''" />
-  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v10.0\WebApplications\Microsoft.WebApplication.targets" Condition="false" />
-  <ProjectExtensions>
-    <VisualStudio>
-      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
-        <WebProjectProperties>
-          <UseIIS>False</UseIIS>
-          <AutoAssignPort>True</AutoAssignPort>
-          <DevelopmentServerPort>60155</DevelopmentServerPort>
-          <DevelopmentServerVPath>/</DevelopmentServerVPath>
-          <IISUrl>
-          </IISUrl>
-          <NTLMAuthentication>False</NTLMAuthentication>
-          <UseCustomServer>True</UseCustomServer>
-          <CustomServerUrl>http://localhost/DNN_Platform</CustomServerUrl>
-          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
-        </WebProjectProperties>
-      </FlavorProperties>
-    </VisualStudio>
-  </ProjectExtensions>
+
   <Import Project="Module.build" />
 </Project>

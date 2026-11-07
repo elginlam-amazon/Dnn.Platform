@@ -10,7 +10,6 @@ namespace DotNetNuke.Tests.Content.Mocks
     using System.IO;
     using System.Linq;
     using System.Linq.Expressions;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Security;
     using DotNetNuke.Common;
@@ -24,6 +23,7 @@ namespace DotNetNuke.Tests.Content.Mocks
     using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Web.Validators;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     using Moq;
@@ -80,10 +80,10 @@ namespace DotNetNuke.Tests.Content.Mocks
             return CreateTermTable().CreateDataReader();
         }
 
-        internal static Mock<HttpContextBase> CreateMockHttpContext()
+        internal static Mock<HttpContext> CreateMockHttpContext()
         {
-            Mock<HttpContextBase> httpContext = new Mock<HttpContextBase>();
-            Mock<HttpResponseBase> httpResponse = new Mock<HttpResponseBase>();
+            Mock<HttpContext> httpContext = new Mock<HttpContext>();
+            Mock<HttpResponse> httpResponse = new Mock<HttpResponse>();
             httpContext.Setup(h => h.Response).Returns(httpResponse.Object);
 
             return httpContext;
@@ -298,7 +298,10 @@ namespace DotNetNuke.Tests.Content.Mocks
 
         internal static IFileInfo CreateRandomFile(int fileId)
         {
-            var files = Directory.EnumerateFiles(@"C:\").ToArray();
+            // Enumerate a directory that exists on every platform (the test assembly's own
+            // output folder) instead of the Windows-only @"C:\" root, so PhysicalPath still
+            // resolves to a real existing file on Linux and macOS.
+            var files = Directory.EnumerateFiles(AppContext.BaseDirectory).ToArray();
 
             var random = new Random((int)DateTime.UtcNow.Ticks);
 
@@ -307,14 +310,14 @@ namespace DotNetNuke.Tests.Content.Mocks
             fileInfo.SetupGet(f => f.FileId).Returns(fileId);
             fileInfo.SetupGet(f => f.Extension).Returns(".txt");
             fileInfo.SetupGet(f => f.FileName).Returns(random.Next() + ".txt");
-            fileInfo.SetupGet(f => f.Folder).Returns(@"\");
+            fileInfo.SetupGet(f => f.Folder).Returns(Path.DirectorySeparatorChar.ToString());
             fileInfo.SetupGet(f => f.FolderId).Returns(0);
             fileInfo.SetupGet(f => f.FolderMappingID).Returns(-1);
             fileInfo.SetupGet(f => f.IsCached).Returns(false);
             fileInfo.SetupGet(f => f.LastModificationTime).Returns(DateTime.UtcNow);
-            fileInfo.SetupGet(f => f.PhysicalPath).Returns(() => files[random.Next() % (files.Length - 1)]);
+            fileInfo.SetupGet(f => f.PhysicalPath).Returns(() => files[random.Next() % files.Length]);
             fileInfo.SetupGet(f => f.PortalId).Returns(0);
-            fileInfo.SetupGet(f => f.RelativePath).Returns(@"..\..\");
+            fileInfo.SetupGet(f => f.RelativePath).Returns(Path.Combine("..", "..") + Path.DirectorySeparatorChar);
             fileInfo.SetupGet(f => f.UniqueId).Returns(Guid.NewGuid());
             fileInfo.SetupGet(f => f.VersionGuid).Returns(Guid.NewGuid());
             fileInfo.SetupGet(f => f.Size).Returns(random.Next() % (1024 * 1024));

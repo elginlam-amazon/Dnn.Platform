@@ -5,13 +5,21 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.IO;
 
     using DotNetNuke.Common.Utilities;
 
+    using Microsoft.AspNetCore.Components;
+
     /// <summary>The DNNMultiStateBoxColumnTemplate provides a Template for the DNNMultiStateBoxColumn.</summary>
-    public class DNNMultiStateBoxColumnTemplate : ITemplate
+    /// <remarks>
+    /// Was an <c>ITemplate</c> that added a <see cref="DNNMultiStateBox"/> to the cell's control
+    /// tree and bound it through its <c>DataBinding</c> event. The box itself was migrated by the
+    /// DotNetNuke.WebControls library to a control that renders itself onto a
+    /// <see cref="TextWriter"/>, so the template configures it, registers it in the cell (keeping
+    /// <c>cell.Controls[0]</c> working) and emits its markup into the render tree.
+    /// </remarks>
+    public class DNNMultiStateBoxColumnTemplate : IGridTemplate
     {
         private string mDataField = Null.NullString;
         private bool mEnabled = true;
@@ -174,35 +182,55 @@ namespace DotNetNuke.UI.WebControls
             }
         }
 
-        /// <summary>InstantiateIn is called when the Template is instantiated by the parent control.</summary>
-        /// <param name="container">The container control.</param>
-        public void InstantiateIn(Control container)
+        /// <inheritdoc />
+        public RenderFragment Render(DataGridCell cell)
         {
-            if (!string.IsNullOrEmpty(this.Text))
-            {
-                container.Controls.Add(new LiteralControl(this.Text + "<br/>"));
-            }
+            ArgumentNullException.ThrowIfNull(cell);
 
+            var markup = string.Empty;
             if (this.ItemType != ListItemType.Header)
             {
+                // DNNMultiStateBox no longer exposes AutoPostBack: the control it inherited it
+                // from is gone and it cycles its state client side, so there is no post back to
+                // trigger. AutoPostBack is kept on this template because it is public API.
                 var box = new DNNMultiStateBox();
-                box.AutoPostBack = this.AutoPostBack;
                 box.ImagePath = this.ImagePath;
                 foreach (DNNMultiState objState in this.States)
                 {
                     box.States.Add(objState);
                 }
 
-                box.DataBinding += this.Item_DataBinding;
-                container.Controls.Add(box);
+                this.BindBox(box, cell);
+                cell.Controls.Clear();
+                cell.Controls.Add(box);
+
+                using (var writer = new StringWriter(CultureInfo.InvariantCulture))
+                {
+                    box.RenderControl(writer);
+                    markup = writer.ToString();
+                }
             }
+
+            var text = this.Text;
+            return builder =>
+            {
+                var sequence = 0;
+                if (!string.IsNullOrEmpty(text))
+                {
+                    builder.AddMarkupContent(sequence++, text + "<br/>");
+                }
+
+                if (!string.IsNullOrEmpty(markup))
+                {
+                    builder.AddMarkupContent(sequence, markup);
+                }
+            };
         }
 
         /// <summary>Called when the template item is Data Bound.</summary>
-        private void Item_DataBinding(object sender, EventArgs e)
+        private void BindBox(DNNMultiStateBox box, DataGridCell cell)
         {
-            var box = (DNNMultiStateBox)sender;
-            var container = (DataGridItem)box.NamingContainer;
+            var dataItem = cell.Item?.DataItem;
             if (!string.IsNullOrEmpty(this.DataField) && this.ItemType != ListItemType.Header)
             {
                 if (this.DesignMode)
@@ -211,7 +239,7 @@ namespace DotNetNuke.UI.WebControls
                 }
                 else
                 {
-                    box.SelectedStateKey = Convert.ToString(DataBinder.Eval(container.DataItem, this.DataField), CultureInfo.InvariantCulture);
+                    box.SelectedStateKey = Convert.ToString(GridDataBinder.Eval(dataItem, this.DataField), CultureInfo.InvariantCulture);
                 }
             }
             else
@@ -227,7 +255,7 @@ namespace DotNetNuke.UI.WebControls
                 }
                 else
                 {
-                    box.Enabled = Convert.ToBoolean(DataBinder.Eval(container.DataItem, this.EnabledField), CultureInfo.InvariantCulture);
+                    box.Enabled = Convert.ToBoolean(GridDataBinder.Eval(dataItem, this.EnabledField), CultureInfo.InvariantCulture);
                 }
             }
             else

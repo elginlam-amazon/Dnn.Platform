@@ -7,14 +7,14 @@ namespace DotNetNuke.Web.Mvc.Routing
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
-    using System.Web.Routing;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Collections;
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.UI.Modules;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.DependencyInjection;
 
     public class StandardModuleRoutingProvider : ModuleRoutingProvider
@@ -55,7 +55,7 @@ namespace DotNetNuke.Web.Mvc.Routing
         }
 
         /// <inheritdoc />
-        public override RouteData GetRouteData(HttpContextBase httpContext, ModuleControlInfo moduleControl)
+        public override RouteData GetRouteData(HttpContext httpContext, ModuleControlInfo moduleControl)
         {
             var segments = moduleControl.ControlSrc.Replace(".mvc", string.Empty).Split('/');
             string routeNamespace = string.Empty;
@@ -79,8 +79,11 @@ namespace DotNetNuke.Web.Mvc.Routing
                 routeActionName = segments[1];
             }
 
-            var actionName = (httpContext == null) ? routeActionName : httpContext.Request.QueryString.GetValueOrDefault("action", routeActionName);
-            var controllerName = (httpContext == null) ? routeControllerName : httpContext.Request.QueryString.GetValueOrDefault("controller", routeControllerName);
+            // In ASP.NET Core the parsed query string is HttpRequest.Query (an IQueryCollection);
+            // HttpRequest.QueryString is only the raw string.
+            var query = httpContext?.Request.Query;
+            var actionName = GetQueryValue(query, "action", routeActionName);
+            var controllerName = GetQueryValue(query, "controller", routeControllerName);
 
             var routeData = new RouteData();
             routeData.Values.Add("controller", controllerName);
@@ -88,11 +91,11 @@ namespace DotNetNuke.Web.Mvc.Routing
 
             if (httpContext != null)
             {
-                foreach (var param in httpContext.Request.QueryString.AllKeys)
+                foreach (var param in query.Keys)
                 {
                     if (!ExcludedQueryStringParams.Split(',').ToList().Contains(param.ToLowerInvariant()))
                     {
-                        routeData.Values.Add(param, httpContext.Request.QueryString[param]);
+                        routeData.Values.Add(param, query[param].ToString());
                     }
                 }
             }
@@ -103,6 +106,17 @@ namespace DotNetNuke.Web.Mvc.Routing
             }
 
             return routeData;
+        }
+
+        private static string GetQueryValue(IQueryCollection query, string key, string fallback)
+        {
+            if (query is null)
+            {
+                return fallback;
+            }
+
+            var value = query[key].FirstOrDefault();
+            return string.IsNullOrEmpty(value) ? fallback : value;
         }
     }
 }

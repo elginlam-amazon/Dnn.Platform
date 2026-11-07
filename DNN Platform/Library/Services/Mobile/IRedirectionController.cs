@@ -4,7 +4,7 @@
 namespace DotNetNuke.Services.Mobile
 {
     using System.Collections.Generic;
-    using System.Web;
+    using Microsoft.AspNetCore.Http;
 
     public interface IRedirectionController
     {
@@ -34,6 +34,6 @@ namespace DotNetNuke.Services.Mobile
 
         string GetMobileSiteUrl(int portalId, int currentTabId);
 
-        bool IsRedirectAllowedForTheSession(HttpApplication app);
+        bool IsRedirectAllowedForTheSession(HttpContext context);
     }
 }

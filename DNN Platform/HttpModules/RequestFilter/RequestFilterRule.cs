@@ -6,7 +6,8 @@ namespace DotNetNuke.HttpModules.RequestFilter
     using System;
     using System.Collections.Generic;
     using System.Text.RegularExpressions;
-    using System.Web;
+
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Represents a rule from <c>RequestFilter.Config</c>.</summary>
     [Serializable]
@@ -84,26 +85,39 @@ namespace DotNetNuke.HttpModules.RequestFilter
             };
         }
 
-        /// <summary>Executes the rule action on the current response.</summary>
-        public void Execute()
+        /// <summary>Executes the rule action on the response of <paramref name="context"/>.</summary>
+        /// <param name="context">The current HTTP context, whose response the action is written to.</param>
+        /// <returns>
+        /// <see langword="true"/> when the action ended the request (the legacy
+        /// <c>Response.End()</c>/<c>Redirect(…, true)</c> behavior) and the rest of the pipeline
+        /// must be skipped; otherwise <see langword="false"/>.
+        /// </returns>
+        /// <remarks>
+        /// Replaces the legacy <c>HttpContext.Current.Response</c> lookup: ASP.NET Core has no
+        /// ambient context and no <c>Response.End()</c>, so the caller short-circuits the
+        /// pipeline when this method returns <see langword="true"/>.
+        /// </remarks>
+        public bool Execute(HttpContext context)
         {
-            HttpResponse response = HttpContext.Current.Response;
+            ArgumentNullException.ThrowIfNull(context);
+
+            var response = context.Response;
             switch (this.Action)
             {
                 case RequestFilterRuleType.Redirect:
-                    response.Redirect(this.Location, true);
-                    break;
+                    // Response.Redirect(location, endResponse: true) — a 302 that ends the request.
+                    response.Redirect(this.Location, false);
+                    return true;
                 case RequestFilterRuleType.PermanentRedirect:
                     response.StatusCode = 301;
-                    response.Status = "301 Moved Permanently";
-                    response.RedirectLocation = this.Location;
-                    response.End();
-                    break;
+                    response.Headers.Location = this.Location;
+                    return true;
                 case RequestFilterRuleType.NotFound:
+                    // SuppressContent == true: status only, no body is written.
                     response.StatusCode = 404;
-                    response.SuppressContent = true;
-                    response.End();
-                    break;
+                    return true;
+                default:
+                    return false;
             }
         }
     }

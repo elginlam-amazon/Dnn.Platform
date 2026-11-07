@@ -1,0 +1,369 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@namespace DotNetNuke.Modules.Admin.EditExtension
+@inherits DotNetNuke.Services.Installer.Packages.PackageEditorBase
+
+@using System
+@using System.Collections.Generic
+@using System.IO
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.DependencyInjection
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Abstractions.Logging
+@using DotNetNuke.Common
+@using DotNetNuke.Services.Authentication
+@using DotNetNuke.Services.Installer.Packages
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI
+@using DotNetNuke.UI.UserControls
+@using DotNetNuke.Web.UI.WebControls
+
+@*
+    Replaces AuthenticationEditor.ascx — the package editor for an Auth_System extension.
+
+    * LoadControl("~/" + AuthSystem.SettingsControlSrc) becomes component composition: the provider's
+      settings control source is resolved to the component type that replaced it and rendered with
+      DynamicComponent. The renderer owns the instance, so the Update button asks it to save through
+      AuthenticationSettingsBase.UpdateRequested (the same mechanism Authentication.ascx's host uses)
+      rather than calling UpdateSettings() on an instance this control would own.
+
+    * The two <dnn:DnnFormEditor> blocks are the migrated DnnFormEditor component; its Items
+      collection has a private setter, so the declared <Items> became BuildFormItems() — same IDs,
+      DataFields and order, and the editable form keeps its DnnFormToggleButtonItem for IsEnabled.
+
+    * h2 AuthEditorHead's runat="server" Visible/EnableViewState assignment becomes the
+      authEditorHeadVisible flag (there is no view state to disable).
+*@
+
+@if (this.authEditorHeadVisible)
+{
+    <h2 id="AuthEditorHead" class="dnnFormSectionHead">
+        <a href="" class="dnnLabelExpanded">@this.LocalizeString("AuthenticationSettings")</a>
+    </h2>
+}
+<fieldset>
+    <div class="dnnFormMessage dnnFormInfo"><span id="lblHelp">@this.helpText</span></div>
+    @if (this.authenticationFormVisible)
+    {
+        <DnnFormEditor @ref="this.authenticationForm" FormMode="DnnFormMode.Short" />
+    }
+    @if (this.authenticationFormReadOnlyVisible)
+    {
+        <DnnFormEditor @ref="this.authenticationFormReadOnly" FormMode="DnnFormMode.Short" />
+    }
+    @if (this.pnlSettingsVisible)
+    {
+        <div id="pnlSettings" class="dnnAuthenticationSettings">
+            @if (this.settingsControlType is not null)
+            {
+                <DynamicComponent Type="@this.settingsControlType" Parameters="@this.settingsControlParameters" />
+            }
+            <ul class="dnnActions dnnClear">
+                @if (this.cmdUpdateVisible)
+                {
+                    <li><a id="cmdUpdate" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.CmdUpdateClick" @onclick:preventDefault="true">@this.LocalizeString("cmdUpdate")</a></li>
+                }
+            </ul>
+        </div>
+    }
+</fieldset>
+
+@code {
+    private INavigationManager navigationManager;
+    private IEventLogger eventLogger;
+    private IApplicationStatusInfo appStatus;
+
+    private AuthenticationInfo authSystem;
+
+    private Type settingsControlType;
+    private IDictionary<string, object> settingsControlParameters = new Dictionary<string, object>();
+    private bool settingsUpdateRequested;
+
+    private DnnFormEditor authenticationForm;
+    private DnnFormEditor authenticationFormReadOnly;
+    private List<DnnFormItemBase> editableItems;
+    private List<DnnFormItemBase> readOnlyItems;
+
+    private bool authEditorHeadVisible = true;
+    private bool authenticationFormVisible;
+    private bool authenticationFormReadOnlyVisible;
+    private bool pnlSettingsVisible;
+    private bool cmdUpdateVisible = true;
+    private string helpText = string.Empty;
+    private bool loaded;
+
+    /// <summary>Gets or sets the Blazor navigation manager; <c>Response.Redirect</c> becomes a forced navigation.</summary>
+    [Inject]
+    protected Microsoft.AspNetCore.Components.NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets the authentication system of the package being edited.</summary>
+    protected AuthenticationInfo AuthSystem
+    {
+        get
+        {
+            if (this.authSystem == null)
+            {
+                this.authSystem = AuthenticationController.GetAuthenticationServiceByPackageID(this.PackageID);
+            }
+
+            return this.authSystem;
+        }
+    }
+
+    /// <inheritdoc />
+    protected override string EditorID
+    {
+        get
+        {
+            return "AuthenticationEditor";
+        }
+    }
+
+    /// <summary>Gets a value indicating whether the provider ships a settings control.</summary>
+    /// <remarks>
+    /// Replaces the <c>SettingsControl</c> property. The control itself is no longer instantiated
+    /// here (the renderer does that); what the original code actually asked of it was only "is
+    /// there one", which is exactly what the resolved type answers.
+    /// </remarks>
+    protected bool HasSettingsControl => this.settingsControlType is not null;
+
+    /// <inheritdoc />
+    public override void Initialize()
+    {
+        this.pnlSettingsVisible = !this.IsSuperTab;
+
+        this.ResolveSettingsControl();
+
+        if (this.IsSuperTab)
+        {
+            this.helpText = Localization.GetString("HostHelp", this.LocalResourceFile);
+        }
+        else
+        {
+            if (!this.HasSettingsControl)
+            {
+                this.helpText = Localization.GetString("NoSettings", this.LocalResourceFile);
+            }
+            else
+            {
+                this.helpText = Localization.GetString("AdminHelp", this.LocalResourceFile);
+            }
+        }
+
+        this.BindAuthentication();
+    }
+
+    /// <inheritdoc />
+    public override void UpdatePackage()
+    {
+        if (this.authenticationForm != null && this.authenticationForm.IsValid)
+        {
+            if (this.authenticationForm.DataSource is AuthenticationInfo authInfo)
+            {
+                AuthenticationController.UpdateAuthentication(this.eventLogger, authInfo);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        var services = Globals.GetCurrentServiceProvider();
+        this.navigationManager ??= services.GetRequiredService<INavigationManager>();
+        this.eventLogger ??= services.GetRequiredService<IEventLogger>();
+        this.appStatus ??= services.GetRequiredService<IApplicationStatusInfo>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        var displayMode = this.DisplayMode;
+        if (displayMode == "editor" || displayMode == "settings")
+        {
+            this.authEditorHeadVisible = false;
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnAfterRender(bool firstRender)
+    {
+        base.OnAfterRender(firstRender);
+
+        this.SyncFormItems();
+    }
+
+    /// <summary>cmdUpdate_Click: saves the provider's settings and returns to the extension list.</summary>
+    protected void CmdUpdateClick()
+    {
+        // this.SettingsControl?.UpdateSettings(): asked of the rendered control through its
+        // UpdateRequested parameter, which is the only way to reach an instance the renderer owns.
+        if (this.HasSettingsControl)
+        {
+            this.settingsUpdateRequested = true;
+            this.ResolveSettingsControl(force: true);
+        }
+
+        var displayMode = this.DisplayMode;
+        if (displayMode != "editor" && displayMode != "settings")
+        {
+            this.Navigation.NavigateTo(this.navigationManager.NavigateURL(), forceLoad: true);
+        }
+    }
+
+    /// <summary>Resolves the component type of the provider's settings control.</summary>
+    /// <param name="force">Whether to rebuild the parameters even when the type is already known.</param>
+    private void ResolveSettingsControl(bool force = false)
+    {
+        if (this.AuthSystem == null || string.IsNullOrEmpty(this.AuthSystem.SettingsControlSrc))
+        {
+            return;
+        }
+
+        if (this.settingsControlType != null && !force)
+        {
+            return;
+        }
+
+        try
+        {
+            this.settingsControlType ??= ControlUtilities.ResolveControlType("~/" + this.AuthSystem.SettingsControlSrc);
+
+            // set the control's resource file to the one that sits next to it ( ie.
+            // controlname.ascx = controlname ), which is what assigning its ID achieved.
+            var controlPath = "~/" + Path.GetDirectoryName(this.AuthSystem.SettingsControlSrc).Replace('\\', '/');
+            var localResourceFile = controlPath + "/" + Localization.LocalResourceDirectory + "/" +
+                                    Path.GetFileNameWithoutExtension(this.AuthSystem.SettingsControlSrc);
+
+            this.settingsControlParameters = ControlUtilities.FilterDeclaredParameters(
+                this.settingsControlType,
+                new Dictionary<string, object>
+                {
+                    ["AuthenticationType"] = this.AuthSystem.AuthenticationType,
+                    ["LocalResourceFile"] = localResourceFile,
+                    ["ModuleConfiguration"] = this.ModuleContext.Configuration,
+                    ["UpdateRequested"] = this.settingsUpdateRequested,
+                });
+        }
+        catch (InvalidOperationException ex)
+        {
+            DotNetNuke.Services.Exceptions.Exceptions.LogException(ex);
+        }
+    }
+
+    /// <summary>This routine Binds the Authentication System.</summary>
+    private void BindAuthentication()
+    {
+        if (this.AuthSystem != null)
+        {
+            this.authenticationFormReadOnlyVisible = this.IsSuperTab && (this.AuthSystem.AuthenticationType == "DNN");
+            this.authenticationFormVisible = this.IsSuperTab && this.AuthSystem.AuthenticationType != "DNN";
+
+            if (!this.HasSettingsControl)
+            {
+                this.cmdUpdateVisible = false;
+            }
+        }
+    }
+
+    /// <summary>Creates the form items that used to be declared in the <c>&lt;Items&gt;</c> blocks.</summary>
+    private void BuildFormItems()
+    {
+        if (this.editableItems is not null)
+        {
+            return;
+        }
+
+        this.editableItems = new List<DnnFormItemBase>
+        {
+            this.NewTextBoxItem("authenticationType", "AuthenticationType"),
+            this.NewTextBoxItem("loginControlSrc", "LoginControlSrc"),
+            this.NewTextBoxItem("logoffControlSrc", "LogoffControlSrc"),
+            this.NewTextBoxItem("settingsControlSrc", "SettingsControlSrc"),
+
+            // BL0005: the item is a model this page constructs, owns and renders through the
+            // DnnFormEditor's Items collection (SyncFormItems); the only @ref captures here are
+            // authenticationForm/authenticationFormReadOnly. Owner-writes.
+#pragma warning disable BL0005
+            new DotNetNuke.Web.UI.WebControls.Internal.DnnFormToggleButtonItem(this.appStatus, this.eventLogger)
+            {
+                ID = "isEnabled",
+                DataField = "IsEnabled",
+                LocalResourceFile = this.LocalResourceFile,
+            },
+#pragma warning restore BL0005
+        };
+
+        this.readOnlyItems = new List<DnnFormItemBase>
+        {
+            this.NewLiteralItem("DnnFormTextBoxItem1", "AuthenticationType", null),
+            this.NewLiteralItem("DnnFormTextBoxItem2", "LoginControlSrc", null),
+            this.NewLiteralItem("DnnFormTextBoxItem3", "LogoffControlSrc", null),
+            this.NewLiteralItem("DnnFormTextBoxItem4", "SettingsControlSrc", null),
+            this.NewLiteralItem("DnnFormToggleButtonItem1", "IsEnabled", null),
+        };
+    }
+
+    // BL0005: both factories CONSTRUCT the DnnFormItemBase models this page owns and renders through
+    // the DnnFormEditor's Items collection (SyncFormItems). The constructing type is the owner, so
+    // the object-initializer writes are owner-writes, not an outsider mutating a child component.
+#pragma warning disable BL0005
+    private DnnFormTextBoxItem NewTextBoxItem(string id, string dataField)
+        => new DnnFormTextBoxItem(this.appStatus, this.eventLogger)
+        {
+            ID = id,
+            DataField = dataField,
+            LocalResourceFile = this.LocalResourceFile,
+        };
+
+    private DnnFormLiteralItem NewLiteralItem(string id, string dataField, string resourceKey)
+        => new DnnFormLiteralItem(this.appStatus, this.eventLogger)
+        {
+            ID = id,
+            DataField = dataField,
+            ResourceKey = resourceKey,
+            LocalResourceFile = this.LocalResourceFile,
+        };
+#pragma warning restore BL0005
+
+    /// <summary>Pushes the item lists and the data source into the editors, in the declared order.</summary>
+    private void SyncFormItems()
+    {
+        if (this.AuthSystem == null)
+        {
+            return;
+        }
+
+        this.BuildFormItems();
+
+        if (this.authenticationForm != null && this.authenticationForm.Items.Count != this.editableItems.Count)
+        {
+            this.authenticationForm.Items.Clear();
+            this.authenticationForm.Items.AddRange(this.editableItems);
+            this.authenticationForm.DataSource = this.AuthSystem;
+            this.authenticationForm.DataBind();
+        }
+
+        if (this.authenticationFormReadOnly != null && this.authenticationFormReadOnly.Items.Count != this.readOnlyItems.Count)
+        {
+            this.authenticationFormReadOnly.Items.Clear();
+            this.authenticationFormReadOnly.Items.AddRange(this.readOnlyItems);
+            this.authenticationFormReadOnly.DataSource = this.AuthSystem;
+            this.authenticationFormReadOnly.DataBind();
+        }
+    }
+}

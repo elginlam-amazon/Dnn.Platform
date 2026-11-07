@@ -7,22 +7,26 @@ namespace DotNetNuke.Services.Log.EventLog
     using System.Collections;
     using System.Collections.Generic;
     using System.Data;
-    using System.Data.SqlClient;
+    using Microsoft.Data.SqlClient;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
+    using System.Net;
     using System.IO;
     using System.Threading;
-    using System.Web;
-    using System.Web.Caching;
+    using DotNetNuke.Services.Cache;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
+    using DotNetNuke.Entities.Host;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Services.Scheduling;
+
+    using Microsoft.AspNetCore.Diagnostics;
+    using Microsoft.AspNetCore.Http;
 
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
@@ -328,7 +332,7 @@ namespace DotNetNuke.Services.Log.EventLog
                     CBO.CloseDataReader(dr, true);
                 }
 
-                Mail.Mail.SendEmail(typeConfigInfo.MailFromAddress, typeConfigInfo.MailToAddress, "Event Notification", $"<pre>{HttpUtility.HtmlEncode(log)}</pre>");
+                Mail.Mail.SendEmail(typeConfigInfo.MailFromAddress, typeConfigInfo.MailToAddress, "Event Notification", $"<pre>{WebUtility.HtmlEncode(log)}</pre>");
                 DataProvider.Instance().UpdateEventLogPendingNotif(Convert.ToInt32(typeConfigInfo.Id, CultureInfo.InvariantCulture));
             }
         }
@@ -503,15 +507,28 @@ namespace DotNetNuke.Services.Log.EventLog
 
         private static void WriteError(LogTypeConfigInfo logTypeConfigInfo, Exception exc, string header, string message)
         {
-            if (HttpContext.Current != null)
+            var context = HttpContextSource.Current;
+            if (context != null)
             {
-                if (HttpContext.Current.IsCustomErrorEnabled)
+                // HttpContext.IsCustomErrorEnabled (<customErrors mode>) has no ASP.NET Core
+                // counterpart; DNN's own UseCustomErrorMessages host setting is the equivalent
+                // "render a friendly page instead of the raw error" switch and is used for the
+                // same decision throughout Services/Exceptions.
+                if (Host.UseCustomErrorMessages)
                 {
-                    HttpContext.Current.AddError(exc);
+                    // HttpContext.AddError had no direct replacement. Publishing the exception on
+                    // IExceptionHandlerFeature is the Core equivalent: UseExceptionHandler /
+                    // UseStatusCodePages error pages read the failure from this feature.
+                    context.Response.StatusCode = 500;
+                    context.Features.Set<IExceptionHandlerFeature>(new ExceptionHandlerFeature
+                    {
+                        Error = exc,
+                        Path = context.Request.Path,
+                    });
                 }
                 else
                 {
-                    HttpResponse response = HttpContext.Current.Response;
+                    HttpResponse response = context.Response;
                     response.StatusCode = 500;
                     HtmlUtils.WriteHeader(response, header);
 
@@ -521,7 +538,10 @@ namespace DotNetNuke.Services.Log.EventLog
                     }
 
                     HtmlUtils.WriteFooter(response);
-                    response.End();
+
+                    // Response.End() does not exist on ASP.NET Core; CompleteAsync flushes and
+                    // stops further writes to the body.
+                    response.CompleteAsync().GetAwaiter().GetResult();
                 }
             }
         }
@@ -559,7 +579,7 @@ namespace DotNetNuke.Services.Log.EventLog
                                 if (logTypeConfigInfo.NotificationThreshold == 0)
                                 {
                                     string str = logQueueItem.LogInfo.Serialize();
-                                    Mail.Mail.SendEmail(logTypeConfigInfo.MailFromAddress, logTypeConfigInfo.MailToAddress, "Event Notification", $"<pre>{HttpUtility.HtmlEncode(str)}</pre>");
+                                    Mail.Mail.SendEmail(logTypeConfigInfo.MailFromAddress, logTypeConfigInfo.MailToAddress, "Event Notification", $"<pre>{WebUtility.HtmlEncode(str)}</pre>");
                                 }
                             }
                             finally

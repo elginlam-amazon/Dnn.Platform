@@ -5,7 +5,7 @@
     <AssemblyName>DotNetNuke.Providers.AspNetClientCapabilityProvider</AssemblyName>
     <OutputPath>bin/Providers</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -18,13 +18,21 @@
 
 
   <ItemGroup>
-    <Reference Include="System.Web" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
     <ProjectReference Include="..\..\..\DotNetNuke.Instrumentation\DotNetNuke.Instrumentation.csproj" />
     <ProjectReference Include="..\..\..\Library\DotNetNuke.Library.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Keep the .resx in App_LocalResources for DNN packaging, but expose it to
+         IStringLocalizer<SharedResources> under the marker type's name. -->
+    <EmbeddedResource Update="App_LocalResources/SharedResources.resx">
+      <LogicalName>DotNetNuke.Providers.AspNetClientCapabilityProvider.Resources.SharedResources.resources</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>

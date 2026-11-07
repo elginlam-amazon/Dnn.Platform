@@ -8,6 +8,12 @@ namespace Dnn.AzureConnector.Components
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
+    using System.Threading.Tasks;
+
+    using Amazon;
+    using Amazon.Runtime;
+    using Amazon.S3;
+    using Amazon.S3.Model;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Collections;
@@ -24,13 +30,18 @@ namespace Dnn.AzureConnector.Components
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Log.EventLog;
 
-    using Microsoft.WindowsAzure.Storage;
-    using Microsoft.WindowsAzure.Storage.Auth;
-    using Microsoft.WindowsAzure.Storage.RetryPolicies;
-
     using ICryptographyProvider = DotNetNuke.Abstractions.Security.ICryptographyProvider;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// This connector now stores through Amazon S3 (AWSSDK.S3) instead of Azure Blob Storage, matching
+    /// the <c>AzureFolderProvider</c> it configures. The semantic mapping is:
+    /// the <c>Container</c> setting names an S3 bucket, and <c>AccountName</c>/<c>AccountKey</c> are the
+    /// AWS access key id and secret access key. The connector name ("Azure"), the display name,
+    /// <see cref="Constants.FolderProviderType"/>, every setting key, the icon and plugin folder URLs,
+    /// <c>AzureConnector.dnn</c>, <c>connector.htm</c>, <c>connector.css</c> and <c>Scripts/connector.js</c>
+    /// are all deliberately unchanged, so existing folder mappings and installed packages keep working.
+    /// </remarks>
     public class AzureConnector : IConnector
     {
         private const string DefaultDisplayName = "Azure Storage";
@@ -319,6 +330,48 @@ namespace Dnn.AzureConnector.Components
             return folderMapping;
         }
 
+        /// <summary>Creates the S3 client used to validate the configured credentials.</summary>
+        /// <param name="accessKeyId">The AWS access key id (the <c>AccountName</c> setting).</param>
+        /// <param name="secretAccessKey">The AWS secret access key (the <c>AccountKey</c> setting).</param>
+        /// <returns>A new <see cref="AmazonS3Client"/> which the caller must dispose.</returns>
+        /// <remarks>
+        /// <c>AzureFolderProvider.CreateS3Client</c> is <c>internal</c> to its own assembly, so the
+        /// client is constructed locally here with the same decisions: an explicit region (an S3 client
+        /// needs one, otherwise the SDK silently falls back to us-east-1 and requests against buckets in
+        /// another region fail with <c>AuthorizationHeaderMalformed</c> or a 301 redirect) and no retries,
+        /// which is what the Azure <c>NoRetry</c> policy gave this validation.
+        /// </remarks>
+        private static AmazonS3Client CreateValidationS3Client(string accessKeyId, string secretAccessKey)
+        {
+            var config = new AmazonS3Config
+            {
+                // Preserves the Azure NoRetry policy: validating credentials must fail fast.
+                MaxErrorRetry = 0,
+            };
+
+            var regionName = Environment.GetEnvironmentVariable("AWS_REGION");
+            config.RegionEndpoint = string.IsNullOrEmpty(regionName)
+                ? FallbackRegionFactory.GetRegionEndpoint()
+                : RegionEndpoint.GetBySystemName(regionName);
+
+            return new AmazonS3Client(new BasicAWSCredentials(accessKeyId, secretAccessKey), config);
+        }
+
+        /// <summary>Runs an asynchronous AWS SDK call from the synchronous <see cref="SaveConfig"/> path.</summary>
+        /// <typeparam name="TResult">The result of the operation.</typeparam>
+        /// <param name="operation">The operation to run.</param>
+        /// <returns>The result of <paramref name="operation"/>.</returns>
+        /// <remarks>
+        /// The <see cref="IConnector"/> contract is synchronous while AWSSDK.S3 exposes asynchronous
+        /// operations only. The call is dispatched onto the thread pool so it never continues on - and
+        /// therefore cannot deadlock against - the calling thread. Same bridge as
+        /// <c>AzureFolderProvider.RunSync</c>.
+        /// </remarks>
+        private static TResult RunSync<TResult>(Func<Task<TResult>> operation)
+        {
+            return Task.Run(operation).GetAwaiter().GetResult();
+        }
+
         private static bool Validation(string azureAccountName, string azureAccountKey, string azureContainerName)
         {
             try
@@ -337,20 +390,25 @@ namespace Dnn.AzureConnector.Components
                         Constants.LocalResourceFile));
                 }
 
-                StorageCredentials sc = new StorageCredentials(azureAccountName, azureAccountKey);
-                var csa = new CloudStorageAccount(sc, true);
-                var blobClient = csa.CreateCloudBlobClient();
-
-                blobClient.DefaultRequestOptions.RetryPolicy = new NoRetry();
-
-                var containers = blobClient.ListContainers();
-                if (containers.Any())
+                // The Container setting now names an S3 bucket and AccountName/AccountKey are the AWS
+                // access key id / secret access key. MaxErrorRetry = 0 preserves the Azure NoRetry
+                // policy this validation used, so bad credentials fail fast instead of being retried.
+                using (var s3Client = CreateValidationS3Client(azureAccountName, azureAccountKey))
                 {
-                    if (!string.IsNullOrEmpty(azureContainerName))
+                    var response = RunSync(() => s3Client.ListBucketsAsync());
+                    var buckets = response.Buckets;
+                    if (buckets != null && buckets.Count != 0)
                     {
-                        if (!containers.Any(container => container.Name == azureContainerName))
+                        if (!string.IsNullOrEmpty(azureContainerName))
                         {
-                            throw new AzureConnectorException(Localization.GetString("ErrorInvalidContainerName", Constants.LocalResourceFile));
+                            if (!buckets.Any(bucket => bucket.BucketName == azureContainerName))
+                            {
+                                throw new AzureConnectorException(Localization.GetString("ErrorInvalidContainerName", Constants.LocalResourceFile));
+                            }
+                            else
+                            {
+                                return true;
+                            }
                         }
                         else
                         {
@@ -359,33 +417,33 @@ namespace Dnn.AzureConnector.Components
                     }
                     else
                     {
-                        return true;
+                        throw new AzureConnectorException(Localization.GetString("AccountNotFound.ErrorMessage", Constants.LocalResourceFile));
                     }
-                }
-                else
-                {
-                    throw new AzureConnectorException(Localization.GetString("AccountNotFound.ErrorMessage", Constants.LocalResourceFile));
                 }
             }
-            catch (StorageException ex)
+            catch (AmazonS3Exception ex)
             {
-                if (ex.RequestInformation.ExtendedErrorInformation != null)
+                // The Azure extended error codes map one-for-one onto S3 error codes so the same
+                // localized messages still surface. S3 has no equivalent of
+                // RequestInformation.HttpStatusMessage, so the error code and status are used instead.
+                if (ex.ErrorCode == "InvalidAccessKeyId" || ex.ErrorCode == "NoSuchBucket")
                 {
-                    if (ex.RequestInformation.ExtendedErrorInformation.ErrorCode == "AccountNotFound")
-                    {
-                        throw new AzureConnectorException(Localization.GetString("AccountNotFound.ErrorMessage", Constants.LocalResourceFile), ex);
-                    }
-                    else if (ex.RequestInformation.ExtendedErrorInformation.ErrorCode == "AccessDenied")
-                    {
-                        throw new AzureConnectorException(Localization.GetString("AccessDenied.ErrorMessage", Constants.LocalResourceFile), ex);
-                    }
-                    else
-                    {
-                        throw new AzureConnectorException(ex.RequestInformation.HttpStatusMessage, ex);
-                    }
+                    throw new AzureConnectorException(Localization.GetString("AccountNotFound.ErrorMessage", Constants.LocalResourceFile), ex);
+                }
+                else if (ex.ErrorCode == "AccessDenied")
+                {
+                    throw new AzureConnectorException(Localization.GetString("AccessDenied.ErrorMessage", Constants.LocalResourceFile), ex);
+                }
+                else if (ex.ErrorCode == "SignatureDoesNotMatch")
+                {
+                    throw new AzureConnectorException(Localization.GetString("InvalidAccountKey.ErrorMessage", Constants.LocalResourceFile), ex);
                 }
 
-                throw new AzureConnectorException(ex.RequestInformation.HttpStatusMessage ?? ex.Message, ex);
+                throw new AzureConnectorException(
+                    string.IsNullOrEmpty(ex.ErrorCode)
+                        ? ex.Message
+                        : string.Format(CultureInfo.CurrentCulture, "{0} ({1})", ex.Message, ex.ErrorCode),
+                    ex);
             }
             catch (FormatException ex)
             {

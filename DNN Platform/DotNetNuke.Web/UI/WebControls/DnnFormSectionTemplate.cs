@@ -5,16 +5,22 @@ namespace DotNetNuke.Web.UI.WebControls
 {
     using System;
     using System.Collections.Generic;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
+    using DotNetNuke.UI;
 
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>A form section template.</summary>
-    internal class DnnFormSectionTemplate : ITemplate
+    /// <remarks>
+    /// This implemented <c>System.Web.UI.ITemplate</c>, whose single member instantiated the
+    /// section's items into a container control. There is no <c>ITemplate</c> on ASP.NET Core, so
+    /// <see cref="InstantiateIn(DnnComponentBase)"/> keeps the same contract against the Blazor
+    /// control tree, and the work it does — handing the items to
+    /// <see cref="DnnFormEditor.SetUpItems"/> — is unchanged.
+    /// </remarks>
+    internal class DnnFormSectionTemplate
     {
         private readonly IHostSettings hostSettings;
 
@@ -39,12 +45,13 @@ namespace DotNetNuke.Web.UI.WebControls
         /// <summary>Gets or sets the path to the local resource file.</summary>
         public string LocalResourceFile { get; set; }
 
-        /// <inheritdoc />
-        public void InstantiateIn(Control container)
+        /// <summary>Builds this section's items into the given container.</summary>
+        /// <param name="container">The container to add the items to.</param>
+        public void InstantiateIn(DnnComponentBase container)
         {
-            if (container is WebControl webControl)
+            if (container != null)
             {
-                DnnFormEditor.SetUpItems(this.hostSettings, this.Items, webControl, false);
+                DnnFormEditor.SetUpItems(this.hostSettings, this.Items, container, false);
             }
         }
     }

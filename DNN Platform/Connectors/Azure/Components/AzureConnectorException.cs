@@ -28,9 +28,14 @@ public class AzureConnectorException : Exception
     {
     }
 
+#pragma warning disable SYSLIB0051 // Kept for API compatibility: the formatter-based
+// serialization constructor is part of this public exception type's surface. Nothing in the
+// connector serializes it.
+
     /// <inheritdoc />
     protected AzureConnectorException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
     }
+#pragma warning restore SYSLIB0051
 }

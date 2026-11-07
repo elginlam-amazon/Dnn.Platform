@@ -6,7 +6,6 @@ namespace DotNetNuke.Services.Upgrade.InternalController.Steps
     using System;
     using System.Globalization;
     using System.IO;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Portals;
@@ -51,9 +50,9 @@ namespace DotNetNuke.Services.Upgrade.InternalController.Steps
         private void CreateSite(PortalConfig portal, InstallConfig installConfig)
         {
             var domain = string.Empty;
-            if (HttpContext.Current != null)
+            if (HttpContextSource.Current != null)
             {
-                domain = Globals.GetDomainName(HttpContext.Current.Request, true).ToLowerInvariant().Replace("/install/launchautoinstall", string.Empty).Replace("/install", string.Empty).Replace("/runinstall", string.Empty);
+                domain = Globals.GetDomainName(HttpContextSource.Current.Request, true).ToLowerInvariant().Replace("/install/launchautoinstall", string.Empty).Replace("/install", string.Empty).Replace("/runinstall", string.Empty);
             }
 
             var serverPath = Globals.ApplicationMapPath + @"\";
@@ -90,7 +89,7 @@ namespace DotNetNuke.Services.Upgrade.InternalController.Steps
             string culture = installConfig.InstallCulture;
             if (!culture.Equals("en-us", StringComparison.OrdinalIgnoreCase))
             {
-                string installFolder = HttpContext.Current.Server.MapPath("~/Install/language");
+                string installFolder = HttpContextSource.MapPath("~/Install/language");
                 string lpFilePath = $@"{installFolder}\installlanguage.resources";
 
                 if (File.Exists(lpFilePath))
@@ -131,9 +130,9 @@ namespace DotNetNuke.Services.Upgrade.InternalController.Steps
             }
 
             // add item to identity install from install wizard.
-            if (HttpContext.Current != null)
+            if (HttpContextSource.Current != null)
             {
-                HttpContext.Current.Items.Add("InstallFromWizard", true);
+                HttpContextSource.Current.Items["InstallFromWizard"] = true;
             }
 
             // Create Portal

@@ -6,16 +6,51 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
 {
     using System;
     using System.IO;
-    using System.Web.Mvc;
-    using System.Web.Routing;
+    using System.Threading.Tasks;
 
+    using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Web.Mvc.Framework.ActionResults;
+
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.ModelBinding;
+    using Microsoft.AspNetCore.Mvc.ViewEngines;
+    using Microsoft.AspNetCore.Mvc.ViewFeatures;
+    using Microsoft.AspNetCore.Routing;
+
+    using Microsoft.Extensions.DependencyInjection;
+
     using Moq;
     using NUnit.Framework;
 
     [TestFixture]
     public class DnnViewResultTests
     {
+        private FakeServiceProvider serviceProvider;
+
+        [SetUp]
+        public void Setup()
+        {
+            // The view lookup goes through ViewEngineCollectionExt, which caches through
+            // CBO.GetCachedObject(IHostSettings, ...), and the renderer resolves the view data and temp
+            // data services from DI. ViewDataDictionary builds a ModelExplorer from
+            // IModelMetadataProvider, so a real provider is registered (an auto-mocked one returns null
+            // metadata and the dictionary cannot be constructed).
+            this.serviceProvider = FakeServiceProvider.Setup(
+                services =>
+                {
+                    services.AddSingleton(Mock.Of<IHostSettings>());
+                    services.AddSingleton<IModelMetadataProvider>(new EmptyModelMetadataProvider());
+                    services.AddSingleton(Mock.Of<ITempDataProvider>());
+                });
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            this.serviceProvider.Dispose();
+        }
+
         [Test]
         public void ExecuteResult_Throws_With_Null_ControllerContext()
         {
@@ -23,7 +58,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
             var result = new DnnViewResult();
 
             // Act, Assert
-            Assert.Throws<ArgumentNullException>(() => result.ExecuteResult(null, new StringWriter()));
+            Assert.ThrowsAsync<ArgumentNullException>(() => result.ExecuteResultAsync(null, new StringWriter()));
         }
 
         [Test]
@@ -34,7 +69,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
             var context = MockHelper.CreateMockControllerContext();
 
             // Act, Assert
-            Assert.Throws<ArgumentNullException>(() => result.ExecuteResult(context, null));
+            Assert.ThrowsAsync<ArgumentNullException>(() => result.ExecuteResultAsync(context, null));
         }
 
         [Test]
@@ -42,14 +77,17 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         {
             // Arrange
             var result = new DnnViewResult();
+
+            // The Core implementation falls back to the "action" route value when no view name is set, so
+            // the context carries no action and the view cannot be resolved.
             var context = MockHelper.CreateMockControllerContext();
 
             // Act, Assert
-            Assert.Throws<InvalidOperationException>(() => result.ExecuteResult(context, new StringWriter()));
+            Assert.ThrowsAsync<InvalidOperationException>(() => result.ExecuteResultAsync(context, new StringWriter()));
         }
 
         [Test]
-        public void ExecuteResult_Calls_ViewEngine_FindView_If_View_Is_Null()
+        public async Task ExecuteResult_Calls_ViewEngine_FindView_If_View_Is_Null()
         {
             // Arrange
             var result = new DnnViewResult();
@@ -62,13 +100,14 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
 
             var mockView = new Mock<IView>();
             var mockViewEngine = new Mock<IViewEngine>();
-            mockViewEngine.Setup(v => v.FindView(It.IsAny<ControllerContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
-                .Returns(new ViewEngineResult(mockView.Object, mockViewEngine.Object));
-            result.ViewEngineCollection.Clear();
-            result.ViewEngineCollection.Add(mockViewEngine.Object);
+            mockViewEngine.Setup(v => v.FindView(It.IsAny<ActionContext>(), It.IsAny<string>(), It.IsAny<bool>()))
+                .Returns((ActionContext actionContext, string viewName, bool isMainPage) => ViewEngineResult.Found(viewName, mockView.Object));
+
+            // The MVC 5 view-engine collection became an ordered IReadOnlyList<IViewEngine>.
+            result.ViewEngines = new[] { mockViewEngine.Object };
 
             // Act
-            result.ExecuteResult(context, new StringWriter());
+            await result.ExecuteResultAsync(context, new StringWriter());
 
             // Assert
             Assert.That(result.View, Is.SameAs(mockView.Object));

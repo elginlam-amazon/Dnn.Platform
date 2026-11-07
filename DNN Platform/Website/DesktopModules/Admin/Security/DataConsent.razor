@@ -1,0 +1,55 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+
+@* Replaces DataConsent.ascx + DataConsent.ascx.cs + DataConsent.ascx.designer.cs.
+
+   The GDPR consent / withdrawal control. The flow is preserved step for step; see the remarks on
+   the class in DataConsent.razor.cs for the full mapping. The markup changes are only those the
+   framework forces:
+
+   - <asp:CheckBox ID="chkAgree"> plus the injected `onclick` that enabled cmdSubmit from the
+     client is now a plain checkbox bound through @@onchange to the `agreed` field, with cmdSubmit's
+     `disabled` attribute computed from it. Same rule - submit is unavailable until the box is
+     ticked - evaluated on the server instead of in injected JavaScript, so it can no longer be
+     bypassed by editing the DOM. CmdSubmit re-checks `agreed` before recording consent, exactly as
+     the original re-checked chkAgree.Checked.
+   - <%: DataConsentHtml %> wrote the IHtmlString raw (`<%: %>` does not encode an IHtmlString);
+     the Blazor equivalent of that exact behaviour is a MarkupString, which DataConsentHtml returns.
+   - the cmdDeleteMe `onclick` confirm() was injected as an attribute; it is now an IJSRuntime
+     confirm awaited at the top of the click handler, which still aborts the deletion when the user
+     declines. DeleteMeConfirmString - the per-action confirmation wording - is unchanged.
+   - <asp:Panel ID="pnlNoAgreement"> rendered an empty div and was only ever made invisible; the
+     flag is kept so the element appears and disappears exactly when it did.
+   - resourcekey="X" on the buttons becomes LocalizeText("X.Text"). Localization.GetString (via
+     LocalizeText) is deliberately kept rather than IStringLocalizer, because consent wording is
+     routinely customised per portal through the DNN Language Editor and IStringLocalizer would
+     only see the shipped satellite assembly. *@
+
+@namespace DotNetNuke.Modules.Admin.Users
+@inherits DotNetNuke.Entities.Modules.UserModuleBase
+
+<div class="dnnForm dnnPasswordReset dnnClear">
+ <div>
+  <input type="checkbox" id="@(this.ClientIdFor("chkAgree"))" checked="@this.agreed" @onchange="this.ChkAgreeChanged" />
+  @this.DataConsentHtml
+ </div>
+ @if (this.noAgreementVisible)
+ {
+  <div id="@(this.ClientIdFor("pnlNoAgreement"))"></div>
+ }
+ <ul class="dnnActions dnnClear">
+  <li>
+   <button type="button" id="@(this.ClientIdFor("cmdSubmit"))" class="dnnPrimaryAction" disabled="@(!this.submitEnabled)" @onclick="this.CmdSubmitClick">@this.LocalizeText("cmdSubmit.Text")</button>
+  </li>
+  <li>
+   <button type="button" id="@(this.ClientIdFor("cmdCancel"))" class="dnnSecondaryAction" @onclick="this.CmdCancelClick">@this.LocalizeText("cmdCancel.Text")</button>
+  </li>
+  @if (this.deleteMeVisible)
+  {
+   <li>
+    <button type="button" id="@(this.ClientIdFor("cmdDeleteMe"))" class="dnnSecondaryAction" @onclick="this.CmdDeleteMeClickAsync">@this.LocalizeText("cmdDeleteMe.Text")</button>
+   </li>
+  }
+ </ul>
+</div>

@@ -42,9 +42,9 @@ namespace DotNetNuke.Web.Api.Internal.Auth
                 this.HttpMethod = httpMethod;
                 this.RawUsername = this.RequestParams["username"].Replace(@"\\", @"\");
                 this.CleanUsername = this.RawUsername;
-                if (this.CleanUsername.LastIndexOf(@"\", StringComparison.Ordinal) > 0)
+                if (this.CleanUsername.LastIndexOf('\\') > 0)
                 {
-                    this.CleanUsername = this.CleanUsername.Substring(this.CleanUsername.LastIndexOf(@"\", StringComparison.Ordinal) + 2 - 1);
+                    this.CleanUsername = this.CleanUsername.Substring(this.CleanUsername.LastIndexOf('\\') + 2 - 1);
                 }
             }
             catch (Exception)

@@ -6,12 +6,28 @@ namespace DotNetNuke.Web.Client.Providers
 {
     using System;
 
-    using ClientDependency.Core.FileRegistration.Providers;
+    using DotNetNuke.Abstractions.Application;
+
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>DNN's file registration provider.</summary>
-    public abstract class DnnFileRegistrationProvider : WebFormsFileRegistrationProvider
+    public abstract class DnnFileRegistrationProvider : ClientResourceRegistrationProviderBase
     {
         private readonly ClientResourceSettings dnnSettingsHelper = new ClientResourceSettings();
+
+        /// <summary>Initializes a new instance of the <see cref="DnnFileRegistrationProvider"/> class.</summary>
+        /// <param name="compositeFileProcessor">The composite file processor used to bundle and minify resources.</param>
+        /// <param name="hostSettings">The host settings, used to detect debug mode.</param>
+        /// <param name="httpContextAccessor">The HTTP context accessor.</param>
+        /// <param name="name">The default friendly name of the provider.</param>
+        protected DnnFileRegistrationProvider(
+            ICompositeFileProcessor compositeFileProcessor,
+            IHostSettings hostSettings,
+            IHttpContextAccessor httpContextAccessor,
+            string name)
+            : base(compositeFileProcessor, hostSettings, httpContextAccessor, name)
+        {
+        }
 
         /// <summary>
         /// Gets a value indicating whether checks if the composite files option is set for the current portal (DNN site settings).

@@ -1,0 +1,94 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace Dnn.Modules.ResourceManager
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+@using DotNetNuke.UI.UserControls
+
+@*
+    Replaces EditFolderMapping.ascx + EditFolderMapping.ascx.cs +
+    EditFolderMapping.ascx.designer.cs, element for element. The logic lives in
+    EditFolderMapping.razor.cs.
+
+    Control mapping:
+      - asp:Label DescriptionLabel (resourcekey="Description") / SyncLabel ("SyncWarning") ->
+        the two info messages below, read from App_LocalResources/EditFolderMapping.resx with the
+        ".Text" suffix Web Forms localization appended.
+      - asp:PlaceHolder SyncWarningPlaceHolder (.Visible) -> the @if (this.SyncWarningVisible) block.
+      - dnn:label NameLabel/FolderProviderLabel (~/controls/LabelControl.ascx) -> the migrated
+        DotNetNuke.UI.UserControls.LabelControl component, same ControlName/CssClass, text and
+        help still derived from the id.
+      - asp:TextBox NameTextbox MaxLength="50" -> the <input maxlength="50"> bound through
+        value + @onchange (@bind and @onchange cannot coexist on one element).
+      - asp:RequiredFieldValidator NameValidator / FolderProviderValidator (ValidationGroup
+        "vgEditFolderMapping") -> the two error spans, shown by Validate() in the code behind with
+        the same resource keys and the same dnnFormMessage dnnFormError classes.
+      - asp:DropDownList FolderProvidersComboBox (AutoPostBack, OnSelectedIndexChanged) -> the
+        <select> below with an @onchange handler; no postback, the circuit carries the change.
+        Its disabled state is BindFolderMapping's FolderProvidersComboBox.Enabled = false.
+      - asp:PlaceHolder ProviderSettingsPlaceHolder -> the <DynamicComponent> that renders the
+        folder provider's own settings component (see BindFolderMappingSettings).
+      - asp:LinkButton UpdateButton / asp:HyperLink CancelHyperLink -> the two anchors in the
+        dnnActions list; the update text is still Add/Update and cancel still points at
+        navigationManager.NavigateURL().
+
+    No @@rendermode directive on purpose, and this is DELIBERATE: this module control is rendered
+    inside the DNN page, which is a descendant of <Routes @@rendermode="RenderModeForPage"> in
+    Website/Components/App.razor (InteractiveServer for every DNN page). The @@onclick/@@onchange
+    handlers below therefore run on the circuit, and a second @@rendermode inside an already
+    interactive subtree is illegal - the same decision as the migrated admin ModuleSettings page,
+    which renders provider/module settings components the same way.
+*@
+
+<div class="dnnForm dnnEditFolderMapping dnnClear" id="dnnEditFolderMapping">
+    <div class="dnnFormMessage dnnFormInfo"><span id="DescriptionLabel">@this.DescriptionText</span></div>
+    @if (this.SyncWarningVisible)
+    {
+        <div class="dnnFormMessage dnnFormInfo"><span id="SyncLabel">@this.SyncWarningText</span></div>
+    }
+    <div class="EditFolderMappingContent dnnClear">
+        <div class="dnnFormItem dnnFormHelp dnnClear"><p class="dnnFormRequired"><span>@this.LocalizeText("RequiredFields")</span></p></div>
+        <div id="exFolderMappingSettings" class="exFolderMappingSettings dnnClear">
+            <div class="exfmsContent dnnClear">
+                <h2 id="Panel-GeneralSettings" class="dnnFormSectionHead">@this.LocalizeText("GeneralSettings")</h2>
+                <fieldset>
+                    <div class="dnnFormItem">
+                        <LabelControl ID="NameLabel" ControlName="txtName" CssClass="dnnFormRequired" LocalResourceFile="@this.LocalResourceFile" />
+                        <input type="text" id="NameTextbox" name="NameTextbox" maxlength="50" value="@this.MappingName" @onchange="this.OnMappingNameChanged" />
+                        @if (!string.IsNullOrEmpty(this.nameError))
+                        {
+                            <span id="NameValidator" class="dnnFormMessage dnnFormError">@this.nameError</span>
+                        }
+                    </div>
+                    <div class="dnnFormItem">
+                        <LabelControl ID="FolderProviderLabel" ControlName="cboFolderProviders" LocalResourceFile="@this.LocalResourceFile" />
+                        <select id="FolderProvidersComboBox" name="FolderProvidersComboBox" disabled="@(!this.ProviderSelectEnabled)"
+                                value="@this.SelectedFolderProviderType" @onchange="this.CboFolderProviders_SelectedIndexChanged">
+                            @foreach (var provider in this.FolderProviderItems)
+                            {
+                                <option value="@provider.Value" selected="@(provider.Value == this.SelectedFolderProviderType)">@provider.Text</option>
+                            }
+                        </select>
+                        @if (!string.IsNullOrEmpty(this.folderProviderError))
+                        {
+                            <span id="FolderProviderValidator" class="dnnFormMessage dnnFormError">@this.folderProviderError</span>
+                        }
+                    </div>
+                </fieldset>
+                <h2 id="Panel-FolderProviderSettings" class="dnnFormSectionHead">@this.LocalizeText("FolderProviderSettings")</h2>
+                <fieldset>
+                    @if (this.settingsControlType != null)
+                    {
+                        <DynamicComponent @ref="this.settingsControlComponent" Type="@this.settingsControlType" Parameters="@this.settingsControlParameters" />
+                    }
+                </fieldset>
+            </div>
+        </div>
+    </div>
+    <ul class="dnnActions dnnClear">
+        <li>
+            <a id="UpdateButton" href="javascript:void(0);" class="dnnPrimaryAction" @onclick="this.CmdUpdate_Click" @onclick:preventDefault="true">@this.UpdateButtonText</a>
+        </li>
+        <li><a id="CancelHyperLink" href="@this.CancelUrl" class="dnnSecondaryAction">@this.CancelText</a></li>
+    </ul>
+</div>

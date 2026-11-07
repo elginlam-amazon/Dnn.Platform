@@ -6,11 +6,15 @@ namespace UnitTests.Subtext
 {
     using System;
     using System.Collections.Specialized;
-    using System.Reflection;
-    using System.Web;
-    using System.Web.Hosting;
+    using System.IO;
+    using System.Threading.Tasks;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Tests.Instance.Utilities.HttpSimulator;
+
+    using Microsoft.AspNetCore.Hosting;
+    using Microsoft.AspNetCore.Http;
+
     using NUnit.Framework;
 
     ////[TestFixture]
@@ -21,8 +25,8 @@ namespace UnitTests.Subtext
         {
             using (new HttpSimulator("/", @"c:\inetpub\").SimulateRequest())
             {
-                HttpContext.Current.Session["Test"] = "Success";
-                Assert.That(HttpContext.Current.Session["Test"], Is.EqualTo("Success"), "Was not able to retrieve session variable.");
+                HttpContextSource.Current.Session.SetString("Test", "Success");
+                Assert.That(HttpContextSource.Current.Session.GetString("Test"), Is.EqualTo("Success"), "Was not able to retrieve session variable.");
             }
         }
 
@@ -31,8 +35,12 @@ namespace UnitTests.Subtext
         {
             using (new HttpSimulator("/", @"c:\inetpub\").SimulateRequest())
             {
-                HttpContext.Current.Application["Test"] = "Success";
-                Assert.That(HttpContext.Current.Application["Test"], Is.EqualTo("Success"), "Was not able to retrieve application variable.");
+                // ASP.NET Core has no per-application state bag, so HttpContext.Current.Application
+                // is replaced by the process-wide HttpSimulator.ApplicationState dictionary, which
+                // is also published on HttpContext.Items.
+                HttpSimulator.ApplicationState["Test"] = "Success";
+                Assert.That(HttpSimulator.ApplicationState["Test"], Is.EqualTo("Success"), "Was not able to retrieve application variable.");
+                Assert.That(HttpContextSource.Current.Items[HttpSimulator.ApplicationStateItemKey], Is.SameAs(HttpSimulator.ApplicationState));
             }
         }
 
@@ -45,13 +53,15 @@ namespace UnitTests.Subtext
                     .SetReferer(new Uri("http://example.com/1/"))
                     .SimulateRequest(new Uri("http://localhost/MyHandler.ashx?id=1234"));
 
-                var handler = new TestHttpHandler();
-                handler.ProcessRequest(HttpContext.Current);
-                HttpContext.Current.Response.Flush();
+                RequestDelegate handler = TestHttpHandler.ProcessRequest;
+                handler(HttpContextSource.Current).GetAwaiter().GetResult();
+                HttpContextSource.Current.Response.Body.Flush();
 
-                const string expected = @"c:\inetpub\MyHandler.ashx:phil:1234:http://example.com/1/";
+                // Pinned independently of the handler's own expression (which would make this a
+                // tautology) and built with Path.Combine so it holds on any OS.
+                var expected = Path.Combine(@"c:\inetpub\", "MyHandler.ashx") + ":phil:1234:http://example.com/1/";
                 Assert.That(simulator.ResponseText, Is.EqualTo(expected), "The Expected Response is all wrong.");
-            } // HttpContext.Current is set to null again.
+            } // HttpContextSource.Current is set to null again.
         }
 
         ////[Test]
@@ -60,10 +70,10 @@ namespace UnitTests.Subtext
             using (var simulator = new HttpSimulator())
             {
                 simulator.SimulateRequest();
-                Assert.That(HttpContext.Current, Is.Not.Null);
+                Assert.That(HttpContextSource.Current, Is.Not.Null);
             }
 
-            Assert.That(HttpContext.Current, Is.Null);
+            Assert.That(HttpContextSource.Current, Is.Null);
         }
 
         /*//[RowTest]
@@ -83,9 +93,13 @@ namespace UnitTests.Subtext
             simulator.SimulateRequest(new Uri(url));
             using (Assert.EnterMultipleScope())
             {
-                Assert.That(HttpContext.Current.Request.ApplicationPath, Is.EqualTo(expectedAppPath));
-                Assert.That(HttpRuntime.AppDomainAppVirtualPath, Is.EqualTo(expectedAppPath));
-                Assert.That(HostingEnvironment.ApplicationVirtualPath, Is.EqualTo(expectedAppPath));
+                // Request.ApplicationPath → Request.PathBase (empty PathBase means the root "/").
+                var pathBase = HttpContextSource.Current.Request.PathBase.Value;
+                Assert.That(string.IsNullOrEmpty(pathBase) ? "/" : pathBase, Is.EqualTo(expectedAppPath));
+
+                // HttpRuntime.AppDomainAppVirtualPath and HostingEnvironment.ApplicationVirtualPath
+                // are both replaced by HttpContextSource.ApplicationVirtualPath.
+                Assert.That(HttpContextSource.ApplicationVirtualPath, Is.EqualTo(expectedAppPath));
             }
         }
 
@@ -103,9 +117,16 @@ namespace UnitTests.Subtext
             using (Assert.EnterMultipleScope())
             {
                 Assert.That(simulator.PhysicalPath, Is.EqualTo(expectedPhysicalPath));
-                Assert.That(HttpRuntime.AppDomainAppPath, Is.EqualTo(expectedPhysicalAppPath));
-                Assert.That(HostingEnvironment.ApplicationPhysicalPath, Is.EqualTo(expectedPhysicalAppPath));
-                Assert.That(HttpContext.Current.Request.PhysicalPath, Is.EqualTo(expectedPhysicalPath));
+
+                // HttpRuntime.AppDomainAppPath and HostingEnvironment.ApplicationPhysicalPath are
+                // both replaced by the registered IWebHostEnvironment's content root.
+                Assert.That(HttpContextSource.WebHostEnvironment.ContentRootPath, Is.EqualTo(expectedPhysicalAppPath));
+
+                // Request.PhysicalPath has no Core equivalent; SimulatedHttpRequest publishes the
+                // translated file path on HttpContext.Items instead.
+                Assert.That(
+                    HttpContextSource.Current.Items[SimulatedHttpRequest.PhysicalFilePathItemKey],
+                    Is.EqualTo(expectedPhysicalPath));
             }
         }
 
@@ -116,36 +137,38 @@ namespace UnitTests.Subtext
             simulator.SimulateRequest(new Uri("http://localhost/Test.aspx?param1=value1&param2=value2&param3=value3"));
             for (var i = 1; i <= 3; i++)
             {
-                Assert.That(HttpContext.Current.Request.QueryString["param" + i], Is.EqualTo("value" + i), $"Could not find query string field 'param{i}'");
+                Assert.That(HttpContextSource.Current.Request.Query["param" + i].ToString(), Is.EqualTo("value" + i), $"Could not find query string field 'param{i}'");
             }
 
             simulator.SimulateRequest(new Uri("http://localhost/Test.aspx?param1=new-value1&param2=new-value2&param3=new-value3&param4=new-value4"));
             for (var i = 1; i <= 4; i++)
             {
-                Assert.That(HttpContext.Current.Request.QueryString["param" + i], Is.EqualTo("new-value" + i), $"Could not find query string field 'param{i}'");
+                Assert.That(HttpContextSource.Current.Request.Query["param" + i].ToString(), Is.EqualTo("new-value" + i), $"Could not find query string field 'param{i}'");
             }
 
             simulator.SimulateRequest(new Uri("http://localhost/Test.aspx?"));
             using (Assert.EnterMultipleScope())
             {
-                Assert.That(HttpContext.Current.Request.QueryString.ToString(), Is.EqualTo(string.Empty));
-                Assert.That(HttpContext.Current.Request.QueryString, Is.Empty);
+                Assert.That(HttpContextSource.Current.Request.QueryString.ToString(), Is.EqualTo(string.Empty));
+                Assert.That(HttpContextSource.Current.Request.Query, Is.Empty);
             }
 
             simulator.SimulateRequest(new Uri("http://localhost/Test.aspx"));
             using (Assert.EnterMultipleScope())
             {
-                Assert.That(HttpContext.Current.Request.QueryString.ToString(), Is.EqualTo(string.Empty));
-                Assert.That(HttpContext.Current.Request.QueryString, Is.Empty);
+                Assert.That(HttpContextSource.Current.Request.QueryString.ToString(), Is.EqualTo(string.Empty));
+                Assert.That(HttpContextSource.Current.Request.Query, Is.Empty);
             }
 
             simulator.SimulateRequest(new Uri("http://localhost/Test.aspx?param-name"));
             using (Assert.EnterMultipleScope())
             {
-                Assert.That(HttpContext.Current.Request.QueryString.ToString(), Is.EqualTo("param-name"));
-                Assert.That(HttpContext.Current.Request.QueryString, Has.Count.EqualTo(1));
+                Assert.That(HttpContextSource.Current.Request.QueryString.ToString(), Is.EqualTo("?param-name"));
+                Assert.That(HttpContextSource.Current.Request.Query, Has.Count.EqualTo(1));
             }
-            Assert.That(HttpContext.Current.Request.QueryString["param-name"], Is.Null);
+
+            // A valueless query key yields an empty value in Core, where System.Web yielded null.
+            Assert.That(HttpContextSource.Current.Request.Query["param-name"].ToString(), Is.Empty);
         }
 
         // //[Test]
@@ -158,8 +181,8 @@ namespace UnitTests.Subtext
 
                 using (Assert.EnterMultipleScope())
                 {
-                    Assert.That(HttpContext.Current.Request.Form["Test1"], Is.EqualTo("Value1"));
-                    Assert.That(HttpContext.Current.Request.Form["Test2"], Is.EqualTo("Value2"));
+                    Assert.That(HttpContextSource.Current.Request.Form["Test1"].ToString(), Is.EqualTo("Value1"));
+                    Assert.That(HttpContextSource.Current.Request.Form["Test2"].ToString(), Is.EqualTo("Value2"));
                 }
             }
 
@@ -171,8 +194,8 @@ namespace UnitTests.Subtext
 
                 using (Assert.EnterMultipleScope())
                 {
-                    Assert.That(HttpContext.Current.Request.Form["Test1"], Is.EqualTo("Value1"));
-                    Assert.That(HttpContext.Current.Request.Form["Test2"], Is.EqualTo("Value2"));
+                    Assert.That(HttpContextSource.Current.Request.Form["Test1"].ToString(), Is.EqualTo("Value1"));
+                    Assert.That(HttpContextSource.Current.Request.Form["Test2"].ToString(), Is.EqualTo("Value2"));
                 }
             }
         }
@@ -182,8 +205,8 @@ namespace UnitTests.Subtext
         {
             var simulator = new HttpSimulator();
             simulator.SimulateRequest();
-            HttpContext.Current.Response.Write("Hello World!");
-            HttpContext.Current.Response.Flush();
+            HttpContextSource.Current.Response.WriteAsync("Hello World!").GetAwaiter().GetResult();
+            HttpContextSource.Current.Response.Body.Flush();
             Assert.That(simulator.ResponseText, Is.EqualTo("Hello World!"));
         }
 
@@ -192,11 +215,11 @@ namespace UnitTests.Subtext
         {
             var simulator = new HttpSimulator();
             simulator.SetReferer(new Uri("http://example.com/Blah.aspx")).SimulateRequest();
-            Assert.That(HttpContext.Current.Request.UrlReferrer, Is.EqualTo(new Uri("http://example.com/Blah.aspx")));
+            Assert.That(HttpContextSource.Current.Request.Headers["Referer"].ToString(), Is.EqualTo(new Uri("http://example.com/Blah.aspx").ToString()));
 
             simulator = new HttpSimulator();
             simulator.SimulateRequest().SetReferer(new Uri("http://x.example.com/Blah.aspx"));
-            Assert.That(HttpContext.Current.Request.UrlReferrer, Is.EqualTo(new Uri("http://x.example.com/Blah.aspx")));
+            Assert.That(HttpContextSource.Current.Request.Headers["Referer"].ToString(), Is.EqualTo(new Uri("http://x.example.com/Blah.aspx").ToString()));
         }
 
         /*//[RowTest]
@@ -225,8 +248,10 @@ namespace UnitTests.Subtext
             simulator.SimulateRequest(new Uri(url));
             using (Assert.EnterMultipleScope())
             {
-                Assert.That(HttpContext.Current.Request.Path, Is.EqualTo(expectedLocalPath));
-                Assert.That(HttpContext.Current.Request.Url.LocalPath, Is.EqualTo(expectedLocalPath));
+                // Request.Path is relative to PathBase in Core; together they are the old Path.
+                var request = HttpContextSource.Current.Request;
+                Assert.That(request.PathBase.Value + request.Path.Value, Is.EqualTo(expectedLocalPath));
+                Assert.That(simulator.LocalPath, Is.EqualTo(expectedLocalPath));
             }
         }
 
@@ -243,11 +268,16 @@ namespace UnitTests.Subtext
 
             using (Assert.EnterMultipleScope())
             {
-                Assert.That(HttpContext.Current.Request.Url.Host, Is.EqualTo(expectedHost));
-                Assert.That(HttpContext.Current.Request.Url.Port, Is.EqualTo(expectedPort));
-                Assert.That(HttpContext.Current.Request.ApplicationPath, Is.EqualTo(expectedAppPath));
-                Assert.That(HttpContext.Current.Request.PhysicalApplicationPath, Is.EqualTo(expectedPhysicalPath));
-                Assert.That(HttpContext.Current.Request.Url.LocalPath, Is.EqualTo(expectedLocalPath));
+                var request = HttpContextSource.Current.Request;
+                Assert.That(request.Host.Host, Is.EqualTo(expectedHost));
+                Assert.That(request.Host.Port ?? 80, Is.EqualTo(expectedPort));
+
+                var pathBase = request.PathBase.Value;
+                Assert.That(string.IsNullOrEmpty(pathBase) ? "/" : pathBase, Is.EqualTo(expectedAppPath));
+
+                // Request.PhysicalApplicationPath → the registered IWebHostEnvironment content root.
+                Assert.That(HttpContextSource.WebHostEnvironment.ContentRootPath, Is.EqualTo(expectedPhysicalPath));
+                Assert.That(request.PathBase.Value + request.Path.Value, Is.EqualTo(expectedLocalPath));
             }
         }
 
@@ -263,42 +293,43 @@ namespace UnitTests.Subtext
             var simulator = new HttpSimulator(appPath, @"c:\inetpub\wwwroot\");
             simulator.SimulateRequest(url);
 
-            // Create a virtual path object.
-            var vpath = ReflectionHelper.Instantiate("System.Web.VirtualPath, System.Web, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a", new[] { typeof(string) }, virtualPath);
-            Assert.That(vpath, Is.Not.Null);
-
+            // The System.Web.VirtualPath / HostingEnvironment._configMapPath reflection dance is
+            // replaced by the registered IWebHostEnvironment: HttpSimulator.MapPath reproduces
+            // the old ConfigMapPath.MapPath behaviour exactly, and HttpContextSource.MapPath is
+            // the seam production code now calls instead of Request.MapPath.
             var environment = HttpSimulatorTester.CallGetEnvironment();
+            Assert.That(environment, Is.Not.Null);
+            Console.WriteLine("ContentRootPath: " + environment.ContentRootPath);
+            Console.WriteLine("App-VPATH: " + HttpContextSource.ApplicationVirtualPath);
+            Console.WriteLine("MAPPED: " + simulator.MapPath(virtualPath));
 
-            var vpathString = ReflectionHelper.InvokeProperty<string>(vpath, "VirtualPathString");
-            var appVirtPath = ReflectionHelper.GetPrivateInstanceFieldValue<object>("_appVirtualPath", environment);
-            Assert.That(appVirtPath, Is.Not.Null);
-            Console.WriteLine("VPATH: " + vpath);
-            Console.WriteLine("App-VPATH: " + appVirtPath);
+            Assert.That(simulator.MapPath(virtualPath), Is.EqualTo(expectedMapPath));
 
-            Console.WriteLine("vpath.VirtualPathString == '{0}'", vpathString);
-
-            var mapping = ReflectionHelper.InvokeNonPublicMethod<string>(typeof(HostingEnvironment), "GetVirtualPathToFileMapping", vpath);
-            Console.WriteLine("GetVirtualPathToFileMapping: --->{0}<---", mapping ?? "{NULL}");
-
-            var o = ReflectionHelper.GetPrivateInstanceFieldValue<object>("_configMapPath", environment);
-            Console.WriteLine("_configMapPath: {0}", o ?? "{null}");
-
-            var mappedPath = ReflectionHelper.InvokeNonPublicMethod<string>(environment, "MapPathActual", vpath, false);
-            Console.WriteLine("MAPPED: " + mappedPath);
-            Assert.That(HttpContext.Current.Request.MapPath(virtualPath), Is.EqualTo(expectedMapPath));
+            // Assert the seam production code actually calls agrees with the old
+            // ConfigMapPath behaviour — otherwise a virtual-directory install would map
+            // paths one level too deep and this test would never notice.
+            Assert.That(HttpContextSource.MapPath(virtualPath), Is.EqualTo(expectedMapPath));
         }
 
         // [Test]
         public void CanInstantiateVirtualPath()
         {
-            var virtualPathType = Type.GetType("System.Web.VirtualPath, System.Web, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a", true);
-            var constructor = virtualPathType.GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(string) }, null);
-            Assert.That(constructor, Is.Not.Null);
+            // System.Web.VirtualPath (an internal type instantiated by reflection on net48) is
+            // replaced by Microsoft.AspNetCore.Http.PathString, which is the type Request.Path and
+            // Request.PathBase — and therefore HttpContextSource.ApplicationVirtualPath — use.
+            var virtualPath = new PathString("/AppPath");
+            using (Assert.EnterMultipleScope())
+            {
+                Assert.That(virtualPath.HasValue, Is.True);
+                Assert.That(virtualPath.Value, Is.EqualTo("/AppPath"));
+            }
         }
 
         // [Test]
         public void CanGetHostingEnvironment()
         {
+            // System.Web.Hosting.HostingEnvironment is replaced by the fake IWebHostEnvironment
+            // that HttpSimulator registers with HttpContextSource.
             var environment = HttpSimulatorTester.CallGetEnvironment();
             Assert.That(environment, Is.Not.Null);
             environment = HttpSimulatorTester.CallGetEnvironment();
@@ -327,28 +358,29 @@ namespace UnitTests.Subtext
             Assert.That(HttpSimulatorTester.CallStripTrailingBackSlashes(@"c:\blah\blah2\"), Is.EqualTo(@"c:\blah\blah2"));
         }
 
-        internal class TestHttpHandler : IHttpHandler
+        /// <summary>
+        /// The net48 <c>IHttpHandler</c> test fixture, ported to a
+        /// <see cref="RequestDelegate"/> over the ASP.NET Core <see cref="HttpContext"/>.
+        /// </summary>
+        internal static class TestHttpHandler
         {
-            public bool IsReusable
+            /// <summary>Handles the simulated request, writing the same response as the old handler.</summary>
+            /// <param name="context">The current request context.</param>
+            /// <returns>A task that completes when the response has been written.</returns>
+            public static async Task ProcessRequest(HttpContext context)
             {
-                get { return true; }
-            }
-
-            public void ProcessRequest(HttpContext context)
-            {
-                var physicalPath = context.Request.MapPath("/MyHandler.ashx");
-                var username = context.Request.Form["username"];
-                var id = context.Request.QueryString["id"];
-                if (context.Request.UrlReferrer == null)
+                var physicalPath = HttpContextSource.MapPath("/MyHandler.ashx");
+                var username = context.Request.Form["username"].ToString();
+                var id = context.Request.Query["id"].ToString();
+                var refererHeader = context.Request.Headers["Referer"].ToString();
+                if (string.IsNullOrEmpty(refererHeader))
                 {
                     return;
                 }
 
-                var referer = context.Request.UrlReferrer.ToString();
-
                 // Imagine, if you will, a bunch of complex interesting
                 // and fascinating logic here.
-                context.Response.Write(physicalPath + ":" + username + ":" + id + ":" + referer);
+                await context.Response.WriteAsync(physicalPath + ":" + username + ":" + id + ":" + refererHeader);
             }
         }
     }
@@ -365,7 +397,7 @@ namespace UnitTests.Subtext
             return StripTrailingBackSlashes(s);
         }
 
-        public static HostingEnvironment CallGetEnvironment()
+        public static IWebHostEnvironment CallGetEnvironment()
         {
             return GetHostingEnvironment();
         }

@@ -65,7 +65,7 @@
                   </moduleControl>
                   <moduleControl>
                     <controlKey>Settings</controlKey>
-                    <controlSrc>DesktopModules/ResourceManager/Settings.ascx</controlSrc>
+                    <controlSrc>DesktopModules/ResourceManager/Settings.razor</controlSrc>
                     <supportsPartialRendering>False</supportsPartialRendering>
                     <controlTitle>ResourceManager Settings</controlTitle>
                     <controlType>Edit</controlType>
@@ -75,7 +75,7 @@
                   </moduleControl>
                   <moduleControl>
                     <controlKey>EditFolderMapping</controlKey>
-                    <controlSrc>DesktopModules/ResourceManager/EditFolderMapping.ascx</controlSrc>
+                    <controlSrc>DesktopModules/ResourceManager/EditFolderMapping.razor</controlSrc>
                     <supportsPartialRendering>True</supportsPartialRendering>
                     <controlTitle>Edit Folder Mapping</controlTitle>
                     <controlType>Edit</controlType>

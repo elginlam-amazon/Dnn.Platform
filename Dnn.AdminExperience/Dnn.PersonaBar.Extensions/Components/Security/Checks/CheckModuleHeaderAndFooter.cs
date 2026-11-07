@@ -6,7 +6,7 @@ namespace Dnn.PersonaBar.Security.Components.Checks
 {
     using System;
     using System.Globalization;
-    using System.Web;
+    using System.Net;
 
     using DotNetNuke.Data;
 
@@ -34,12 +34,12 @@ namespace Dnn.PersonaBar.Security.Components.Checks
                     var footerValue = dr["Footer"].ToString();
                     if (!string.IsNullOrEmpty(headerValue))
                     {
-                        note += $"<br />Header: {HttpUtility.HtmlEncode(headerValue)}";
+                        note += $"<br />Header: {WebUtility.HtmlEncode(headerValue)}";
                     }
 
                     if (!string.IsNullOrEmpty(footerValue))
                     {
-                        note += $"<br />Footer: {HttpUtility.HtmlEncode(footerValue)}";
+                        note += $"<br />Footer: {WebUtility.HtmlEncode(footerValue)}";
                     }
 
                     note += "< br />";

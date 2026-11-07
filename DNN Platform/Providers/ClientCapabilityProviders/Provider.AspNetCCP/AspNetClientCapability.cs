@@ -4,16 +4,14 @@
 namespace DotNetNuke.Providers.AspNetClientCapabilityProvider
 {
     using System;
-    using System.Collections;
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.Configuration;
 
     using DotNetNuke.Instrumentation;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.Logging;
 
     /// <summary>AspNet Browser Implementation of <see cref="DotNetNuke.Services.ClientCapability.IClientCapability"/>.</summary>
@@ -50,7 +48,7 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider
         /// </summary>
         /// <param name="userAgent">The user agent.</param>
         /// <param name="browserCaps">The browser capabilities.</param>
-        public AspNetClientCapability(string userAgent, HttpCapabilitiesBase browserCaps)
+        public AspNetClientCapability(string userAgent, BrowserCapabilities browserCaps)
         {
             this.UserAgent = userAgent;
 
@@ -61,7 +59,7 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider
                 this.ScreenResolutionHeightInPixels = browserCaps.ScreenPixelsHeight;
                 this.IsTouchScreen = false;
                 this.BrowserName = browserCaps.Browser;
-                this.properties = browserCaps.Capabilities?.Cast<DictionaryEntry>().ToDictionary(kvp => Convert.ToString(kvp.Key, CultureInfo.InvariantCulture), kvp => Convert.ToString(kvp.Value, CultureInfo.InvariantCulture)) ?? new Dictionary<string, string>(0);
+                this.properties = browserCaps.Capabilities?.ToDictionary(kvp => Convert.ToString(kvp.Key, CultureInfo.InvariantCulture), kvp => Convert.ToString(kvp.Value, CultureInfo.InvariantCulture)) ?? new Dictionary<string, string>(0);
                 this.SupportsFlash = false;
                 this.HtmlPreferedDTD = null;
 
@@ -91,7 +89,9 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider
         /// </summary>
         /// <param name="request">The HTTP request.</param>
         public AspNetClientCapability(HttpRequest request)
-            : this(request.UserAgent ?? string.Empty, request.Browser)
+            : this(
+                request?.Headers.UserAgent.ToString() ?? string.Empty,
+                AspNetClientCapabilityProvider.GetBrowserCapabilities(request?.Headers, request?.Headers.UserAgent.ToString() ?? string.Empty))
         {
         }
 

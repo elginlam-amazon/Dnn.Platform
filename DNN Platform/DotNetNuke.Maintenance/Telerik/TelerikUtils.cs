@@ -8,6 +8,9 @@ namespace DotNetNuke.Maintenance.Telerik
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Reflection;
+    using System.Reflection.Metadata;
+    using System.Reflection.PortableExecutable;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Instrumentation;
@@ -52,19 +55,13 @@ namespace DotNetNuke.Maintenance.Telerik
         /// <inheritdoc />
         public IEnumerable<string> GetAssembliesThatDependOnTelerik()
         {
-            // use a temp AppDomain to avoid locking files in the bin folder
-            var domain = AppDomain.CreateDomain(nameof(TelerikUtils));
-            try
-            {
-                return DirectoryGetFiles(this.BinPath, "*.dll", SearchOption.AllDirectories)
-                    .Where(IsNotWellKnownAssembly)
-                    .Where(path => this.AssemblyDependsOnTelerik(path, domain))
-                    .ToList();
-            }
-            finally
-            {
-                AppDomain.Unload(domain);
-            }
+            // The assemblies are inspected through their metadata only, which reads the file and
+            // never loads it into the runtime - so, like the temporary AppDomain this replaces, it
+            // does not lock the files in the bin folder.
+            return DirectoryGetFiles(this.BinPath, "*.dll", SearchOption.AllDirectories)
+                .Where(IsNotWellKnownAssembly)
+                .Where(this.AssemblyDependsOnTelerik)
+                .ToList();
         }
 
         /// <inheritdoc />
@@ -76,19 +73,16 @@ namespace DotNetNuke.Maintenance.Telerik
         /// <inheritdoc />
         public Version GetTelerikVersion()
         {
-            var domain = AppDomain.CreateDomain(nameof(TelerikUtils));
             try
             {
                 var path = Path.Combine(this.BinPath, TelerikWebUIFileName);
-                return domain.Load(File.ReadAllBytes(path)).GetName().Version;
+                using var stream = new MemoryStream(File.ReadAllBytes(path));
+                using var peReader = new PEReader(stream);
+                return peReader.GetMetadataReader().GetAssemblyDefinition().Version;
             }
             catch (Exception ex)
             {
                 throw new IOException("Could not get Telerik version number.", ex);
-            }
-            finally
-            {
-                AppDomain.Unload(domain);
             }
         }
 
@@ -103,13 +97,50 @@ namespace DotNetNuke.Maintenance.Telerik
 
         private static bool FileExists(string path) => File.Exists(path);
 
-        private static IEnumerable<string> GetReferencedAssemblyNames(string assemblyFilePath, AppDomain domain)
+        /// <summary>Gets the full names of the assemblies the given assembly references.</summary>
+        /// <param name="assemblyFilePath">The path of the assembly to inspect.</param>
+        /// <returns>The full name of each referenced assembly.</returns>
+        /// <remarks>
+        /// This used to be <c>domain.Load(File.ReadAllBytes(path)).GetReferencedAssemblies()</c> in
+        /// a temporary <c>AppDomain</c>. Creating and unloading an <c>AppDomain</c> is not
+        /// supported on modern .NET and throws (SYSLIB0024), so the assembly reference table is
+        /// read straight out of the file's metadata instead. That is strictly better for this use:
+        /// it needs none of the referenced assemblies to be resolvable, and it never loads code
+        /// into the process. The returned value keeps the <see cref="AssemblyName.FullName"/>
+        /// format the callers match against.
+        /// </remarks>
+        private static List<string> GetReferencedAssemblyNames(string assemblyFilePath)
         {
             try
             {
-                return domain.Load(File.ReadAllBytes(assemblyFilePath))
-                    .GetReferencedAssemblies()
-                    .Select(assembly => assembly.FullName);
+                using var stream = new MemoryStream(File.ReadAllBytes(assemblyFilePath));
+                using var peReader = new PEReader(stream);
+                var metadata = peReader.GetMetadataReader();
+
+                var names = new List<string>();
+                foreach (var handle in metadata.AssemblyReferences)
+                {
+                    var reference = metadata.GetAssemblyReference(handle);
+
+                    var assemblyName = new AssemblyName
+                    {
+                        Name = metadata.GetString(reference.Name),
+                        Version = reference.Version,
+                        CultureName = reference.Culture.IsNil
+                            ? string.Empty
+                            : metadata.GetString(reference.Culture),
+                    };
+
+                    if (!reference.PublicKeyOrToken.IsNil)
+                    {
+                        assemblyName.SetPublicKeyToken(
+                            metadata.GetBlobBytes(reference.PublicKeyOrToken));
+                    }
+
+                    names.Add(assemblyName.FullName);
+                }
+
+                return names;
             }
             catch (Exception ex)
             {
@@ -124,11 +155,11 @@ namespace DotNetNuke.Maintenance.Telerik
                 !Vendors.Any(vendor => fileName.StartsWith($"{vendor}.", StringComparison.OrdinalIgnoreCase));
         }
 
-        private bool AssemblyDependsOnTelerik(string path, AppDomain domain)
+        private bool AssemblyDependsOnTelerik(string path)
         {
             try
             {
-                return GetReferencedAssemblyNames(path, domain)
+                return GetReferencedAssemblyNames(path)
                     .Any(assemblyName => assemblyName.StartsWith("Telerik", StringComparison.OrdinalIgnoreCase));
             }
             catch (Exception ex)

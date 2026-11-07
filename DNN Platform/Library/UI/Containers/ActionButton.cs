@@ -42,7 +42,7 @@ namespace DotNetNuke.UI.Containers
         ///   Defaults to 'CommandButton'.
         /// </remarks>
         /// <value>A String.</value>
-        public string CssClass
+        public new string CssClass
         {
             get
             {

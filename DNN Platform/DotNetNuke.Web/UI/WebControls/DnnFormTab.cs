@@ -4,13 +4,18 @@
 namespace DotNetNuke.Web.UI.WebControls
 {
     using System.Collections.Generic;
-    using System.ComponentModel;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+
+    using DotNetNuke.UI;
+
+    using Microsoft.AspNetCore.Components;
 
     /// <summary>A form tab control.</summary>
-    [ParseChildren(true)]
-    public class DnnFormTab : WebControl, INamingContainer
+    /// <remarks>
+    /// This is a declarative configuration container — <see cref="DnnFormEditor"/> reads its
+    /// <see cref="Items"/>/<see cref="Sections"/> and builds the markup. It was a
+    /// <c>WebControl, INamingContainer</c>; the collections are unchanged.
+    /// </remarks>
+    public class DnnFormTab : DnnComponentBase
     {
         /// <summary>Initializes a new instance of the <see cref="DnnFormTab"/> class.</summary>
         public DnnFormTab()
@@ -20,24 +25,20 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets a value indicating whether to include expand all.</summary>
+        [Parameter]
         public bool IncludeExpandAll { get; set; }
 
         /// <summary>Gets the list of items.</summary>
-        [Category("Behavior")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
         public List<DnnFormItemBase> Items { get; private set; }
 
         /// <summary>Gets the sections.</summary>
-        [Category("Behavior")]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
         public List<DnnFormSection> Sections { get; private set; }
 
         /// <summary>Gets or sets the resource key.</summary>
+        [Parameter]
         public string ResourceKey { get; set; }
 
-        /// <summary>Gets or sets the expand all script.</summary>
-        internal string ExpandAllScript { get; set; }
+        /// <summary>Gets or sets the options of the "expand all" link of this tab.</summary>
+        internal DnnFormExpandAllOptions ExpandAll { get; set; }
     }
 }

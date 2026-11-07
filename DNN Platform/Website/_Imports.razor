@@ -1,0 +1,40 @@
+@* ---------------------------------------------------------------------------------------------
+   PROJECT-ROOT component imports.
+
+   Razor merges _Imports.razor files from the project root downwards, so this file applies to
+   EVERY .razor in the project, while Components/_Imports.razor continues to layer the DNN
+   component namespaces on top for the Components/ subtree only.
+
+   This file exists because the converted .ascx components live under admin/ and
+   DesktopModules/, which are NOT under Components/ and therefore inherited none of the
+   framework usings. The symptoms were all the same missing-using root cause:
+     * CS1660 "cannot convert lambda expression to type 'bool'" on every
+       @onchange="@(e => ...)" handler - ChangeEventArgs was unresolved, so the compiler fell
+       back to a non-delegate overload (28 occurrences across admin/Modules, admin/Tabs).
+     * CS0103 "the name 'InteractiveServer' does not exist" on @rendermode directives.
+     * CS1061 "IJSRuntime does not contain a definition for 'InvokeVoidAsync'" - that is an
+       extension method in Microsoft.JSInterop.JSRuntimeExtensions.
+
+   DELIBERATELY FRAMEWORK-ONLY. Do NOT add DNN component namespaces here. Several component
+   type names are duplicated across DNN namespaces (User, Text, Copyright, Help, Login, Terms,
+   Privacy, Message, Settings, ViewProfile), and bringing two of them into one scope produces
+   RZ9985 "multiple components use the tag '<X>'". Those components are addressed either by
+   fully-qualified tag name or through IDnnControlTypeResolver, which is why the per-directory
+   _Imports files and per-file @using directives stay as they are.
+   --------------------------------------------------------------------------------------------- *@
+
+@using System
+@using System.Collections.Generic
+@using System.Linq
+@using System.Threading.Tasks
+
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Sections
+@using Microsoft.AspNetCore.Components.Web
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+
+@using Microsoft.AspNetCore.Http
+@using Microsoft.Extensions.DependencyInjection
+@using Microsoft.JSInterop

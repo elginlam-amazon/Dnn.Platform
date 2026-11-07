@@ -5,7 +5,8 @@ namespace DotNetNuke.Services.ClientCapability
 {
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
+
+    using Microsoft.AspNetCore.Http;
 
     public interface IClientCapabilityProvider
     {

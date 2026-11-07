@@ -26,10 +26,10 @@ namespace Dnn.ExportImport.Components.Controllers
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Security;
     using DotNetNuke.Services.Cache;
-    using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Log.EventLog;
 
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Localization;
     using Microsoft.Extensions.Logging;
 
     using Newtonsoft.Json;
@@ -41,6 +41,8 @@ namespace Dnn.ExportImport.Components.Controllers
         public static readonly string ExportFolder;
 
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<BaseController>();
+
+        private readonly IStringLocalizer<SharedResources> localizer;
 
         static BaseController()
         {
@@ -62,8 +64,17 @@ namespace Dnn.ExportImport.Components.Controllers
         /// <summary>Initializes a new instance of the <see cref="BaseController"/> class.</summary>
         /// <param name="portableServices">The portable services.</param>
         public BaseController(IEnumerable<BasePortableService> portableServices)
+            : this(portableServices, null)
+        {
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="BaseController"/> class.</summary>
+        /// <param name="portableServices">The portable services.</param>
+        /// <param name="localizer">The localizer for this module's shared resources.</param>
+        public BaseController(IEnumerable<BasePortableService> portableServices, IStringLocalizer<SharedResources> localizer)
         {
             this.PortableServices = portableServices ?? Globals.GetCurrentServiceProvider().GetServices<BasePortableService>();
+            this.localizer = localizer ?? Globals.GetCurrentServiceProvider().GetRequiredService<IStringLocalizer<SharedResources>>();
         }
 
         /// <summary>Gets the portable services.</summary>
@@ -148,7 +159,7 @@ namespace Dnn.ExportImport.Components.Controllers
                 PortalId = portalId,
                 PortalName = portal.PortalName,
                 TotalJobs = count,
-                Jobs = jobs?.Select(ToJobItem),
+                Jobs = jobs?.Select(this.ToJobItem),
             };
         }
 
@@ -165,7 +176,7 @@ namespace Dnn.ExportImport.Components.Controllers
                 return null;
             }
 
-            var jobItem = ToJobItem(job);
+            var jobItem = this.ToJobItem(job);
             jobItem.Summary = BuildJobSummary(this.PortableServices, jobId);
             return jobItem;
         }
@@ -314,28 +325,6 @@ namespace Dnn.ExportImport.Components.Controllers
             LogController.Instance.AddLog((LogInfo)log);
         }
 
-        private static JobItem ToJobItem(ExportImportJob job)
-        {
-            var user = UserController.Instance.GetUserById(job.PortalId, job.CreatedByUserId);
-            var name = job.JobType == JobType.Import ? JsonConvert.DeserializeObject<ImportDto>(job.JobObject)?.ExportDto?.ExportName : job.Name;
-
-            return new JobItem
-            {
-                JobId = job.JobId,
-                PortalId = job.PortalId,
-                User = user?.DisplayName ?? user?.Username ?? job.CreatedByUserId.ToString(CultureInfo.InvariantCulture),
-                JobType = Localization.GetString("JobType_" + job.JobType, Constants.SharedResources),
-                Status = (int)job.JobStatus,
-                Cancelled = job.IsCancelled,
-                JobStatus = Localization.GetString("JobStatus_" + job.JobStatus, Constants.SharedResources),
-                Name = name,
-                Description = job.Description,
-                CreatedOn = job.CreatedOnDate,
-                CompletedOn = job.CompletedOnDate,
-                ExportFile = job.CompletedOnDate.HasValue ? job.Directory : null,
-            };
-        }
-
         private static void DeleteJobData(ExportImportJob job)
         {
             if (job.JobType != JobType.Export)
@@ -355,6 +344,39 @@ namespace Dnn.ExportImport.Components.Controllers
             {
                 Logger.BaseControllerFailedToDeleteJobData(ex, ex.Message, jobFolder);
             }
+        }
+
+        /// <summary>Reads a localized string, reproducing the legacy
+        /// <c>Localization.GetString</c> behavior of returning an empty string (rather than the key)
+        /// when the resource key does not exist.</summary>
+        /// <param name="key">The resource key, including the DNN <c>.Text</c> suffix.</param>
+        /// <returns>The localized value, or <see cref="string.Empty"/> when the key is not found.</returns>
+        private string GetLocalizedString(string key)
+        {
+            var value = this.localizer[key];
+            return value.ResourceNotFound ? string.Empty : value.Value;
+        }
+
+        private JobItem ToJobItem(ExportImportJob job)
+        {
+            var user = UserController.Instance.GetUserById(job.PortalId, job.CreatedByUserId);
+            var name = job.JobType == JobType.Import ? JsonConvert.DeserializeObject<ImportDto>(job.JobObject)?.ExportDto?.ExportName : job.Name;
+
+            return new JobItem
+            {
+                JobId = job.JobId,
+                PortalId = job.PortalId,
+                User = user?.DisplayName ?? user?.Username ?? job.CreatedByUserId.ToString(CultureInfo.InvariantCulture),
+                JobType = this.GetLocalizedString("JobType_" + job.JobType + ".Text"),
+                Status = (int)job.JobStatus,
+                Cancelled = job.IsCancelled,
+                JobStatus = this.GetLocalizedString("JobStatus_" + job.JobStatus + ".Text"),
+                Name = name,
+                Description = job.Description,
+                CreatedOn = job.CreatedOnDate,
+                CompletedOn = job.CompletedOnDate,
+                ExportFile = job.CompletedOnDate.HasValue ? job.Directory : null,
+            };
         }
     }
 }

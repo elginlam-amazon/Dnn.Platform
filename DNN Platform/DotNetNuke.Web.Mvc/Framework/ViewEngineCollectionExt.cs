@@ -4,112 +4,179 @@
 namespace DotNetNuke.Web.Mvc.Framework
 {
     using System;
+    using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Reflection;
-    using System.Web.Caching;
-    using System.Web.Mvc;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
-    using DotNetNuke.Framework;
-    using DotNetNuke.Internal.SourceGenerators;
-    using DotNetNuke.Web.Mvc.Framework.Controllers;
-
+    using DotNetNuke.Services.Cache;
+    using DotNetNuke.Web.Mvc.Framework.Modules;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.ViewEngines;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Options;
 
-    /// <summary>Extension methods for <see langword="ViewEngineCollection"/>.</summary>
+    /// <summary>Extension methods for a collection of <see cref="IViewEngine"/>.</summary>
+    /// <remarks>
+    /// MVC 5's <c>System.Web.Mvc.ViewEngineCollection</c> does not exist in ASP.NET Core; the view engines
+    /// are an ordered collection on <see cref="MvcViewOptions"/> resolved from DI. These extensions perform
+    /// the same cached lookup across those engines that the legacy collection's internal <c>Find</c> did.
+    /// </remarks>
     public static partial class ViewEngineCollectionExt
     {
-        /// <summary>Finds the specified view by using the specified controller context.</summary>
-        /// <param name="viewEngineCollection">The view engine collection.</param>
-        /// <param name="controllerContext">The controller context.</param>
+        /// <summary>Finds the specified view by using the specified action context.</summary>
+        /// <param name="viewEngineCollection">The view engines of the module (may be <see langword="null"/> to use the engines configured in DI).</param>
+        /// <param name="actionContext">The action context.</param>
         /// <param name="viewName">The name of the view.</param>
-        /// <param name="masterName">The name of the master.</param>
+        /// <param name="masterName">The name of the master (layout). Unused for lookup in ASP.NET Core, it only takes part in the cache key.</param>
         /// <param name="useCache"><see langword="true"/> to specify that the view engine returns the cached view, if a cached view exists; otherwise, <see langword="false"/>.</param>
         /// <returns>The page view.</returns>
-        [DnnDeprecated(10, 2, 2, "Please use overload taking IHostSettings")]
-        public static partial ViewEngineResult FindView(this ViewEngineCollection viewEngineCollection, ControllerContext controllerContext, string viewName, string masterName, bool useCache)
-            => viewEngineCollection.FindView(Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>(), controllerContext, viewName, masterName, useCache);
+        [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload taking IHostSettings. Scheduled for removal in v12.0.0.")]
+        public static ViewEngineResult FindView(this IReadOnlyList<IViewEngine> viewEngineCollection, ActionContext actionContext, string viewName, string masterName, bool useCache)
+            => viewEngineCollection.FindView(Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>(), actionContext, viewName, masterName, useCache);
 
-        /// <summary>Finds the specified view by using the specified controller context.</summary>
-        /// <param name="viewEngineCollection">The view engine collection.</param>
+        /// <summary>Finds the specified view by using the specified action context.</summary>
+        /// <param name="viewEngineCollection">The view engines of the module (may be <see langword="null"/> to use the engines configured in DI).</param>
         /// <param name="hostSettings">The host settings.</param>
-        /// <param name="controllerContext">The controller context.</param>
+        /// <param name="actionContext">The action context.</param>
         /// <param name="viewName">The name of the view.</param>
-        /// <param name="masterName">The name of the master.</param>
+        /// <param name="masterName">The name of the master (layout). Unused for lookup in ASP.NET Core, it only takes part in the cache key.</param>
         /// <param name="useCache"><see langword="true"/> to specify that the view engine returns the cached view, if a cached view exists; otherwise, <see langword="false"/>.</param>
         /// <returns>The page view.</returns>
-        public static ViewEngineResult FindView(this ViewEngineCollection viewEngineCollection, IHostSettings hostSettings, ControllerContext controllerContext, string viewName, string masterName, bool useCache)
+        public static ViewEngineResult FindView(this IReadOnlyList<IViewEngine> viewEngineCollection, IHostSettings hostSettings, ActionContext actionContext, string viewName, string masterName, bool useCache)
         {
+            var engines = ResolveViewEngines(viewEngineCollection, actionContext);
+            var find = new Func<IViewEngine, ViewEngineResult>(engine => engine.FindView(actionContext, viewName, true));
             try
             {
-                var cacheKey = CreateCacheKey(controllerContext, "View", viewName, masterName, (controllerContext.Controller as IDnnController)?.ModuleContext.PortalId ?? 0);
+                var cacheKey = CreateCacheKey(actionContext, "View", viewName, masterName, GetPortalId(actionContext));
                 var parameters = new object[]
                 {
-                    new Func<IViewEngine, ViewEngineResult>(e => e.FindView(controllerContext, viewName, masterName, false)),
-                    true, // allow SearchedLocations tracking to improve error messages up the stack.
+                    find,
+                    viewName,
                 };
-                var cacheArg = new CacheItemArgs(cacheKey, 120, CacheItemPriority.Default, "Find", viewEngineCollection, parameters);
+                var cacheArg = new CacheItemArgs(cacheKey, 120, CacheItemPriority.Default, "Find", engines, parameters);
 
                 return useCache ? CBO.GetCachedObject<ViewEngineResult>(hostSettings, cacheArg, CallFind) : CallFind(cacheArg);
             }
             catch (Exception)
             {
-                return viewEngineCollection.FindView(controllerContext, viewName, masterName);
+                return SearchViewEngines(engines, find, viewName);
             }
         }
 
-        /// <summary>Finds the specified partial view by using the specified controller context.</summary>
-        /// <param name="viewEngineCollection">The view engine collection.</param>
-        /// <param name="controllerContext">The controller context.</param>
+        /// <summary>Finds the specified partial view by using the specified action context.</summary>
+        /// <param name="viewEngineCollection">The view engines of the module (may be <see langword="null"/> to use the engines configured in DI).</param>
+        /// <param name="actionContext">The action context.</param>
         /// <param name="partialViewName">The name of the partial view.</param>
-        /// <param name="useCache"><see langword="true"/> to specify that the view engine returns the cached view, if a cached view exists; otherwise, <see langword="true"/>.</param>
+        /// <param name="useCache"><see langword="true"/> to specify that the view engine returns the cached view, if a cached view exists; otherwise, <see langword="false"/>.</param>
         /// <returns>The partial view.</returns>
-        [DnnDeprecated(10, 2, 2, "Please use overload taking IHostSettings")]
-        public static partial ViewEngineResult FindPartialView(this ViewEngineCollection viewEngineCollection, ControllerContext controllerContext, string partialViewName, bool useCache)
-            => viewEngineCollection.FindPartialView(Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>(), controllerContext, partialViewName, useCache);
+        [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload taking IHostSettings. Scheduled for removal in v12.0.0.")]
+        public static ViewEngineResult FindPartialView(this IReadOnlyList<IViewEngine> viewEngineCollection, ActionContext actionContext, string partialViewName, bool useCache)
+            => viewEngineCollection.FindPartialView(Globals.GetCurrentServiceProvider().GetRequiredService<IHostSettings>(), actionContext, partialViewName, useCache);
 
-        public static ViewEngineResult FindPartialView(this ViewEngineCollection viewEngineCollection, IHostSettings hostSettings, ControllerContext controllerContext, string partialViewName, bool useCache)
+        /// <summary>Finds the specified partial view by using the specified action context.</summary>
+        /// <param name="viewEngineCollection">The view engines of the module (may be <see langword="null"/> to use the engines configured in DI).</param>
+        /// <param name="hostSettings">The host settings.</param>
+        /// <param name="actionContext">The action context.</param>
+        /// <param name="partialViewName">The name of the partial view.</param>
+        /// <param name="useCache"><see langword="true"/> to specify that the view engine returns the cached view, if a cached view exists; otherwise, <see langword="false"/>.</param>
+        /// <returns>The partial view.</returns>
+        public static ViewEngineResult FindPartialView(this IReadOnlyList<IViewEngine> viewEngineCollection, IHostSettings hostSettings, ActionContext actionContext, string partialViewName, bool useCache)
         {
+            var engines = ResolveViewEngines(viewEngineCollection, actionContext);
+            var find = new Func<IViewEngine, ViewEngineResult>(engine => engine.FindView(actionContext, partialViewName, false));
             try
             {
-                var cacheKey = CreateCacheKey(controllerContext, "Partial", partialViewName, string.Empty, (controllerContext.Controller as IDnnController)?.ModuleContext.PortalId ?? 0);
+                var cacheKey = CreateCacheKey(actionContext, "Partial", partialViewName, string.Empty, GetPortalId(actionContext));
                 var parameters = new object[]
                 {
-                    new Func<IViewEngine, ViewEngineResult>(e => e.FindPartialView(controllerContext, partialViewName, false)),
-                    true, // allow SearchedLocations tracking to improve error messages up the stack.
+                    find,
+                    partialViewName,
                 };
-                var cacheArg = new CacheItemArgs(cacheKey, 120, CacheItemPriority.Default, "Find", viewEngineCollection, parameters);
+                var cacheArg = new CacheItemArgs(cacheKey, 120, CacheItemPriority.Default, "Find", engines, parameters);
 
                 return useCache ? CBO.GetCachedObject<ViewEngineResult>(hostSettings, cacheArg, CallFind) : CallFind(cacheArg);
             }
             catch (Exception)
             {
-                return viewEngineCollection.FindPartialView(controllerContext, partialViewName);
+                return SearchViewEngines(engines, find, partialViewName);
             }
+        }
+
+        /// <summary>Gets the view engines to search: the module's own engines, or else those configured in DI.</summary>
+        /// <param name="viewEngineCollection">The module's view engines (may be <see langword="null"/> or empty).</param>
+        /// <param name="actionContext">The action context used to resolve <see cref="MvcViewOptions"/> (may be <see langword="null"/>).</param>
+        /// <returns>The view engines to search, never <see langword="null"/>.</returns>
+        public static IReadOnlyList<IViewEngine> ResolveViewEngines(IReadOnlyList<IViewEngine> viewEngineCollection, ActionContext actionContext)
+        {
+            if (viewEngineCollection is { Count: > 0 })
+            {
+                return viewEngineCollection;
+            }
+
+            var services = actionContext?.HttpContext?.RequestServices ?? Globals.GetCurrentServiceProvider();
+            var configured = services?.GetService<IOptions<MvcViewOptions>>()?.Value?.ViewEngines;
+
+            // The delegating engine must be excluded, it would delegate straight back into the module.
+            return configured is null
+                ? []
+                : [.. configured.Where(engine => engine is not ModuleDelegatingViewEngine)];
         }
 
         private static ViewEngineResult CallFind(CacheItemArgs cacheItem)
         {
-            var factoryType = Reflection.CreateType("System.Web.Mvc.ViewEngineCollection");
-            var name = cacheItem.Params[0] as string;
-            var target = cacheItem.Params[1];
-            var parameters = cacheItem.Params[2] as object[];
-            var result = factoryType.InvokeMember(name, BindingFlags.Instance | BindingFlags.InvokeMethod | BindingFlags.NonPublic, null, target, parameters, CultureInfo.InvariantCulture);
-            return result as ViewEngineResult;
+            // Params mirror the legacy reflection call: [0] the operation name, [1] the engines to search
+            // against (previously the ViewEngineCollection instance) and [2] the call arguments.
+            var engines = cacheItem.Params[1] as IReadOnlyList<IViewEngine> ?? [];
+            var parameters = (object[])cacheItem.Params[2];
+            var find = (Func<IViewEngine, ViewEngineResult>)parameters[0];
+            var name = (string)parameters[1];
+
+            return SearchViewEngines(engines, find, name);
         }
 
-        private static string CreateCacheKey(ControllerContext controllerContext, string section, string name, string areaName, int portalId)
+        private static ViewEngineResult SearchViewEngines(IReadOnlyList<IViewEngine> engines, Func<IViewEngine, ViewEngineResult> find, string name)
         {
+            // Allow SearchedLocations tracking to improve error messages up the stack.
+            var searchedLocations = new List<string>();
+            foreach (var engine in engines)
+            {
+                var result = find(engine);
+                if (result.Success)
+                {
+                    return result;
+                }
+
+                if (result.SearchedLocations is not null)
+                {
+                    searchedLocations.AddRange(result.SearchedLocations);
+                }
+            }
+
+            return ViewEngineResult.NotFound(name ?? string.Empty, searchedLocations);
+        }
+
+        private static int GetPortalId(ActionContext actionContext)
+        {
+            return ModuleApplication.GetCurrentDnnController(actionContext?.HttpContext)?.ModuleContext?.PortalId ?? 0;
+        }
+
+        private static string CreateCacheKey(ActionContext actionContext, string section, string name, string areaName, int portalId)
+        {
+            var namespaces = actionContext.RouteData.DataTokens.TryGetValue("namespaces", out var dataToken)
+                ? (dataToken as IEnumerable<string>)?.FirstOrDefault()
+                : null;
+
             return string.Format(
                 CultureInfo.InvariantCulture,
                 ":ViewCacheEntry:{0}:{1}:{2}:{3}:{4}:{5}",
-                ((string[])controllerContext.RouteData.DataTokens["namespaces"]).FirstOrDefault(),
+                namespaces,
                 section,
                 name,
-                controllerContext.RouteData.Values["controller"],
+                actionContext.RouteData.Values["controller"],
                 areaName,
                 portalId);
         }

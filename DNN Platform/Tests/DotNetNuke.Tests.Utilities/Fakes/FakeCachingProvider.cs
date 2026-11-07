@@ -5,7 +5,6 @@ namespace DotNetNuke.Tests.Utilities.Fakes
 {
     using System;
     using System.Collections.Generic;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Services.Cache;

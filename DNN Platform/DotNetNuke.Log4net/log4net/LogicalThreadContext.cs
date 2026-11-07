@@ -18,9 +18,6 @@
 // limitations under the License.
 // 
 
-// .NET Compact Framework 1.0 has no support for System.Runtime.Remoting.Messaging.CallContext
-#if !NETCF
-
 using log4net.Util;
 
 namespace log4net
@@ -28,15 +25,16 @@ namespace log4net
     /// <summary>The log4net Logical Thread Context.</summary>
     /// <remarks>
     /// <para>
-    /// The <c>LogicalThreadContext</c> provides a location for <see cref="System.Runtime.Remoting.Messaging.CallContext"/> specific debugging 
+    /// The <c>LogicalThreadContext</c> provides a location for logical-call-context specific debugging 
     /// information to be stored.
     /// The <c>LogicalThreadContext</c> properties override any <see cref="ThreadContext"/> or <see cref="GlobalContext"/>
     /// properties with the same name.
     /// </para>
     /// <para>
-    /// For .NET Standard 1.3 this class uses
-    /// System.Threading.AsyncLocal rather than <see
-    /// cref="System.Runtime.Remoting.Messaging.CallContext"/>.
+    /// On modern .NET this class stores its state in a
+    /// <see cref="System.Threading.AsyncLocal{T}"/>, so the values flow with the
+    /// asynchronous control flow (across <c>await</c> points and into child tasks)
+    /// exactly as the legacy logical call context did.
     /// </para>
     /// <para>
     /// The Logical Thread Context has a properties map and a stack.
@@ -51,14 +49,7 @@ namespace log4net
     /// when a server handles multiple clients near-simultaneously.
     /// </para>
     /// <para>
-    /// The Logical Thread Context is managed on a per <see cref="System.Runtime.Remoting.Messaging.CallContext"/> basis.
-    /// </para>
-    /// <para>
-    /// The <see cref="System.Runtime.Remoting.Messaging.CallContext"/> requires a link time 
-    /// <see cref="System.Security.Permissions.SecurityPermission"/> for the
-    /// <see cref="System.Security.Permissions.SecurityPermissionFlag.Infrastructure"/>.
-    /// If the calling code does not have this permission then this context will be disabled.
-    /// It will not store any property values set on it.
+    /// The Logical Thread Context is managed on a per asynchronous-control-flow basis.
     /// </para>
     /// </remarks>
     /// <example>Example of using the thread context properties to store a username.
@@ -126,5 +117,3 @@ namespace log4net
         private static readonly LogicalThreadContextStacks s_stacks = new LogicalThreadContextStacks(s_properties);
     }
 }
-
-#endif

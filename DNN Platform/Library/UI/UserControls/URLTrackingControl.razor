@@ -1,0 +1,420 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.UI.UserControls
+@inherits DotNetNuke.Framework.UserControlBase
+@using System
+@using System.Collections
+@using System.Globalization
+@using System.IO
+@using System.Threading.Tasks
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Tabs
+@using DotNetNuke.Services.FileSystem
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.UI.Utilities
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Calendar = DotNetNuke.Common.Utilities.Calendar
+
+@if (this.IsVisible)
+{
+    <div class="dnnForm dnnUrlTrackingControl dnnClear">
+        @if (!string.IsNullOrEmpty(this.errorMessage))
+        {
+            <div class="dnnFormMessage dnnFormError">@this.errorMessage</div>
+        }
+        <div class="dnnFormItem">
+            <span>@this.UrlCaption</span>
+            <span id="lblURL">@this.DisplayUrl</span>
+        </div>
+        <div class="dnnFormItem">
+            <span>@this.CreatedCaption</span>
+            <span id="lblCreatedDate">@this.CreatedDateText</span>
+        </div>
+        @if (this.TrackingVisible)
+        {
+            <div>
+                <div class="dnnFormItem">
+                    <span>@this.TrackingUrlCaption</span>
+                    <span id="lblTrackingURL">@this.TrackingUrlText</span>
+                </div>
+                <div class="dnnFormItem">
+                    <span>@this.ClicksCaption</span>
+                    <span id="lblClicks">@this.ClicksText</span>
+                </div>
+                <div class="dnnFormItem">
+                    <span>@this.LastClickCaption</span>
+                    <span id="lblLastClick">@this.LastClickText</span>
+                </div>
+            </div>
+        }
+        @if (this.LogVisible)
+        {
+            <div>
+                <div class="dnnFormItem">
+                    <span>@this.StartDateCaption</span>
+                    <input id="@this.StartDateId" type="text" value="@this.StartDate" @onchange="this.OnStartDateChanged" />
+                    <a class="dnnSecondaryAction" href="@this.StartCalendarUrl">@this.CalendarCaption</a>
+                </div>
+                <div class="dnnFormItem">
+                    <span>@this.EndDateCaption</span>
+                    <input id="@this.EndDateId" type="text" value="@this.EndDate" @onchange="this.OnEndDateChanged" />
+                    <a class="dnnSecondaryAction" href="@this.EndCalendarUrl">@this.CalendarCaption</a>
+                </div>
+                <ul class="dnnActions dnnClear">
+                    <li>
+                        <a id="cmdDisplay" class="dnnPrimaryAction" href="javascript:void(0);" @onclick="this.DisplayAsync" @onclick:preventDefault="true">@this.DisplayCaption</a>
+                    </li>
+                </ul>
+                @if (this.logEntries is not null)
+                {
+                    <table id="grdLog" class="dnnGrid">
+                        <thead>
+                            <tr class="dnnGridHeader" style="vertical-align:top">
+                                <th>@this.DateColumnHeader</th>
+                                <th>@this.UserColumnHeader</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                var isAlternating = false;
+                            }
+                            @foreach (UrlLogInfo entry in this.logEntries)
+                            {
+                                <tr class="@(isAlternating ? "dnnGridAltItem" : "dnnGridItem")" style="text-align:left">
+                                    <td>@entry.ClickDate.ToString(CultureInfo.CurrentCulture)</td>
+                                    <td>@entry.FullName</td>
+                                </tr>
+                                isAlternating = !isAlternating;
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>The name of the resource file of this control.</summary>
+    private const string MyFileName = "URLTrackingControl.ascx";
+
+    private static readonly DotNetNuke.Instrumentation.ILog Logger =
+        DotNetNuke.Instrumentation.LoggerSource.Instance.GetLogger(typeof(URLTrackingControl));
+
+    private string instanceId = "urlTracking_" + Guid.NewGuid().ToString("N");
+    private int moduleID = -2;
+    private string localResourceFile;
+    private string errorMessage;
+    private string logUrl = string.Empty;
+    private ArrayList logEntries;
+    private bool loaded;
+
+    /// <summary>Gets or sets the service provider used to resolve the optional client API page.</summary>
+    [Inject]
+    protected IServiceProvider ServiceProvider { get; set; }
+
+    /// <summary>Gets the client API page used to register the popup calendar script.</summary>
+    /// <remarks>
+    /// Optional: when the host did not register <c>IClientApiPage</c> the calendar url is still
+    /// produced, but the script include has to come from the layout; that case is logged.
+    /// </remarks>
+    protected IClientApiPage ClientApiPage
+    {
+        get
+        {
+            var page = (IClientApiPage)this.ServiceProvider?.GetService(typeof(IClientApiPage));
+            if (page is null)
+            {
+                Logger.Warn("URLTrackingControl: IClientApiPage is not registered, the PopupCalendar.js include must be rendered by the layout.");
+            }
+
+            return page;
+        }
+    }
+
+    /// <summary>Gets or sets the formatted url shown instead of the resolved link click url.</summary>
+    [Parameter]
+    public string FormattedURL { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the tracking url shown instead of the generated one.</summary>
+    [Parameter]
+    public string TrackingURL { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the url the tracking information is shown for.</summary>
+    [Parameter]
+    public string URL { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the id of the module the url belongs to.</summary>
+    [Parameter]
+    public int ModuleID
+    {
+        get
+        {
+            var moduleId = this.moduleID;
+            if (moduleId == -2)
+            {
+                var queryValue = this.Request?.Query["mid"].ToString();
+                if (!string.IsNullOrEmpty(queryValue))
+                {
+                    if (!int.TryParse(queryValue, out moduleId))
+                    {
+                        moduleId = -2;
+                    }
+                }
+            }
+
+            return moduleId;
+        }
+
+        set => this.moduleID = value;
+    }
+
+    /// <summary>Gets or sets the resource file the captions are localized from.</summary>
+    [Parameter]
+    public string LocalResourceFile
+    {
+        get =>
+            string.IsNullOrEmpty(this.localResourceFile)
+                ? "~/controls/" + Localization.LocalResourceDirectory + "/" + MyFileName
+                : this.localResourceFile;
+
+        set => this.localResourceFile = value;
+    }
+
+    /// <summary>Gets a value indicating whether the control renders anything.</summary>
+    /// <remarks>Replaces <c>this.Visible = false</c> when there is no url to report on.</remarks>
+    public bool IsVisible { get; private set; } = true;
+
+    /// <summary>Gets a value indicating whether the click tracking block is rendered.</summary>
+    public bool TrackingVisible { get; private set; }
+
+    /// <summary>Gets a value indicating whether the activity log block is rendered.</summary>
+    public bool LogVisible { get; private set; }
+
+    /// <summary>Gets the url shown to the user.</summary>
+    public string DisplayUrl { get; private set; } = string.Empty;
+
+    /// <summary>Gets the tracking url shown to the user.</summary>
+    public string TrackingUrlText { get; private set; } = string.Empty;
+
+    /// <summary>Gets the creation date of the tracking entry.</summary>
+    public string CreatedDateText { get; private set; } = string.Empty;
+
+    /// <summary>Gets the number of recorded clicks.</summary>
+    public string ClicksText { get; private set; } = string.Empty;
+
+    /// <summary>Gets the date of the last recorded click.</summary>
+    public string LastClickText { get; private set; } = string.Empty;
+
+    /// <summary>Gets or sets the start of the reported period.</summary>
+    public string StartDate { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the end of the reported period.</summary>
+    public string EndDate { get; set; } = string.Empty;
+
+    /// <summary>Gets the <c>id</c> attribute of the start date editor.</summary>
+    public string StartDateId => this.instanceId + "_txtStartDate";
+
+    /// <summary>Gets the <c>id</c> attribute of the end date editor.</summary>
+    public string EndDateId => this.instanceId + "_txtEndDate";
+
+    /// <summary>Gets the javascript url that opens the popup calendar for the start date.</summary>
+    private string StartCalendarUrl { get; set; }
+
+    /// <summary>Gets the javascript url that opens the popup calendar for the end date.</summary>
+    private string EndCalendarUrl { get; set; }
+
+    /// <summary>Gets the localized "Url" caption.</summary>
+    private string UrlCaption => Localization.GetString("Url", this.LocalResourceFile);
+
+    /// <summary>Gets the localized "Created" caption.</summary>
+    private string CreatedCaption => Localization.GetString("Created", this.LocalResourceFile);
+
+    /// <summary>Gets the localized tracking url caption.</summary>
+    private string TrackingUrlCaption => Localization.GetString("trackingUrl", this.LocalResourceFile);
+
+    /// <summary>Gets the localized clicks caption.</summary>
+    private string ClicksCaption => Localization.GetString("Clicks", this.LocalResourceFile);
+
+    /// <summary>Gets the localized last click caption.</summary>
+    private string LastClickCaption => Localization.GetString("LastClick", this.LocalResourceFile);
+
+    /// <summary>Gets the localized start date caption.</summary>
+    private string StartDateCaption => Localization.GetString("Startdate", this.LocalResourceFile);
+
+    /// <summary>Gets the localized end date caption.</summary>
+    private string EndDateCaption => Localization.GetString("EndDate", this.LocalResourceFile);
+
+    /// <summary>Gets the localized calendar link caption.</summary>
+    private string CalendarCaption => Localization.GetString("Calendar", this.LocalResourceFile);
+
+    /// <summary>Gets the localized caption of the display button.</summary>
+    private string DisplayCaption => Localization.GetString("cmdDisplay", this.LocalResourceFile);
+
+    /// <summary>Gets the localized header of the date column.</summary>
+    /// <remarks>Replaces <c>Localization.LocalizeDataGrid</c>, which used the same resource keys.</remarks>
+    private string DateColumnHeader => Localize("Date");
+
+    /// <summary>Gets the localized header of the user column.</summary>
+    private string UserColumnHeader => Localize("User");
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.loaded)
+        {
+            return;
+        }
+
+        this.loaded = true;
+
+        try
+        {
+            // this needs to execute always so the client script code is registered in InvokePopupCal
+            this.StartCalendarUrl = Calendar.InvokePopupCal(new ElementClientApiControl(this.StartDateId, this.ClientApiPage));
+            this.EndCalendarUrl = Calendar.InvokePopupCal(new ElementClientApiControl(this.EndDateId, this.ClientApiPage));
+
+            if (!string.IsNullOrEmpty(this.URL))
+            {
+                this.logUrl = this.URL; // saved for loading Log grid
+                var urlType = DotNetNuke.Common.Globals.GetURLType(this.URL);
+                if (urlType == TabType.File && !this.URL.StartsWith("fileid=", StringComparison.OrdinalIgnoreCase))
+                {
+                    // to handle legacy scenarios before the introduction of the FileServerHandler
+                    var fileName = Path.GetFileName(this.URL);
+
+                    var folderPath = this.URL.Substring(0, this.URL.LastIndexOf(fileName, StringComparison.OrdinalIgnoreCase));
+                    var folder = FolderManager.Instance.GetFolder(this.PortalSettings.PortalId, folderPath);
+
+                    var file = FileManager.Instance.GetFile(folder, fileName);
+
+                    this.logUrl = "FileID=" + file.FileId;
+                }
+
+                var objUrls = new UrlController();
+                var objUrlTracking = objUrls.GetUrlTracking(this.PortalSettings.PortalId, this.logUrl, this.ModuleID);
+                if (objUrlTracking != null)
+                {
+                    if (string.IsNullOrEmpty(this.FormattedURL))
+                    {
+                        this.DisplayUrl = DotNetNuke.Common.Globals.LinkClick(this.URL, this.PortalSettings.ActiveTab.TabID, this.ModuleID, false);
+                        if (!this.DisplayUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !this.DisplayUrl.StartsWith("mailto", StringComparison.OrdinalIgnoreCase))
+                        {
+                            this.DisplayUrl = DotNetNuke.Common.Globals.AddHTTP(this.Request.Host.Host) + this.DisplayUrl;
+                        }
+                    }
+                    else
+                    {
+                        this.DisplayUrl = this.FormattedURL;
+                    }
+
+                    this.CreatedDateText = objUrlTracking.CreatedDate.ToString(CultureInfo.CurrentCulture);
+
+                    if (objUrlTracking.TrackClicks)
+                    {
+                        this.TrackingVisible = true;
+                        if (string.IsNullOrEmpty(this.TrackingURL))
+                        {
+                            if (!this.URL.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                            {
+                                this.TrackingUrlText = DotNetNuke.Common.Globals.AddHTTP(this.Request.Host.Host);
+                            }
+
+                            this.TrackingUrlText += DotNetNuke.Common.Globals.LinkClick(this.URL, this.PortalSettings.ActiveTab.TabID, this.ModuleID, objUrlTracking.TrackClicks);
+                        }
+                        else
+                        {
+                            this.TrackingUrlText = this.TrackingURL;
+                        }
+
+                        this.ClicksText = objUrlTracking.Clicks.ToString(CultureInfo.CurrentCulture);
+                        if (!Null.IsNull(objUrlTracking.LastClick))
+                        {
+                            this.LastClickText = objUrlTracking.LastClick.ToString(CultureInfo.CurrentCulture);
+                        }
+                    }
+
+                    if (objUrlTracking.LogActivity)
+                    {
+                        this.LogVisible = true;
+
+                        this.StartDate = DateTime.Today.AddDays(-6).ToShortDateString();
+                        this.EndDate = DateTime.Today.AddDays(1).ToShortDateString();
+                    }
+                }
+            }
+            else
+            {
+                this.IsVisible = false;
+            }
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+    }
+
+    /// <summary>Localizes a data grid column header.</summary>
+    /// <param name="headerText">The invariant header text.</param>
+    /// <returns>The localized header text.</returns>
+    private string Localize(string headerText)
+    {
+        var localizedText = Localization.GetString(headerText + ".Header", this.LocalResourceFile);
+        return string.IsNullOrEmpty(localizedText) ? headerText : localizedText;
+    }
+
+    /// <summary>Records a change of the start date.</summary>
+    /// <param name="args">The change event arguments.</param>
+    private void OnStartDateChanged(ChangeEventArgs args)
+    {
+        this.StartDate = args?.Value?.ToString() ?? string.Empty;
+    }
+
+    /// <summary>Records a change of the end date.</summary>
+    /// <param name="args">The change event arguments.</param>
+    private void OnEndDateChanged(ChangeEventArgs args)
+    {
+        this.EndDate = args?.Value?.ToString() ?? string.Empty;
+    }
+
+    /// <summary>Loads the click log of the reported period.</summary>
+    /// <returns>A task representing the operation.</returns>
+    /// <remarks>This is the port of <c>cmdDisplay_Click</c>.</remarks>
+    private Task DisplayAsync()
+    {
+        try
+        {
+            var strStartDate = this.StartDate;
+            if (!string.IsNullOrEmpty(strStartDate))
+            {
+                strStartDate = strStartDate + " 00:00";
+            }
+
+            var strEndDate = this.EndDate;
+            if (!string.IsNullOrEmpty(strEndDate))
+            {
+                strEndDate = strEndDate + " 23:59";
+            }
+
+            var objUrls = new UrlController();
+
+            this.logEntries = objUrls.GetUrlLog(
+                this.PortalSettings.PortalId,
+                this.logUrl,
+                this.ModuleID,
+                Convert.ToDateTime(strStartDate, CultureInfo.CurrentCulture),
+                Convert.ToDateTime(strEndDate, CultureInfo.CurrentCulture));
+        }
+        catch (Exception exc)
+        {
+            this.errorMessage = UserControlExceptionHandler.Process(exc);
+        }
+
+        return Task.CompletedTask;
+    }
+}

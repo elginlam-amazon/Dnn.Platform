@@ -4,5 +4,7 @@
     <UseResourceZipWorkingDirectory>True</UseResourceZipWorkingDirectory>
   </PropertyGroup>
 
-  <Import Project="Package.Targets" />
+  <!-- The file on disk is Package.targets; the lower-case "t" matters on case-sensitive (Linux)
+       file systems, where the old "Package.Targets" spelling fails with MSB4019. -->
+  <Import Project="Package.targets" />
 </Project>

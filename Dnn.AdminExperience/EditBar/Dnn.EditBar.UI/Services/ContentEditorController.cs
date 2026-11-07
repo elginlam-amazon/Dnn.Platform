@@ -9,8 +9,6 @@ namespace Dnn.EditBar.UI.Services
     using System.IO;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.EditBar.UI.Controllers;
 
@@ -27,8 +25,14 @@ namespace Dnn.EditBar.UI.Services
     using DotNetNuke.Web.Api.Internal;
     using DotNetNuke.Web.InternalServices;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+
+    // ValidateAntiForgeryToken is aliased to DNN's Web API attribute: Microsoft.AspNetCore.Mvc also
+    // declares a ValidateAntiForgeryTokenAttribute, and the alias keeps the original DNN attribute
+    // (the platform-wide precedent, e.g. DotNetNuke.Web's PageServiceController).
+    using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     /// <summary>A web API controller for content editing.</summary>
     /// <param name="appStatus">The application status.</param>
@@ -63,12 +67,12 @@ namespace Dnn.EditBar.UI.Services
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public HttpResponseMessage DeleteModule([FromUri] int moduleId)
+        public IActionResult DeleteModule([FromQuery] int moduleId)
         {
             var module = ModuleController.Instance.GetModule(moduleId, this.PortalSettings.ActiveTab.TabID, false);
             if (module == null)
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 1, Message = LocalizeString("Service_ModuleNotExist") });
+                return this.Ok(new { Status = 1, Message = LocalizeString("Service_ModuleNotExist") });
             }
 
             var tabId = this.PortalSettings.ActiveTab.TabID;
@@ -82,11 +86,11 @@ namespace Dnn.EditBar.UI.Services
                     ModuleController.Instance.DeleteTabModule(tabId, m.ModuleID, false);
                 });
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0 });
+            return this.Ok(new { Status = 0 });
         }
 
         [HttpGet]
-        public HttpResponseMessage GetRecommendedModules()
+        public IActionResult GetRecommendedModules()
         {
             var recommendedModuleNames = new List<string>();
             var filteredList = DesktopModuleController.GetPortalDesktopModules(this.hostSettings, this.PortalSettings.PortalId)
@@ -116,11 +120,11 @@ namespace Dnn.EditBar.UI.Services
                 }
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, result.OrderBy(m => recommendedModuleNames.IndexOf(m.ModuleName)));
+            return this.Ok(result.OrderBy(m => recommendedModuleNames.IndexOf(m.ModuleName)));
         }
 
         [HttpGet]
-        public HttpResponseMessage LoadModuleScript(int desktopModuleId)
+        public IActionResult LoadModuleScript(int desktopModuleId)
         {
             var desktopModule = DesktopModuleController.GetDesktopModule(this.hostSettings, desktopModuleId, Null.NullInteger);
             if (desktopModule == null)
@@ -130,13 +134,13 @@ namespace Dnn.EditBar.UI.Services
 
             var moduleScriptPath = $"{this.appSettings.ApplicationMapPath}/DesktopModules/{desktopModule.FolderName}/ClientScripts/ModuleEditor.js";
             var moduleScriptContent = string.Empty;
-            if (File.Exists(moduleScriptPath))
+            if (System.IO.File.Exists(moduleScriptPath))
             {
-                moduleScriptContent = File.ReadAllText(moduleScriptPath);
+                moduleScriptContent = System.IO.File.ReadAllText(moduleScriptPath);
             }
 
             var moduleStylePath = $"/DesktopModules/{desktopModule.FolderName}/Css/ModuleEditor.css";
-            if (File.Exists(this.appSettings.ApplicationMapPath + moduleStylePath))
+            if (System.IO.File.Exists(this.appSettings.ApplicationMapPath + moduleStylePath))
             {
                 moduleStylePath = Globals.ApplicationPath + moduleStylePath;
             }
@@ -145,7 +149,7 @@ namespace Dnn.EditBar.UI.Services
                 moduleStylePath = string.Empty;
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Script = moduleScriptContent, StyleFile = moduleStylePath, });
+            return this.Ok(new { Script = moduleScriptContent, StyleFile = moduleStylePath, });
         }
 
         private static string LocalizeString(string key) => Localization.GetString(key, LocalResourcesFile);
@@ -162,7 +166,11 @@ namespace Dnn.EditBar.UI.Services
                      select pkgs.IconFile).FirstOrDefault();
 
             imageUrl = string.IsNullOrEmpty(imageUrl) ? Globals.ImagePath + DefaultExtensionImage : imageUrl;
-            return System.Web.VirtualPathUtility.ToAbsolute(imageUrl);
+
+            // DotNetNuke.Web.UI.Utilities.ToAbsolute is the platform's shared replacement for
+            // System.Web.VirtualPathUtility.ToAbsolute (same semantics for both "~/" and already-rooted
+            // inputs); the identical ControlBarController.GetDeskTopModuleImage already uses it.
+            return DotNetNuke.Web.UI.Utilities.ToAbsolute(imageUrl);
         }
     }
 }

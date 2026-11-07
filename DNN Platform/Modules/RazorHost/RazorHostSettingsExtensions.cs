@@ -4,24 +4,47 @@
 
 namespace DotNetNuke.Modules.RazorHost
 {
-    using System.Web.UI;
+    using System;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Security;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>Extension methods for the razor host settings.</summary>
     [DnnDeprecated(9, 3, 2, "Use Razor Pages instead")]
     public static partial class RazorHostSettingsExtensions
     {
         /// <summary>Loads the razor host settings control.</summary>
-        /// <param name="parent">The parent user control.</param>
+        /// <param name="parent">The parent component hosting the settings control.</param>
         /// <param name="configuration">The module configuration, <see cref="ModuleInfo"/>.</param>
         /// <param name="localResourceFile">The local resource file for localization strings.</param>
         /// <returns>Razor Host Settings, <see cref="Settings"/>.</returns>
-        public static Settings LoadRazorSettingsControl(this UserControl parent, ModuleInfo configuration, string localResourceFile)
+        /// <remarks>
+        /// On ASP.NET this took a <c>System.Web.UI.UserControl</c> and called
+        /// <c>parent.LoadControl("~/DesktopModules/RazorModules/RazorHost/Settings.ascx")</c>. Both are
+        /// gone: <see cref="Settings"/> is a Blazor component compiled into this assembly, so it is
+        /// created the way the migrated <c>IModuleControlFactory</c>/<c>BaseModuleControlFactory</c>
+        /// surface creates settings components — through the request's service provider, so that any
+        /// injected constructor dependency is satisfied — and then assigned its
+        /// <c>ModuleConfiguration</c> and <c>LocalResourceFile</c> exactly as before. The parent is
+        /// kept in the signature (as the component contract <see cref="IComponent"/>) because it is
+        /// the hosting component the returned instance is rendered inside of; it is no longer the
+        /// loader.
+        /// </remarks>
+        public static Settings LoadRazorSettingsControl(this IComponent parent, ModuleInfo configuration, string localResourceFile)
         {
-            var control = (Settings)parent.LoadControl("~/DesktopModules/RazorModules/RazorHost/Settings.ascx");
+            ArgumentNullException.ThrowIfNull(parent);
+            ArgumentNullException.ThrowIfNull(configuration);
+
+            var serviceProvider = Globals.GetCurrentServiceProvider();
+            var control = serviceProvider is null
+                ? new Settings()
+                : ActivatorUtilities.CreateInstance<Settings>(serviceProvider);
+
             control.ModuleConfiguration = configuration;
             control.LocalResourceFile = localResourceFile;
             EnsureEditScriptControlIsRegistered(configuration.ModuleDefID);
@@ -38,7 +61,7 @@ namespace DotNetNuke.Modules.RazorHost
             var m = new ModuleControlInfo
             {
                 ControlKey = "EditRazorScript",
-                ControlSrc = "DesktopModules/RazorModules/RazorHost/EditScript.ascx",
+                ControlSrc = "DesktopModules/RazorModules/RazorHost/EditScript.razor",
                 ControlTitle = "Edit Script",
                 ControlType = SecurityAccessLevel.Host,
                 ModuleDefID = moduleDefId,

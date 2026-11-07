@@ -5,59 +5,73 @@ namespace Dnn.PersonaBar.Library
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
-    using System.Net.Http;
-    using System.Net.Http.Headers;
 
-    /// <summary>Extends the HttpRequestMessage collection.</summary>
+    using Microsoft.AspNetCore.Http;
+
+    /// <summary>
+    /// Extension methods for <see cref="HttpRequest"/>. These extended the Web API 2
+    /// <c>HttpRequestMessage</c>, which is a client type in ASP.NET Core, so every extension now
+    /// hangs off the server-side <see cref="HttpRequest"/>. The method names and their contracts
+    /// are unchanged.
+    /// </summary>
     public static class HttpRequestMessageExtensions
     {
         /// <summary>
         /// Returns a dictionary of QueryStrings that's easier to work with
-        /// than GetQueryNameValuePairs KevValuePairs collection.
+        /// than the raw query collection.
         ///
         /// If you need to pull a few single values use GetQueryString instead.
         /// </summary>
         /// <param name="request">The HTTP request.</param>
         /// <returns>A <see cref="Dictionary{TKey,TValue}"/> of query string keys to values.</returns>
-        public static Dictionary<string, string> GetQueryStrings(this HttpRequestMessage request)
+        public static Dictionary<string, string> GetQueryStrings(this HttpRequest request)
         {
-            return request.GetQueryNameValuePairs()
-                          .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+            var dictionary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (request?.Query == null)
+            {
+                return dictionary;
+            }
+
+            foreach (var pair in request.Query)
+            {
+                dictionary[pair.Key] = pair.Value.ToString();
+            }
+
+            return dictionary;
         }
 
         /// <summary>Returns an individual querystring value.</summary>
         /// <param name="request">The HTTP request.</param>
         /// <param name="key">The query string key.</param>
         /// <returns>The query string value or <see langword="null"/>.</returns>
-        public static string GetQueryString(this HttpRequestMessage request, string key)
+        public static string GetQueryString(this HttpRequest request, string key)
         {
-            ////IEnumerable<KeyValuePair<string,string>> - right!
-            var queryStrings = request.GetQueryNameValuePairs();
+            var queryStrings = request?.Query;
             if (queryStrings == null)
             {
                 return null;
             }
 
             var match = queryStrings.FirstOrDefault(kv => string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase));
-            if (string.IsNullOrEmpty(match.Value))
+            var value = match.Value.ToString();
+            if (string.IsNullOrEmpty(value))
             {
                 return null;
             }
 
-            return match.Value;
+            return value;
         }
 
         /// <summary>Returns an individual querystring value as integer.</summary>
         /// <param name="request">The HTTP request.</param>
         /// <param name="key">The query string key.</param>
         /// <returns>The query string value or <c>-1</c>.</returns>
-        public static int GetQueryStringAsInteger(this HttpRequestMessage request, string key)
+        public static int GetQueryStringAsInteger(this HttpRequest request, string key)
         {
-            ////IEnumerable<KeyValuePair<string,string>> - right!
             var value = request.GetQueryString(key);
-            int intValue;
-            if (!string.IsNullOrEmpty(value) && int.TryParse(value, out intValue))
+            if (!string.IsNullOrEmpty(value) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue))
             {
                 return intValue;
             }
@@ -69,27 +83,25 @@ namespace Dnn.PersonaBar.Library
         /// <param name="request">The HTTP request.</param>
         /// <param name="key">The header name.</param>
         /// <returns>The header value or <see langword="null"/>.</returns>
-        public static string GetHeader(this HttpRequestMessage request, string key)
+        public static string GetHeader(this HttpRequest request, string key)
         {
-            IEnumerable<string> keys = null;
-            if (!request.Headers.TryGetValues(key, out keys))
+            if (request?.Headers == null || !request.Headers.TryGetValue(key, out var values))
             {
                 return null;
             }
 
-            return keys.First();
+            return values.FirstOrDefault();
         }
 
         /// <summary>Retrieves an individual cookie from the cookies collection.</summary>
         /// <param name="request">The HTTP request.</param>
         /// <param name="cookieName">The cookie name.</param>
         /// <returns>The cookie value or <see langword="null"/>.</returns>
-        public static string GetCookie(this HttpRequestMessage request, string cookieName)
+        public static string GetCookie(this HttpRequest request, string cookieName)
         {
-            CookieHeaderValue cookie = request.Headers.GetCookies(cookieName).FirstOrDefault();
-            if (cookie != null)
+            if (request?.Cookies != null && request.Cookies.TryGetValue(cookieName, out var value))
             {
-                return cookie[cookieName].Value;
+                return value;
             }
 
             return null;

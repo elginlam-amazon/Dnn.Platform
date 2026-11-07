@@ -10,10 +10,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Threading;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Logging;
@@ -37,9 +34,16 @@ using DotNetNuke.Services.Log.EventLog;
 using DotNetNuke.Services.Personalization;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.Api.Internal;
-
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+// Disambiguates the DNN services framework anti-forgery filter from the same-named
+// Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute, which the Core MVC namespaces now
+// bring into scope. DNN's attribute is the one that must apply here: it carries the auth-type
+// bypass list fed by the authentication handlers and the iframe relaxation the upload flow needs.
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>A web API for the control bar.</summary>
 /// <param name="businessControllerProvider">The business controller provider.</param>
@@ -111,7 +115,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
     /// <returns>A response containing a list of <see cref="ModuleDefDTO"/> objects.</returns>
     [HttpGet]
     [DnnPageEditor]
-    public HttpResponseMessage GetPortalDesktopModules(string category, int loadingStartIndex, int loadingPageSize, string searchTerm, string excludeCategories = "", bool sortBookmarks = false, string topModule = "")
+    public IActionResult GetPortalDesktopModules(string category, int loadingStartIndex, int loadingPageSize, string searchTerm, string excludeCategories = "", bool sortBookmarks = false, string topModule = "")
     {
         if (string.IsNullOrEmpty(category))
         {
@@ -156,7 +160,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
             Bookmarked = bookmarkedModules.Any(m => m.Key == kvp.Key),
             ExistsInBookmarkCategory = bookmarkCategoryModules.Any(m => m.Key == kvp.Key),
         }).ToList();
-        return this.Request.CreateResponse(HttpStatusCode.OK, result);
+        return DnnApiResults.Response(HttpStatusCode.OK, result);
     }
 
     /// <summary>Gets the pages for a portal.</summary>
@@ -164,7 +168,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
     /// <returns>A response with a list of <see cref="PageDefDTO"/> objects.</returns>
     [HttpGet]
     [DnnPageEditor]
-    public HttpResponseMessage GetPageList(string portal)
+    public IActionResult GetPageList(string portal)
     {
         var portalSettings = this.GetPortalSettings(portal);
 
@@ -191,7 +195,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
             else
             {
                 // try to get pages not allowed
-                return this.Request.CreateResponse(HttpStatusCode.InternalServerError);
+                return DnnApiResults.Response(HttpStatusCode.InternalServerError);
             }
         }
 
@@ -204,7 +208,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
             }
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, result);
+        return DnnApiResults.Response(HttpStatusCode.OK, result);
     }
 
     /// <summary>Gets the modules to a page.</summary>
@@ -212,7 +216,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
     /// <returns>A response with a list of <see cref="ModuleDefDTO"/> objects.</returns>
     [HttpGet]
     [DnnPageEditor]
-    public HttpResponseMessage GetTabModules(string tab)
+    public IActionResult GetTabModules(string tab)
     {
         if (int.TryParse(tab, out var tabId))
         {
@@ -227,10 +231,10 @@ public class ControlBarController(IBusinessControllerProvider businessController
                                 select new ModuleDefDTO { ModuleID = kvp.Key, ModuleName = kvp.Value, ModuleImage = imageUrl });
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, result);
+            return DnnApiResults.Response(HttpStatusCode.OK, result);
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.InternalServerError);
+        return DnnApiResults.Response(HttpStatusCode.InternalServerError);
     }
 
     /// <summary>Copy permissions from the active page to its descendants.</summary>
@@ -238,16 +242,16 @@ public class ControlBarController(IBusinessControllerProvider businessController
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnPageEditor]
-    public HttpResponseMessage CopyPermissionsToChildren()
+    public IActionResult CopyPermissionsToChildren()
     {
         if (TabPermissionController.CanManagePage() && UserController.Instance.GetCurrentUserInfo().IsInRole("Administrators")
                                                     && this.ActiveTabHasChildren() && !this.PortalSettings.ActiveTab.IsSuperTab)
         {
             TabController.CopyPermissionsToChildren(this.eventLogger, this.PortalSettings.ActiveTab, this.PortalSettings.ActiveTab.TabPermissions);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Success = true, });
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.InternalServerError);
+        return DnnApiResults.Response(HttpStatusCode.InternalServerError);
     }
 
     /// <summary>Add a module to a page.</summary>
@@ -256,7 +260,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnPageEditor]
-    public HttpResponseMessage AddModule(AddModuleDTO dto)
+    public IActionResult AddModule(AddModuleDTO dto)
     {
         if (TabPermissionController.CanAddContentToPage() && this.CanAddModuleToPage())
         {
@@ -343,7 +347,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
                     }
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, new { TabModuleID = tabModuleId });
+                return DnnApiResults.Response(HttpStatusCode.OK, new { TabModuleID = tabModuleId });
             }
             catch (Exception ex)
             {
@@ -351,31 +355,34 @@ public class ControlBarController(IBusinessControllerProvider businessController
             }
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.InternalServerError);
+        return DnnApiResults.Response(HttpStatusCode.InternalServerError);
     }
 
+    // A routable MVC action must stay a public instance method; a static method is not discovered as an action.
+    #pragma warning disable CA1822 // Mark members as static
     /// <summary>Clears the host cache.</summary>
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [RequireHost]
-    public HttpResponseMessage ClearHostCache()
+    public IActionResult ClearHostCache()
     {
         if (UserController.Instance.GetCurrentUserInfo().IsSuperUser)
         {
             DataCache.ClearCache();
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Success = true, });
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.InternalServerError);
+        return DnnApiResults.Response(HttpStatusCode.InternalServerError);
     }
+    #pragma warning restore CA1822 // Mark members as static
 
     /// <summary>Recycles the application pool.</summary>
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [RequireHost]
-    public HttpResponseMessage RecycleApplicationPool()
+    public IActionResult RecycleApplicationPool()
     {
         if (UserController.Instance.GetCurrentUserInfo().IsSuperUser)
         {
@@ -383,10 +390,10 @@ public class ControlBarController(IBusinessControllerProvider businessController
             log.AddProperty("Message", "UserRestart");
             LogController.Instance.AddLog(log);
             Config.Touch(this.appStatus);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+            return DnnApiResults.Response(HttpStatusCode.OK, new { Success = true, });
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.InternalServerError);
+        return DnnApiResults.Response(HttpStatusCode.InternalServerError);
     }
 
     /// <summary>Switches to a different portal/site.</summary>
@@ -395,7 +402,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
     [HttpPost]
     [ValidateAntiForgeryToken]
     [RequireHost]
-    public HttpResponseMessage SwitchSite(SwitchSiteDTO dto)
+    public IActionResult SwitchSite(SwitchSiteDTO dto)
     {
         if (UserController.Instance.GetCurrentUserInfo().IsSuperUser)
         {
@@ -408,7 +415,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
 
                     if (portalAliases.Count > 0 && portalAliases[0] != null)
                     {
-                        return this.Request.CreateResponse(HttpStatusCode.OK, new { RedirectURL = Globals.AddHTTP(portalAliases[0].HttpAlias), });
+                        return DnnApiResults.Response(HttpStatusCode.OK, new { RedirectURL = Globals.AddHTTP(portalAliases[0].HttpAlias), });
                     }
                 }
             }
@@ -422,7 +429,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
             }
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.InternalServerError);
+        return DnnApiResults.Response(HttpStatusCode.InternalServerError);
     }
 
     /// <summary>Updates the user's preferred language.</summary>
@@ -430,7 +437,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
     /// <returns>A response indicating success.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage SwitchLanguage(SwitchLanguageDTO dto)
+    public IActionResult SwitchLanguage(SwitchLanguageDTO dto)
     {
         try
         {
@@ -442,7 +449,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
                     personalization.Profile["Usability:UICulture"] = dto.Language;
                     personalization.IsModified = true;
                     this.personalizationController.SaveProfile(personalization);
-                    return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+                    return DnnApiResults.Response(HttpStatusCode.OK, new { Success = true, });
                 }
             }
         }
@@ -455,7 +462,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
             Exceptions.LogException(ex);
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.InternalServerError);
+        return DnnApiResults.Response(HttpStatusCode.InternalServerError);
     }
 
     /// <summary>Toggle between view and edit mode.</summary>
@@ -464,7 +471,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnPageEditor]
-    public HttpResponseMessage ToggleUserMode(UserModeDTO userMode)
+    public IActionResult ToggleUserMode(UserModeDTO userMode)
     {
         if (userMode == null)
         {
@@ -472,21 +479,25 @@ public class ControlBarController(IBusinessControllerProvider businessController
         }
 
         this.ToggleUserMode(userMode.UserMode);
-        var response = this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
 
         if (userMode.UserMode.Equals("VIEW", StringComparison.OrdinalIgnoreCase))
         {
-            var cookie = this.Request.Headers.GetCookies("StayInEditMode").FirstOrDefault();
-            if (cookie != null && !string.IsNullOrEmpty(cookie["StayInEditMode"].Value))
+            // Expire the "StayInEditMode" cookie, exactly as the Web API 2 version did by appending an
+            // already-expired Set-Cookie header scoped to the application path.
+            if (this.Request.Cookies.TryGetValue("StayInEditMode", out var stayInEditMode) && !string.IsNullOrEmpty(stayInEditMode))
             {
-                var expireCookie = new CookieHeaderValue("StayInEditMode", string.Empty);
-                expireCookie.Expires = DateTimeOffset.Now.AddDays(-1);
-                expireCookie.Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/";
-                response.Headers.AddCookies(new List<CookieHeaderValue> { expireCookie });
+                this.Response.Cookies.Append(
+                    "StayInEditMode",
+                    string.Empty,
+                    new CookieOptions
+                    {
+                        Expires = DateTimeOffset.Now.AddDays(-1),
+                        Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
+                    });
             }
         }
 
-        return response;
+        return DnnApiResults.Response(HttpStatusCode.OK, new { Success = true, });
     }
 
     /// <summary>Saves a bookmark for a user.</summary>
@@ -495,7 +506,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
     [HttpPost]
     [ValidateAntiForgeryToken]
     [DnnPageEditor]
-    public HttpResponseMessage SaveBookmark(BookmarkDTO bookmark)
+    public IActionResult SaveBookmark(BookmarkDTO bookmark)
     {
         if (string.IsNullOrEmpty(bookmark.Bookmark))
         {
@@ -504,7 +515,7 @@ public class ControlBarController(IBusinessControllerProvider businessController
 
         this.controller.SaveBookMark(this.PortalSettings.PortalId, this.UserInfo.UserID, bookmark.Title, bookmark.Bookmark);
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { Success = true, });
     }
 
     /// <summary>Locks or unlocks the instance.</summary>
@@ -513,10 +524,10 @@ public class ControlBarController(IBusinessControllerProvider businessController
     [HttpPost]
     [ValidateAntiForgeryToken]
     [RequireHost]
-    public HttpResponseMessage LockInstance(LockingDTO lockingRequest)
+    public IActionResult LockInstance(LockingDTO lockingRequest)
     {
         this.hostSettingsService.Update("IsLocked", lockingRequest.Lock.ToString(), true);
-        return this.Request.CreateResponse(HttpStatusCode.OK);
+        return DnnApiResults.Response(HttpStatusCode.OK);
     }
 
     /// <summary>Locks or unlocks the current site.</summary>
@@ -525,10 +536,10 @@ public class ControlBarController(IBusinessControllerProvider businessController
     [HttpPost]
     [ValidateAntiForgeryToken]
     [RequireHost]
-    public HttpResponseMessage LockSite(LockingDTO lockingRequest)
+    public IActionResult LockSite(LockingDTO lockingRequest)
     {
         PortalController.UpdatePortalSetting(this.portalController, this.PortalSettings.PortalId, "IsLocked", lockingRequest.Lock.ToString(), true);
-        return this.Request.CreateResponse(HttpStatusCode.OK);
+        return DnnApiResults.Response(HttpStatusCode.OK);
     }
 
     /// <summary>Gets a value indicating whether the current user can add a module to the current page.</summary>
@@ -580,12 +591,12 @@ public class ControlBarController(IBusinessControllerProvider businessController
 
         string imageUrl =
             (from package in packages
-                join portMods in portalDesktopModules on package.PackageID equals portMods.Value.PackageID
-                where portMods.Value.DesktopModuleID == moduleId
-                select package.IconFile).FirstOrDefault();
+             join portMods in portalDesktopModules on package.PackageID equals portMods.Value.PackageID
+             where portMods.Value.DesktopModuleID == moduleId
+             select package.IconFile).FirstOrDefault();
 
         imageUrl = string.IsNullOrEmpty(imageUrl) ? Globals.ImagePath + DefaultExtensionImage : imageUrl;
-        return System.Web.VirtualPathUtility.ToAbsolute(imageUrl);
+        return DotNetNuke.Web.UI.Utilities.ToAbsolute(imageUrl);
     }
 
     private static string GetTabModuleImage(IHostSettings hostSettings, int tabId, int moduleId)
@@ -596,14 +607,14 @@ public class ControlBarController(IBusinessControllerProvider businessController
         var packages = PackageController.Instance.GetExtensionPackages(PortalSettings.Current.PortalId);
 
         string imageUrl = (from package in packages
-            join portMods in portalDesktopModules on package.PackageID equals portMods.Value.PackageID
-            join modDefs in moduleDefinitions on portMods.Value.DesktopModuleID equals modDefs.Value.DesktopModuleID
-            join tabMods in tabModules on modDefs.Value.DesktopModuleID equals tabMods.Value.DesktopModuleID
-            where tabMods.Value.ModuleID == moduleId
-            select package.IconFile).FirstOrDefault();
+                           join portMods in portalDesktopModules on package.PackageID equals portMods.Value.PackageID
+                           join modDefs in moduleDefinitions on portMods.Value.DesktopModuleID equals modDefs.Value.DesktopModuleID
+                           join tabMods in tabModules on modDefs.Value.DesktopModuleID equals tabMods.Value.DesktopModuleID
+                           where tabMods.Value.ModuleID == moduleId
+                           select package.IconFile).FirstOrDefault();
 
         imageUrl = string.IsNullOrEmpty(imageUrl) ? Globals.ImagePath + DefaultExtensionImage : imageUrl;
-        return System.Web.VirtualPathUtility.ToAbsolute(imageUrl);
+        return DotNetNuke.Web.UI.Utilities.ToAbsolute(imageUrl);
     }
 
     private static void AddModulePermission(ModuleInfo objModule, IPermissionDefinitionInfo permission, int roleId, int userId, bool allowAccess)

@@ -5,7 +5,7 @@ namespace DotNetNuke.Entities.Modules
 {
     using System;
     using System.Globalization;
-    using System.Web;
+    using System.Net;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Abstractions.Modules;
@@ -18,7 +18,6 @@ namespace DotNetNuke.Entities.Modules
     using DotNetNuke.Services.EventQueue;
     using DotNetNuke.Services.Exceptions;
     using DotNetNuke.Services.Log.EventLog;
-
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -153,7 +152,7 @@ namespace DotNetNuke.Entities.Modules
                 }
 
                 var moduleId = Convert.ToInt32(message.Attributes["ModuleId"], CultureInfo.InvariantCulture);
-                var content = HttpUtility.HtmlDecode(message.Attributes["Content"]);
+                var content = WebUtility.HtmlDecode(message.Attributes["Content"]);
                 var version = message.Attributes["Version"];
                 var userId = Convert.ToInt32(message.Attributes["UserId"], CultureInfo.InvariantCulture);
 

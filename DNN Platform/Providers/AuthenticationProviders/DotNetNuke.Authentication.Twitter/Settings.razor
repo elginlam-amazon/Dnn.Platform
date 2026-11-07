@@ -1,0 +1,52 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Authentication.Twitter
+@inherits DotNetNuke.Services.Authentication.OAuth.OAuthSettingsBase
+@using System
+@using DotNetNuke.Services.Authentication.OAuth
+@using DotNetNuke.UI.WebControls
+
+@* Replaces <dnn:propertyeditorcontrol id="SettingsEditor" runat="Server" ... /> (and its
+   <%@ Register TagPrefix="dnn" ... %> directive, which has no Blazor equivalent). The editor
+   instance is the one held by OAuthSettingsBase, so the base class keeps driving it: it sets
+   DataSource/DataBind during OnLoad and reads IsValid/IsDirty from it in UpdateSettings, which
+   is what persists the Twitter API key and secret. *@
+@this.SettingsEditor.Render()
+
+@code {
+    /// <inheritdoc />
+    protected override string AuthSystemApplicationName
+    {
+        get { return "Twitter"; }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Creates the property editor that the <c>.ascx</c> markup used to declare, with the same
+    /// settings, before <see cref="OAuthSettingsBase"/>'s <c>OnLoad</c> binds it to the
+    /// provider's configuration.
+    /// </remarks>
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        // BL0005 warns that parameters set from outside a component are overwritten on the next
+        // parameter set. That cannot happen here: this editor is created in code and rendered
+        // through its own Render() fragment below, never as a child component whose parent
+        // supplies parameters — which is exactly how OAuthSettingsBase has always owned it.
+#pragma warning disable BL0005
+        this.SettingsEditor = new PropertyEditorControl(this.ServiceProvider)
+        {
+            ID = "SettingsEditor",
+            EditMode = PropertyEditorMode.Edit,
+            SortMode = PropertySortType.SortOrderAttribute,
+        };
+#pragma warning restore BL0005
+        this.SettingsEditor.HelpStyle.CssClass = "dnnFormHelpContent dnnClear";
+        this.SettingsEditor.LabelStyle.CssClass = "SubHead";
+    }
+
+    [Microsoft.AspNetCore.Components.Inject]
+    private IServiceProvider ServiceProvider { get; set; }
+}

@@ -5,7 +5,7 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
+    using System.Linq;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Lists;
@@ -18,7 +18,6 @@ namespace DotNetNuke.UI.WebControls
     /// <summary>The ProfileEditorControl control provides a Control to display Profile Properties.</summary>
     /// <param name="serviceProvider">The DI container.</param>
     /// <param name="listController">The list controller.</param>
-    [ToolboxData("<{0}:ProfileEditorControl runat=server></{0}:ProfileEditorControl>")]
     public class ProfileEditorControl(IServiceProvider serviceProvider, ListController listController)
         : CollectionEditorControl(serviceProvider)
     {
@@ -101,6 +100,45 @@ namespace DotNetNuke.UI.WebControls
                     var attributes = new object[1];
                     attributes[0] = new ListAttribute("Region", countryKey, ListBoundField.Id, ListBoundField.Text);
                     editor.Editor.CustomAttributes = attributes;
+                }
+            }
+
+            // The country editors used to locate "their" region editor by walking the Web Forms
+            // control tree. There is no control tree on ASP.NET Core, so the link is established
+            // here, where the editors of a category are all known.
+            this.CoupleCountryAndRegionEditors();
+        }
+
+        /// <summary>Links each country editor to the region editor of the same category.</summary>
+        private void CoupleCountryAndRegionEditors()
+        {
+            var regionEditors = this.Fields
+                .Cast<FieldEditorControl>()
+                .Select(field => field.Editor)
+                .OfType<DNNRegionEditControl>()
+                .ToList();
+
+            if (regionEditors.Count == 0)
+            {
+                return;
+            }
+
+            foreach (FieldEditorControl field in this.Fields)
+            {
+                var regionEditor = regionEditors.FirstOrDefault(region => region.Category == field.Editor.Category);
+                if (regionEditor == null)
+                {
+                    continue;
+                }
+
+                switch (field.Editor)
+                {
+                    case DNNCountryEditControl countryEditor:
+                        countryEditor.CoupledRegionControl = regionEditor;
+                        break;
+                    case DnnCountryAutocompleteControl autocompleteEditor:
+                        autocompleteEditor.CoupledRegionControl = regionEditor;
+                        break;
                 }
             }
         }

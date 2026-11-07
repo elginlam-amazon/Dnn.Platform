@@ -5,8 +5,7 @@ namespace DotNetNuke.Web.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
@@ -15,14 +14,26 @@ namespace DotNetNuke.Web.UI.WebControls
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Framework.JavaScriptLibraries;
     using DotNetNuke.Services.ClientDependency;
-
+    using DotNetNuke.UI;
+    using Microsoft.AspNetCore.Components;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.JSInterop;
+
+    using FileOrder = DotNetNuke.Abstractions.ClientResources.FileOrder;
 
     /// <summary>A password control.</summary>
+    /// <remarks>
+    /// The <c>TextBox</c> in password mode became a <see cref="DnnTextBox"/> inside a
+    /// <see cref="DnnPanel"/>, exactly the hierarchy the Web Forms version created. The password
+    /// strength widget was wired up by a startup script registered through
+    /// <c>ScriptManager</c>/<c>Page.ClientScript</c>; neither exists on ASP.NET Core, so the same
+    /// <c>dnn.initializePasswordStrength</c> call is made once through JS interop after the first
+    /// render — which is the point in the Blazor lifecycle at which the element exists.
+    /// </remarks>
     public class DnnFormPasswordItem : DnnFormItemBase
     {
         private readonly IClientResourceController clientResourceController;
-        private TextBox password;
+        private DnnTextBox password;
 
         /// <summary>Initializes a new instance of the <see cref="DnnFormPasswordItem"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IApplicationStatusInfo. Scheduled removal in v12.0.0.")]
@@ -42,77 +53,75 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <summary>Gets or sets the CSS class for the text box.</summary>
-        public string TextBoxCssClass
-        {
-            get => this.ViewState.GetValue("TextBoxCssClass", string.Empty);
-            set => this.ViewState.SetValue("TextBoxCssClass", value, string.Empty);
-        }
+        [Parameter]
+        public string TextBoxCssClass { get; set; } = string.Empty;
 
         /// <summary>Gets or sets the CSS class for the container.</summary>
-        public string ContainerCssClass
-        {
-            get => this.ViewState.GetValue("ContainerCssClass", string.Empty);
-            set => this.ViewState.SetValue("ContainerCssClass", value, string.Empty);
-        }
+        [Parameter]
+        public string ContainerCssClass { get; set; } = string.Empty;
 
-        /// <inheritdoc cref="DnnFormItemBase.CreateControlInternal"/>
-        protected override WebControl CreateControlInternal(Control container)
+        /// <summary>Gets or sets the JavaScript runtime used to initialize the strength indicator.</summary>
+        [Inject]
+        protected IJSRuntime JsRuntime { get; set; }
+
+        // BL0005: the ported Web Forms control creates and configures its own child components in code, which is how the original control tree was built.
+        #pragma warning disable BL0005
+        /// <inheritdoc />
+        protected override IDnnControl CreateControlInternal(IDnnControl container)
         {
-            this.password = new TextBox()
+            this.password = new DnnTextBox()
             {
                 ID = this.ID + "_TextBox",
-                TextMode = TextBoxMode.Password,
+                TextMode = "password",
                 CssClass = this.TextBoxCssClass,
                 MaxLength = 39, // ensure password cannot be cut if too long
-                Text = Convert.ToString(this.Value, CultureInfo.InvariantCulture), // Load from ControlState
+                Text = Convert.ToString(this.Value, CultureInfo.InvariantCulture), // Load from the item's value
             };
-            this.password.Attributes.Add("autocomplete", "off");
-            this.password.Attributes.Add("aria-label", this.DataField);
+            this.password.Attributes["autocomplete"] = "off";
+            this.password.Attributes["aria-label"] = this.DataField;
             this.password.TextChanged += this.TextChanged;
 
-            var passwordContainer = new Panel() { ID = "passwordContainer", CssClass = this.ContainerCssClass };
+            var passwordContainer = new DnnPanel() { ID = "passwordContainer", CssClass = this.ContainerCssClass };
 
             // add control hierarchy to the container
-            container.Controls.Add(passwordContainer);
+            container?.Controls.Add(passwordContainer);
 
             passwordContainer.Controls.Add(this.password);
 
             // return input control that can be used for validation
             return this.password;
         }
+        #pragma warning restore BL0005
 
         /// <inheritdoc />
         protected override void OnInit(EventArgs e)
         {
             base.OnInit(e);
-            this.clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.jquery.extensions.js");
-            this.clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.jquery.tooltip.js");
-            this.clientResourceController.RegisterScript("~/Resources/Shared/scripts/dnn.PasswordStrength.js");
+            this.clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.jquery.extensions.js");
+            this.clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.jquery.tooltip.js");
+            this.clientResourceController.RegisterScript("~/resources/Shared/scripts/dnn.PasswordStrength.js");
 
-            this.clientResourceController.RegisterStylesheet("~/Resources/Shared/stylesheets/dnn.PasswordStrength.css", FileOrder.Css.ResourceCss);
+            this.clientResourceController.RegisterStylesheet("~/resources/Shared/stylesheets/dnn.PasswordStrength.css", FileOrder.Css.ResourceCss);
 
             JavaScript.RequestRegistration(this.AppStatus, this.EventLogger, this.PortalSettings, CommonJs.DnnPlugins);
         }
 
         /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
+        protected override async Task OnAfterRenderAsync(bool firstRender)
         {
-            base.OnPreRender(e);
+            await base.OnAfterRenderAsync(firstRender);
+
+            if (!firstRender || this.JsRuntime == null)
+            {
+                return;
+            }
 
             var options = new DnnPaswordStrengthOptions();
             var optionsAsJsonString = Json.Serialize(options);
-            var script =
-                $"dnn.initializePasswordStrength('.{this.TextBoxCssClass}', {optionsAsJsonString});{Environment.NewLine}";
-
-            if (ScriptManager.GetCurrent(this.Page) != null)
-            {
-                // respect MS AJAX
-                ScriptManager.RegisterStartupScript(this.Page, this.GetType(), "PasswordStrength", script, true);
-            }
-            else
-            {
-                this.Page.ClientScript.RegisterStartupScript(this.GetType(), "PasswordStrength", script, true);
-            }
+            await this.JsRuntime.InvokeVoidAsync(
+                "dnn.initializePasswordStrengthJson",
+                $".{this.TextBoxCssClass}",
+                optionsAsJsonString);
         }
 
         private void TextChanged(object sender, EventArgs e)

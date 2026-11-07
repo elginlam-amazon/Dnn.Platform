@@ -4,17 +4,23 @@
 namespace DotNetNuke.Web.Mvc.Framework
 {
     using System;
-    using System.Web.Mvc;
 
     using DotNetNuke.Common;
     using DotNetNuke.Framework;
     using DotNetNuke.Web.Mvc.Helpers;
-
+    using Microsoft.AspNetCore.Mvc.Razor;
     using Microsoft.Extensions.DependencyInjection;
 
-    public abstract class DnnWebViewPage<TModel> : WebViewPage<TModel>
+    /// <summary>The base class of strongly typed DNN MVC Razor views.</summary>
+    /// <typeparam name="TModel">The type of the view model.</typeparam>
+    /// <remarks>Was a <c>System.Web.Mvc.WebViewPage{TModel}</c>; ASP.NET Core Razor views derive from <see cref="RazorPage{TModel}"/>.</remarks>
+    public abstract class DnnWebViewPage<TModel> : RazorPage<TModel>
     {
         private readonly IServicesFramework servicesFramework;
+
+        private DnnHelper<TModel> dnn;
+        private DnnHtmlHelper<TModel> html;
+        private DnnUrlHelper url;
 
         /// <summary>Initializes a new instance of the <see cref="DnnWebViewPage{TModel}"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IServicesFramework. Scheduled removal in v12.0.0.")]
@@ -30,19 +36,30 @@ namespace DotNetNuke.Web.Mvc.Framework
             this.servicesFramework = servicesFramework ?? Globals.GetCurrentServiceProvider().GetRequiredService<IServicesFramework>();
         }
 
-        public DnnHelper<TModel> Dnn { get; set; }
-
-        public new DnnHtmlHelper<TModel> Html { get; set; }
-
-        public new DnnUrlHelper Url { get; set; }
-
-        /// <inheritdoc />
-        public override void InitHelpers()
+        /// <summary>Gets or sets the DNN helper of this view.</summary>
+        /// <remarks>The helpers are created on first use: ASP.NET Core has no <c>InitHelpers</c> hook and
+        /// the view context is only assigned after the page has been activated.</remarks>
+        public DnnHelper<TModel> Dnn
         {
-            this.Ajax = new AjaxHelper<TModel>(this.ViewContext, this);
-            this.Html = new DnnHtmlHelper<TModel>(this.ViewContext, this, this.servicesFramework);
-            this.Url = new DnnUrlHelper(this.ViewContext);
-            this.Dnn = ActivatorUtilities.CreateInstance<DnnHelper<TModel>>(Globals.GetCurrentServiceProvider(), this.ViewContext, this);
+            get => this.dnn ??= ActivatorUtilities.CreateInstance<DnnHelper<TModel>>(this.GetServiceProvider(), this.ViewContext);
+            set => this.dnn = value;
         }
+
+        /// <summary>Gets or sets the DNN HTML helper of this view.</summary>
+        public DnnHtmlHelper<TModel> Html
+        {
+            get => this.html ??= new DnnHtmlHelper<TModel>(this.ViewContext, this.servicesFramework);
+            set => this.html = value;
+        }
+
+        /// <summary>Gets or sets the DNN URL helper of this view.</summary>
+        public DnnUrlHelper Url
+        {
+            get => this.url ??= new DnnUrlHelper(this.ViewContext);
+            set => this.url = value;
+        }
+
+        private IServiceProvider GetServiceProvider()
+            => this.ViewContext?.HttpContext?.RequestServices ?? Globals.GetCurrentServiceProvider();
     }
 }

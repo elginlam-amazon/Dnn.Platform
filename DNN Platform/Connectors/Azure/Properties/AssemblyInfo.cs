@@ -7,4 +7,8 @@ using System.Reflection;
 
 [assembly: AssemblyTitle("DotNetNuke")]
 
-[assembly: CLSCompliant(true)]
+// The public surface of this assembly exposes types from DotNetNuke.Library (which declares
+// [assembly: CLSCompliant(false)]), DotNetNuke.Web and Microsoft.AspNetCore.Mvc (unmarked, and
+// therefore not CLS-compliant), so this assembly can no longer claim CLS compliance. This matches
+// the DotNetNuke.Providers.FolderProviders assembly, which exposes the same DNN types.
+[assembly: CLSCompliant(false)]

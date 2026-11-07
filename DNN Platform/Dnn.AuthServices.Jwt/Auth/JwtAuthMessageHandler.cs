@@ -5,13 +5,12 @@
 namespace Dnn.AuthServices.Jwt.Auth
 {
     using System;
-    using System.Net.Http;
     using System.Security.Principal;
-    using System.Threading;
 
     using Dnn.AuthServices.Jwt.Components.Common.Controllers;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Web.Api.Auth;
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.Logging;
 
     /// <summary>
@@ -49,26 +48,34 @@ namespace Dnn.AuthServices.Jwt.Auth
         internal static bool IsEnabled { get; set; }
 
         /// <inheritdoc />
-        public override HttpResponseMessage OnInboundRequest(HttpRequestMessage request, CancellationToken cancellationToken)
+        /// <remarks>
+        /// Was <c>OnInboundRequest(HttpRequestMessage, CancellationToken)</c>. The inbound phase of the
+        /// former <c>DelegatingHandler</c> is now <c>OnAuthenticateRequest(HttpContext)</c>, driven by
+        /// <c>DnnAuthMessageHandlerMiddleware</c>. The gate and the outcome are unchanged: authenticate
+        /// only when <see cref="AuthMessageHandlerBase.NeedsAuthentication"/> allows it, then defer to the
+        /// base, which does not short-circuit the pipeline (the legacy override likewise returned the
+        /// base's <see langword="null"/> response).
+        /// </remarks>
+        public override bool OnAuthenticateRequest(HttpContext context)
         {
-            if (this.NeedsAuthentication(request))
+            if (this.NeedsAuthentication(context))
             {
-                this.TryToAuthenticate(request);
+                this.TryToAuthenticate(context);
             }
 
-            return base.OnInboundRequest(request, cancellationToken);
+            return base.OnAuthenticateRequest(context);
         }
 
-        private void TryToAuthenticate(HttpRequestMessage request)
+        private void TryToAuthenticate(HttpContext context)
         {
             try
             {
-                var username = this.jwtController.ValidateToken(request);
+                var username = this.jwtController.ValidateToken(context.Request);
                 if (!string.IsNullOrEmpty(username))
                 {
                     this.logger.LogTrace("Authenticated user '{userName}'", username);
 
-                    SetCurrentPrincipal(new GenericPrincipal(new GenericIdentity(username, this.AuthScheme), null), request);
+                    SetCurrentPrincipal(new GenericPrincipal(new GenericIdentity(username, this.AuthScheme), null), context);
                 }
             }
             catch (Exception ex)

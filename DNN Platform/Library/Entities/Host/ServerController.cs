@@ -7,7 +7,6 @@ namespace DotNetNuke.Entities.Host
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -18,8 +17,8 @@ namespace DotNetNuke.Entities.Host
     using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Internal.SourceGenerators;
+    using DotNetNuke.Services.Cache;
     using DotNetNuke.Services.Log.EventLog;
-
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 

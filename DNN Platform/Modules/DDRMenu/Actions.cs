@@ -6,8 +6,6 @@ namespace DotNetNuke.Web.DDRMenu
 {
     using System;
     using System.Collections.Generic;
-    using System.ComponentModel;
-    using System.Web.UI;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
@@ -19,6 +17,8 @@ namespace DotNetNuke.Web.DDRMenu
     using DotNetNuke.UI.WebControls;
     using DotNetNuke.Web.DDRMenu.DNNCommon;
     using DotNetNuke.Web.DDRMenu.TemplateEngine;
+
+    using Microsoft.AspNetCore.Components;
 
     using Microsoft.Extensions.DependencyInjection;
 
@@ -54,19 +54,26 @@ namespace DotNetNuke.Web.DDRMenu
         }
 
         /// <summary>Gets or sets the path system script.</summary>
+        [Parameter]
         public string PathSystemScript { get; set; }
 
         /// <summary>Gets or sets the menu style.</summary>
+        [Parameter]
         public string MenuStyle { get; set; }
 
         /// <summary>Gets or sets the client options.</summary>
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        /// <remarks>
+        /// Was declared with [DesignerSerializationVisibility(Content)] and
+        /// [PersistenceMode(InnerProperty)] so container markup could nest the options; neither
+        /// attribute has a net10 equivalent (both are WebForms designer/parser metadata), so the
+        /// property is a component [Parameter]. Name and type are unchanged (containers set them).
+        /// </remarks>
+        [Parameter]
         public List<ClientOption> ClientOptions { get; set; }
 
         /// <summary>Gets or sets the template arguments.</summary>
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        /// <remarks>Same [PersistenceMode]/[DesignerSerializationVisibility] removal as <see cref="ClientOptions"/>.</remarks>
+        [Parameter]
         public List<TemplateArgument> TemplateArguments { get; set; }
 
         /// <inheritdoc />
@@ -107,6 +114,11 @@ namespace DotNetNuke.Web.DDRMenu
                 {
                     this.navProvider.TemplateArguments = this.TemplateArguments;
                     this.BindMenu(Navigation.GetActionNodes(this.ActionRoot, this, -1));
+
+                    // binding the menu assigns the navigation control's root node and settings;
+                    // in WebForms the control rendered afterwards in the same request, here the
+                    // child component has to be told that its content changed.
+                    this.NotifyTreeChanged();
                 }
                 catch (Exception exc)
                 {
@@ -182,17 +194,25 @@ namespace DotNetNuke.Web.DDRMenu
                 var action = this.FindAction(Convert.ToInt32(dnnNode.Key));
                 if (action != null)
                 {
-                    dnnNode.set_CustomAttribute("CommandName", action.CommandName);
-                    dnnNode.set_CustomAttribute("CommandArgument", action.CommandArgument);
+                    dnnNode.CustomAttribute["CommandName"] = action.CommandName;
+                    dnnNode.CustomAttribute["CommandArgument"] = action.CommandArgument;
                 }
             }
 
             if (!string.IsNullOrEmpty(dnnNode.JSFunction))
             {
-                dnnNode.JSFunction = string.Format(
-                    "if({0}){{{1}}};",
-                    dnnNode.JSFunction,
-                    this.Page.ClientScript.GetPostBackEventReference(this.navProvider.NavigationControl, dnnNode.ID));
+                // Page.ClientScript is gone; IClientApiPage exposes GetPostBackEventReference
+                // itself. The page is null while rendering interactively (no request in flight),
+                // in which case the node keeps its own script and the click is handled by the
+                // navigation control's own event callback.
+                var page = this.Page ?? DNNContext.Current?.Page;
+                if (page != null)
+                {
+                    dnnNode.JSFunction = string.Format(
+                        "if({0}){{{1}}};",
+                        dnnNode.JSFunction,
+                        page.GetPostBackEventReference(this.navProvider.NavigationControl, dnnNode.ID));
+                }
             }
 
             foreach (DNNNode node in dnnNode.DNNNodes)
@@ -218,8 +238,8 @@ namespace DotNetNuke.Web.DDRMenu
                 this.navProvider.CSSNodeHover = "ModuleTitle_MenuItemSel";
                 this.navProvider.CSSIndicateChildSub = "ModuleTitle_MenuArrow";
                 this.navProvider.CSSIndicateChildRoot = "ModuleTitle_RootMenuArrow";
-                this.navProvider.PathImage = Globals.ApplicationPath + "/Images/";
-                this.navProvider.PathSystemImage = Globals.ApplicationPath + "/Images/";
+                this.navProvider.PathImage = Globals.ApplicationPath + "/images/";
+                this.navProvider.PathSystemImage = Globals.ApplicationPath + "/images/";
                 this.navProvider.IndicateChildImageSub = "action_right.gif";
                 this.navProvider.IndicateChildren = true;
                 this.navProvider.StyleRoot = "background-color: Transparent; font-size: 1pt;";

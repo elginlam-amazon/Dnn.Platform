@@ -19,15 +19,19 @@ namespace DotNetNuke.Tests.Urls
             get { return "DotNetNuke.Tests.Urls.TestFiles"; }
         }
 
+        /// <summary>Gets the directory holding the CSV test-case sources and the SQL set-up scripts.</summary>
+        /// <remarks>
+        /// On net48 this walked up from <c>Assembly.CodeBase</c> to the first "bin" segment, which
+        /// landed on the project directory and read <c>TestFiles</c> straight out of the source
+        /// tree. <c>Assembly.CodeBase</c> throws on modern .NET, so the files are now copied next to
+        /// the test assembly (see the <c>TestFiles\**</c> item in the project file) and resolved
+        /// from <see cref="AppContext.BaseDirectory"/> — the same approach
+        /// <c>DnnUnitTest.OneTimeSetUp</c> uses. Composed with <see cref="Path.Combine(string, string)"/>
+        /// so the path is correct on Linux as well as Windows.
+        /// </remarks>
         internal static string FilePath
         {
-            get
-            {
-                var uri = new System.Uri(Assembly.GetExecutingAssembly().CodeBase);
-                string path = Path.GetFullPath(uri.AbsolutePath).Replace("%20", " ");
-
-                return Path.Combine(path.Substring(0, path.IndexOf("bin", System.StringComparison.Ordinal)), "TestFiles");
-            }
+            get { return Path.Combine(Path.GetFullPath(AppContext.BaseDirectory), "TestFiles"); }
         }
 
         internal static void AddUser(int portalId, string userName, string password, string vanityUrl)

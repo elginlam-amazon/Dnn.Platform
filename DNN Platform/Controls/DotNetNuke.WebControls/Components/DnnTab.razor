@@ -1,0 +1,258 @@
+@* ---------------------------------------------------------------------------------------------
+    DnnTab — the Blazor replacement of the DotNetNuke.UI.WebControls.DNNTab control, the child
+    content component of DnnTabStrip.
+
+    Render mode: none of its own. It is always rendered inside DnnTabStrip and inherits that
+    component's InteractiveServer mode (a child may not redeclare a render mode); its label markup
+    is rendered by the strip through the LabelContent fragment below.
+
+    Ported from DNNTab.cs: RenderLabel (the label span, its CSS-class cascade through the strip's
+    DefaultLabel, the optional label image and work image, and the label text), the Visible /
+    IsSelected display handling of AddAttributesToRender, the TabRenderMode / CallBackType fallback
+    to the parent strip, and the PreLoadPostData / SetupDefaults events.
+
+    The parent is reached through the CascadingValue the strip publishes, which replaces the
+    INamingContainer based parent lookup of the WebForms control.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+@inherits DnnControlBase
+@implements IDisposable
+
+<div id="@this.ClientId" class="@this.ContainerCssClass" style="@this.ContainerStyle">
+    @if (this.ShouldRenderContent)
+    {
+        @this.ChildContent
+    }
+</div>
+
+@code {
+    private bool hasRendered;
+    private bool isCallBack;
+
+    /// <summary>Gets or sets the strip this tab belongs to.</summary>
+    [CascadingParameter]
+    public DnnTabStrip ParentStrip { get; set; }
+
+    /// <summary>Gets or sets the content of the tab.</summary>
+    [Parameter]
+    public RenderFragment ChildContent { get; set; }
+
+    /// <summary>Gets or sets the appearance of the tab's label.</summary>
+    [Parameter]
+    public DNNTabLabel Label { get; set; } = new DNNTabLabel();
+
+    /// <summary>Gets or sets the text of the tab's label.</summary>
+    /// <remarks>Convenience for <c>Label.Text</c>, matching the <c>DNNTab(labelText)</c> constructor.</remarks>
+    [Parameter]
+    public string LabelText { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the tab can be selected.</summary>
+    [Parameter]
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether the tab renders.</summary>
+    [Parameter]
+    public bool Visible { get; set; } = true;
+
+    /// <summary>Gets or sets the CSS class of the tab's content container.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets how the content of this tab reaches the browser.</summary>
+    /// <remarks>Falls back to the render mode of the parent strip, as the original did.</remarks>
+    [Parameter]
+    public DNNTabStrip.eTabRenderMode? TabRenderMode { get; set; }
+
+    /// <summary>Gets or sets where the data of a callback is posted to.</summary>
+    /// <remarks>
+    /// Kept from the original surface. Over a circuit the tab content is fetched by the Blazor
+    /// render batch rather than by a form post, so the value only matters to hosts that still drive
+    /// the <c>dnn.controls.dnntabstrip</c> client behavior.
+    /// </remarks>
+    [Parameter]
+    public DNNTab.eTabCallbackPostMode TabCallbackPostMode { get; set; } = DNNTab.eTabCallbackPostMode.None;
+
+    /// <summary>Occurs right before the tab renders and needs its defaults.</summary>
+    [Parameter]
+    public EventCallback<bool> OnSetupDefaults { get; set; }
+
+    /// <summary>Occurs right before the tab reads its posted data.</summary>
+    [Parameter]
+    public EventCallback OnPreLoadPostData { get; set; }
+
+    /// <summary>Gets a value indicating whether this tab is the selected one.</summary>
+    public bool IsSelected => this.ParentStrip is null || this.ParentStrip.IsSelected(this);
+
+    /// <summary>Gets a value indicating whether the tab has already rendered its content once.</summary>
+    /// <remarks>The equivalent of <c>DNNTab.IsPostBack</c>.</remarks>
+    public bool IsPostBack => this.hasRendered;
+
+    /// <summary>Gets a value indicating whether the tab is rendering for a callback.</summary>
+    public bool IsCallBack => this.isCallBack;
+
+    /// <summary>Gets the effective render mode of the tab.</summary>
+    internal DNNTabStrip.eTabRenderMode EffectiveRenderMode => this.TabRenderMode
+        ?? this.ParentStrip?.TabRenderMode
+        ?? DNNTabStrip.eTabRenderMode.CallBack;
+
+    /// <summary>Gets the label of the tab, rendered by the parent strip's label container.</summary>
+    /// <remarks>Ported from <c>DNNTab.RenderLabel</c>.</remarks>
+    internal RenderFragment LabelContent => @<span id="@(this.ClientId + "_l")"
+        class="@this.LabelCssClass"
+        style="@this.LabelStyle"
+        @onclick="this.SelectAsync">
+        @if (!string.IsNullOrEmpty(this.LabelImageUrl))
+        {
+            <img id="@(this.ClientId + "_i")" src="@this.LabelImageUrl" alt="" />
+        }
+        @if (!string.IsNullOrEmpty(this.ParentStrip?.WorkImage))
+        {
+            <img id="@(this.ClientId + "_w")" src="@this.ParentStrip.WorkImage" alt="" style="display:none" />
+        }
+        @this.EffectiveLabelText
+    </span>;
+
+    /// <summary>Gets the text rendered in the label.</summary>
+    private string EffectiveLabelText =>
+        !string.IsNullOrEmpty(this.LabelText) ? this.LabelText : this.Label?.Text;
+
+    /// <summary>Gets the image rendered in the label.</summary>
+    private string LabelImageUrl
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(this.Label?.ImageUrl))
+            {
+                return this.Label.ImageUrl;
+            }
+
+            return this.ParentStrip?.DefaultLabel?.ImageUrl ?? string.Empty;
+        }
+    }
+
+    /// <summary>Gets the CSS class of the label, following the cascade of the original.</summary>
+    private string LabelCssClass
+    {
+        get
+        {
+            var hasParent = this.ParentStrip is not null;
+            string cssClass = null;
+
+            if (!this.IsSelected)
+            {
+                cssClass = this.Enabled ? this.Label?.CssClass : this.Label?.CssClassDisabled;
+            }
+            else if (string.IsNullOrEmpty(this.Label?.CssClassSelected) && hasParent)
+            {
+                cssClass = this.ParentStrip.DefaultLabel?.CssClassSelected;
+            }
+            else
+            {
+                cssClass = this.Label?.CssClassSelected;
+            }
+
+            if (!hasParent)
+            {
+                return cssClass;
+            }
+
+            if (!this.Enabled)
+            {
+                if (string.IsNullOrEmpty(cssClass))
+                {
+                    cssClass = this.ParentStrip.DefaultLabel?.CssClassDisabled;
+                }
+
+                return cssClass;
+            }
+
+            if (string.IsNullOrEmpty(cssClass))
+            {
+                cssClass = this.ParentStrip.CssClass;
+            }
+
+            if (string.IsNullOrEmpty(cssClass))
+            {
+                cssClass = this.ParentStrip.DefaultLabel?.CssClass;
+            }
+
+            return cssClass;
+        }
+    }
+
+    /// <summary>Gets the inline style of the label.</summary>
+    private string LabelStyle => this.Visible ? null : "display:none";
+
+    /// <summary>Gets the CSS class of the content container of the tab.</summary>
+    private string ContainerCssClass => !string.IsNullOrEmpty(this.CssClass)
+        ? this.CssClass
+        : this.ParentStrip?.DefaultContainerCssClass;
+
+    /// <summary>Gets the inline style of the content container of the tab.</summary>
+    private string ContainerStyle => this.IsSelected && this.Visible ? null : "display:none";
+
+    /// <summary>Gets a value indicating whether the content of the tab is rendered.</summary>
+    /// <remarks>
+    /// The WebForms strip rendered a tab's content when it was selected, when it had already been
+    /// rendered once, or when its render mode was <c>All</c>; the same decision is taken here.
+    /// </remarks>
+    private bool ShouldRenderContent =>
+        this.IsSelected
+        || this.hasRendered
+        || this.EffectiveRenderMode == DNNTabStrip.eTabRenderMode.All;
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        this.ParentStrip?.UnregisterTab(this);
+    }
+
+    /// <summary>Records that the content of the tab has been rendered.</summary>
+    /// <remarks>Replaces <c>DNNTab.SetTabState</c>.</remarks>
+    internal void MarkRendered()
+    {
+        this.hasRendered = true;
+    }
+
+    /// <summary>Raises the setup-defaults event of the tab.</summary>
+    /// <returns>A task that completes once the handler has run.</returns>
+    /// <remarks>Replaces <c>DNNTab.RaiseSetupDefaultsEvent</c>.</remarks>
+    internal async Task RaiseSetupDefaultsAsync()
+    {
+        this.isCallBack = this.EffectiveRenderMode == DNNTabStrip.eTabRenderMode.CallBack;
+        await this.OnSetupDefaults.InvokeAsync(this.isCallBack);
+    }
+
+    /// <inheritdoc/>
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+
+        this.ParentStrip?.RegisterTab(this);
+
+        // Replaces DNNTabStrip.RaisePreLoadPostDataEvents, which let every already rendered tab
+        // prepare its posted data before the strip read it.
+        if (this.hasRendered)
+        {
+            await this.OnPreLoadPostData.InvokeAsync();
+        }
+    }
+
+    /// <inheritdoc/>
+    protected override void OnAfterRender(bool firstRender)
+    {
+        base.OnAfterRender(firstRender);
+
+        if (this.ShouldRenderContent)
+        {
+            this.hasRendered = true;
+        }
+    }
+
+    /// <summary>Selects this tab on the parent strip.</summary>
+    /// <returns>A task that completes once the strip has handled the selection.</returns>
+    private Task SelectAsync()
+    {
+        return this.ParentStrip is null ? Task.CompletedTask : this.ParentStrip.SelectTabAsync(this);
+    }
+}

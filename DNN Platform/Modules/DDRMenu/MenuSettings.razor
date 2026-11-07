@@ -1,0 +1,102 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.Entities.Modules.ModuleSettingsBase
+
+@*
+    Replaces MenuSettings.ascx. The <%@ Register Assembly="DotNetNuke"
+    Namespace="DotNetNuke.UI.WebControls" TagPrefix="dnn" %> directive has no Blazor equivalent:
+    the dnn:TextEditControl / dnn:MultiLineTextEditControl / dnn:CheckEditControl instances are
+    created in the code behind (keeping their original IDs) and rendered through their own
+    RenderFragment, which is the pattern the migrated DNN edit controls use; that also keeps them
+    owned by this component, so LoadSettings/UpdateSettings can read and write .Value as before.
+    The <tr id="IncludeHiddenSection" runat="server"> whose Visible was assigned in OnPreRender is
+    a plain @if on the same condition.
+*@
+<div class="Normal">
+	<table>
+		<tr>
+			<td align="right" class="Normal">
+				Menu style:
+			</td>
+			<td>
+			    @this.MenuStyle.Render()
+			</td>
+		</tr>
+		<tr>
+			<td align="right" class="Normal">
+				Node XML path:
+			</td>
+			<td>
+			    @this.NodeXmlPath.Render()
+			</td>
+		</tr>
+		<tr>
+			<td align="right" class="Normal">
+				Node selection expression:
+			</td>
+			<td>
+			    @this.NodeSelector.Render()
+			</td>
+		</tr>
+		<tr>
+			<td align="right" class="Normal">
+				Nodes to include:
+			</td>
+			<td>
+			    @this.IncludeNodes.Render()
+			</td>
+		</tr>
+		<tr>
+			<td align="right" class="Normal">
+				Nodes to exclude:
+			</td>
+			<td>
+			    @this.ExcludeNodes.Render()
+			</td>
+		</tr>
+		<tr>
+			<td align="right" class="Normal">
+				Node manipulator type:
+			</td>
+			<td>
+			    @this.NodeManipulator.Render()
+			</td>
+		</tr>
+		<tr>
+			<td align="right" class="Normal">
+				Include context in XML:
+			</td>
+			<td>
+			    @this.IncludeContext.Render()
+			</td>
+		</tr>
+		@if (this.IncludeHiddenSectionVisible)
+		{
+			<tr id="IncludeHiddenSection">
+				<td align="right" class="Normal">
+					Include hidden nodes:
+				</td>
+				<td>
+				    @this.IncludeHidden.Render()
+				</td>
+			</tr>
+		}
+		<tr>
+			<td align="right" class="Normal">
+				Template arguments:
+			</td>
+			<td>
+			    @this.TemplateArguments.Render()
+			</td>
+		</tr>
+		<tr>
+			<td align="right" class="Normal">
+				Client options:
+			</td>
+			<td>
+			    @this.ClientOptions.Render()
+			</td>
+		</tr>
+	</table>
+</div>

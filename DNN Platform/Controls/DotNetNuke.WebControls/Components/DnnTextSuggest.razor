@@ -1,0 +1,493 @@
+@* ---------------------------------------------------------------------------------------------
+    DnnTextSuggest — the Blazor replacement of the DotNetNuke.UI.WebControls.DNNTextSuggest
+    control.
+
+    Render mode: InteractiveServer. The box handles @oninput/@onblur/@onclick and raises the
+    suggestion lookup on the server, which is exactly what the XMLHTTP callback of the WebForms
+    control did; a static render could not do either.
+
+    Ported from DNNTextSuggest.cs:
+      * the state-bag/ClientProperty surface (Text, Delimiter, IDToken, MinCharacterLookup,
+        MaxSuggestRows, LookupDelay, LostFocusDelay, CaseSensitive, Target, JSFunction and the
+        five CSS class properties) became [Parameter]s with the very same defaults,
+      * RaiseClientAPICallbackEvent (which raised PopulateOnDemand with a DNNTextSuggestEventArgs
+        carrying the DNNNodes collection and the typed text, then returned DNNNodes.ToJSON())
+        became OnSuggestionRequested: the host fills the very same preserved collection and the
+        suggestions are rendered from it instead of being serialized to the client script,
+      * RaisePostBackEvent's "Click" branch -> OnNodeClick(DNNTextSuggestEventArgs) became
+        OnSelectionChanged, raised with the same preserved event args,
+      * the eIDTokenChar token handling and the SelectedNodes parser are ported verbatim, both for
+        appending a picked suggestion and for exposing the picked suggestions,
+      * LookupDelay / LostFocusDelay keep their millisecond semantics, now through Task.Delay.
+
+    HttpContext is null over the circuit: the posted value of the WebForms LoadPostData is now
+    simply the two-way bound Value.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+@inherits DnnControlBase
+@rendermode InteractiveServer
+@implements IDisposable
+
+<span id="@(this.ClientId + "_c")" class="@this.TextSuggestCssClass" @ref="this.RootElementBinding">
+    <input type="text"
+           id="@this.ClientId"
+           name="@this.ClientId"
+           class="@this.CssClass"
+           title="@this.ToolTip"
+           value="@this.Value"
+           disabled="@(!this.Enabled)"
+           autocomplete="off"
+           @oninput="this.InputChangedAsync"
+           @onblur="this.LostFocusAsync" />
+
+    @if (this.showSuggestions && this.Suggestions.Count > 0)
+    {
+        <ul class="@this.TextSuggestCssClass" style="@this.AnimationStyle">
+            @foreach (var node in this.Suggestions)
+            {
+                var isSelected = ReferenceEquals(node, this.highlighted);
+                <li class="@this.GetNodeCssClass(node, isSelected)"
+                    title="@node.ToolTip"
+                    @onmouseover="() => this.highlighted = node"
+                    @onmouseout="() => this.highlighted = null"
+                    @onmousedown="() => this.SelectAsync(node)">
+                    @if (!string.IsNullOrEmpty(node.Image))
+                    {
+                        <img src="@this.ResolveSystemImage(node.Image)" alt="@node.Text" />
+                    }
+                    @node.Text
+                </li>
+            }
+        </ul>
+    }
+</span>
+
+@code {
+    private readonly List<DNNNode> suggestions = new List<DNNNode>();
+    private CancellationTokenSource lookupCancellation;
+    private CancellationTokenSource blurCancellation;
+    private DNNNode highlighted;
+    private bool showSuggestions;
+
+    /// <summary>Gets or sets the text of the box.</summary>
+    /// <remarks>Replaces <c>DNNTextSuggest.Text</c>; bind with <c>@@bind-Value</c>.</remarks>
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>Occurs when the text of the box changes.</summary>
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>Gets or sets the suggestions of the box.</summary>
+    /// <remarks>
+    /// The preserved <see cref="DNNNodeCollection"/> data source of the WebForms control; the host
+    /// fills it while handling <see cref="OnSuggestionRequested"/>.
+    /// </remarks>
+    [Parameter]
+    public DNNNodeCollection DNNNodes { get; set; }
+
+    /// <summary>
+    /// Occurs when suggestions have to be supplied for the text typed so far.
+    /// </summary>
+    /// <remarks>
+    /// Replaces <c>PopulateOnDemand</c> / <c>RaiseClientAPICallbackEvent</c>. The handler receives
+    /// the preserved <see cref="DNNTextSuggestEventArgs"/> holding <see cref="DNNNodes"/> and the
+    /// text to look up, and adds its suggestions to that collection.
+    /// </remarks>
+    [Parameter]
+    public EventCallback<DNNTextSuggestEventArgs> OnSuggestionRequested { get; set; }
+
+    /// <summary>Occurs when a suggestion is picked.</summary>
+    /// <remarks>Replaces <c>NodeClick</c> / the "Click" branch of <c>RaisePostBackEvent</c>.</remarks>
+    [Parameter]
+    public EventCallback<DNNTextSuggestEventArgs> OnSelectionChanged { get; set; }
+
+    /// <summary>Gets or sets the character separating multiple entries in the text.</summary>
+    [Parameter]
+    public char Delimiter { get; set; }
+
+    /// <summary>Gets or sets the character pair surrounding the identifier of a suggestion.</summary>
+    [Parameter]
+    public DNNTextSuggest.eIDTokenChar IDToken { get; set; }
+
+    /// <summary>Gets or sets the number of characters typed before a lookup runs.</summary>
+    [Parameter]
+    public int MinCharacterLookup { get; set; } = 1;
+
+    /// <summary>Gets or sets the maximum number of suggestions shown.</summary>
+    [Parameter]
+    public int MaxSuggestRows { get; set; } = 10;
+
+    /// <summary>Gets or sets the delay, in milliseconds, before a lookup runs.</summary>
+    [Parameter]
+    public int LookupDelay { get; set; } = 500;
+
+    /// <summary>Gets or sets the delay, in milliseconds, before the suggestions hide.</summary>
+    [Parameter]
+    public int LostFocusDelay { get; set; } = 500;
+
+    /// <summary>Gets or sets a value indicating whether the lookup is case sensitive.</summary>
+    [Parameter]
+    public bool CaseSensitive { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the box accepts input.</summary>
+    [Parameter]
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Gets or sets the CSS class of the input element.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the tooltip of the box.</summary>
+    [Parameter]
+    public string ToolTip { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class of the container holding the suggestions.</summary>
+    [Parameter]
+    public string TextSuggestCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class of a suggestion.</summary>
+    [Parameter]
+    public string DefaultNodeCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class applied while the pointer is over a suggestion.</summary>
+    [Parameter]
+    public string DefaultNodeCssClassOver { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class applied to the selected suggestion.</summary>
+    [Parameter]
+    public string DefaultNodeCssClassSelected { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the directory holding the box's system images.</summary>
+    [Parameter]
+    public string SystemImagesPath { get; set; } = "images/";
+
+    /// <summary>Gets or sets the frame navigated when a suggestion navigates.</summary>
+    [Parameter]
+    public string Target { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the script run when a suggestion is picked.</summary>
+    [Parameter]
+    public string JSFunction { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the animation applied when the suggestions appear.</summary>
+    [Parameter]
+    public DNNAnimation Animation { get; set; }
+
+    /// <summary>
+    /// Gets or sets the legacy control used as the source of the marshalled client properties.
+    /// </summary>
+    /// <remarks>Optional; only needed by hosts that still drive <c>dnn.controls.initTextSuggest</c>.</remarks>
+    [Parameter]
+    public DNNTextSuggest Control { get; set; }
+
+    /// <summary>Gets the suggestions currently shown.</summary>
+    public IReadOnlyList<DNNNode> Suggestions => this.suggestions;
+
+    /// <summary>
+    /// Gets the suggestions the user picked, parsed back out of the text.
+    /// </summary>
+    /// <remarks>Ported verbatim from <c>DNNTextSuggest.SelectedNodes</c>.</remarks>
+    public DNNNodeCollection SelectedNodes
+    {
+        get
+        {
+            var selected = new DNNNodeCollection(string.Empty);
+            foreach (var entry in (this.Value ?? string.Empty).Split(this.Delimiter))
+            {
+                if (entry.Length <= 0)
+                {
+                    continue;
+                }
+
+                var text = entry;
+                var key = string.Empty;
+                if (this.IDToken == DNNTextSuggest.eIDTokenChar.Brackets)
+                {
+                    var openIndex = entry.LastIndexOf(" [", StringComparison.Ordinal);
+                    var startIndex = openIndex + " [".Length;
+                    var closeIndex = entry.LastIndexOf(']');
+                    if (openIndex > -1 && closeIndex > startIndex)
+                    {
+                        text = entry.Substring(0, openIndex);
+                        key = entry.Substring(startIndex, closeIndex - startIndex);
+                    }
+                }
+                else if (this.IDToken == DNNTextSuggest.eIDTokenChar.Paranthesis)
+                {
+                    var openIndex = entry.LastIndexOf(" (", StringComparison.Ordinal);
+                    var startIndex = openIndex + " (".Length;
+                    var closeIndex = entry.LastIndexOf(')');
+                    if (openIndex > -1 && closeIndex > startIndex)
+                    {
+                        text = entry.Substring(0, openIndex);
+                        key = entry.Substring(startIndex, closeIndex - startIndex);
+                    }
+                }
+
+                selected.Add(new DNNNode(text) { Key = key });
+            }
+
+            return selected;
+        }
+    }
+
+    /// <summary>Gets the style of the animation the suggestion list appears with.</summary>
+    private string AnimationStyle => this.Animation is null ? string.Empty : this.Animation.ToCssTransition();
+
+    /// <summary>Gets or sets the root element, exposing the protected base member to the markup.</summary>
+    private ElementReference RootElementBinding
+    {
+        get => this.RootElement;
+        set => this.RootElement = value;
+    }
+
+    /// <inheritdoc/>
+    protected override string ClientInitFunction => "initTextSuggest";
+
+    /// <inheritdoc/>
+    protected override object ClientPropertySource => this.Control;
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        this.Cancel(ref this.lookupCancellation);
+        this.Cancel(ref this.blurCancellation);
+    }
+
+    /// <summary>Gets the CSS class of a suggestion.</summary>
+    /// <param name="node">The suggestion.</param>
+    /// <param name="isHighlighted">Whether the pointer is over the suggestion.</param>
+    /// <returns>The CSS class to render.</returns>
+    private string GetNodeCssClass(DNNNode node, bool isHighlighted)
+    {
+        if (isHighlighted)
+        {
+            return !string.IsNullOrEmpty(node?.CSSClassHover)
+                ? node.CSSClassHover
+                : this.DefaultNodeCssClassOver;
+        }
+
+        if (node is not null && node.Selected)
+        {
+            return !string.IsNullOrEmpty(node.CSSClassSelected)
+                ? node.CSSClassSelected
+                : this.DefaultNodeCssClassSelected;
+        }
+
+        return !string.IsNullOrEmpty(node?.CSSClass) ? node.CSSClass : this.DefaultNodeCssClass;
+    }
+
+    /// <summary>Resolves a suggestion's image against the system image directory.</summary>
+    /// <param name="image">The image of the suggestion.</param>
+    /// <returns>The URL to render.</returns>
+    private string ResolveSystemImage(string image)
+    {
+        if (string.IsNullOrEmpty(image)
+            || image.Contains("://", StringComparison.Ordinal)
+            || image.StartsWith('/'))
+        {
+            return image;
+        }
+
+        var path = this.SystemImagesPath ?? string.Empty;
+        return path.Length == 0 || path.EndsWith('/') ? path + image : path + "/" + image;
+    }
+
+    /// <summary>
+    /// Gets the token the lookup runs for, i.e. the text after the last delimiter.
+    /// </summary>
+    /// <returns>The token being typed.</returns>
+    /// <remarks>Ported from the client script's <c>getText()</c>, which the callback posted.</remarks>
+    private string GetLookupText()
+    {
+        var text = this.Value ?? string.Empty;
+        if (this.Delimiter == '\0')
+        {
+            return text;
+        }
+
+        var index = text.LastIndexOf(this.Delimiter);
+        return index < 0 ? text : text.Substring(index + 1).TrimStart();
+    }
+
+    /// <summary>Handles the text of the box changing.</summary>
+    /// <param name="args">The arguments of the input event.</param>
+    /// <returns>A task that completes once the lookup has been scheduled.</returns>
+    private async Task InputChangedAsync(ChangeEventArgs args)
+    {
+        this.Value = Convert.ToString(args?.Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        await this.ValueChanged.InvokeAsync(this.Value);
+
+        var token = this.GetLookupText();
+        if (token.Length < this.MinCharacterLookup)
+        {
+            this.showSuggestions = false;
+            this.suggestions.Clear();
+            return;
+        }
+
+        await this.RequestSuggestionsAsync(token);
+    }
+
+    /// <summary>
+    /// Runs the suggestion lookup after <see cref="LookupDelay"/> milliseconds.
+    /// </summary>
+    /// <param name="token">The text to look up.</param>
+    /// <returns>A task that completes once the suggestions have been collected.</returns>
+    private async Task RequestSuggestionsAsync(string token)
+    {
+        this.Cancel(ref this.lookupCancellation);
+        var cancellation = new CancellationTokenSource();
+        this.lookupCancellation = cancellation;
+
+        try
+        {
+            if (this.LookupDelay > 0)
+            {
+                await Task.Delay(this.LookupDelay, cancellation.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Another keystroke arrived within the delay, as the client script's cleared time-out.
+            return;
+        }
+
+        var nodes = this.DNNNodes ?? new DNNNodeCollection(this.ClientId);
+        this.DNNNodes = nodes;
+
+        // The WebForms callback handed the collection to the host and serialized whatever it added.
+        await this.OnSuggestionRequested.InvokeAsync(new DNNTextSuggestEventArgs(nodes, token));
+
+        this.suggestions.Clear();
+        var comparison = this.CaseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        foreach (DNNNode node in nodes)
+        {
+            if (this.suggestions.Count >= this.MaxSuggestRows)
+            {
+                break;
+            }
+
+            if (string.IsNullOrEmpty(token) || (node.Text ?? string.Empty).Contains(token, comparison))
+            {
+                this.suggestions.Add(node);
+            }
+        }
+
+        this.showSuggestions = this.suggestions.Count > 0;
+        this.StateHasChanged();
+    }
+
+    /// <summary>
+    /// Picks a suggestion, appending its text (and its identifier token) to the value.
+    /// </summary>
+    /// <param name="node">The picked suggestion.</param>
+    /// <returns>A task that completes once the handlers have run.</returns>
+    private async Task SelectAsync(DNNNode node)
+    {
+        if (node is null || !node.Enabled)
+        {
+            return;
+        }
+
+        this.Cancel(ref this.blurCancellation);
+        var entry = this.FormatEntry(node);
+
+        if (this.Delimiter == '\0')
+        {
+            this.Value = entry;
+        }
+        else
+        {
+            var text = this.Value ?? string.Empty;
+            var index = text.LastIndexOf(this.Delimiter);
+            var prefix = index < 0 ? string.Empty : text.Substring(0, index + 1);
+            this.Value = prefix + entry + this.Delimiter;
+        }
+
+        this.showSuggestions = false;
+        this.suggestions.Clear();
+
+        await this.ValueChanged.InvokeAsync(this.Value);
+        await this.OnSelectionChanged.InvokeAsync(
+            new DNNTextSuggestEventArgs(this.DNNNodes, node.Text));
+
+        if (!string.IsNullOrEmpty(node.JSFunction) || !string.IsNullOrEmpty(this.JSFunction))
+        {
+            // The client script ran the node's own JSFunction, falling back to the control's;
+            // the named `runControlScript` helper of the RCL JS module does the same, so no
+            // script source is handed to `eval`.
+            var script = !string.IsNullOrEmpty(node.JSFunction) ? node.JSFunction : this.JSFunction;
+            await this.RunControlScriptAsync(script);
+        }
+
+        if (node.ClickAction == eClickAction.Navigate && !string.IsNullOrEmpty(node.NavigateURL))
+        {
+            if (!string.IsNullOrEmpty(this.Target))
+            {
+                await this.OpenWindowAsync(node.NavigateURL, this.Target);
+            }
+            else if (this.NavigationManager is not null)
+            {
+                this.NavigationManager.NavigateTo(node.NavigateURL);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Formats the entry a picked suggestion adds to the text.
+    /// </summary>
+    /// <param name="node">The picked suggestion.</param>
+    /// <returns>The entry to append.</returns>
+    /// <remarks>Ported from the <c>idtok</c> marshalled property ("[~]" and "(~)").</remarks>
+    private string FormatEntry(DNNNode node)
+    {
+        return this.IDToken switch
+        {
+            DNNTextSuggest.eIDTokenChar.Brackets => $"{node.Text} [{node.Key}]",
+            DNNTextSuggest.eIDTokenChar.Paranthesis => $"{node.Text} ({node.Key})",
+            _ => node.Text,
+        };
+    }
+
+    /// <summary>Hides the suggestions after <see cref="LostFocusDelay"/> milliseconds.</summary>
+    /// <returns>A task that completes once the suggestions have been hidden.</returns>
+    private async Task LostFocusAsync()
+    {
+        this.Cancel(ref this.blurCancellation);
+        var cancellation = new CancellationTokenSource();
+        this.blurCancellation = cancellation;
+        try
+        {
+            if (this.LostFocusDelay > 0)
+            {
+                await Task.Delay(this.LostFocusDelay, cancellation.Token);
+            }
+
+            this.showSuggestions = false;
+            this.StateHasChanged();
+        }
+        catch (OperationCanceledException)
+        {
+            // A suggestion was picked within the delay, which is why the original used one.
+        }
+    }
+
+    /// <summary>Gets or sets the navigator used by a navigating suggestion.</summary>
+    [Inject]
+    private NavigationManager NavigationManager { get; set; }
+
+    /// <summary>Cancels and clears a pending delay.</summary>
+    /// <param name="cancellation">The field holding the pending delay.</param>
+    private void Cancel(ref CancellationTokenSource cancellation)
+    {
+        var pending = cancellation;
+        cancellation = null;
+        if (pending is not null)
+        {
+            pending.Cancel();
+            pending.Dispose();
+        }
+    }
+}

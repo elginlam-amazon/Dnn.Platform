@@ -5,13 +5,12 @@
 namespace DotNetNuke.Web.Api.Auth
 {
     using System;
-    using System.Net.Http;
     using System.Security.Principal;
-    using System.Threading;
 
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Web.Api.Auth.ApiTokens;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.Logging;
 
     /// <summary>
@@ -46,21 +45,21 @@ namespace DotNetNuke.Web.Api.Auth
         internal static bool IsEnabled { get; set; }
 
         /// <inheritdoc />
-        public override HttpResponseMessage OnInboundRequest(HttpRequestMessage request, CancellationToken cancellationToken)
+        public override bool OnAuthenticateRequest(HttpContext context)
         {
-            if (this.NeedsAuthentication(request))
+            if (this.NeedsAuthentication(context))
             {
-                this.TryToAuthenticate(request);
+                this.TryToAuthenticate(context);
             }
 
-            return base.OnInboundRequest(request, cancellationToken);
+            return base.OnAuthenticateRequest(context);
         }
 
-        private void TryToAuthenticate(HttpRequestMessage request)
+        private void TryToAuthenticate(HttpContext context)
         {
             try
             {
-                var (token, user) = this.apiTokenController.ValidateToken(request);
+                var (token, user) = this.apiTokenController.ValidateToken(context.Request);
                 if (token != null)
                 {
                     Logger.ApiTokenAuthMessageHandlerAuthenticatedUsingApiToken(token.ApiTokenId);
@@ -69,7 +68,7 @@ namespace DotNetNuke.Web.Api.Auth
 
                     if (user != null)
                     {
-                        SetCurrentPrincipal(new GenericPrincipal(new GenericIdentity(user.Username, this.AuthScheme), null), request);
+                        SetCurrentPrincipal(new GenericPrincipal(new GenericIdentity(user.Username, this.AuthScheme), null), context);
                     }
                 }
             }

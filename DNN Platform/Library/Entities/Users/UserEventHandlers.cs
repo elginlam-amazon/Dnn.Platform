@@ -4,7 +4,7 @@
 
 namespace DotNetNuke.Entities.Users
 {
-    using System.ComponentModel.Composition;
+    using System.Composition;
     using System.Globalization;
 
     using DotNetNuke.Services.Mail;

@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information
 
@@ -6,7 +6,8 @@ namespace DotNetNuke.Services.Journal;
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -626,15 +627,30 @@ internal class JournalControllerImpl : IJournalController
         return element;
     }
 
+    /// <summary>Scales an uploaded journal image down to a thumbnail, preserving its format.</summary>
+    /// <remarks>
+    /// Ported from <c>System.Drawing</c>: <c>new Bitmap(stream)</c> became
+    /// <see cref="Image.Load(Stream)"/> and <c>GetThumbnailImage</c> became a
+    /// <c>Resize</c> mutation. The thumbnail is written with the encoder of the format the source
+    /// was decoded from — the equivalent of the original's <c>image.RawFormat</c> — so a PNG keeps
+    /// its transparency and a GIF keeps its palette instead of silently becoming a JPEG.
+    /// </remarks>
     private static MemoryStream GetJournalImageContent(Stream fileContent)
     {
-        Image image = new Bitmap(fileContent);
+        using var image = Image.Load(fileContent);
         var thumbnailWidth = 400;
         var thumbnailHeight = 400;
         GetThumbnailSize(image.Width, image.Height, ref thumbnailWidth, ref thumbnailHeight);
-        var thumbnail = image.GetThumbnailImage(thumbnailWidth, thumbnailHeight, () => true, IntPtr.Zero);
+        using var thumbnail = image.Clone(ctx => ctx.Resize(thumbnailWidth, thumbnailHeight));
+
+        var format = image.Metadata.DecodedImageFormat;
+        var encoder = format == null
+            ? image.Configuration.ImageFormatsManager.GetEncoder(SixLabors.ImageSharp.Formats.Png.PngFormat.Instance)
+            : image.Configuration.ImageFormatsManager.GetEncoder(format);
+
         var result = new MemoryStream();
-        thumbnail.Save(result, image.RawFormat);
+        thumbnail.Save(result, encoder);
+        result.Position = 0;
         return result;
     }
 

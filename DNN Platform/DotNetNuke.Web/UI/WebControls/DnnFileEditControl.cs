@@ -6,25 +6,37 @@ namespace DotNetNuke.Web.UI.WebControls
     using System;
     using System.Collections.Specialized;
     using System.Globalization;
-    using System.Web.UI;
 
     using DotNetNuke.UI.WebControls;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+
     /// <summary>A file edit control.</summary>
+    /// <remarks>
+    /// The editor is a <see cref="DnnFilePickerUploader"/>, which the Web Forms version obtained
+    /// with <c>Page.LoadControl("~/controls/filepickeruploader.ascx")</c> and added to its
+    /// <c>Controls</c> collection. The <c>.ascx</c> is gone — the uploader is a Blazor component
+    /// now — so it is rendered as a child component by <see cref="RenderEditMode"/> and configured
+    /// through its parameters, which is the same configuration the code-behind applied. The picker
+    /// still owns the posted data (as the original remark says), so
+    /// <see cref="LoadPostData"/> only compares its file id with the current value.
+    /// </remarks>
     public class DnnFileEditControl : IntegerEditControl
     {
-        private DnnFilePickerUploader fileControl;
-
-        // private DnnFilePicker _fileControl;
-
         /// <summary>Gets or sets the current file extension filter.</summary>
+        [Parameter]
         public string FileFilter { get; set; }
 
         /// <summary>Gets or sets the current file path.</summary>
+        [Parameter]
         public string FilePath { get; set; }
 
+        /// <summary>Gets or sets the rendered file picker instance.</summary>
+        private DnnFilePickerUploader FileControl { get; set; }
+
         /// <remarks>
-        ///   In this case because the <see cref = "fileControl" /> is a contained control, we do not need
+        ///   In this case because the file control is a contained control, we do not need
         ///   to process the PostBackData (it has been handled by the File Control).  We just use
         ///   this method as the Framework calls it for us.
         /// </remarks>
@@ -33,9 +45,7 @@ namespace DotNetNuke.Web.UI.WebControls
         {
             bool dataChanged = false;
             string presentValue = this.StringValue;
-
-            // string postedValue = postCollection[string.Format("{0}FileControl$dnnFileUploadFileId", postDataKey)];
-            string postedValue = this.fileControl.FileID.ToString(CultureInfo.InvariantCulture);
+            string postedValue = (this.FileControl?.FileID ?? this.IntegerValue).ToString(CultureInfo.InvariantCulture);
             if (!presentValue.Equals(postedValue, StringComparison.Ordinal))
             {
                 this.Value = postedValue;
@@ -46,55 +56,30 @@ namespace DotNetNuke.Web.UI.WebControls
         }
 
         /// <inheritdoc />
-        protected override void CreateChildControls()
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
-            // First clear the controls collection
-            this.Controls.Clear();
+            ArgumentNullException.ThrowIfNull(builder);
 
-            var userControl = this.Page.LoadControl("~/controls/filepickeruploader.ascx");
-            this.fileControl = userControl as DnnFilePickerUploader;
-
-            if (this.fileControl != null)
-            {
-                this.fileControl.ID = $"{this.ID}FileControl";
-                this.fileControl.FileFilter = this.FileFilter;
-                this.fileControl.FilePath = this.FilePath;
-                this.fileControl.FileID = this.IntegerValue;
-                this.fileControl.UsePersonalFolder = true;
-                this.fileControl.User = this.User;
-                this.fileControl.Required = true;
-
-                // Add table to Control
-                this.Controls.Add(this.fileControl);
-            }
-
-            base.CreateChildControls();
+            builder.OpenComponent<DnnFilePickerUploader>(0);
+            builder.AddAttribute(1, "ID", $"{this.ID}FileControl");
+            builder.AddAttribute(2, "FileFilter", this.FileFilter);
+            builder.AddAttribute(3, "FilePath", this.FilePath);
+            builder.AddAttribute(4, "FileID", this.IntegerValue);
+            builder.AddAttribute(5, "UsePersonalFolder", true);
+            builder.AddAttribute(6, "User", this.User);
+            builder.AddAttribute(7, "Required", true);
+            builder.AddAttribute(
+                8,
+                "FileChangedCallback",
+                EventCallback.Factory.Create<EventArgs>(this, this.OnFileChanged));
+            builder.AddComponentReferenceCapture(9, instance => this.FileControl = instance as DnnFilePickerUploader);
+            builder.CloseComponent();
         }
 
-        /// <inheritdoc />
-        protected override void OnInit(EventArgs e)
+        private void OnFileChanged(EventArgs e)
         {
-            this.EnsureChildControls();
-            base.OnInit(e);
-        }
-
-        /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
-        {
-            base.OnPreRender(e);
-
-            this.fileControl.FileID = this.IntegerValue;
-
-            if (this.Page != null)
-            {
-                this.Page.RegisterRequiresPostBack(this);
-            }
-        }
-
-        /// <inheritdoc />
-        protected override void RenderEditMode(HtmlTextWriter writer)
-        {
-            this.RenderChildren(writer);
+            this.SetPostValue(string.Empty, (this.FileControl?.FileID ?? this.IntegerValue).ToString(CultureInfo.InvariantCulture));
+            this.CommitPostData();
         }
     }
 }

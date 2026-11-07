@@ -6,11 +6,15 @@ namespace DotNetNuke.UI.WebControls
 {
     using System;
     using System.Globalization;
-    using System.Web.UI;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Framework.JavaScriptLibraries;
     using DotNetNuke.Web.Client.ClientResourceManagement;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
 
     /// <summary>
     /// The AutoCompleteControl is the same as a TextEditControl but it looks up similar values
@@ -19,60 +23,51 @@ namespace DotNetNuke.UI.WebControls
     /// for "City" it will find all entered cities and look up values as the user types the city in
     /// the textbox. Selection is not enforced and if a user enters a new city it is added to the list.
     /// </summary>
-    [ToolboxData("<{0}:TextEditControl runat=server></{0}:TextEditControl>")]
     internal class AutoCompleteControl : TextEditControl
     {
-        /// <summary>Initializes a new instance of the <see cref="AutoCompleteControl"/> class.</summary>
-        public AutoCompleteControl()
-        {
-            this.Init += this.AutoCompleteControl_Init;
-            this.Load += this.AutoCompleteControl_Load;
-        }
-
         /// <inheritdoc />
-        protected override void RenderEditMode(HtmlTextWriter writer)
+        protected override void OnInit(EventArgs e)
         {
-            int length = Null.NullInteger;
-            if (this.CustomAttributes != null)
+            base.OnInit(e);
+
+            // ClientResourceManager is per-request: it collects into the IClientResourceController of
+            // the current request scope. HttpContextSource.Current is null once the Blazor circuit is
+            // interactive, in which case the resources were already collected during the render that
+            // served the page and re-registering them is neither possible nor needed.
+            var context = HttpContextSource.Current;
+            if (context != null)
             {
-                foreach (Attribute attribute in this.CustomAttributes)
-                {
-                    if (attribute is MaxLengthAttribute)
-                    {
-                        var lengthAtt = (MaxLengthAttribute)attribute;
-                        length = lengthAtt.Length;
-                        break;
-                    }
-                }
+                ClientResourceManager.RegisterScript(context, "~/resources/Shared/components/ProfileAutoComplete/dnn.ProfileAutoComplete.js");
+                ClientResourceManager.RegisterFeatureStylesheet(context, "~/resources/Shared/components/ProfileAutoComplete/dnn.AutoComplete.css");
             }
 
-            this.ControlStyle.AddAttributesToRender(writer);
-            writer.AddAttribute(HtmlTextWriterAttribute.Type, "text");
-            writer.AddAttribute(HtmlTextWriterAttribute.Value, this.StringValue);
-            if (length > Null.NullInteger)
-            {
-                writer.AddAttribute(HtmlTextWriterAttribute.Maxlength, length.ToString(CultureInfo.InvariantCulture));
-            }
-
-            writer.AddAttribute(HtmlTextWriterAttribute.Name, this.UniqueID);
-            writer.AddAttribute(HtmlTextWriterAttribute.Id, this.ClientID);
-            writer.AddAttribute("data-name", this.Name);
-            writer.AddAttribute("data-pid", Entities.Portals.PortalSettings.Current.PortalId.ToString(CultureInfo.InvariantCulture));
-            writer.AddAttribute("data-editor", "AutoCompleteControl");
-            writer.RenderBeginTag(HtmlTextWriterTag.Input);
-            writer.RenderEndTag();
-        }
-
-        private void AutoCompleteControl_Init(object sender, System.EventArgs e)
-        {
-            ClientResourceManager.RegisterScript(this.Page, "~/Resources/Shared/components/ProfileAutoComplete/dnn.ProfileAutoComplete.js");
-            ClientResourceManager.RegisterFeatureStylesheet(this.Page, "~/Resources/Shared/components/ProfileAutoComplete/dnn.AutoComplete.css");
             JavaScript.RequestRegistration(CommonJs.jQuery);
             JavaScript.RequestRegistration(CommonJs.jQueryUI);
         }
 
-        private void AutoCompleteControl_Load(object sender, System.EventArgs e)
+        /// <inheritdoc />
+        protected override void RenderEditMode(RenderTreeBuilder builder)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
+            int length = this.MaxLength;
+
+            builder.OpenElement(0, "input");
+            this.AddStyleAttributes(builder, 1);
+            builder.AddAttribute(5, "type", "text");
+            builder.AddAttribute(6, "value", this.StringValue);
+            if (length > Null.NullInteger)
+            {
+                builder.AddAttribute(7, "maxlength", length.ToString(CultureInfo.InvariantCulture));
+            }
+
+            builder.AddAttribute(8, "name", this.UniqueID);
+            builder.AddAttribute(9, "id", this.ClientID);
+            builder.AddAttribute(10, "data-name", this.Name);
+            builder.AddAttribute(11, "data-pid", Entities.Portals.PortalSettings.Current.PortalId.ToString(CultureInfo.InvariantCulture));
+            builder.AddAttribute(12, "data-editor", "AutoCompleteControl");
+            builder.AddAttribute(13, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, this.OnInputChanged));
+            builder.CloseElement();
         }
     }
 }

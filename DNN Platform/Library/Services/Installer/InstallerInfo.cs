@@ -43,7 +43,7 @@ namespace DotNetNuke.Services.Installer
         public InstallerInfo(string sitePath, InstallMode mode)
         {
             this.Initialize();
-            this.TempInstallFolder = Globals.InstallMapPath + "Temp\\" + Path.GetFileNameWithoutExtension(Path.GetRandomFileName());
+            this.TempInstallFolder = Path.Combine(Globals.InstallMapPath, "Temp", Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
             this.PhysicalSitePath = sitePath;
             this.InstallMode = mode;
         }
@@ -58,7 +58,7 @@ namespace DotNetNuke.Services.Installer
         public InstallerInfo(Stream inputStream, string sitePath)
         {
             this.Initialize();
-            this.TempInstallFolder = Globals.InstallMapPath + "Temp\\" + Path.GetFileNameWithoutExtension(Path.GetRandomFileName());
+            this.TempInstallFolder = Path.Combine(Globals.InstallMapPath, "Temp", Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
             this.PhysicalSitePath = sitePath;
 
             // Read the Zip file into its component entries
@@ -95,7 +95,7 @@ namespace DotNetNuke.Services.Installer
         {
             this.Initialize();
             this.PhysicalSitePath = sitePath;
-            this.TempInstallFolder = Globals.InstallMapPath + "Temp\\" + Path.GetFileNameWithoutExtension(Path.GetRandomFileName());
+            this.TempInstallFolder = Path.Combine(Globals.InstallMapPath, "Temp", Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
             this.InstallMode = InstallMode.UnInstall;
             this.ManifestFile = new InstallFile(Path.Combine(this.TempInstallFolder, package.Name + ".dnn"));
             package.AttachInstallerInfo(this);

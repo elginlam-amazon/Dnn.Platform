@@ -7,11 +7,11 @@ namespace DotNetNuke.Web.Api.Auth.ApiTokens
     using System;
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
-    using System.Net.Http;
 
     using DotNetNuke.Collections;
     using DotNetNuke.Entities.Users;
     using DotNetNuke.Web.Api.Auth.ApiTokens.Models;
+    using Microsoft.AspNetCore.Http;
 
     /// <summary>Interface for managing API tokens for authentication schemes.</summary>
     public interface IApiTokenController
@@ -20,9 +20,9 @@ namespace DotNetNuke.Web.Api.Auth.ApiTokens
         string SchemeType { get; }
 
         /// <summary>Validates an API token from an HTTP request message.</summary>
-        /// <param name="request">The `HttpRequestMessage` instance that contains the token.</param>
+        /// <param name="request">The <see cref="HttpRequest"/> instance that contains the token.</param>
         /// <returns>A tuple object containing an `ApiToken` object and a `UserInfo` object.</returns>
-        (ApiToken Token, UserInfo User) ValidateToken(HttpRequestMessage request);
+        (ApiToken Token, UserInfo User) ValidateToken(HttpRequest request);
 
         /// <summary>Sets the API token of the current thread.</summary>
         /// <param name="token">The `ApiToken` instance to set.</param>

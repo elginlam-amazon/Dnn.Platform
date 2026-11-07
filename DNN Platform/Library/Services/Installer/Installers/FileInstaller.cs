@@ -243,7 +243,7 @@ namespace DotNetNuke.Services.Installer.Installers
             }
             else
             {
-                fileName = pathNav.Value + @"\";
+                fileName = pathNav.Value + System.IO.Path.DirectorySeparatorChar;
             }
 
             // Get the name

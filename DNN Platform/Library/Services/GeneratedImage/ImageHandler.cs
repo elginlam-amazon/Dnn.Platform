@@ -7,17 +7,33 @@ namespace DotNetNuke.Services.GeneratedImage
     using System;
     using System.Collections.Generic;
     using System.Collections.Specialized;
-    using System.Diagnostics;
-    using System.Drawing.Imaging;
-    using System.Web;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Common;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
+    using SixLabors.ImageSharp.Formats;
+    using SixLabors.ImageSharp.Formats.Jpeg;
+
     /// <summary>Image Handler abstract class.</summary>
-    public abstract class ImageHandler : IHttpHandler
+    /// <remarks>
+    /// <para>
+    /// Was an <c>IHttpHandler</c> registered in <c>web.config</c>; it is now invoked from an
+    /// endpoint through <see cref="ProcessRequestAsync"/> (see
+    /// <c>DnnImageHandlerEndpoint.MapDnnImageHandler</c>). <c>ProcessRequest(HttpContext)</c> became
+    /// <see cref="ProcessRequestAsync"/> because writing the image to the response is asynchronous
+    /// on ASP.NET Core.
+    /// </para>
+    /// <para>
+    /// <see cref="ContentType"/> is an ImageSharp <see cref="IImageFormat"/> rather than a
+    /// <c>System.Drawing.Imaging.ImageFormat</c>; the format singletons it is assigned
+    /// (<c>JpegFormat.Instance</c>, <c>PngFormat.Instance</c>, …) are the direct equivalents.
+    /// </para>
+    /// </remarks>
+    public abstract class ImageHandler
     {
         /// <summary>Initializes a new instance of the <see cref="ImageHandler"/> class.</summary>
         /// <param name="eventLogger">The event logger.</param>
@@ -47,7 +63,8 @@ namespace DotNetNuke.Services.GeneratedImage
             this.Implementation = implementation;
         }
 
-        /// <inheritdoc />
+        /// <summary>Gets a value indicating whether this handler instance can be reused for more than one request.</summary>
+        /// <remarks>On ASP.NET Core a new handler instance is created per endpoint invocation, so this is informational only.</remarks>
         public virtual bool IsReusable => false;
 
         /// <summary>Gets or sets a value indicating whether enables server-side caching of the result.</summary>
@@ -91,9 +108,9 @@ namespace DotNetNuke.Services.GeneratedImage
         }
 
         /// <summary>Gets or sets the type of the result image. The handler will return ouput with MIME type matching this content.</summary>
-        public ImageFormat ContentType
+        public IImageFormat ContentType
         {
-            get => this.Implementation.ContentType;
+            get => this.Implementation.ContentType ?? JpegFormat.Instance;
             set => this.Implementation.ContentType = value;
         }
 
@@ -135,22 +152,17 @@ namespace DotNetNuke.Services.GeneratedImage
 
         public abstract ImageInfo GenerateImage(NameValueCollection parameters);
 
-        /// <inheritdoc />
-        public void ProcessRequest(HttpContext context)
+        /// <summary>Processes the incoming HTTP request, writing the generated image to the response.</summary>
+        /// <param name="context">The context of the current request.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public Task ProcessRequestAsync(HttpContext context)
         {
             if (context == null)
             {
                 throw new ArgumentNullException(nameof(context));
             }
 
-            HttpContextBase contextWrapper = new HttpContextWrapper(context);
-            this.ProcessRequest(contextWrapper);
-        }
-
-        internal void ProcessRequest(HttpContextBase context)
-        {
-            Debug.Assert(context != null, "HTTP Context was null");
-            this.Implementation.HandleImageRequest(context, this.GenerateImage, this.ToString());
+            return this.Implementation.HandleImageRequestAsync(context, this.GenerateImage, this.ToString());
         }
     }
 }

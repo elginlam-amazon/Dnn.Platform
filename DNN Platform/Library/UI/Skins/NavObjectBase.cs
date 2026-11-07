@@ -8,7 +8,6 @@ namespace DotNetNuke.UI.Skins
     using System.ComponentModel;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
-    using System.Web.UI;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -117,8 +116,9 @@ namespace DotNetNuke.UI.Skins
         }
 
         // JH - 2/5/07 - support for custom attributes
+        // Was also [PersistenceMode(PersistenceMode.InnerProperty)], a WebForms designer attribute
+        // with no ASP.NET Core equivalent.
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
         public List<CustomAttribute> CustomAttributes
         {
             get
@@ -2394,7 +2394,7 @@ namespace DotNetNuke.UI.Skins
             }
             else
             {
-                objNodes = Navigation.GetNavigationNodes(this.Control.ClientID, eToolTips, intRootParent, intDepth, intNavNodeOptions);
+                objNodes = Navigation.GetNavigationNodes(this.Control.NavigationControl?.ClientId, eToolTips, intRootParent, intDepth, intNavNodeOptions);
             }
 
             return objNodes;
@@ -2413,7 +2413,11 @@ namespace DotNetNuke.UI.Skins
             }
         }
 
-        protected void InitializeNavControl(Control objParent, string strDefaultProvider)
+        /// <summary>Initializes the navigation provider's control and adds it to the given parent.</summary>
+        /// <param name="objParent">The control hosting the navigation control.</param>
+        /// <param name="strDefaultProvider">The provider to use when none is configured.</param>
+        /// <remarks>The <c>objParent</c> parameter was a <c>System.Web.UI.Control</c>.</remarks>
+        protected void InitializeNavControl(IDnnControl objParent, string strDefaultProvider)
         {
             if (string.IsNullOrEmpty(this.ProviderName))
             {
@@ -2851,7 +2855,9 @@ namespace DotNetNuke.UI.Skins
 
             if (strPath.StartsWith("~", StringComparison.Ordinal))
             {
-                return this.ResolveUrl(strPath);
+                // Was Control.ResolveUrl, which resolved an application-relative "~/" path against
+                // the application's virtual path.
+                return Globals.ResolveUrl(strPath);
             }
 
             return strPath;

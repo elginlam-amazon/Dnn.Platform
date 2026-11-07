@@ -6,54 +6,92 @@
 namespace DotNetNuke.Tests.Web.Mvc.Helpers
 {
     using System;
-    using System.Web.Mvc;
-    using System.Web.Routing;
 
     using DotNetNuke.ComponentModel;
+    using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Tests.Utilities.Mocks;
+    using DotNetNuke.Tests.Web.Mvc.Fakes;
     using DotNetNuke.UI.Modules;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
+    using DotNetNuke.Web.Mvc.Framework.Modules;
     using DotNetNuke.Web.Mvc.Helpers;
     using DotNetNuke.Web.Mvc.Routing;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Rendering;
+    using Microsoft.AspNetCore.Mvc.Routing;
+    using Microsoft.AspNetCore.Routing;
+    using Microsoft.Extensions.DependencyInjection;
+
     using Moq;
+
     using NUnit.Framework;
 
+    /// <summary>
+    /// Tests <see cref="DnnUrlHelper"/> against the ASP.NET Core API.
+    /// </summary>
+    /// <remarks>
+    /// The MVC 5 request-context constructor overload is now
+    /// <see cref="DnnUrlHelper(ActionContext, IDnnController)"/>, and the view-context overload resolves
+    /// the controller through <see cref="ModuleApplication.GetCurrentDnnController"/> (that is,
+    /// <c>HttpContext.Items</c>) because the Core <see cref="ViewContext"/> no longer carries the
+    /// controller instance. <c>HttpRequest.RawUrl</c> has no Core equivalent, so <c>Action()</c>
+    /// reconstructs the URL of the current request from the request path and query string.
+    /// </remarks>
     [TestFixture]
     public class DnnUrlHelperTests
     {
+        private FakeServiceProvider serviceProvider;
+
         [SetUp]
         public void SetUp()
         {
             MockComponentProvider.ResetContainer();
+
+            // The Core DnnUrlHelper builds its IUrlHelper through IUrlHelperFactory, resolved from the
+            // request services or, as here, from Globals.GetCurrentServiceProvider().
+            this.serviceProvider = FakeServiceProvider.Setup(
+                services => services.AddSingleton<IUrlHelperFactory, UrlHelperFactory>());
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            // Drop any ModuleRoutingProvider registered by a test so the fixture stays order independent.
+            ComponentFactory.Container = null;
+            MockComponentProvider.ResetContainer();
+            this.serviceProvider.Dispose();
         }
 
         [Test]
         public void Constructor_Throws_On_Null_ViewContext()
         {
             // Act,Assert
-            Assert.Throws<ArgumentNullException>(() => new DnnUrlHelper(null));
+            Assert.Throws<ArgumentNullException>(() => new DnnUrlHelper((ViewContext)null));
         }
 
         [Test]
         public void Constructor_Throws_On_Null_RequestContext()
         {
             // Act,Assert
-            Assert.Throws<ArgumentNullException>(() => new DnnUrlHelper(null, new Mock<IDnnController>().Object));
+            Assert.Throws<ArgumentNullException>(() => new DnnUrlHelper((ActionContext)null, new Mock<IDnnController>().Object));
         }
 
         [Test]
         public void Constructor_Throws_On_Null_Controller()
         {
             // Act,Assert
-            Assert.Throws<ArgumentNullException>(() => new DnnUrlHelper(new Mock<RequestContext>().Object, null));
+            Assert.Throws<ArgumentNullException>(() => new DnnUrlHelper(MockHelper.CreateMockControllerContext(), null));
         }
 
         [Test]
         public void Constructor_Throws_On_Invalid_Controller_Property()
         {
             // Arrange
-            var mockController = new Mock<ControllerBase>();
-            var viewContext = new ViewContext { Controller = mockController.Object };
+            // A controller which is not an IDnnController cannot be resolved by the view-context constructor.
+            var controllerContext = MockHelper.CreateMockControllerContext(new FakeController());
+            var viewContext = MockHelper.CreateViewContext(controllerContext);
 
             // Act,Assert
             Assert.Throws<InvalidOperationException>(() => new DnnUrlHelper(viewContext));
@@ -63,11 +101,12 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         public void ViewContext_Constructor_Sets_ModuleContext_Property()
         {
             // Arrange
-            var mockController = new Mock<ControllerBase>();
-            var mockDnnController = mockController.As<IDnnController>();
             var expectedContext = new ModuleInstanceContext();
+            var mockDnnController = new Mock<IDnnController>();
             mockDnnController.Setup(c => c.ModuleContext).Returns(expectedContext);
-            var viewContext = new ViewContext { Controller = mockController.Object };
+
+            var controllerContext = MockHelper.CreateMockControllerContext(mockDnnController.Object);
+            var viewContext = MockHelper.CreateViewContext(controllerContext);
 
             // Act
             var helper = new DnnUrlHelper(viewContext);
@@ -86,10 +125,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
             mockController.SetupGet(c => c.ModuleContext)
                           .Returns(expectedContext);
 
-            var requestContext = new RequestContext();
+            var actionContext = MockHelper.CreateMockControllerContext();
 
             // Act
-            var helper = new DnnUrlHelper(requestContext, mockController.Object);
+            var helper = new DnnUrlHelper(actionContext, mockController.Object);
 
             // Assert
             Assert.That(helper, Is.Not.Null);
@@ -101,7 +140,8 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         {
             // Arrange
             var expectedContext = new ModuleInstanceContext();
-            var rawUrl = "http://base.url/";
+            var rawUrl = "http://base.url/page/path?key=value";
+            var expectedUrl = "/page/path?key=value";
             var helper = ArrangeHelper(expectedContext, rawUrl);
 
             // Act
@@ -109,7 +149,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
 
             // Assert
             Assert.That(result, Is.Not.Null);
-            Assert.That(result, Is.EqualTo(rawUrl));
+            Assert.That(result, Is.EqualTo(expectedUrl));
         }
 
         [Test]
@@ -117,7 +157,8 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         {
             // Arrange
             var expectedContext = new ModuleInstanceContext();
-            var rawUrl = "http://base.url/";
+            var rawUrl = "http://base.url/page/path?key=value";
+            var expectedUrl = "/page/path?key=value";
             var helper = ArrangeHelper(expectedContext, rawUrl, false);
 
             // Act
@@ -125,7 +166,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
 
             // Assert
             Assert.That(result, Is.Not.Null);
-            Assert.That(result, Is.EqualTo(rawUrl));
+            Assert.That(result, Is.EqualTo(expectedUrl));
         }
 
         [Test]
@@ -234,8 +275,9 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         public void Content_Method_Calls_Returns_Correct_Url()
         {
             // Arrange
+            // Content() goes through IUrlHelper.Content, which resolves "~/" against the request path base.
             var context = new ModuleInstanceContext();
-            var helper = ArrangeHelper(context, "http://foo.com/foo");
+            var helper = ArrangeHelper(context, "http://foo.com/foo", pathBase: "/foo");
             string expectedResult = "/foo/test.css";
 
             // Act
@@ -298,33 +340,39 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
             }
         }
 
-        private static DnnUrlHelper ArrangeHelper(ModuleInstanceContext expectedContext, string url = null, bool isViewContext = true)
+        /// <summary>Builds a <see cref="DnnUrlHelper"/> over a real ASP.NET Core context.</summary>
+        /// <param name="expectedContext">The module context the DNN controller reports.</param>
+        /// <param name="url">The absolute URL of the request.</param>
+        /// <param name="isViewContext">
+        /// <see langword="true"/> to use the <see cref="ViewContext"/> constructor (which resolves the
+        /// controller from <c>HttpContext.Items</c>), <see langword="false"/> to use the
+        /// <see cref="ActionContext"/> constructor.
+        /// </param>
+        /// <param name="pathBase">The application path base of the request, when the test needs one.</param>
+        /// <returns>The URL helper under test.</returns>
+        private static DnnUrlHelper ArrangeHelper(ModuleInstanceContext expectedContext, string url = null, bool isViewContext = true, string pathBase = null)
         {
-            var mockController = new Mock<ControllerBase>();
-            var mockDnnController = mockController.As<IDnnController>();
+            var mockDnnController = new Mock<IDnnController>();
 
             var routeData = new RouteData();
             routeData.Values["controller"] = "bar";
             routeData.Values["action"] = "foo";
-            var context = MockHelper.CreateMockControllerContext(url != null ? MockHelper.CreateMockHttpContext(url) : null, routeData);
 
-            mockDnnController.Setup(c => c.ModuleContext).Returns(expectedContext);
-            mockDnnController.Setup(c => c.ControllerContext).Returns(context);
-
-            if (isViewContext)
+            var httpContext = MockHelper.CreateMockHttpContext(url ?? "http://base/");
+            if (pathBase is not null)
             {
-                var viewContext = new ViewContext { Controller = mockController.Object };
-
-                if (!string.IsNullOrEmpty(url))
-                {
-                    viewContext.RequestContext = new RequestContext(MockHelper.CreateMockHttpContext(url), routeData);
-                }
-
-                return new DnnUrlHelper(viewContext);
+                httpContext.Request.PathBase = new PathString(pathBase);
+                httpContext.Request.Path = PathString.Empty;
             }
 
-            var requestContext = new RequestContext(MockHelper.CreateMockHttpContext(url ?? "http://base/"), routeData);
-            return new DnnUrlHelper(requestContext, mockDnnController.Object);
+            var controllerContext = MockHelper.CreateMockControllerContext(httpContext, routeData, mockDnnController.Object);
+
+            mockDnnController.Setup(c => c.ModuleContext).Returns(expectedContext);
+            mockDnnController.Setup(c => c.ControllerContext).Returns(controllerContext);
+
+            return isViewContext
+                ? new DnnUrlHelper(MockHelper.CreateViewContext(controllerContext))
+                : new DnnUrlHelper(controllerContext, mockDnnController.Object);
         }
     }
 }

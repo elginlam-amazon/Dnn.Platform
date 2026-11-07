@@ -4,25 +4,22 @@
 namespace DotNetNuke.Framework
 {
     using System;
-    using System.Net;
-    using System.Security;
-    using System.Security.Permissions;
-    using System.Web;
 
     using DotNetNuke.Internal.SourceGenerators;
 
     /// <summary>Provides the ability to get information about CLR permissions.</summary>
+    /// <remarks>
+    /// Code Access Security (CAS) was removed from .NET (Core) onwards: partial trust and
+    /// <c>AspNetHostingPermission</c> no longer exist, and all managed code runs fully trusted.
+    /// The members below are kept for API compatibility and always report the permission as
+    /// granted, which matches the only trust level modern .NET supports (full trust).
+    /// </remarks>
     public partial class SecurityPolicy
     {
         public const string ReflectionPermission = "ReflectionPermission";
         public const string WebPermission = "WebPermission";
         public const string AspNetHostingPermission = "AspNetHostingPermission";
         public const string UnManagedCodePermission = "UnManagedCodePermission";
-        private static bool initialized;
-        private static bool reflectionPermission;
-        private static bool webPermission;
-        private static bool aspNetHostingPermission;
-        private static bool unManagedCodePermission;
 
         public static string Permissions
         {
@@ -53,28 +50,36 @@ namespace DotNetNuke.Framework
             }
         }
 
+        /// <summary>Gets a value indicating whether the AspNetHosting permission is granted.</summary>
+        /// <returns><see langword="true"/>; modern .NET always runs in full trust.</returns>
         public static bool HasAspNetHostingPermission()
         {
-            GetPermissions();
-            return aspNetHostingPermission;
+            // CAS/partial trust no longer exists in modern .NET - the permission is always granted.
+            return true;
         }
 
+        /// <summary>Gets a value indicating whether the Reflection permission is granted.</summary>
+        /// <returns><see langword="true"/>; modern .NET always runs in full trust.</returns>
         public static bool HasReflectionPermission()
         {
-            GetPermissions();
-            return reflectionPermission;
+            // CAS/partial trust no longer exists in modern .NET - the permission is always granted.
+            return true;
         }
 
+        /// <summary>Gets a value indicating whether the Web permission is granted.</summary>
+        /// <returns><see langword="true"/>; modern .NET always runs in full trust.</returns>
         public static bool HasWebPermission()
         {
-            GetPermissions();
-            return webPermission;
+            // CAS/partial trust no longer exists in modern .NET - the permission is always granted.
+            return true;
         }
 
+        /// <summary>Gets a value indicating whether the UnManagedCode permission is granted.</summary>
+        /// <returns><see langword="true"/>; modern .NET always runs in full trust.</returns>
         public static bool HasUnManagedCodePermission()
         {
-            GetPermissions();
-            return unManagedCodePermission;
+            // CAS/partial trust no longer exists in modern .NET - the permission is always granted.
+            return true;
         }
 
         public static bool HasPermissions(string permissions, ref string permission)
@@ -125,64 +130,5 @@ namespace DotNetNuke.Framework
             return hasPermission;
         }
 
-        private static void GetPermissions()
-        {
-            if (!initialized)
-            {
-                // test RelectionPermission
-                CodeAccessPermission securityTest;
-                try
-                {
-                    securityTest = new ReflectionPermission(PermissionState.Unrestricted);
-                    securityTest.Demand();
-                    reflectionPermission = true;
-                }
-                catch
-                {
-                    // code access security error
-                    reflectionPermission = false;
-                }
-
-                // test WebPermission
-                try
-                {
-                    securityTest = new WebPermission(PermissionState.Unrestricted);
-                    securityTest.Demand();
-                    webPermission = true;
-                }
-                catch
-                {
-                    // code access security error
-                    webPermission = false;
-                }
-
-                // test WebHosting Permission (Full Trust)
-                try
-                {
-                    securityTest = new AspNetHostingPermission(AspNetHostingPermissionLevel.Unrestricted);
-                    securityTest.Demand();
-                    aspNetHostingPermission = true;
-                }
-                catch
-                {
-                    // code access security error
-                    aspNetHostingPermission = false;
-                }
-
-                initialized = true;
-
-                // Test for Unmanaged Code permission
-                try
-                {
-                    securityTest = new SecurityPermission(SecurityPermissionFlag.UnmanagedCode);
-                    securityTest.Demand();
-                    unManagedCodePermission = true;
-                }
-                catch (Exception)
-                {
-                    unManagedCodePermission = false;
-                }
-            }
-        }
     }
 }

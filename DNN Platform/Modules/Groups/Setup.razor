@@ -1,0 +1,434 @@
+﻿@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Groups
+@inherits DotNetNuke.Modules.Groups.GroupsModuleBase
+
+@*
+    No per-page @rendermode is declared on purpose. This component is a descendant of
+    <Routes @rendermode="InteractiveServer"> in the host document (Website/Components/App.razor),
+    so its @onclick/@onchange handlers are interactive without — and must not repeat — a
+    per-page directive. This is the convention the already-migrated DNNConnect.CKE and DDRMenu
+    components follow.
+*@
+
+@using System.Globalization
+@using System.IO
+@using System.Linq
+@using DotNetNuke.Abstractions.Security.Permissions
+@using DotNetNuke.Entities.Modules.Definitions
+@using DotNetNuke.Entities.Tabs
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.UI.Skins
+
+@*
+    Replaces Setup.ascx and Setup.ascx.cs.
+
+    The markup is the original one for one; the only WebForms control was
+
+        <asp:LinkButton ID="btnGo" runat="server" resourceKey="AutoConfigure" CssClass="dnnPrimaryAction" />
+
+    which is an anchor that posts back. It becomes an anchor with an @onclick handler (the
+    canonical LinkButton mapping) whose text is the "AutoConfigure" resource key DNN's control
+    localization resolved, and Page_Load's btnGo.Visible/.Enabled = Request.IsAuthenticated gate
+    becomes the @if below (an invisible WebForms control rendered nothing at all).
+
+    The five services the original took through its constructor are injected as properties:
+    Blazor activates components through a parameterless constructor, so [Inject] is the
+    constructor injection equivalent, resolving from the same container DependencyProvider used.
+*@
+
+<div class="dnnForm">
+    <fieldset>
+        <div class="dnnFormItem">
+            <p>@this.LocalizeHtml("SetupIntro")</p>
+        </div>
+    </fieldset>
+    <ul class="dnnActions dnnClear">
+        <li>
+            @if (this.isAuthenticated)
+            {
+                <a id="btnGo" href="#" class="dnnPrimaryAction" @onclick="this.BtGoClick" @onclick:preventDefault="true">@this.LocalizeText("AutoConfigure")</a>
+            }
+        </li>
+    </ul>
+</div>
+
+@code {
+    private bool isAuthenticated;
+
+    /// <summary>Gets or sets the role provider the default role group is read and created through.</summary>
+    [Inject]
+    protected RoleProvider RoleProviderInstance { get; set; }
+
+    /// <summary>Gets or sets the event logger role group creation is logged through.</summary>
+    [Inject]
+    protected IEventLogger EventLogger { get; set; }
+
+    /// <summary>Gets or sets the user controller role group creation resolves the acting user through.</summary>
+    [Inject]
+    protected IUserController UserControllerInstance { get; set; }
+
+    /// <summary>Gets or sets the permission definition service the module permissions are read from.</summary>
+    [Inject]
+    protected IPermissionDefinitionService PermissionDefinitionService { get; set; }
+
+    /// <summary>Gets or sets the host settings the desktop module lookup is performed against.</summary>
+    [Inject]
+    protected IHostSettings HostSettingsInstance { get; set; }
+
+    /// <summary>Gets or sets the application status the skin file probe maps its path against.</summary>
+    [Inject]
+    protected IApplicationStatusInfo AppStatus { get; set; }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// This is Page_Load. The authenticated state is captured here, during the load phase, while
+    /// the request is still available - it must never be read from the @onclick handler, where
+    /// there is no HttpContext.
+    /// </remarks>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        this.isAuthenticated = this.IsAuthenticated;
+    }
+
+    /// <summary>Auto-configures the Social Groups pages and modules.</summary>
+    /// <remarks>This is btGo_Click of Setup.ascx.cs, unchanged.</remarks>
+    private void BtGoClick()
+    {
+        // Setup Child Page - Main View/Activity
+        TabInfo tab = this.CreatePage(this.PortalSettings.ActiveTab, this.PortalId, this.TabId, "Group Activity", false);
+
+        // Add Module to Child Page
+        int groupViewModuleId = this.AddModule(tab, this.PortalId, "Social Groups", "ContentPane");
+
+        // The original assigned this to a journalModuleId local it never read; the call is what
+        // matters (it adds the Journal module to the page).
+        _ = this.AddModule(tab, this.PortalId, "Journal", "ContentPane");
+        int consoleId = this.AddModule(tab, this.PortalId, "Console", "RightPane");
+
+        ModuleInfo groupConsoleModule = ModuleController.Instance.GetModule(consoleId, tab.TabID, false);
+        TabInfo memberTab = this.CreatePage(this.PortalSettings.ActiveTab, this.PortalId, tab.TabID, "Members", true);
+        ModuleController.Instance.CopyModule(groupConsoleModule, memberTab, "RightPane", true);
+
+        ModuleInfo groupViewModule = ModuleController.Instance.GetModule(groupViewModuleId, tab.TabID, false);
+        ModuleController.Instance.CopyModule(groupViewModule, memberTab, "ContentPane", true);
+        this.AddModule(memberTab, this.PortalId, "DotNetNuke.Modules.MemberDirectory", "ContentPane");
+
+        // List Settings
+        ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupLoadView, nameof(GroupMode.List));
+        ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupViewPage, tab.TabID.ToString(CultureInfo.InvariantCulture));
+
+        // Default Social Groups
+        var defaultGroup = RoleController.GetRoleGroupByName(this.RoleProviderInstance, this.PortalId, Constants.DefaultGroupName);
+        var groupId = -2;
+        if (defaultGroup != null)
+        {
+            groupId = defaultGroup.RoleGroupID;
+        }
+        else
+        {
+            var groupInfo = new RoleGroupInfo();
+            groupInfo.PortalID = this.PortalId;
+            groupInfo.RoleGroupName = Constants.DefaultGroupName;
+            groupInfo.Description = Constants.DefaultGroupName;
+            groupId = RoleController.AddRoleGroup(this.RoleProviderInstance, this.EventLogger, this.UserControllerInstance, this.PortalSettings, groupInfo);
+        }
+
+        ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.DefaultRoleGroupSetting, groupId.ToString());
+
+        // Replaces Response.Redirect(this.Request.RawUrl): reload the page the module is on, so
+        // the newly written settings take effect (the module now renders the List view).
+        this.Navigation.NavigateTo(this.Navigation.Uri, forceLoad: true);
+    }
+
+    /// <summary>Gets the ID of a desktop module by its name.</summary>
+    /// <param name="hostSettings">The host settings.</param>
+    /// <param name="portalId">The portal ID.</param>
+    /// <param name="moduleName">The module name.</param>
+    /// <returns>The desktop module ID, or <c>-1</c>.</returns>
+    private static int GetDesktopModuleId(IHostSettings hostSettings, int portalId, string moduleName)
+    {
+        var info = DesktopModuleController.GetDesktopModuleByModuleName(hostSettings, moduleName, portalId);
+        return info?.DesktopModuleID ?? -1;
+    }
+
+    /// <summary>Adds a module permission to a module's permission collection.</summary>
+    /// <param name="objModule">The module.</param>
+    /// <param name="permission">The permission definition.</param>
+    /// <param name="roleId">The role ID.</param>
+    /// <param name="userId">The user ID.</param>
+    /// <param name="allowAccess">Whether access is allowed.</param>
+    /// <returns>The permission that was added.</returns>
+    private static IPermissionInfo AddModulePermission(ModuleInfo objModule, IPermissionDefinitionInfo permission, int roleId, int userId, bool allowAccess)
+    {
+        IPermissionInfo objModulePermission = new ModulePermissionInfo
+        {
+            ModuleID = objModule.ModuleID,
+            PermissionKey = permission.PermissionKey,
+            AllowAccess = allowAccess,
+        };
+
+        objModulePermission.PermissionId = permission.PermissionId;
+        objModulePermission.RoleId = roleId;
+        objModulePermission.UserId = userId;
+
+        // add the permission to the collection
+        objModule.ModulePermissions ??= [];
+        if (!objModule.ModulePermissions.Contains(objModulePermission))
+        {
+            objModule.ModulePermissions.Add((ModulePermissionInfo)objModulePermission);
+        }
+
+        return objModulePermission;
+    }
+
+    /// <summary>Creates (or finds) a child page, copying the permissions of the current page.</summary>
+    /// <param name="tab">The page the permissions are copied from.</param>
+    /// <param name="portalId">The portal ID.</param>
+    /// <param name="parentTabId">The parent page ID.</param>
+    /// <param name="tabName">The page name.</param>
+    /// <param name="includeInMenu">Whether the page is visible in the menu.</param>
+    /// <returns>The page.</returns>
+    private TabInfo CreatePage(TabInfo tab, int portalId, int parentTabId, string tabName, bool includeInMenu)
+    {
+        var newTab = TabController.Instance.GetTabsByPortal(portalId).WithTabNameAndParentId(tabName, parentTabId);
+        if (newTab == null)
+        {
+            int id = -1;
+            newTab = new TabInfo();
+
+            if (tab != null)
+            {
+                foreach (IPermissionInfo t in tab.TabPermissions)
+                {
+                    IPermissionInfo tNew = new TabPermissionInfo
+                    {
+                        AllowAccess = t.AllowAccess,
+                        DisplayName = t.DisplayName,
+                        PermissionCode = t.PermissionCode,
+                        PermissionKey = t.PermissionKey,
+                        PermissionName = t.PermissionName,
+                        RoleName = t.RoleName,
+                        TabID = -1,
+                        TabPermissionID = -1,
+                        Username = t.Username,
+                    };
+
+                    tNew.UserId = t.UserId;
+                    tNew.ModuleDefId = t.ModuleDefId;
+                    tNew.PermissionId = t.PermissionId;
+                    tNew.RoleId = t.RoleId;
+
+                    newTab.TabPermissions.Add((TabPermissionInfo)tNew);
+                }
+            }
+
+            newTab.ParentId = parentTabId;
+            newTab.PortalID = portalId;
+            newTab.TabName = tabName;
+            newTab.Title = tabName;
+            newTab.IsVisible = includeInMenu;
+            newTab.SkinSrc = this.GetSkin();
+
+            id = TabController.Instance.AddTab(newTab);
+            newTab = TabController.Instance.GetTab(id, portalId, true);
+        }
+
+        return newTab;
+    }
+
+    /// <summary>Gets the skin the created pages use.</summary>
+    /// <returns>A skin source, or <see cref="string.Empty"/> for the default skin.</returns>
+    /// <remarks>
+    /// Unchanged except for the path mapping: <c>HttpContext.Current.Server.MapPath</c> is gone on
+    /// ASP.NET Core, so the physical path is composed from
+    /// <see cref="IApplicationStatusInfo.ApplicationMapPath"/>. The File.Exists fallback chain
+    /// (page skin, else the group skin of the portal's default skin folder, else the default skin)
+    /// is preserved exactly.
+    /// </remarks>
+    private string GetSkin()
+    {
+        // attempt to find and load a  skin from the assigned skinned source
+        var skinSource = this.PortalSettings.DefaultPortalSkin;
+
+        var tab = TabController.Instance.GetTab(this.TabId, this.PortalId, false);
+
+        if (!string.IsNullOrEmpty(tab.SkinSrc))
+        {
+            skinSource = tab.SkinSrc;
+        }
+        else
+        {
+            skinSource = SkinController.FormatSkinPath(skinSource) + "groups.ascx";
+            var physicalSkinFile = SkinController.FormatSkinSrc(skinSource, this.PortalSettings);
+
+            if (!File.Exists(this.MapPath(physicalSkinFile)))
+            {
+                skinSource = string.Empty; // this will load the default skin
+            }
+        }
+
+        return skinSource;
+    }
+
+    /// <summary>Maps an application relative path onto the file system.</summary>
+    /// <param name="virtualPath">The <c>~/</c> relative path.</param>
+    /// <returns>The physical path.</returns>
+    /// <remarks>Replaces <c>HttpContext.Current.Server.MapPath</c>.</remarks>
+    private string MapPath(string virtualPath)
+    {
+        if (string.IsNullOrEmpty(virtualPath))
+        {
+            return virtualPath;
+        }
+
+        var relative = virtualPath.StartsWith("~/", StringComparison.Ordinal)
+            ? virtualPath.Substring(2)
+            : virtualPath.TrimStart('~', '/');
+
+        return Path.Combine(
+            this.AppStatus.ApplicationMapPath, relative.Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    /// <summary>Adds a module to a page, or returns the ID of the one already there.</summary>
+    /// <param name="tab">The page.</param>
+    /// <param name="portalId">The portal ID.</param>
+    /// <param name="moduleName">The desktop module name.</param>
+    /// <param name="pane">The pane the module is added to.</param>
+    /// <returns>The module ID, or <c>-1</c>.</returns>
+    private int AddModule(TabInfo tab, int portalId, string moduleName, string pane)
+    {
+        var module = ModuleController.Instance.GetTabModules(tab.TabID).Values.SingleOrDefault(m => m.DesktopModule.ModuleName == moduleName);
+        int id = -1;
+        if (module == null)
+        {
+            int desktopModuleId = GetDesktopModuleId(this.HostSettingsInstance, portalId, moduleName);
+            int moduleId = -1;
+            if (desktopModuleId > -1)
+            {
+                if (moduleId <= 0)
+                {
+                    moduleId = this.AddNewModule(tab, string.Empty, desktopModuleId, pane, 0, string.Empty);
+                }
+
+                id = moduleId;
+                ModuleInfo mi = ModuleController.Instance.GetModule(moduleId, tab.TabID, false);
+                if (moduleName == "Social Groups")
+                {
+                    ModuleController.Instance.UpdateTabModuleSetting(mi.TabModuleID, Constants.GroupLoadView, nameof(GroupMode.View));
+                    ModuleController.Instance.UpdateTabModuleSetting(mi.TabModuleID, Constants.GroupListPage, tab.TabID.ToString(CultureInfo.InvariantCulture));
+                }
+
+                if (moduleName == "Console")
+                {
+                    ModuleController.Instance.UpdateModuleSetting(mi.ModuleID, "AllowSizeChange", "False");
+                    ModuleController.Instance.UpdateModuleSetting(mi.ModuleID, "AllowViewChange", "False");
+                    ModuleController.Instance.UpdateModuleSetting(mi.ModuleID, "IncludeParent", "True");
+                    ModuleController.Instance.UpdateModuleSetting(mi.ModuleID, "Mode", "Group");
+                    ModuleController.Instance.UpdateModuleSetting(mi.ModuleID, "DefaultSize", "IconNone");
+                    ModuleController.Instance.UpdateModuleSetting(mi.ModuleID, "ParentTabID", tab.TabID.ToString(CultureInfo.InvariantCulture));
+                }
+
+                if (moduleName == "DotNetNuke.Modules.MemberDirectory")
+                {
+                    ModuleController.Instance.UpdateModuleSetting(mi.ModuleID, "FilterBy", "Group");
+                    ModuleController.Instance.UpdateModuleSetting(mi.ModuleID, "FilterPropertyValue", string.Empty);
+                    ModuleController.Instance.UpdateModuleSetting(mi.ModuleID, "FilterValue", "-1");
+                    ModuleController.Instance.UpdateTabModuleSetting(mi.TabModuleID, "DisplaySearch", "False");
+                }
+            }
+        }
+        else
+        {
+            id = module.ModuleID;
+        }
+
+        return id;
+    }
+
+    /// <summary>Adds a new module instance to a page, with the page's permissions.</summary>
+    /// <param name="tab">The page.</param>
+    /// <param name="title">The module title, or <see cref="string.Empty"/> for the definition's friendly name.</param>
+    /// <param name="desktopModuleId">The desktop module ID.</param>
+    /// <param name="paneName">The pane the module is added to.</param>
+    /// <param name="permissionType">0 for "Same As Page", 1 for "Page Editors Only".</param>
+    /// <param name="align">The module alignment.</param>
+    /// <returns>The new module ID, or <c>-1</c>.</returns>
+    private int AddNewModule(TabInfo tab, string title, int desktopModuleId, string paneName, int permissionType, string align)
+    {
+        foreach (var objModuleDefinition in ModuleDefinitionController.GetModuleDefinitionsByDesktopModuleID(desktopModuleId).Values)
+        {
+            var objModule = new ModuleInfo();
+            objModule.Initialize(tab.PortalID);
+
+            objModule.PortalID = tab.PortalID;
+            objModule.TabID = tab.TabID;
+            if (string.IsNullOrEmpty(title))
+            {
+                objModule.ModuleTitle = objModuleDefinition.FriendlyName;
+            }
+            else
+            {
+                objModule.ModuleTitle = title;
+            }
+
+            objModule.PaneName = paneName;
+            objModule.ModuleDefID = objModuleDefinition.ModuleDefID;
+            objModule.CacheTime = 0;
+            objModule.InheritViewPermissions = true;
+            objModule.DisplayTitle = false;
+
+            // get the default module view permissions
+            var moduleViewPermission = this.PermissionDefinitionService.GetDefinitionsByCodeAndKey("SYSTEM_MODULE_DEFINITION", "VIEW").FirstOrDefault();
+
+            // get the permissions from the page
+            foreach (IPermissionInfo objTabPermission in tab.TabPermissions)
+            {
+                if (objTabPermission.PermissionKey == "VIEW" && permissionType == 0)
+                {
+                    // Don't need to explicitly add View permissions if "Same As Page"
+                    continue;
+                }
+
+                // loop through the system module permissions
+                foreach (var objSystemModulePermission in this.PermissionDefinitionService.GetDefinitionsByCodeAndKey("SYSTEM_MODULE_DEFINITION", objTabPermission.PermissionKey))
+                {
+                    // create the module permission
+                    if (objSystemModulePermission.PermissionKey == "VIEW" && permissionType == 1 && objTabPermission.PermissionKey != "EDIT")
+                    {
+                        // Only Page Editors get View permissions if "Page Editors Only"
+                        continue;
+                    }
+
+                    var objModulePermission = AddModulePermission(
+                        objModule,
+                        objSystemModulePermission,
+                        objTabPermission.RoleId,
+                        objTabPermission.UserId,
+                        objTabPermission.AllowAccess);
+
+                    // ensure that every EDIT permission which allows access also provides VIEW permission
+                    if (objModulePermission.PermissionKey == "EDIT" & objModulePermission.AllowAccess)
+                    {
+                        AddModulePermission(
+                            objModule,
+                            moduleViewPermission,
+                            objModulePermission.RoleId,
+                            objModulePermission.UserId,
+                            true);
+                    }
+                }
+            }
+
+            objModule.AllTabs = false;
+            objModule.Alignment = align;
+
+            return ModuleController.Instance.AddModule(objModule);
+        }
+
+        return -1;
+    }
+}

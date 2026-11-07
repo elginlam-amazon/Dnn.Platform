@@ -29,8 +29,15 @@ public class InvalidViewStateCacheKeyException : ApplicationException
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Kept for binary compatibility with the serializable-exception pattern. Formatter-based
+    /// serialization is obsolete on modern .NET (SYSLIB0051) but removing the constructor would be a
+    /// public surface change, so the diagnostic is suppressed rather than the member dropped.
+    /// </remarks>
+#pragma warning disable SYSLIB0051
     protected InvalidViewStateCacheKeyException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
     }
+#pragma warning restore SYSLIB0051
 }

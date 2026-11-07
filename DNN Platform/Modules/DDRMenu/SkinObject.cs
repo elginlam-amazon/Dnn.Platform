@@ -5,8 +5,7 @@ namespace DotNetNuke.Web.DDRMenu
 {
     using System;
     using System.Collections.Generic;
-    using System.ComponentModel;
-    using System.Web.UI;
+    using System.IO;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -18,6 +17,9 @@ namespace DotNetNuke.Web.DDRMenu
     using DotNetNuke.Web.DDRMenu.DNNCommon;
     using DotNetNuke.Web.DDRMenu.Localisation;
     using DotNetNuke.Web.DDRMenu.TemplateEngine;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
 
     using Microsoft.Extensions.DependencyInjection;
 
@@ -54,38 +56,63 @@ namespace DotNetNuke.Web.DDRMenu
             this.tabController = tabController ?? Globals.GetCurrentServiceProvider().GetRequiredService<ITabController>();
         }
 
+        [Parameter]
         public string MenuStyle { get; set; }
 
+        [Parameter]
         public string NodeXmlPath { get; set; }
 
+        [Parameter]
         public string NodeSelector { get; set; }
 
+        [Parameter]
         public bool IncludeContext { get; set; }
 
+        [Parameter]
         public bool IncludeHidden { get; set; }
 
+        [Parameter]
         public string IncludeNodes { get; set; }
 
+        [Parameter]
         public string ExcludeNodes { get; set; }
 
+        [Parameter]
         public string NodeManipulator { get; set; }
 
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        /// <summary>Gets or sets the client options passed to the menu template.</summary>
+        /// <remarks>
+        /// Was declared with [DesignerSerializationVisibility(Content)] and
+        /// [PersistenceMode(InnerProperty)] so that skin markup could nest the options as inner
+        /// elements. Neither attribute has a net10 equivalent (both are WebForms designer/parser
+        /// metadata); the property is a component [Parameter] instead, which is how a Blazor
+        /// component receives nested values. The name and type are unchanged because skins set it.
+        /// </remarks>
+        [Parameter]
         public List<ClientOption> ClientOptions { get; set; }
 
-        [DesignerSerializationVisibility(DesignerSerializationVisibility.Content)]
-        [PersistenceMode(PersistenceMode.InnerProperty)]
+        /// <summary>Gets or sets the template arguments passed to the menu template.</summary>
+        /// <remarks>
+        /// Same removal of [DesignerSerializationVisibility]/[PersistenceMode] as
+        /// <see cref="ClientOptions"/>; exposed as a component [Parameter].
+        /// </remarks>
+        [Parameter]
         public List<TemplateArgument> TemplateArguments { get; set; }
 
         /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
+        /// <remarks>
+        /// The WebForms <c>PreRender</c> phase ran before the control rendered its markup; the
+        /// component equivalent (<c>OnLoad</c>, raised from <c>OnParametersSet</c>) is the last
+        /// phase that still runs before the first render, so the menu is built here and the
+        /// rendered HTML is emitted by <see cref="RenderContents"/>.
+        /// </remarks>
+        protected override void OnLoad(EventArgs e)
         {
             using (new DNNContext(this))
             {
                 try
                 {
-                    base.OnPreRender(e);
+                    base.OnLoad(e);
 
                     this.menu = MenuBase.Instantiate(this.localiser, this.hostSettings, this.tabController, this.MenuStyle);
                     this.menu.ApplySettings(
@@ -109,7 +136,7 @@ namespace DotNetNuke.Web.DDRMenu
                             new MenuNode(
                                 this.localiser.LocaliseDNNNodeCollection(
                                     Navigation.GetNavigationNodes(
-                                        this.ClientID,
+                                        this.ClientId,
                                         Navigation.ToolTipSource.None,
                                         -1,
                                         -1,
@@ -126,14 +153,31 @@ namespace DotNetNuke.Web.DDRMenu
         }
 
         /// <inheritdoc />
-        protected override void Render(HtmlTextWriter writer)
+        /// <remarks>
+        /// Replaces <c>Render(HtmlTextWriter)</c>: the template engine still writes the menu into a
+        /// <see cref="TextWriter"/>, and the accumulated HTML is emitted into the render tree.
+        /// </remarks>
+        protected override void RenderContents(RenderTreeBuilder builder, ref int sequence)
         {
+            ArgumentNullException.ThrowIfNull(builder);
+
             using (new DNNContext(this))
             {
                 try
                 {
-                    base.Render(writer);
-                    this.menu.Render(writer);
+                    if (this.menu != null)
+                    {
+                        string html;
+                        using (var writer = new StringWriter())
+                        {
+                            this.menu.Render(writer);
+                            html = writer.ToString();
+                        }
+
+                        builder.AddMarkupContent(sequence++, html);
+                    }
+
+                    base.RenderContents(builder, ref sequence);
                 }
                 catch (Exception exc)
                 {

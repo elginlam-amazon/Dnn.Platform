@@ -23,10 +23,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         public static T SetPriority<T>(this T input, FileOrder.Js priority)
             where T : IScriptResource
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Priority = (int)priority;
             return input;
@@ -39,10 +36,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         /// <returns>The script resource with the async attribute set.</returns>
         public static IScriptResource SetAsync(this IScriptResource input)
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Async = true;
             return input;
@@ -55,10 +49,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         /// <returns>The script resource with the defer attribute set.</returns>
         public static IScriptResource SetDefer(this IScriptResource input)
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Defer = true;
             return input;
@@ -71,10 +62,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         /// <returns>The script resource with the no module attribute set.</returns>
         public static IScriptResource SetNoModule(this IScriptResource input)
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.NoModule = true;
             return input;
@@ -88,10 +76,7 @@ namespace DotNetNuke.Web.Client.ResourceManager
         /// <returns>The script resource with the type attribute set.</returns>
         public static IScriptResource SetType(this IScriptResource input, string type)
         {
-            if (input == null)
-            {
-                throw new ArgumentNullException(nameof(input));
-            }
+            ArgumentNullException.ThrowIfNull(input);
 
             input.Type = type;
             return input;

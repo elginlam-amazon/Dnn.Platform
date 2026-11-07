@@ -10,24 +10,29 @@
     <PackageName>Live_Auth</PackageName>
     <InstallPath>$(WebsiteInstallPath)\AuthSystem</InstallPath>
   </PropertyGroup>
-  <Import Project="$(BuildScriptsPath)\Package.Targets" />
+  <!-- The file on disk is Package.targets; the lower-case "t" matters on case-sensitive
+       (Linux) file systems, where the old "Package.Targets" spelling fails with MSB4019. -->
+  <Import Project="$(BuildScriptsPath)\Package.targets" />
   <Target Name="CopyAndPackage" BeforeTargets="Build" DependsOnTargets="CopyBin;GetFiles;DebugProject;Package" />
   <Target Name="GetFiles">
     <ItemGroup>
       <TextFiles Include="*.txt" Exclude="license.txt;releasenotes.txt" />
       <Images Include="Images\*.*" />
-      <Views Include="*.ascx" />
-      <ResourceFiles Include="App_LocalResources\*.resx" />
-      <Resources Include="@(ResourceFiles);@(Images);@(Views);@(Controls);@(TextFiles)" />
+      <!-- The login and settings user controls are now the Blazor components Login.razor and
+           Settings.razor, compiled into the assembly, so no .ascx markup is packaged. The
+           localization resources are both embedded in the assembly (which makes the shipped
+           English text self-contained) and still packaged below, so site and language-pack
+           resource overrides keep working. -->
+      <ResourceFiles Include="Resources\*.resx" />
+      <Resources Include="@(ResourceFiles);@(Images);@(TextFiles)" />
     </ItemGroup>
   </Target>
   <Target Name="CopyBin">
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).dll" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).pdb" DestinationFolder="$(WebsitePath)/bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\$(AssemblyName).xml" DestinationFolder="$(WebsitePath)/bin" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/bin/$(AssemblyName).dll" DestinationFolder="$(WebsitePath)/bin" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/bin/$(AssemblyName).pdb" DestinationFolder="$(WebsitePath)/bin" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/bin/$(AssemblyName).xml" DestinationFolder="$(WebsitePath)/bin" />
   </Target>
   <Target Name="DebugProject" Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <Copy SourceFiles="@(Views)" DestinationFolder="$(WebsitePath)\DesktopModules\AuthenticationServices\Live" />
     <Copy SourceFiles="@(Images)" DestinationFolder="$(WebsitePath)\DesktopModules\AuthenticationServices\Live\Images" />
     <Copy SourceFiles="@(ResourceFiles)" DestinationFolder="$(WebsitePath)\DesktopModules\AuthenticationServices\Live\App_LocalResources" />
   </Target>

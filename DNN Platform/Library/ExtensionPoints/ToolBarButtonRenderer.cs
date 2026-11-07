@@ -8,7 +8,7 @@ namespace DotNetNuke.ExtensionPoints
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Text;
-    using System.Web;
+    using System.Text.Encodings.Web;
 
     using DotNetNuke.Common;
 
@@ -40,7 +40,7 @@ namespace DotNetNuke.ExtensionPoints
                 "<button id=\"{0}\" class=\"{1}\" onclick=\"{2}\" title=\"{3}\">",
                 extension.ButtonId,
                 cssClass,
-                HttpUtility.HtmlAttributeEncode($"{action}; return false;"),
+                HtmlEncoder.Default.Encode($"{action}; return false;"),
                 extension.Text);
 
             str.AppendFormat(

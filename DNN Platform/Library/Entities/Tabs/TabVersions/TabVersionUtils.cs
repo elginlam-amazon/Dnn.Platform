@@ -5,8 +5,8 @@
 namespace DotNetNuke.Entities.Tabs.TabVersions
 {
     using System.Threading;
-    using System.Web;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
@@ -68,7 +68,7 @@ namespace DotNetNuke.Entities.Tabs.TabVersions
             var currentPortal = PortalController.Instance.GetCurrentSettings();
             return currentPortal == null ?
                 string.Empty :
-                HttpContext.Current.Request.QueryString[TabVersionSettings.Instance.GetTabVersionQueryStringParameter(currentPortal.PortalId)];
+                HttpContextSource.Current?.Request.Query[TabVersionSettings.Instance.GetTabVersionQueryStringParameter(currentPortal.PortalId)].ToString();
         }
     }
 }

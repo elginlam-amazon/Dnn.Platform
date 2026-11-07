@@ -4,7 +4,8 @@
 
 namespace Dnn.PersonaBar.Prompt.Components.Models
 {
-    using System.Web;
+
+    using System.Net;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
@@ -63,7 +64,7 @@ namespace Dnn.PersonaBar.Prompt.Components.Models
             var application = DotNetNuke.Application.DotNetNukeContext.Current.Application;
             var controlBarController = DotNetNuke.Web.Components.Controllers.ControlBarController.Instance;
             var request = HttpContextSource.Current.Request;
-            var upgradeIndicator = controlBarController.GetUpgradeIndicator(application.Version, request.IsLocal, request.IsSecureConnection);
+            var upgradeIndicator = controlBarController.GetUpgradeIndicator(application.Version, IsLocalRequest(), request.IsHttps);
             var hostName = System.Net.Dns.GetHostName();
             var hostPortal = portalController.GetPortal(hostSettings.HostPortalId);
             var portalCount = portalController.GetPortals().Count;
@@ -87,6 +88,29 @@ namespace Dnn.PersonaBar.Prompt.Components.Models
                 EditContainer = Utilities.FormatContainerName(hostSettings.DefaultAdminContainer),
                 PortalCount = portalCount,
             };
+        }
+
+        /// <summary>
+        /// Determines whether the current request originates from the local machine (the
+        /// ASP.NET Core replacement for <c>HttpRequest.IsLocal</c>).
+        /// </summary>
+        /// <returns><see langword="true"/> when the request comes from a loopback address or the remote and local addresses match.</returns>
+        private static bool IsLocalRequest()
+        {
+            var connection = HttpContextSource.CurrentOrThrow.Connection;
+            var remoteIp = connection.RemoteIpAddress;
+            if (remoteIp == null)
+            {
+                // No remote address means the request was not made over the network (in-process/test host).
+                return true;
+            }
+
+            if (IPAddress.IsLoopback(remoteIp))
+            {
+                return true;
+            }
+
+            return connection.LocalIpAddress != null && remoteIp.Equals(connection.LocalIpAddress);
         }
     }
 }

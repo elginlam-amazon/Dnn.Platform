@@ -5,12 +5,10 @@
 namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.Exceptions
 {
     using System;
-    using System.Runtime.Serialization;
 
     using Dnn.PersonaBar.Extensions.Components.BulkInstall.DataAccess.Models;
 
     /// <summary>An exception indicating that an <see cref="IPSpec"/> already exists.</summary>
-    [Serializable]
     public class IPSpecExistsException : Exception
     {
         /// <summary>Initializes a new instance of the <see cref="IPSpecExistsException"/> class.</summary>
@@ -30,14 +28,6 @@ namespace Dnn.PersonaBar.Extensions.Components.BulkInstall.Exceptions
         /// <param name="innerException">The exception that is the cause of the current exception, or <see langword="null"/> if no inner exception is specified.</param>
         public IPSpecExistsException(string message, Exception innerException)
             : base(message, innerException)
-        {
-        }
-
-        /// <summary>Initializes a new instance of the <see cref="IPSpecExistsException"/> class with serialized data.</summary>
-        /// <param name="info">The <see cref="SerializationInfo"/> that holds the serialized object data about the exception being thrown.</param>
-        /// <param name="context">The <see cref="StreamingContext"/> that contains contextual information about the source or destination.</param>
-        public IPSpecExistsException(SerializationInfo info, StreamingContext context)
-            : base(info, context)
         {
         }
     }

@@ -6,8 +6,8 @@ namespace DotNetNuke.Services.Syndication
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Net;
-    using System.Web;
+    using System.Threading;
+    using System.Threading.Tasks;
     using System.Xml;
 
     using DotNetNuke.Instrumentation;
@@ -46,6 +46,15 @@ namespace DotNetNuke.Services.Syndication
 
         /// <summary>Gets the OPML feed at a given <paramref name="uri"/>.</summary>
         /// <param name="uri">The feed URI.</param>
+        /// <param name="cancellationToken">A token to cancel the download.</param>
+        /// <returns>A task which resolves to the OPML feed, or an empty OPML feed if there's an error loading it.</returns>
+        public static Task<Opml> GetOpmlFeedAsync(Uri uri, CancellationToken cancellationToken = default)
+        {
+            return TheManager.GetFeedAsync(uri, cancellationToken);
+        }
+
+        /// <summary>Gets the OPML feed at a given <paramref name="uri"/>.</summary>
+        /// <param name="uri">The feed URI.</param>
         /// <returns>The OPML feed, or an empty OPML feed if there's an error loading it.</returns>
         internal Opml GetFeed(Uri uri)
         {
@@ -76,13 +85,36 @@ namespace DotNetNuke.Services.Syndication
             return opmlFeed;
         }
 
+        /// <summary>Gets the OPML feed at a given <paramref name="uri"/>.</summary>
+        /// <param name="uri">The feed URI.</param>
+        /// <param name="cancellationToken">A token to cancel the download.</param>
+        /// <returns>A task which resolves to the OPML feed, or an empty OPML feed if there's an error loading it.</returns>
+        internal async Task<Opml> GetFeedAsync(Uri uri, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(uri);
+
+            Opml opmlFeed = this.TryGetCachedFeed(uri);
+
+            if (opmlFeed == null)
+            {
+                opmlFeed = await this.DownloadOpmlFeedAsync(uri, cancellationToken).ConfigureAwait(false);
+
+                lock (this.cache)
+                {
+                    this.cache[uri.AbsoluteUri] = opmlFeed;
+                }
+            }
+
+            return opmlFeed;
+        }
+
         private static string PrepareTempDir()
         {
             string tempDir = null;
 
             try
             {
-                string d = HttpContext.Current.Server.MapPath(Settings.CacheRoot + OPMLDir);
+                string d = SyndicationCachePath.MapPath(Settings.CacheRoot + OPMLDir);
 
                 if (!Directory.Exists(d))
                 {
@@ -111,6 +143,25 @@ namespace DotNetNuke.Services.Syndication
             }
         }
 
+        private Opml TryGetCachedFeed(Uri uri)
+        {
+            lock (this.cache)
+            {
+                if (this.cache.TryGetValue(uri.AbsoluteUri, out var opmlFeed))
+                {
+                    if (DateTime.UtcNow > opmlFeed.UtcExpiry)
+                    {
+                        this.cache.Remove(uri.AbsoluteUri);
+                        return null;
+                    }
+
+                    return opmlFeed;
+                }
+            }
+
+            return null;
+        }
+
         private Opml DownloadOpmlFeed(Uri uri)
         {
             // look for disk cache first
@@ -121,28 +172,56 @@ namespace DotNetNuke.Services.Syndication
                 return opmlFeed;
             }
 
-            // May fail under partial trust
+            // May fail if the feed is unreachable or malformed
             try
             {
-                byte[] feed = new WebClient().DownloadData(uri.AbsoluteUri);
+                byte[] feed = SyndicationHttpClient.Download(uri.AbsoluteUri);
 
-                var opmlDoc = new XmlDocument { XmlResolver = null };
-                using (var opmlReader = XmlReader.Create(new MemoryStream(feed), new XmlReaderSettings { XmlResolver = null, }))
-                {
-                    opmlDoc.Load(opmlReader);
-                }
-
-                opmlFeed = Opml.LoadFromXml(opmlDoc);
-
-                opmlFeed.UtcExpiry = DateTime.UtcNow.AddMinutes(this.defaultTtlMinutes);
-
-                // save to disk
-                this.TrySaveToDisk(opmlDoc, uri, opmlFeed.UtcExpiry);
+                return this.ParseAndCacheFeed(feed, uri);
             }
             catch
             {
                 return new Opml();
             }
+        }
+
+        private async Task<Opml> DownloadOpmlFeedAsync(Uri uri, CancellationToken cancellationToken)
+        {
+            // look for disk cache first
+            Opml opmlFeed = this.TryLoadFromDisk(uri);
+
+            if (opmlFeed != null)
+            {
+                return opmlFeed;
+            }
+
+            // May fail if the feed is unreachable or malformed
+            try
+            {
+                byte[] feed = await SyndicationHttpClient.DownloadAsync(uri.AbsoluteUri, cancellationToken).ConfigureAwait(false);
+
+                return this.ParseAndCacheFeed(feed, uri);
+            }
+            catch
+            {
+                return new Opml();
+            }
+        }
+
+        private Opml ParseAndCacheFeed(byte[] feed, Uri uri)
+        {
+            var opmlDoc = new XmlDocument { XmlResolver = null };
+            using (var opmlReader = XmlReader.Create(new MemoryStream(feed), new XmlReaderSettings { XmlResolver = null, }))
+            {
+                opmlDoc.Load(opmlReader);
+            }
+
+            Opml opmlFeed = Opml.LoadFromXml(opmlDoc);
+
+            opmlFeed.UtcExpiry = DateTime.UtcNow.AddMinutes(this.defaultTtlMinutes);
+
+            // save to disk
+            this.TrySaveToDisk(opmlDoc, uri, opmlFeed.UtcExpiry);
 
             return opmlFeed;
         }
@@ -185,7 +264,7 @@ namespace DotNetNuke.Services.Syndication
                         int i = c.IndexOf('@');
                         long expiry;
 
-                        if (long.TryParse(c.Substring(0, i), out expiry))
+                        if (long.TryParse(c.AsSpan(0, i), out expiry))
                         {
                             utcExpiryFromOpmlFile = DateTime.FromBinary(expiry);
                             urlFromOpmlFile = c.Substring(i + 1);

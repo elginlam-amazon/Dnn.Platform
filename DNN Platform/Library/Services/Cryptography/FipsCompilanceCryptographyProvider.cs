@@ -25,7 +25,7 @@ internal partial class FipsCompilanceCryptographyProvider : CryptographyProvider
     protected override string EncryptStringHashAlgorithmName => nameof(SHA512);
 
     /// <inheritdoc />
-    protected override string EncryptStringSymmetricAlgorithmName => nameof(TripleDESCryptoServiceProvider);
+    protected override string EncryptStringSymmetricAlgorithmName => "TripleDESCryptoServiceProvider";
 
     /// <inheritdoc />
     [DnnDeprecated(10, 2, 2, "Use DotNetNuke.Abstractions.Security.ICryptographyProvider")]

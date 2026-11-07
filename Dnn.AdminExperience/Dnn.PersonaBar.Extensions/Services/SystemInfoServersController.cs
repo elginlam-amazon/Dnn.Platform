@@ -8,14 +8,14 @@ namespace Dnn.PersonaBar.Servers.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
-    using System.Net.Http;
-    using System.Web.Http;
 
     using Dnn.PersonaBar.Extensions.Services.Dto;
     using Dnn.PersonaBar.Library;
     using Dnn.PersonaBar.Library.Attributes;
     using DotNetNuke.Instrumentation;
+    using DotNetNuke.Web.Api;
 
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.Logging;
 
     [MenuPermission(Scope = ServiceScope.Host)]
@@ -24,37 +24,37 @@ namespace Dnn.PersonaBar.Servers.Services
         private static readonly ILogger Logger = DnnLoggingController.GetLogger<SystemInfoServersController>();
 
         [HttpGet]
-        public HttpResponseMessage GetServers()
+        public IActionResult GetServers()
         {
             try
             {
-                return this.Request.CreateResponse(HttpStatusCode.OK, GetServerList());
+                return this.Ok(GetServerList());
             }
             catch (Exception exc)
             {
                 Logger.SystemInfoServersControllerGetServersException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpPost]
-        public HttpResponseMessage DeleteServer(DeleteServerDTO data)
+        public IActionResult DeleteServer(DeleteServerDTO data)
         {
             try
             {
                 DotNetNuke.Entities.Host.ServerController.DeleteServer(data.ServerId);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, true);
+                return this.Ok(true);
             }
             catch (Exception exc)
             {
                 Logger.SystemInfoServersControllerDeleteServerException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpPost]
-        public HttpResponseMessage EditServerUrl(EditServerUrlDTO data)
+        public IActionResult EditServerUrl(EditServerUrlDTO data)
         {
             try
             {
@@ -62,17 +62,17 @@ namespace Dnn.PersonaBar.Servers.Services
                 server.Url = data.NewUrl;
                 DotNetNuke.Entities.Host.ServerController.UpdateServer(server);
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, true);
+                return this.Ok(true);
             }
             catch (Exception exc)
             {
                 Logger.SystemInfoServersControllerEditServerUrlException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 
         [HttpPost]
-        public HttpResponseMessage DeleteNonActiveServers()
+        public IActionResult DeleteNonActiveServers()
         {
             try
             {
@@ -81,12 +81,12 @@ namespace Dnn.PersonaBar.Servers.Services
                     DotNetNuke.Entities.Host.ServerController.DeleteServer(s.ServerID);
                 }
 
-                return this.Request.CreateResponse(HttpStatusCode.OK, true);
+                return this.Ok(true);
             }
             catch (Exception exc)
             {
                 Logger.SystemInfoServersControllerDeleteNonActiveServersException(exc);
-                return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+                return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
             }
         }
 

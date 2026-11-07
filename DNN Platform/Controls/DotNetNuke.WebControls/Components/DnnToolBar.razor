@@ -1,0 +1,346 @@
+@* ---------------------------------------------------------------------------------------------
+    DnnToolBar — the Blazor replacement of the DotNetNuke.UI.WebControls.DNNToolBar control.
+
+    Render mode: InteractiveServer. Every button owns an @onclick/@onmouseover handler and the
+    tool bar keeps its shown/hidden state plus the action dispatch on the server, so it cannot be
+    rendered statically.
+
+    Ported from DNNToolBar.cs:
+      * the state-bag/ClientProperty surface (CssClass, DefaultButtonCssClass,
+        DefaultButtonHoverCssClass, MouseOutDelay, ReuseToolBar, BehaviorID, Visible) became
+        [Parameter]s with the very same defaults the view state getters returned,
+      * ToJSON + dnn.controls.toolbars[...] (the client script built the markup) became real
+        server-side markup: the DNNToolBarButtonCollection is iterated here and each button is
+        rendered by DnnToolBarButton,
+      * RegisterToolBar's show/hide client events became the ShowAsync/HideAsync entry points the
+        host (or the attached control) calls, honouring MouseOutDelay on hide,
+      * RaisePostBackEvent's command dispatch became DispatchAsync: the "js" and "navigate"
+        control actions are handled here exactly as the client stub did, every other action is
+        handed to the OnButtonClick EventCallback<DNNToolBarButton>,
+      * CanExtend / IDNNToolBar.ToolBarId and IDNNToolBarSupportedActions.Actions keep driving
+        which buttons are visible and enabled (IsSupported below).
+
+    HttpContext is null over the circuit: nothing here reads the request.
+   --------------------------------------------------------------------------------------------- *@
+@namespace DotNetNuke.UI.WebControls.Components
+@inherits DnnControlBase
+@rendermode InteractiveServer
+@implements IDNNToolBar
+
+@if (this.Visible)
+{
+    <div id="@this.ClientId"
+         class="@this.CssClass"
+         @ref="this.RootElementBinding"
+         @onmouseenter="this.CancelPendingHide"
+         @onmouseleave="this.HideAsync">
+        <CascadingValue Value="this" IsFixed="true">
+            @foreach (var button in this.VisibleButtons)
+            {
+                <DnnToolBarButton Button="button" />
+            }
+
+            @this.ChildContent
+        </CascadingValue>
+    </div>
+}
+
+@code {
+    private CancellationTokenSource hideCancellation;
+
+    /// <summary>Gets or sets the buttons of the tool bar.</summary>
+    /// <remarks>
+    /// Accepts the preserved <see cref="DNNToolBarButtonCollection"/> as well as any other
+    /// sequence of buttons, which is how the WebForms control's child-control collection is
+    /// expressed on a component.
+    /// </remarks>
+    [Parameter]
+    public IEnumerable Buttons { get; set; }
+
+    /// <summary>Gets or sets buttons declared as markup children of the tool bar.</summary>
+    [Parameter]
+    public RenderFragment ChildContent { get; set; }
+
+    /// <summary>Gets or sets the identifier of the tool bar attached to this control.</summary>
+    /// <remarks>Implements <see cref="IDNNToolBar"/>, which the WebForms control also honoured.</remarks>
+    [Parameter]
+    public string ToolBarId { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the client side behavior identifier of the tool bar.</summary>
+    [Parameter]
+    public string BehaviorID { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class of the tool bar.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class the buttons fall back to.</summary>
+    [Parameter]
+    public string DefaultButtonCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the hover CSS class the buttons fall back to.</summary>
+    [Parameter]
+    public string DefaultButtonHoverCssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the delay, in milliseconds, before the tool bar hides.</summary>
+    [Parameter]
+    public int MouseOutDelay { get; set; } = 250;
+
+    /// <summary>Gets or sets a value indicating whether other controls may share this tool bar.</summary>
+    [Parameter]
+    public bool ReuseToolBar { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the tool bar is shown.</summary>
+    [Parameter]
+    public bool Visible { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether the buttons of the tool bar can be clicked.</summary>
+    [Parameter]
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the actions the control this tool bar is attached to understands.
+    /// </summary>
+    /// <remarks>
+    /// Replaces the <see cref="IDNNToolBarSupportedActions"/> lookup the WebForms tool bar did
+    /// through <c>FindAttachedControl</c>: a button whose <c>ControlAction</c> is not one of these
+    /// is neither rendered nor enabled, which is what the client stub enforced.
+    /// </remarks>
+    [Parameter]
+    public IDNNToolBarSupportedActions AttachedControl { get; set; }
+
+    /// <summary>Gets or sets the actions the tool bar accepts, when there is no attached control.</summary>
+    [Parameter]
+    public string[] SupportedActions { get; set; }
+
+    /// <summary>Occurs when a button of the tool bar is clicked.</summary>
+    /// <remarks>Replaces <c>DNNToolBar.RaisePostBackEvent</c>'s command dispatch.</remarks>
+    [Parameter]
+    public EventCallback<DNNToolBarButton> OnButtonClick { get; set; }
+
+    /// <summary>
+    /// Gets or sets the legacy control used as the source of the marshalled client properties.
+    /// </summary>
+    /// <remarks>Optional; only needed by hosts that still drive <c>dnn.controls.initToolBar</c>.</remarks>
+    [Parameter]
+    public DNNToolBar Control { get; set; }
+
+    /// <summary>Gets the animation applied when the tool bar is shown or hidden.</summary>
+    /// <remarks>
+    /// The WebForms tool bar faded in through <c>dnn.controls</c>; the descriptor of
+    /// <see cref="DNNAnimation"/> now produces the equivalent CSS transition.
+    /// </remarks>
+    [Parameter]
+    public DNNAnimation Animation { get; set; }
+
+    /// <summary>Gets the buttons that are rendered, after the supported-action filter.</summary>
+    public IEnumerable<DNNToolBarButton> VisibleButtons
+    {
+        get
+        {
+            if (this.Buttons is null)
+            {
+                yield break;
+            }
+
+            foreach (var item in this.Buttons)
+            {
+                if (item is DNNToolBarButton button && this.IsVisible(button))
+                {
+                    yield return button;
+                }
+            }
+        }
+    }
+
+    /// <summary>Gets or sets the root element, exposing the protected base member to the markup.</summary>
+    private ElementReference RootElementBinding
+    {
+        get => this.RootElement;
+        set => this.RootElement = value;
+    }
+
+    /// <inheritdoc/>
+    protected override string ClientInitFunction => "initToolBar";
+
+    /// <inheritdoc/>
+    protected override object ClientPropertySource => this.Control;
+
+    /// <summary>Determines whether a button is rendered.</summary>
+    /// <param name="button">The button to inspect.</param>
+    /// <returns><see langword="true"/> when the button is rendered.</returns>
+    /// <remarks>
+    /// Ported from the client stub, which skipped a button whose <c>vis</c> flag was 0 and whose
+    /// action the attached control did not list.
+    /// </remarks>
+    public bool IsVisible(DNNToolBarButton button)
+    {
+        return button is not null && button.Visible && this.IsSupported(button);
+    }
+
+    /// <summary>Determines whether a button can be clicked.</summary>
+    /// <param name="button">The button to inspect.</param>
+    /// <returns><see langword="true"/> when the button is enabled.</returns>
+    public bool IsEnabled(DNNToolBarButton button)
+    {
+        return this.Enabled && button is not null && button.Enabled && this.IsSupported(button);
+    }
+
+    /// <summary>Determines whether the action of a button is one the attached control understands.</summary>
+    /// <param name="button">The button to inspect.</param>
+    /// <returns><see langword="true"/> when the action is supported.</returns>
+    public bool IsSupported(DNNToolBarButton button)
+    {
+        if (button is null)
+        {
+            return false;
+        }
+
+        var action = button.ControlAction;
+        if (string.IsNullOrEmpty(action))
+        {
+            // A button without an action is a separator or a plain command; the original rendered it.
+            return true;
+        }
+
+        // "js" and "navigate" are the CommonActions of DNNToolBarButton: always available.
+        if (string.Equals(action, "js", StringComparison.Ordinal)
+            || string.Equals(action, "navigate", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var actions = this.AttachedControl?.Actions ?? this.SupportedActions;
+        if (actions is null)
+        {
+            // No attached control: the WebForms tool bar let every action through.
+            return true;
+        }
+
+        return Array.IndexOf(actions, action) > -1;
+    }
+
+    /// <summary>Gets the CSS class of a button, falling back to the tool bar's default.</summary>
+    /// <param name="button">The button whose class is wanted.</param>
+    /// <param name="hover">Whether the hover class is wanted.</param>
+    /// <returns>The CSS class to render.</returns>
+    public string GetButtonCssClass(DNNToolBarButton button, bool hover)
+    {
+        if (hover)
+        {
+            var hoverClass = button?.CssClassHover;
+            return !string.IsNullOrEmpty(hoverClass) ? hoverClass : this.DefaultButtonHoverCssClass;
+        }
+
+        var cssClass = button?.CssClass;
+        return !string.IsNullOrEmpty(cssClass) ? cssClass : this.DefaultButtonCssClass;
+    }
+
+    /// <summary>Gets the style of the tool bar's show/hide animation.</summary>
+    /// <returns>The CSS transition declaration, or an empty string.</returns>
+    public string GetAnimationStyle()
+    {
+        return this.Animation is null ? string.Empty : this.Animation.ToCssTransition();
+    }
+
+    /// <summary>Shows the tool bar, as the client side show event did.</summary>
+    /// <returns>A task that completes once the tool bar is shown.</returns>
+    public Task ShowAsync()
+    {
+        this.CancelPendingHide();
+        if (!this.Visible)
+        {
+            this.Visible = true;
+            this.StateHasChanged();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Hides the tool bar after <see cref="MouseOutDelay"/> milliseconds, as the client side hide
+    /// event did.
+    /// </summary>
+    /// <returns>A task that completes once the hide has been scheduled.</returns>
+    public async Task HideAsync()
+    {
+        this.CancelPendingHide();
+        var cancellation = new CancellationTokenSource();
+        this.hideCancellation = cancellation;
+        try
+        {
+            if (this.MouseOutDelay > 0)
+            {
+                await Task.Delay(this.MouseOutDelay, cancellation.Token);
+            }
+
+            this.Visible = false;
+            this.StateHasChanged();
+        }
+        catch (OperationCanceledException)
+        {
+            // The pointer came back over the tool bar before the delay elapsed, exactly as the
+            // client script's cleared time-out did.
+        }
+    }
+
+    /// <summary>
+    /// Dispatches the action of a clicked button.
+    /// </summary>
+    /// <param name="button">The button that was clicked.</param>
+    /// <returns>A task that completes once the action has run.</returns>
+    /// <remarks>
+    /// Ported from the <c>dnn.controls.dnntoolbarstub</c> dispatch and
+    /// <c>DNNToolBar.RaisePostBackEvent</c>: a "js" button runs its script, a "navigate" button
+    /// navigates, every other action is a command handed to the host.
+    /// </remarks>
+    internal async Task DispatchAsync(DNNToolBarButton button)
+    {
+        if (!this.IsEnabled(button))
+        {
+            return;
+        }
+
+        switch (button.ControlAction)
+        {
+            case "js":
+                if (!string.IsNullOrEmpty(button.JSFunction))
+                {
+                    // The client stub ran the configured script in the browser; the circuit does
+                    // the same through the named `runControlScript` helper of the RCL JS module,
+                    // so the component stays usable under a CSP that forbids `eval`.
+                    await this.RunControlScriptAsync(button.JSFunction);
+                }
+
+                break;
+
+            case "navigate":
+                if (!string.IsNullOrEmpty(button.NavigateUrl) && this.NavigationManager is not null)
+                {
+                    this.NavigationManager.NavigateTo(button.NavigateUrl);
+                }
+
+                break;
+
+            default:
+                await this.OnButtonClick.InvokeAsync(button);
+                break;
+        }
+    }
+
+    /// <summary>Gets or sets the navigator used by the "navigate" control action.</summary>
+    [Inject]
+    private NavigationManager NavigationManager { get; set; }
+
+    /// <summary>Cancels a hide that has been scheduled but not yet applied.</summary>
+    private void CancelPendingHide()
+    {
+        var pending = this.hideCancellation;
+        this.hideCancellation = null;
+        if (pending is not null)
+        {
+            pending.Cancel();
+            pending.Dispose();
+        }
+    }
+}

@@ -54,6 +54,7 @@ namespace DotNetNuke.Tests.Integration.Tests.Security
             {
                 AllowAutoRedirect = true,
                 CookieContainer = cookies,
+                UseCookies = true,
             };
 
             var client = new HttpClient(clientHandler)

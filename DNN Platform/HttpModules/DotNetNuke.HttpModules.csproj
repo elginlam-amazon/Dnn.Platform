@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <Deterministic>true</Deterministic>
@@ -16,11 +16,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Reference Include="System.Web" />
+    <!-- The ASP.NET Core middleware this project is built from (IApplicationBuilder,
+         HttpContext, the DI extensions) comes from the shared framework, exactly as in the
+         migrated DotNetNuke.Library. Microsoft.Extensions.DependencyInjection is part of that
+         shared framework on net10.0, so an explicit PackageReference for it (or for any other
+         Microsoft.AspNetCore.* assembly) is rejected by NuGet (NU1510). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>

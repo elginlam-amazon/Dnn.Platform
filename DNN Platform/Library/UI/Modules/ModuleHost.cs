@@ -7,15 +7,12 @@ namespace DotNetNuke.UI.Modules
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
-    using System.IO;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Threading;
-    using System.Web;
-    using System.Web.UI;
-    using System.Web.UI.HtmlControls;
-    using System.Web.UI.WebControls;
+    using System.Threading.Tasks;
 
+    using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Host;
     using DotNetNuke.Entities.Modules;
@@ -30,16 +27,38 @@ namespace DotNetNuke.UI.Modules
     using DotNetNuke.Services.Log.EventLog;
     using DotNetNuke.Services.ModuleCache;
     using DotNetNuke.Services.Personalization;
-    using DotNetNuke.UI.WebControls;
     using DotNetNuke.Web.Client;
     using DotNetNuke.Web.Client.ClientResourceManagement;
+
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.AspNetCore.Components.Rendering;
+    using Microsoft.AspNetCore.Components.Web;
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
     using Globals = DotNetNuke.Common.Globals;
 
     /// <summary>ModuleHost hosts a Module Control (or its cached Content).</summary>
-    public sealed partial class ModuleHost : Panel
+    /// <remarks>
+    /// <para>
+    /// Was a <c>System.Web.UI.WebControls.Panel</c> that added the loaded module control to its
+    /// <c>Controls</c> collection. It is now a DNN skinning component that renders a
+    /// <c>&lt;div&gt;</c> containing:
+    /// </para>
+    /// <list type="number">
+    /// <item><description>the module message placeholder (<c>Skin.AddModuleMessage</c> targets it),</description></item>
+    /// <item><description>the module control itself, rendered as a real Blazor component so that its lifecycle runs.</description></item>
+    /// </list>
+    /// <para>
+    /// The module control is created by the <see cref="IModuleControlPipeline"/> and appended to
+    /// <see cref="DnnComponentBase.Controls"/>; <see cref="DnnComponentBase.RenderControl"/> renders
+    /// it by its component type, carrying over the Blazor parameters the pipeline assigned. Output
+    /// caching, which used to be done by rendering the control into an <c>HtmlTextWriter</c>, is now
+    /// done with <see cref="HtmlRenderer"/> after the first render.
+    /// </para>
+    /// </remarks>
+    public sealed partial class ModuleHost : DnnComponentBase
     {
         private const string DefaultCssProvider = "DnnPageHeaderProvider";
         private const string DefaultJsProvider = "DnnBodyProvider";
@@ -54,8 +73,10 @@ namespace DotNetNuke.UI.Modules
 
         private readonly ModuleInfo moduleConfiguration;
         private readonly IModuleControlPipeline moduleControlPipeline = Globals.GetCurrentServiceProvider().GetRequiredService<IModuleControlPipeline>();
-        private Control control;
+        private IComponent control;
         private bool isCached;
+        private bool useUpdatePanel;
+        private bool cacheWritten;
 
         /// <summary>Initializes a new instance of the <see cref="ModuleHost"/> class using the ModuleConfiguration for the Module.</summary>
         /// <param name="moduleConfiguration">The module info.</param>
@@ -85,9 +106,14 @@ namespace DotNetNuke.UI.Modules
         [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic", Justification = "Breaking change")]
         public PortalSettings PortalSettings => PortalSettings.Current;
 
+        /// <summary>Gets the container this module is rendered in.</summary>
         public Containers.Container Container { get; private set; }
 
+        /// <summary>Gets the skin of the page this module is rendered on.</summary>
         public Skins.Skin Skin { get; private set; }
+
+        /// <inheritdoc />
+        protected override string TagName => "div";
 
         /// <summary>Gets a flag that indicates whether the Module is in View Mode.</summary>
         /// <param name="moduleInfo">The module information.</param>
@@ -145,61 +171,56 @@ namespace DotNetNuke.UI.Modules
 
             if (Host.EnableCustomModuleCssClass)
             {
-                string moduleName = this.ModuleControl.ModuleContext.Configuration.DesktopModule.ModuleName;
+                string moduleName = this.ModuleControl?.ModuleContext?.Configuration?.DesktopModule?.ModuleName;
                 if (moduleName != null)
                 {
                     moduleName = Globals.CleanName(moduleName);
                 }
 
-                this.Attributes.Add("class", $"DNNModuleContent Mod{moduleName}C");
+                this.Attributes["class"] = $"DNNModuleContent Mod{moduleName}C";
             }
         }
 
         /// <inheritdoc />
-        protected override void RenderContents(HtmlTextWriter writer)
+        protected override void RenderContents(RenderTreeBuilder builder, ref int sequence)
         {
-            if (this.isCached)
+            this.EnsureChildControls();
+
+            if (!this.useUpdatePanel)
             {
-                // Render the cached control to the output stream
-                base.RenderContents(writer);
+                base.RenderContents(builder, ref sequence);
+                return;
             }
-            else
+
+            // Was: the module (and its message placeholder) wrapped in an MS AJAX UpdatePanel plus an
+            // UpdateProgress. Blazor diffs and re-renders on its own, so AJAX.WrapUpdatePanelControl
+            // supplies the equivalent markup (dnnUpdatePanel + dnnUpdateProgress).
+            RenderFragment content = contentBuilder =>
             {
-                if (this.SupportsCaching() && IsViewMode(this.moduleConfiguration, this.PortalSettings) && !Globals.IsAdminControl() && !IsVersionRequest())
-                {
-                    // Render to cache
-                    var tempWriter = new StringWriter();
+                var contentSequence = 0;
+                this.RenderChildControls(contentBuilder, ref contentSequence);
+            };
 
-                    this.control.RenderControl(new HtmlTextWriter(tempWriter));
-                    string cachedOutput = tempWriter.ToString();
-
-                    if (!string.IsNullOrEmpty(cachedOutput) && (!HttpContext.Current.Request.Browser.Crawler))
-                    {
-                        // Save content to cache
-                        var moduleContent = Encoding.UTF8.GetBytes(cachedOutput);
-                        var cache = ModuleCachingProvider.Instance(this.moduleConfiguration.GetEffectiveCacheMethod());
-
-                        var varyBy = new SortedDictionary<string, string> { { "locale", Thread.CurrentThread.CurrentUICulture.ToString() } };
-
-                        var cacheKey = cache.GenerateCacheKey(this.moduleConfiguration.TabModuleID, varyBy);
-                        cache.SetModule(this.moduleConfiguration.TabModuleID, cacheKey, new TimeSpan(0, 0, this.moduleConfiguration.CacheTime), moduleContent);
-                    }
-
-                    // Render the cached content to Response
-                    writer.Write(cachedOutput);
-                }
-                else
-                {
-                    // Render the control to Response
-                    base.RenderContents(writer);
-                }
-            }
+            builder.AddContent(sequence++, AJAX.WrapUpdatePanelControl(content, true));
         }
 
-        private static void InjectMessageControl(Control container)
+        /// <inheritdoc />
+        protected override async Task OnAfterRenderAsync(bool firstRender)
+        {
+            await base.OnAfterRenderAsync(firstRender);
+
+            if (!firstRender)
+            {
+                return;
+            }
+
+            await this.SaveModuleOutputToCacheAsync();
+        }
+
+        private static void InjectMessageControl(DnnComponentBase container)
         {
             // inject a message placeholder for common module messaging - UI.Skins.Skin.AddModuleMessage
-            var messagePlaceholder = new PlaceHolder { ID = "MessagePlaceHolder", Visible = false };
+            var messagePlaceholder = new DnnPlaceHolder { ID = "MessagePlaceHolder", Visible = false };
             container.Controls.Add(messagePlaceholder);
         }
 
@@ -218,7 +239,19 @@ namespace DotNetNuke.UI.Modules
             }
         }
 
-        private void InjectModuleContent(Control content) => this.Controls.Add(content);
+        private void InjectModuleContent(IComponent content)
+        {
+            if (content is Utilities.IClientApiControl treeControl)
+            {
+                this.Controls.Add(treeControl);
+                return;
+            }
+
+            // A module control that is not part of the DNN component tree (a plain Blazor component,
+            // e.g. a PortalModuleBase) is still rendered by its component type; it is wrapped so the
+            // ordered child collection can carry it.
+            this.Controls.Add(new ComponentHolder(content));
+        }
 
         /// <summary>Gets a flag that indicates whether the Module Content should be displayed.</summary>
         /// <returns>A Boolean.</returns>
@@ -226,9 +259,10 @@ namespace DotNetNuke.UI.Modules
         {
             // module content visibility options
             var content = Personalization.GetUserMode() != PortalSettings.Mode.Layout;
-            if (this.Page.Request.QueryString["content"] != null)
+            var contentQueryValue = this.Request?.GetValue("content");
+            if (contentQueryValue != null)
             {
-                switch (this.Page.Request.QueryString["Content"].ToLowerInvariant())
+                switch (contentQueryValue.ToLowerInvariant())
                 {
                     case "1":
                     case "true":
@@ -266,7 +300,7 @@ namespace DotNetNuke.UI.Modules
                     if (!this.isCached)
                     {
                         // load the control dynamically
-                        this.control = this.moduleControlPipeline.LoadModuleControl(this.Page, this.moduleConfiguration);
+                        this.control = this.moduleControlPipeline.LoadModuleControl(this, this.moduleConfiguration);
                     }
                 }
                 else
@@ -279,13 +313,10 @@ namespace DotNetNuke.UI.Modules
                 this.Skin?.Communicator.LoadCommunicator(this.control);
 
                 // add module settings
-                this.ModuleControl.ModuleContext.Configuration = this.moduleConfiguration;
-            }
-            catch (ThreadAbortException exc)
-            {
-                Logger.ModuleHostThreadAbortException(exc);
-
-                Thread.ResetAbort();
+                if (this.control is IModuleControl loadedModuleControl)
+                {
+                    loadedModuleControl.ModuleContext.Configuration = this.moduleConfiguration;
+                }
             }
             catch (Exception exc)
             {
@@ -293,11 +324,15 @@ namespace DotNetNuke.UI.Modules
 
                 // add module settings
                 this.control = this.moduleControlPipeline.CreateModuleControl(this.moduleConfiguration);
-                this.ModuleControl.ModuleContext.Configuration = this.moduleConfiguration;
+                if (this.control is IModuleControl fallbackModuleControl)
+                {
+                    fallbackModuleControl.ModuleContext.Configuration = this.moduleConfiguration;
+                }
+
                 if (TabPermissionController.CanAdminPage())
                 {
                     // only display the error to page administrators
-                    Exceptions.ProcessModuleLoadException(this.control, exc);
+                    Exceptions.ProcessModuleLoadException((IComponent)this.control, exc);
                 }
                 else
                 {
@@ -306,8 +341,8 @@ namespace DotNetNuke.UI.Modules
                 }
             }
 
-            // Enable ViewState
-            this.control.ViewStateMode = ViewStateMode.Enabled;
+            // Was: this.control.ViewStateMode = ViewStateMode.Enabled. There is no view state on
+            // ASP.NET Core; component state lives in the component instance for the circuit's lifetime.
         }
 
         /// <summary>LoadUpdatePanel optionally loads an AJAX Update Panel.</summary>
@@ -316,44 +351,19 @@ namespace DotNetNuke.UI.Modules
             // register AJAX
             AJAX.RegisterScriptManager();
 
-            // enable Partial Rendering
-            var scriptManager = AJAX.GetScriptManager(this.Page);
-            if (scriptManager != null)
-            {
-                scriptManager.EnablePartialRendering = true;
-            }
-
-            // create update panel
-            var updatePanel = new UpdatePanel
-            {
-                UpdateMode = UpdatePanelUpdateMode.Conditional,
-                ID = this.control.ID + "_UP",
-            };
-
-            // get update panel content template
-            var templateContainer = updatePanel.ContentTemplateContainer;
+            // Was: enable Partial Rendering on the page's ScriptManager. ASP.NET Core has no MS AJAX
+            // partial postbacks; GetScriptManager only reports whether AJAX is registered.
+            AJAX.GetScriptManager(HttpContextSource.Current);
 
             // inject a message placeholder for common module messaging - UI.Skins.Skin.AddModuleMessage
-            InjectMessageControl(templateContainer);
+            InjectMessageControl(this);
+
+            this.InjectVersionToTheModuleIfSupported();
 
             // inject module into update panel content template
-            templateContainer.Controls.Add(this.control);
+            this.InjectModuleContent(this.control);
 
-            // inject the update panel into the panel
-            this.InjectModuleContent(updatePanel);
-
-            // create image for update progress control
-            var progressTemplate = "<div class=\"dnnLoading dnnPanelLoading\"></div>";
-
-            // inject updateprogress into the panel
-            var updateProgress = new UpdateProgress
-            {
-                AssociatedUpdatePanelID = updatePanel.ID,
-                ID = updatePanel.ID + "_Prog",
-
-                ProgressTemplate = new LiteralTemplate(progressTemplate),
-            };
-            this.Controls.Add(updateProgress);
+            this.useUpdatePanel = true;
         }
 
         /// <summary>Gets a flag that indicates whether the Module Instance supports Caching.</summary>
@@ -372,7 +382,7 @@ namespace DotNetNuke.UI.Modules
             try
             {
                 var cache = ModuleCachingProvider.Instance(this.moduleConfiguration.GetEffectiveCacheMethod());
-                var varyBy = new SortedDictionary<string, string> { { "locale", Thread.CurrentThread.CurrentUICulture.ToString() } };
+                var varyBy = new SortedDictionary<string, string> { { "locale", System.Threading.Thread.CurrentThread.CurrentUICulture.ToString() } };
 
                 string cacheKey = cache.GenerateCacheKey(this.moduleConfiguration.TabModuleID, varyBy);
                 byte[] cachedBytes = ModuleCachingProvider.Instance(this.moduleConfiguration.GetEffectiveCacheMethod()).GetModule(this.moduleConfiguration.TabModuleID, cacheKey);
@@ -394,10 +404,79 @@ namespace DotNetNuke.UI.Modules
             {
                 this.RestoreCachedClientResourceRegistrations(cachedContent);
                 this.control = this.moduleControlPipeline.CreateCachedControl(cachedContent, this.moduleConfiguration);
-                this.Controls.Add(this.control);
+                this.InjectModuleContent(this.control);
             }
 
             return success;
+        }
+
+        /// <summary>
+        /// Renders the module's output a second time, into a string, and stores it in the module
+        /// output cache.
+        /// </summary>
+        /// <returns>A task that completes when the output has been cached.</returns>
+        /// <remarks>
+        /// Replaces the WebForms <c>RenderContents</c> branch that rendered the control into a
+        /// <c>StringWriter</c> before writing it to the response. A Blazor component cannot be
+        /// rendered synchronously while it is being rendered, so the markup is produced with
+        /// <see cref="HtmlRenderer"/> once the first render has completed.
+        /// </remarks>
+        private async Task SaveModuleOutputToCacheAsync()
+        {
+            if (this.cacheWritten
+                || this.isCached
+                || this.control == null
+                || !this.SupportsCaching()
+                || !IsViewMode(this.moduleConfiguration, this.PortalSettings)
+                || Globals.IsAdminControl()
+                || IsVersionRequest())
+            {
+                return;
+            }
+
+            var request = this.Request;
+            if (request != null && BrowserCapabilities.IsCrawler(request))
+            {
+                return;
+            }
+
+            this.cacheWritten = true;
+
+            try
+            {
+                var serviceProvider = Globals.GetCurrentServiceProvider();
+                var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+                var parameters = ParameterView.FromDictionary(DnnComponentParameters.Capture(this.control));
+
+                string cachedOutput;
+                await using (var htmlRenderer = new HtmlRenderer(serviceProvider, loggerFactory))
+                {
+                    cachedOutput = await htmlRenderer.Dispatcher.InvokeAsync(async () =>
+                    {
+                        var output = await htmlRenderer.RenderComponentAsync(this.control.GetType(), parameters);
+                        return output.ToHtmlString();
+                    });
+                }
+
+                if (string.IsNullOrEmpty(cachedOutput))
+                {
+                    return;
+                }
+
+                // Save content to cache
+                var moduleContent = Encoding.UTF8.GetBytes(cachedOutput);
+                var cache = ModuleCachingProvider.Instance(this.moduleConfiguration.GetEffectiveCacheMethod());
+
+                var varyBy = new SortedDictionary<string, string> { { "locale", System.Threading.Thread.CurrentThread.CurrentUICulture.ToString() } };
+
+                var cacheKey = cache.GenerateCacheKey(this.moduleConfiguration.TabModuleID, varyBy);
+                cache.SetModule(this.moduleConfiguration.TabModuleID, cacheKey, new TimeSpan(0, 0, this.moduleConfiguration.CacheTime), moduleContent);
+            }
+            catch (Exception ex)
+            {
+                // a failure to populate the output cache must never break the page
+                Exceptions.LogException(ex);
+            }
         }
 
         /// <summary>
@@ -413,6 +492,8 @@ namespace DotNetNuke.UI.Modules
             {
                 return;
             }
+
+            var context = HttpContextSource.Current;
 
             foreach (Match match in matches)
             {
@@ -445,7 +526,7 @@ namespace DotNetNuke.UI.Modules
                             priority = (int)FileOrder.Js.DefaultPriority;
                         }
 
-                        ClientResourceManager.RegisterScript(this.Page, filePath, priority, forceProvider);
+                        ClientResourceManager.RegisterScript(context, filePath, priority, forceProvider);
                         break;
                     case "CSS":
                         if (string.IsNullOrEmpty(forceProvider))
@@ -458,7 +539,7 @@ namespace DotNetNuke.UI.Modules
                             priority = (int)FileOrder.Css.DefaultPriority;
                         }
 
-                        ClientResourceManager.RegisterStyleSheet(this.Page, filePath, priority, forceProvider);
+                        ClientResourceManager.RegisterStyleSheet(context, filePath, priority, forceProvider);
                         break;
                     case "JS-LIBRARY":
                         var args = filePath.Split(ArgsSeparator, StringSplitOptions.None);
@@ -477,6 +558,45 @@ namespace DotNetNuke.UI.Modules
 
                         break;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Carries a Blazor component that is not part of the DNN component tree inside an ordered
+        /// child collection, rendering it as a component of its own type.
+        /// </summary>
+        private sealed class ComponentHolder : DnnComponentBase
+        {
+            private readonly IComponent hostedComponent;
+
+            /// <summary>Initializes a new instance of the <see cref="ComponentHolder"/> class.</summary>
+            /// <param name="hostedComponent">The component to render.</param>
+            internal ComponentHolder(IComponent hostedComponent)
+            {
+                this.hostedComponent = hostedComponent;
+            }
+
+            /// <summary>Gets the component this holder renders.</summary>
+            internal IComponent HostedComponent => this.hostedComponent;
+
+            /// <inheritdoc />
+            protected override void RenderContents(RenderTreeBuilder builder, ref int sequence)
+            {
+                if (this.hostedComponent == null)
+                {
+                    return;
+                }
+
+                builder.OpenRegion(sequence++);
+                builder.OpenComponent(0, this.hostedComponent.GetType());
+                var parameters = DnnComponentParameters.Capture(this.hostedComponent);
+                if (parameters.Count > 0)
+                {
+                    builder.AddMultipleAttributes(1, parameters);
+                }
+
+                builder.CloseComponent();
+                builder.CloseRegion();
             }
         }
     }

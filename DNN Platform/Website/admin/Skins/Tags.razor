@@ -1,0 +1,112 @@
+@* Ported from tags.ascx / tags.ascx.cs / tags.ascx.designer.cs — the dnn:TAGS skin object.
+
+   The .ascx hosted <dnn:tags runat="server"> (DotNetNuke.Web.UI.WebControls.Tags) and the
+   code-behind only configured it, so the conversion renders that control — which is already a
+   DnnComponentBase component with [Parameter] properties — and passes the identical values.
+   ObjectType "Page" binds the active tab as the content item, anything else binds the module
+   configuration of the hosting module control, exactly as before; AllowTagging still requires an
+   authenticated request, and the tag links still point at the portal search tab with Tag={0}.
+
+   Not superseded by Aperture: its README maps dnn:TAGS to "a tag-list component fed by host state"
+   that the theme never instantiated and does not ship, so the platform skin object is converted
+   here.
+*@
+@namespace DotNetNuke.UI.Skins.Controls
+@inherits DotNetNuke.UI.Skins.SkinObjectBase
+
+@using System
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Common
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Entities.Icons
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.DependencyInjection
+@using Globals = DotNetNuke.Common.Globals
+
+@if (this.Visible)
+{
+    <DotNetNuke.Web.UI.WebControls.Tags ID="tagsControl"
+                                        ContentItem="@this.contentItem"
+                                        AddImageUrl="@this.AddImageUrl"
+                                        CancelImageUrl="@this.CancelImageUrl"
+                                        SaveImageUrl="@this.SaveImageUrl"
+                                        CssClass="@this.CssClass"
+                                        AllowTagging="@this.allowTagging"
+                                        NavigateUrlFormatString="@this.navigateUrlFormatString"
+                                        RepeatDirection="@this.RepeatDirection"
+                                        Separator="@this.Separator"
+                                        ShowCategories="@this.ShowCategories"
+                                        ShowTags="@this.ShowTags" />
+}
+
+@code {
+    private const string MyFileName = "Tags.ascx";
+
+    private INavigationManager navigationManager;
+
+    private DotNetNuke.Entities.Content.ContentItem contentItem;
+    private bool allowTagging;
+    private string navigateUrlFormatString = string.Empty;
+
+    /// <summary>Gets or sets the URL of the add image.</summary>
+    [Parameter]
+    public string AddImageUrl { get; set; } = IconController.IconURL("Add");
+
+    /// <summary>Gets or sets a value indicating whether to allow tagging.</summary>
+    [Parameter]
+    public bool AllowTagging { get; set; } = true;
+
+    /// <summary>Gets or sets the URL of the cancel image.</summary>
+    [Parameter]
+    public string CancelImageUrl { get; set; } = IconController.IconURL("Lt");
+
+    /// <summary>Gets or sets the type of object the tags belong to.</summary>
+    [Parameter]
+    public string ObjectType { get; set; } = "Page";
+
+    /// <summary>Gets or sets the repeat direction.</summary>
+    [Parameter]
+    public string RepeatDirection { get; set; } = "Horizontal";
+
+    /// <summary>Gets or sets the URL of the save image.</summary>
+    [Parameter]
+    public string SaveImageUrl { get; set; } = IconController.IconURL("Save");
+
+    /// <summary>Gets or sets the separator rendered between the tags.</summary>
+    [Parameter]
+    public string Separator { get; set; } = ",&nbsp;";
+
+    /// <summary>Gets or sets a value indicating whether to show categories.</summary>
+    [Parameter]
+    public bool ShowCategories { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether to show tags.</summary>
+    [Parameter]
+    public bool ShowTags { get; set; } = true;
+
+    /// <inheritdoc />
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.navigationManager ??= Globals.GetCurrentServiceProvider().GetRequiredService<INavigationManager>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        if (this.ObjectType == "Page")
+        {
+            this.contentItem = this.PortalSettings.ActiveTab;
+        }
+        else
+        {
+            this.contentItem = this.ModuleControl.ModuleContext.Configuration;
+        }
+
+        this.allowTagging = this.AllowTagging && this.Request.IsAuthenticated();
+        this.navigateUrlFormatString = this.navigationManager.NavigateURL(this.PortalSettings.SearchTabId, string.Empty, "Tag={0}");
+    }
+}

@@ -6,7 +6,6 @@ namespace DotNetNuke.Services.Syndication
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Web;
     using System.Xml;
 
     /// <summary>A helper class for handling RSS XML.</summary>
@@ -168,7 +167,7 @@ namespace DotNetNuke.Services.Syndication
         {
             if (!string.IsNullOrEmpty(link) && link.StartsWith("~/", StringComparison.Ordinal))
             {
-                HttpContext context = HttpContext.Current;
+                var context = SyndicationRequestContext.TryGetHttpContext();
 
                 if (context != null)
                 {
@@ -181,8 +180,13 @@ namespace DotNetNuke.Services.Syndication
                         link = link.Substring(0, iquery);
                     }
 
-                    link = VirtualPathUtility.ToAbsolute(link);
-                    link = new Uri(context.Request.Url, link).ToString();
+                    // resolve the application-relative path against the request's path base
+                    // (the ASP.NET Core equivalent of VirtualPathUtility.ToAbsolute) and then
+                    // make it absolute against the current request's scheme and host.
+                    var request = context.Request;
+                    var pathBase = request.PathBase.HasValue ? request.PathBase.Value.TrimEnd('/') : string.Empty;
+                    link = $"{pathBase}/{link.Substring(2).TrimStart('/')}";
+                    link = new Uri(new Uri($"{request.Scheme}://{request.Host.ToUriComponent()}"), link).ToString();
 
                     if (iquery >= 0)
                     {

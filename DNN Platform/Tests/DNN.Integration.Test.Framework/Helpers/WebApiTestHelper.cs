@@ -6,6 +6,7 @@ namespace DNN.Integration.Test.Framework.Helpers
     using System;
     using System.Collections.Generic;
     using System.Net;
+    using System.Net.Http;
     using System.Security.Cryptography;
     using System.Text;
     using System.Threading.Tasks;
@@ -72,7 +73,7 @@ WHERE tm.TabID = {tabId} AND md.FriendlyName = '{moduleName}'");
 
         /// <summary>Register a user by using the Registration form.</summary>
         /// <returns></returns>
-        public static HttpWebResponse Register(string userName, string password, string displayName, string email,
+        public static HttpResponseMessage Register(string userName, string password, string displayName, string email,
             string url = null, bool encriptFieldsNames = true)
         {
             const string registerRelativeUrl = "/Register";
@@ -282,7 +283,22 @@ WHERE tm.TabID = {tabId} AND md.FriendlyName = '{moduleName}'");
 
         private static string GenerateHash(this string str, string hashType)
         {
-            var hasher = HashAlgorithm.Create(hashType);
+            // HashAlgorithm.Create(string) is obsolete (SYSLIB0045); map the supported algorithm
+            // names onto the parameterless factory methods instead.
+            HashAlgorithm hasher;
+            switch (hashType)
+            {
+                case "SHA256":
+                    hasher = SHA256.Create();
+                    break;
+                case "MD5":
+                    hasher = MD5.Create();
+                    break;
+                default:
+                    hasher = null;
+                    break;
+            }
+
             if (hasher == null)
             {
                 throw new InvalidOperationException("No hashing type found by name " + hashType);

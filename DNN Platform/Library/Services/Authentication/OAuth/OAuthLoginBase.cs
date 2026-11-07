@@ -5,10 +5,20 @@ namespace DotNetNuke.Services.Authentication.OAuth
 {
     using System;
     using System.Collections.Specialized;
-    using System.Web;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Common;
 
+    using Microsoft.AspNetCore.Http;
+
+    /// <summary>A base Blazor component for OAuth login components.</summary>
+    /// <remarks>
+    /// On WebForms the OAuth round-trip ran from <c>OnLoad</c> behind an <c>IsPostBack</c> check.
+    /// In Blazor the equivalent "first time this component runs for this request" hook is
+    /// <see cref="OnInitializedAsync"/>, which is also the only place where
+    /// <c>HttpContext</c> is guaranteed to be available (it is <see langword="null"/> once the
+    /// SignalR circuit takes over).
+    /// </remarks>
     public abstract class OAuthLoginBase : AuthenticationLoginBase
     {
         /// <inheritdoc />
@@ -24,28 +34,32 @@ namespace DotNetNuke.Services.Authentication.OAuth
 
         protected OAuthClientBase OAuthClient { get; set; }
 
-        protected abstract UserData GetCurrentUser();
+        /// <summary>Gets the current user's data from the OAuth provider.</summary>
+        /// <returns>The user data.</returns>
+        protected abstract Task<UserData> GetCurrentUserAsync();
 
         protected virtual void AddCustomProperties(NameValueCollection properties)
         {
         }
 
         /// <inheritdoc />
-        protected override void OnLoad(EventArgs e)
+        protected override async Task OnInitializedAsync()
         {
-            base.OnLoad(e);
+            await base.OnInitializedAsync();
 
-            if (!this.IsPostBack)
-            {
-                // Save the return Url in the cookie
-                HttpContext.Current.Response.Cookies.Set(new HttpCookie("returnurl", this.RedirectURL)
+            // Save the return Url in the cookie. This must happen while the HTTP response is
+            // still open, i.e. during the initial (static) render — never from an event handler.
+            var response = HttpContextSource.Current?.Response;
+            response?.Cookies.Append(
+                "returnurl",
+                this.RedirectURL ?? string.Empty,
+                new CookieOptions
                 {
-                    Expires = DateTime.Now.AddMinutes(5),
+                    Expires = DateTimeOffset.Now.AddMinutes(5),
                     Path = !string.IsNullOrEmpty(Globals.ApplicationPath) ? Globals.ApplicationPath : "/",
                 });
-            }
 
-            bool shouldAuthorize = this.OAuthClient.IsCurrentService() && this.OAuthClient.HaveVerificationCode();
+            var shouldAuthorize = this.OAuthClient.IsCurrentService() && this.OAuthClient.HaveVerificationCode();
             if (this.Mode == AuthMode.Login)
             {
                 shouldAuthorize = shouldAuthorize || this.OAuthClient.IsCurrentUserAuthorized();
@@ -53,9 +67,14 @@ namespace DotNetNuke.Services.Authentication.OAuth
 
             if (shouldAuthorize)
             {
-                if (this.OAuthClient.Authorize() == AuthorisationResult.Authorized)
+                if (await this.OAuthClient.AuthorizeAsync() == AuthorisationResult.Authorized)
                 {
-                    this.OAuthClient.AuthenticateUser(this.GetCurrentUser(), this.PortalSettings, this.IPAddress, this.AddCustomProperties, this.OnUserAuthenticated);
+                    await this.OAuthClient.AuthenticateUserAsync(
+                        await this.GetCurrentUserAsync(),
+                        this.PortalSettings,
+                        this.IPAddress,
+                        this.AddCustomProperties,
+                        this.OnUserAuthenticated);
                 }
             }
         }

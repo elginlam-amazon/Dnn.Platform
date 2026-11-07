@@ -5,9 +5,7 @@ namespace DotNetNuke.Common.Utilities
 {
     using System.Globalization;
     using System.Text;
-    using System.Web;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Text.Encodings.Web;
 
     using DotNetNuke.Services.Localization;
     using DotNetNuke.UI.Utilities;
@@ -15,9 +13,9 @@ namespace DotNetNuke.Common.Utilities
     public class Calendar
     {
         /// <summary>Opens a popup Calendar.</summary>
-        /// <param name="field">TextBox to return the date value.</param>
+        /// <param name="field">The control to return the date value to (was a <c>System.Web.UI.WebControls.TextBox</c>).</param>
         /// <returns>A JavaScript URL.</returns>
-        public static string InvokePopupCal(TextBox field)
+        public static string InvokePopupCal(IClientApiControl field)
         {
             // Define character array to trim from language strings
             char[] trimChars = { ',', ' ' };
@@ -44,10 +42,10 @@ namespace DotNetNuke.Common.Utilities
 
             // Get the short date pattern for the culture
             string formatString = DateTimeFormatInfo.CurrentInfo.ShortDatePattern;
-            if (!field.Page.ClientScript.IsClientScriptIncludeRegistered("PopupCalendar.js"))
-            {
-                ScriptManager.RegisterClientScriptInclude(field.Page, field.Page.GetType(), "PopupCalendar.js", ClientAPI.ScriptPath + "PopupCalendar.js");
-            }
+
+            // Was: if (!field.Page.ClientScript.IsClientScriptIncludeRegistered(...)) ScriptManager.RegisterClientScriptInclude(...).
+            // Registration is keyed, so registering is already once-per-page and the guard is redundant.
+            field?.Page?.RegisterClientScriptInclude("PopupCalendar.js", ClientAPI.ScriptPath + "PopupCalendar.js");
 
             string strToday = ClientAPI.GetSafeJSString(Localization.GetString("Today"));
             string strClose = ClientAPI.GetSafeJSString(Localization.GetString("Close"));
@@ -56,13 +54,13 @@ namespace DotNetNuke.Common.Utilities
                 string.Format(
                     CultureInfo.InvariantCulture,
                     "javascript:popupCal('Cal','{0}','{1}','{2}','{3}','{4}','{5}','{6}',{7});",
-                    HttpUtility.JavaScriptStringEncode(field.ClientID),
-                    HttpUtility.JavaScriptStringEncode(formatString),
-                    HttpUtility.JavaScriptStringEncode(monthNameString),
-                    HttpUtility.JavaScriptStringEncode(dayNameString),
-                    HttpUtility.JavaScriptStringEncode(strToday),
-                    HttpUtility.JavaScriptStringEncode(strClose),
-                    HttpUtility.JavaScriptStringEncode(strCalendar),
+                    JavaScriptEncoder.Default.Encode(field?.ClientId),
+                    JavaScriptEncoder.Default.Encode(formatString),
+                    JavaScriptEncoder.Default.Encode(monthNameString),
+                    JavaScriptEncoder.Default.Encode(dayNameString),
+                    JavaScriptEncoder.Default.Encode(strToday),
+                    JavaScriptEncoder.Default.Encode(strClose),
+                    JavaScriptEncoder.Default.Encode(strCalendar),
                     (int)DateTimeFormatInfo.CurrentInfo.FirstDayOfWeek);
         }
     }

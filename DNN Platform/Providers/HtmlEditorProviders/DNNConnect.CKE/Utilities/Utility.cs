@@ -11,14 +11,13 @@ namespace DNNConnect.CKEditorProvider.Utilities
     using System.Linq;
     using System.Text;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.Configuration;
-    using System.Web.UI;
 
     using DNNConnect.CKEditorProvider.Constants;
 
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Extensions;
+    using DotNetNuke.Common.Options;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
@@ -360,7 +359,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
                 return true;
             }
 
-            var context = HttpContext.Current;
+            var isRequestAuthenticated = HttpContextSource.Current?.Request.IsAuthenticated() == true;
 
             foreach (var role in roles.Split(';').Where(role => !string.IsNullOrEmpty(role)))
             {
@@ -368,7 +367,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
                 {
                     var denyRole = role.Replace("!", string.Empty);
 
-                    if ((!context.Request.IsAuthenticated && denyRole.Equals(Globals.glbRoleUnauthUserName)) || denyRole.Equals(Globals.glbRoleAllUsersName) ||
+                    if ((!isRequestAuthenticated && denyRole.Equals(Globals.glbRoleUnauthUserName)) || denyRole.Equals(Globals.glbRoleAllUsersName) ||
                         objUserInfo.IsInRole(denyRole))
                     {
                         break;
@@ -383,7 +382,7 @@ namespace DNNConnect.CKEditorProvider.Utilities
                         break;
                     }
 
-                    if ((context.Request.IsAuthenticated || !role.Equals(Globals.glbRoleUnauthUserName))
+                    if ((isRequestAuthenticated || !role.Equals(Globals.glbRoleUnauthUserName))
                         && !role.Equals(Globals.glbRoleAllUsersName) && !objUserInfo.IsInRole(role))
                     {
                         continue;
@@ -397,51 +396,6 @@ namespace DNNConnect.CKEditorProvider.Utilities
             return isInRoles;
         }
 
-        /// <summary>Finds the control.</summary>
-        /// <typeparam name="T">The Control Type.</typeparam>
-        /// <param name="startingControl">The starting control.</param>
-        /// <param name="id">The <paramref name="id"/>.</param>
-        /// <returns>Returns the Control.</returns>
-        public static T FindControl<T>(Control startingControl, string id)
-            where T : Control
-        {
-            // this is null by default
-            T found = null;
-
-            int controlCount = startingControl.Controls.Count;
-
-            if (controlCount > 0)
-            {
-                for (int i = 0; i < controlCount; i++)
-                {
-                    Control activeControl = startingControl.Controls[i];
-
-                    if (activeControl is T)
-                    {
-                        found = startingControl.Controls[i] as T;
-
-                        if (found.ID.Contains(id, StringComparison.OrdinalIgnoreCase))
-                        {
-                            break;
-                        }
-
-                        found = null;
-                    }
-                    else
-                    {
-                        found = FindControl<T>(activeControl, id);
-
-                        if (found != null)
-                        {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            return found;
-        }
-
         /// <summary>Gets the size of the max upload.</summary>
         /// <param name="inkilobytes">if set to <see langword="true"/> Returns Value as kilobyte otherwise as byte.</param>
         /// <returns>
@@ -453,10 +407,9 @@ namespace DNNConnect.CKEditorProvider.Utilities
 
             try
             {
-                var section =
-                    HttpContext.Current.GetSection("system.web/httpRuntime") as
-                    HttpRuntimeSection;
-                result = section.MaxRequestLength;
+                // The web.config <system.web><httpRuntime maxRequestLength="..." /> value (in
+                // kilobytes) now lives in HttpRuntimeOptions on modern .NET.
+                result = ConfigurationSource.GetOptions<HttpRuntimeOptions>(HttpRuntimeOptions.SectionName).MaxRequestLength;
             }
             catch (Exception)
             {
@@ -464,6 +417,42 @@ namespace DNNConnect.CKEditorProvider.Utilities
             }
 
             return inkilobytes ? result : (result * 1024);
+        }
+
+        /// <summary>
+        /// Escapes a string the same way the ECMAScript <c>escape()</c> function does (the former
+        /// <c>Microsoft.JScript.GlobalObject.escape</c>), which the CKEditor client scripts
+        /// un-escape with <c>unescape()</c>.
+        /// </summary>
+        /// <param name="value">The value to escape.</param>
+        /// <returns>The escaped value.</returns>
+        public static string JavaScriptEscape(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            const string UnreservedChars = "@*_+-./";
+            var builder = new StringBuilder(value.Length);
+
+            foreach (var character in value)
+            {
+                if (char.IsAsciiLetterOrDigit(character) || UnreservedChars.IndexOf(character) > -1)
+                {
+                    builder.Append(character);
+                }
+                else if (character < 256)
+                {
+                    builder.AppendFormat(CultureInfo.InvariantCulture, "%{0:X2}", (int)character);
+                }
+                else
+                {
+                    builder.AppendFormat(CultureInfo.InvariantCulture, "%u{0:X4}", (int)character);
+                }
+            }
+
+            return builder.ToString();
         }
 
         /// <summary>Converts the enum value for Link Protocol to the string value used for CKE config.</summary>
@@ -524,11 +513,6 @@ namespace DNNConnect.CKEditorProvider.Utilities
             {
                 return false;
             }
-        }
-
-        private static bool Contains(this string @this, string value, StringComparison comparisonType)
-        {
-            return @this.IndexOf(value, comparisonType) > -1;
         }
     }
 }

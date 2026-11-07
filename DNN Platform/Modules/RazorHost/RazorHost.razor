@@ -1,0 +1,20 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@inherits DotNetNuke.Web.Razor.RazorModuleBase
+@implements DotNetNuke.Entities.Modules.IActionable
+
+@*
+    Replaces RazorHost.ascx, whose whole content was the single <%@ Control %> directive: this view
+    control has no markup of its own. The rendered output is produced by RazorModuleBase, which runs
+    RazorEngine.Render(writer) over RazorScriptFile (see RazorHost.razor.cs) during the load phase
+    and appends the result to this component's Controls collection as a DnnLiteralControl.
+
+    A .razor file overrides BuildRenderTree, which is where DnnComponentBase renders that Controls
+    collection, so the body below renders it back through the base's RenderContents - otherwise the
+    script output of the original control would never reach the page.
+*@
+@if (this.Visible)
+{
+    @this.RenderedScriptOutput
+}

@@ -4,13 +4,17 @@
 
 namespace DotNetNuke.Tests.Web.Mvc.Routing
 {
-    using System.Web;
-
     using DotNetNuke.Web.Mvc.Framework.Modules;
     using DotNetNuke.Web.Mvc.Routing;
-    using Moq;
+
+    using Microsoft.AspNetCore.Http;
+
     using NUnit.Framework;
 
+    /// <summary>
+    /// Tests the <see cref="HttpContextExtensions"/> module-request-result accessors, which now extend
+    /// the ASP.NET Core <see cref="HttpContext"/> instead of the removed MVC 5 abstract context base class.
+    /// </summary>
     [TestFixture]
     public class HttpContextExtensionsTests
     {
@@ -46,7 +50,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Routing
         public void HasModuleRequestResult_Returns_True_If_Present()
         {
             // Arrange
-            HttpContextBase httpContext = MockHelper.CreateMockHttpContext();
+            HttpContext httpContext = MockHelper.CreateMockHttpContext();
             var expectedResult = new ModuleRequestResult();
             httpContext.Items[HttpContextExtensions.ModuleRequestResultKey] = expectedResult;
 
@@ -58,7 +62,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Routing
         public void HasModuleRequestResult_Returns_False_If_Not_Present()
         {
             // Arrange
-            HttpContextBase httpContext = MockHelper.CreateMockHttpContext();
+            HttpContext httpContext = MockHelper.CreateMockHttpContext();
 
             // Act and Assert
             Assert.That(httpContext.HasModuleRequestResult(), Is.False);
@@ -68,7 +72,7 @@ namespace DotNetNuke.Tests.Web.Mvc.Routing
         public void SetModuleRequestResult_Sets_ModuleRequestResult()
         {
             // Arrange
-            HttpContextBase context = MockHelper.CreateMockHttpContext();
+            HttpContext context = MockHelper.CreateMockHttpContext();
             var expectedResult = new ModuleRequestResult();
 
             // Act

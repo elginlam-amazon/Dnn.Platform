@@ -29,6 +29,7 @@ public class IllegalRequestException : Exception
     }
 
     /// <inheritdoc />
+    [Obsolete("Formatter-based serialization is obsolete and should not be used. See https://aka.ms/dotnet-warnings/SYSLIB0051", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     protected IllegalRequestException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {

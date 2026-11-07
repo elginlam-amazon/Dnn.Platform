@@ -10,9 +10,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
 using System.Runtime.Serialization;
-using System.Web.Http;
 
 using DotNetNuke.Abstractions.Application;
 using DotNetNuke.Abstractions.Portals;
@@ -30,7 +28,7 @@ using DotNetNuke.Security.Permissions;
 using DotNetNuke.Services.FileSystem;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.Common;
-
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -91,14 +89,14 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="disabledNotSelectable">Whether disabled pages are not selectable.</param>
     /// <returns>A response with a list of <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage GetPageDescendants(string parentId = null, int sortOrder = 0, string searchText = "", int portalId = -1, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "", bool disabledNotSelectable = false)
+    public IActionResult GetPageDescendants(string parentId = null, int sortOrder = 0, string searchText = "", int portalId = -1, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "", bool disabledNotSelectable = false)
     {
         var response = new
         {
             Success = true,
             Items = this.GetPageDescendantsInternal(portalId, parentId, sortOrder, searchText, includeDisabled, includeAllTypes, includeActive, includeHostPages, roles, disabledNotSelectable),
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Gets the tree path for a page.</summary>
@@ -112,7 +110,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="roles">A semicolon-delimited list of role IDs.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage GetTreePathForPage(string itemId, int sortOrder = 0, int portalId = -1, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
+    public IActionResult GetTreePathForPage(string itemId, int sortOrder = 0, int portalId = -1, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
     {
         var response = new
         {
@@ -120,7 +118,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = this.GetTreePathForPageInternal(portalId, itemId, sortOrder, false, includeDisabled, includeAllTypes, includeActive, includeHostPages, roles),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Sort the given <paramref name="treeAsJson"/>.</summary>
@@ -135,7 +133,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="roles">A semicolon-delimited list of role IDs.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage SortPages(string treeAsJson, int sortOrder = 0, string searchText = "", int portalId = -1, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
+    public IActionResult SortPages(string treeAsJson, int sortOrder = 0, string searchText = "", int portalId = -1, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
     {
         var response = new
         {
@@ -144,7 +142,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
                         : this.SearchPagesInternal(portalId, searchText, sortOrder, includeDisabled, includeAllTypes, includeActive, includeHostPages, roles),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Sort the given <paramref name="treeAsJson"/> in portal group.</summary>
@@ -158,7 +156,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="roles">A semicolon-delimited list of role IDs.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage SortPagesInPortalGroup(string treeAsJson, int sortOrder = 0, string searchText = "", bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
+    public IActionResult SortPagesInPortalGroup(string treeAsJson, int sortOrder = 0, string searchText = "", bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
     {
         var response = new
         {
@@ -167,7 +165,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
                 : this.SearchPagesInPortalGroupInternal(treeAsJson, searchText, sortOrder, includeDisabled, includeAllTypes, includeActive, includeHostPages, roles),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Gets pages.</summary>
@@ -181,7 +179,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="disabledNotSelectable">Whether disabled pages are not selectable.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage GetPages(int sortOrder = 0, int portalId = -1, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "", bool disabledNotSelectable = false)
+    public IActionResult GetPages(int sortOrder = 0, int portalId = -1, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "", bool disabledNotSelectable = false)
     {
         var response = new
         {
@@ -189,14 +187,14 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = this.GetPagesInternal(portalId, sortOrder, includeDisabled, includeAllTypes, includeActive, includeHostPages, roles, disabledNotSelectable),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Gets pages in the current portal group.</summary>
     /// <param name="sortOrder"><c>1</c> for A-Z, <c>2</c> for Z-A, any other value for no sorting.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage GetPagesInPortalGroup(int sortOrder = 0)
+    public IActionResult GetPagesInPortalGroup(int sortOrder = 0)
     {
         var response = new
         {
@@ -204,7 +202,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = this.GetPagesInPortalGroupInternal(sortOrder),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Search pages.</summary>
@@ -218,7 +216,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="roles">A semicolon-delimited list of role IDs.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage SearchPages(string searchText, int sortOrder = 0, int portalId = -1, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
+    public IActionResult SearchPages(string searchText, int sortOrder = 0, int portalId = -1, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
     {
         var response = new
         {
@@ -227,7 +225,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
                 : this.SearchPagesInternal(portalId, searchText, sortOrder, includeDisabled, includeAllTypes, includeActive, includeHostPages, roles),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Gets descendants of a page in the current portal group.</summary>
@@ -241,25 +239,25 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="roles">A semicolon-delimited list of role IDs.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage GetPageDescendantsInPortalGroup(string parentId = null, int sortOrder = 0, string searchText = "", bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
+    public IActionResult GetPageDescendantsInPortalGroup(string parentId = null, int sortOrder = 0, string searchText = "", bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
     {
         var response = new
         {
             Success = true,
             Items = this.GetPageDescendantsInPortalGroupInternal(parentId, sortOrder, searchText, includeDisabled, includeAllTypes, includeActive, includeHostPages, roles),
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Gets the portals in the current portal group.</summary>
     /// <param name="sortOrder"><c>1</c> for A-Z, <c>2</c> for Z-A, any other value for no sorting.</param>
     /// <returns>A response with an object that has <c>sites</c> and <c>portalId</c> fields.</returns>
     [HttpGet]
-    public HttpResponseMessage GetPortalsInGroup(int sortOrder = 0)
+    public IActionResult GetPortalsInGroup(int sortOrder = 0)
     {
         var sites = this.GetPortalGroup(sortOrder);
         var portalId = this.PortalSettings.PortalId;
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { sites, portalId });
+        return DnnApiResults.Response(HttpStatusCode.OK, new { sites, portalId });
     }
 
     /// <summary>Gets the tree path for a page in the current portal group.</summary>
@@ -272,7 +270,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="roles">A semicolon-delimited list of role IDs.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage GetTreePathForPageInPortalGroup(string itemId, int sortOrder = 0, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
+    public IActionResult GetTreePathForPageInPortalGroup(string itemId, int sortOrder = 0, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
     {
         var response = new
         {
@@ -280,7 +278,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = this.GetTreePathForPageInternal(itemId, sortOrder, true, includeDisabled, includeAllTypes, includeActive, includeHostPages, roles),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Search pages in the current portal group.</summary>
@@ -293,7 +291,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="roles">A semicolon-delimited list of role IDs.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage SearchPagesInPortalGroup(string searchText, int sortOrder = 0, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
+    public IActionResult SearchPagesInPortalGroup(string searchText, int sortOrder = 0, bool includeDisabled = false, bool includeAllTypes = false, bool includeActive = true, bool includeHostPages = false, string roles = "")
     {
         var response = new
         {
@@ -302,7 +300,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
                 : this.SearchPagesInPortalGroupInternal(searchText, sortOrder, includeDisabled, includeAllTypes, includeActive, includeHostPages, roles),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Gets folder descendants.</summary>
@@ -313,14 +311,14 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="portalId">The portal ID.</param>
     /// <returns>A response with an object that has an <c>Items</c> fields that's a list of <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage GetFolderDescendants(string parentId = null, int sortOrder = 0, string searchText = "", string permission = null, int portalId = -1)
+    public IActionResult GetFolderDescendants(string parentId = null, int sortOrder = 0, string searchText = "", string permission = null, int portalId = -1)
     {
         var response = new
         {
             Success = true,
             Items = this.GetFolderDescendantsInternal(portalId, parentId, sortOrder, searchText, permission),
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Get folders.</summary>
@@ -330,7 +328,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="parentFolderId">The parent folder ID.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage GetFolders(int sortOrder = 0, string permission = null, int portalId = -1, int parentFolderId = -1)
+    public IActionResult GetFolders(int sortOrder = 0, string permission = null, int portalId = -1, int parentFolderId = -1)
     {
         var response = new
         {
@@ -338,7 +336,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = this.GetFoldersInternal(portalId, sortOrder, permission, parentFolderId),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Sorts the folder in <paramref name="treeAsJson"/>.</summary>
@@ -349,7 +347,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="portalId">The portal ID.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage SortFolders(string treeAsJson, int sortOrder = 0, string searchText = "", string permission = null, int portalId = -1)
+    public IActionResult SortFolders(string treeAsJson, int sortOrder = 0, string searchText = "", string permission = null, int portalId = -1)
     {
         var response = new
         {
@@ -357,7 +355,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = string.IsNullOrEmpty(searchText) ? this.SortFoldersInternal(portalId, treeAsJson, sortOrder, permission) : this.SearchFoldersInternal(portalId, searchText, sortOrder, permission),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Get the tree path for a folder.</summary>
@@ -367,7 +365,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="portalId">The portal ID.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage GetTreePathForFolder(string itemId, int sortOrder = 0, string permission = null, int portalId = -1)
+    public IActionResult GetTreePathForFolder(string itemId, int sortOrder = 0, string permission = null, int portalId = -1)
     {
         var response = new
         {
@@ -375,7 +373,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = this.GetTreePathForFolderInternal(itemId, sortOrder, permission),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Search folders.</summary>
@@ -385,7 +383,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="portalId">The portal ID.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage SearchFolders(string searchText, int sortOrder = 0, string permission = null, int portalId = -1)
+    public IActionResult SearchFolders(string searchText, int sortOrder = 0, string permission = null, int portalId = -1)
     {
         var response = new
         {
@@ -393,7 +391,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = string.IsNullOrEmpty(searchText) ? this.GetFoldersInternal(portalId, sortOrder, permission) : this.SearchFoldersInternal(portalId, searchText, sortOrder, permission),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Gets the files.</summary>
@@ -404,7 +402,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="portalId">The portal ID.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage GetFiles(int parentId, string filter, int sortOrder = 0, string permission = null, int portalId = -1)
+    public IActionResult GetFiles(int parentId, string filter, int sortOrder = 0, string permission = null, int portalId = -1)
     {
         var response = new
         {
@@ -412,7 +410,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = this.GetFilesInternal(portalId, parentId, filter, string.Empty, sortOrder, permission),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Sort the files.</summary>
@@ -424,7 +422,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="portalId">The portal ID.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage SortFiles(int parentId, string filter, int sortOrder = 0, string searchText = "", string permission = null, int portalId = -1)
+    public IActionResult SortFiles(int parentId, string filter, int sortOrder = 0, string searchText = "", string permission = null, int portalId = -1)
     {
         var response = new
         {
@@ -432,7 +430,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = string.IsNullOrEmpty(searchText) ? this.SortFilesInternal(portalId, parentId, filter, sortOrder, permission) : this.GetFilesInternal(portalId, parentId, filter, searchText, sortOrder, permission),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Search files.</summary>
@@ -444,7 +442,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="portalId">The portal ID.</param>
     /// <returns>A response with an object with a <c>Tree</c> field containing <see cref="ItemDto"/> objects.</returns>
     [HttpGet]
-    public HttpResponseMessage SearchFiles(int parentId, string filter, string searchText, int sortOrder = 0, string permission = null, int portalId = -1)
+    public IActionResult SearchFiles(int parentId, string filter, string searchText, int sortOrder = 0, string permission = null, int portalId = -1)
     {
         var response = new
         {
@@ -452,14 +450,14 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             Tree = this.GetFilesInternal(portalId, parentId, filter, searchText, sortOrder, permission),
             IgnoreRoot = true,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return DnnApiResults.Response(HttpStatusCode.OK, response);
     }
 
     /// <summary>Search users.</summary>
     /// <param name="q">The search criteria.</param>
     /// <returns>A response with a list of results (containing <c>id</c>, <c>name</c>, and <c>iconfile</c> fields) or <c>null</c> if there was no search query.</returns>
     [HttpGet]
-    public HttpResponseMessage SearchUser(string q)
+    public IActionResult SearchUser(string q)
     {
         try
         {
@@ -470,7 +468,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             q = q.Replace(",", string.Empty).Replace("'", string.Empty);
             if (q.Length == 0)
             {
-                return this.Request.CreateResponse<object>(HttpStatusCode.OK, null);
+                return DnnApiResults.Response(HttpStatusCode.OK, null);
             }
 
             var results = UserController.Instance.GetUsersBasicSearch(portalId, 0, numResults, "DisplayName", true, "DisplayName", q)
@@ -481,12 +479,12 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
                     iconfile = UserController.Instance.GetUserProfilePictureUrl(user.UserID, 32, 32),
                 }).ToList();
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, results.OrderBy(sr => sr.name));
+            return DnnApiResults.Response(HttpStatusCode.OK, results.OrderBy(sr => sr.name));
         }
         catch (Exception exc)
         {
             Logger.ItemListServiceControllerSearchUserException(exc);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, exc);
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, exc);
         }
     }
 
@@ -496,7 +494,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
     /// <param name="includeTags">Whether to include terms from the tags vocabulary.</param>
     /// <returns>A response with a list of objects with <c>text</c> and <c>value</c> fields.</returns>
     [HttpGet]
-    public HttpResponseMessage GetTerms(string q, bool includeSystem, bool includeTags)
+    public IActionResult GetTerms(string q, bool includeSystem, bool includeTags)
     {
         var portalId = PortalSettings.Current.PortalId;
 
@@ -518,7 +516,7 @@ public class ItemListServiceController(IHostSettings hostSettings, DataProvider 
             });
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, terms);
+        return DnnApiResults.Response(HttpStatusCode.OK, terms);
     }
 
     private static List<ItemDto> GetChildrenOf(IEnumerable<TabInfo> tabs, int parentId, List<int> filterTabs = null)

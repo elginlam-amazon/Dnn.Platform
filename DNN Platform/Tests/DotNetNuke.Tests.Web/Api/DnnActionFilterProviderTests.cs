@@ -3,19 +3,22 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Tests.Web.Api
 {
-    using System;
-    using System.Collections.ObjectModel;
+    using System.Collections.Generic;
     using System.Linq;
-    using System.Web.Http;
-    using System.Web.Http.Controllers;
-    using System.Web.Http.Filters;
+    using System.Reflection;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Tests.Utilities.Mocks;
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
 
-    using Moq;
+    using Microsoft.AspNetCore.Authorization;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Authorization;
+    using Microsoft.AspNetCore.Mvc.Controllers;
+    using Microsoft.AspNetCore.Mvc.Filters;
+    using Microsoft.AspNetCore.Routing;
 
     using NUnit.Framework;
 
@@ -38,72 +41,88 @@ namespace DotNetNuke.Tests.Web.Api
         public void RequiresHostAttributeAddedWhenNoOtherActionFiltersPresent()
         {
             // Arrange
-            var adMock = new Mock<HttpActionDescriptor>();
-            adMock.Setup(ad => ad.GetFilters()).Returns(new Collection<IFilter>());
-
-            var cdMock = new Mock<HttpControllerDescriptor>();
-            cdMock.Setup(cd => cd.GetFilters()).Returns(new Collection<IFilter>());
-
-            HttpActionDescriptor actionDescriptor = adMock.Object;
-            actionDescriptor.ControllerDescriptor = cdMock.Object;
-
-            var configuration = new HttpConfiguration();
+            var context = CreateProviderContext();
 
             // Act
-            var filterProvider = new DnnActionFilterProvider(Mock.Of<IServiceProvider>());
-            var filters = filterProvider.GetFilters(configuration, actionDescriptor).ToList();
+            var filterProvider = new DnnActionFilterProvider();
+            filterProvider.OnProvidersExecuting(context);
+            filterProvider.OnProvidersExecuted(context);
+            var filters = context.Results.ToList();
 
             // Assert
             Assert.That(filters, Has.Count.EqualTo(1));
-            Assert.That(filters.First().Instance, Is.InstanceOf<RequireHostAttribute>());
+            Assert.That(filters.First().Filter, Is.InstanceOf<RequireHostAttribute>());
         }
 
         [Test]
         public void RequiresHostAttributeNotAddedWhenAnOverrideAuthFilterPresent()
         {
             // Arrange
-            var adMock = new Mock<HttpActionDescriptor>();
-            adMock.Setup(ad => ad.GetFilters()).Returns(new Collection<IFilter>(new[] { new DnnAuthorizeAttribute() }));
-
-            var cdMock = new Mock<HttpControllerDescriptor>();
-            cdMock.Setup(cd => cd.GetFilters()).Returns(new Collection<IFilter>());
-
-            HttpActionDescriptor actionDescriptor = adMock.Object;
-            actionDescriptor.ControllerDescriptor = cdMock.Object;
-
-            var configuration = new HttpConfiguration();
+            var context = CreateProviderContext(new DnnAuthorizeAttribute());
 
             // Act
-            var filterProvider = new DnnActionFilterProvider(Mock.Of<IServiceProvider>());
-            var filters = filterProvider.GetFilters(configuration, actionDescriptor).ToList();
+            var filterProvider = new DnnActionFilterProvider();
+            filterProvider.OnProvidersExecuting(context);
+            filterProvider.OnProvidersExecuted(context);
+            var filters = context.Results.ToList();
 
             // Assert
             Assert.That(filters, Has.Count.EqualTo(1));
-            Assert.That(filters.First().Instance, Is.InstanceOf<DnnAuthorizeAttribute>());
+            Assert.That(filters.First().Filter, Is.InstanceOf<DnnAuthorizeAttribute>());
         }
 
         [Test]
         public void RequiresHostAttributeAddedWhenNoOverrideAuthFilterPresent()
         {
             // Arrange
-            var adMock = new Mock<HttpActionDescriptor>();
-            adMock.Setup(ad => ad.GetFilters()).Returns(new Collection<IFilter>(new[] { new AuthorizeAttribute() }));
-
-            var cdMock = new Mock<HttpControllerDescriptor>();
-            cdMock.Setup(cd => cd.GetFilters()).Returns(new Collection<IFilter>());
-
-            HttpActionDescriptor actionDescriptor = adMock.Object;
-            actionDescriptor.ControllerDescriptor = cdMock.Object;
-
-            var configuration = new HttpConfiguration();
+            // an authorization filter which is NOT an IOverrideDefaultAuthLevel
+            var context = CreateProviderContext(new AuthorizeFilter(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build()));
 
             // Act
-            var filterProvider = new DnnActionFilterProvider(Mock.Of<IServiceProvider>());
-            var filters = filterProvider.GetFilters(configuration, actionDescriptor).ToList();
+            var filterProvider = new DnnActionFilterProvider();
+            filterProvider.OnProvidersExecuting(context);
+            filterProvider.OnProvidersExecuted(context);
+            var filters = context.Results.ToList();
 
             // Assert
             Assert.That(filters, Has.Count.EqualTo(2));
-            Assert.That(filters.Last().Instance, Is.InstanceOf<RequireHostAttribute>());
+            Assert.That(filters.Last().Filter, Is.InstanceOf<RequireHostAttribute>());
+        }
+
+        /// <summary>
+        /// Creates the filter provider context. Replaces the Web API 2
+        /// <c>HttpActionDescriptor</c>/<c>HttpControllerDescriptor</c> mocks whose <c>GetFilters()</c> the
+        /// legacy provider called: the ASP.NET Core <see cref="IFilterProvider"/> is additive, so the
+        /// filters which were already discovered are seeded into <see cref="FilterProviderContext.Results"/>.
+        /// </summary>
+        /// <param name="filters">The filters already contributed by the MVC default filter provider.</param>
+        /// <returns>A <see cref="FilterProviderContext"/> for an action on a <see cref="DnnApiController"/>.</returns>
+        private static FilterProviderContext CreateProviderContext(params IFilterMetadata[] filters)
+        {
+            var actionDescriptor = new ControllerActionDescriptor
+            {
+                ActionName = "Index",
+                ControllerName = "Sample",
+                ControllerTypeInfo = typeof(SampleApiController).GetTypeInfo(),
+                MethodInfo = typeof(SampleApiController).GetMethod(nameof(SampleApiController.Index)),
+            };
+
+            var actionContext = new ActionContext(new DefaultHttpContext(), new RouteData(), actionDescriptor);
+            var items = new List<FilterItem>(
+                filters.Select(filter => new FilterItem(new FilterDescriptor(filter, FilterScope.Action), filter)));
+
+            return new FilterProviderContext(actionContext, items);
+        }
+
+        /// <summary>A controller used to represent an action within the DNN services framework.</summary>
+        internal class SampleApiController : DnnApiController
+        {
+            /// <summary>The action the filters are provided for.</summary>
+            /// <returns>An <see cref="IActionResult"/>.</returns>
+            public IActionResult Index()
+            {
+                return this.Ok();
+            }
         }
     }
 }

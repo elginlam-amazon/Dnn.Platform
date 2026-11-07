@@ -6,13 +6,12 @@ namespace DotNetNuke.Services.Log.EventLog
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Data.SqlClient;
+    using Microsoft.Data.SqlClient;
     using System.Globalization;
     using System.IO;
     using System.Linq;
     using System.Text;
     using System.Threading;
-    using System.Web;
     using System.Xml;
 
     using DotNetNuke.Abstractions.Application;
@@ -21,8 +20,11 @@ namespace DotNetNuke.Services.Log.EventLog
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Entities.Users;
+    using DotNetNuke.Common.Extensions;
     using DotNetNuke.Framework;
     using DotNetNuke.Instrumentation;
+
+    using Microsoft.AspNetCore.Http;
 
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
@@ -70,17 +72,20 @@ namespace DotNetNuke.Services.Log.EventLog
 
                     if (string.IsNullOrEmpty(logInfo.LogUserName))
                     {
-                        if (HttpContext.Current != null)
+                        var userNameContext = HttpContextSource.Current;
+                        if (userNameContext != null)
                         {
                             try
                             {
-                                if (HttpContext.Current.Request.IsAuthenticated)
+                                if (userNameContext.Request.IsAuthenticated())
                                 {
                                     logInfo.LogUserName = UserController.Instance.GetCurrentUserInfo().Username;
                                 }
                             }
-                            catch (HttpException exception)
+                            catch (BadHttpRequestException exception)
                             {
+                                // System.Web.HttpException is replaced by BadHttpRequestException on
+                                // ASP.NET Core; the request may not be readable at this point.
                                 Logger.LogControllerUnableToRetrieveRequestIgnoringLogUserName(exception);
                             }
                         }
@@ -367,13 +372,17 @@ namespace DotNetNuke.Services.Log.EventLog
         {
             Logger.LogControllerRaiseError(filePath, header, message);
 
-            if (HttpContext.Current != null)
+            var context = HttpContextSource.Current;
+            if (context != null)
             {
-                var response = HttpContext.Current.Response;
+                var response = context.Response;
                 HtmlUtils.WriteHeader(response, header);
                 HtmlUtils.WriteError(response, filePath, message);
                 HtmlUtils.WriteFooter(response);
-                response.End();
+
+                // Response.End() does not exist on ASP.NET Core; completing the response is the
+                // equivalent "stop writing and send what we have" operation.
+                response.CompleteAsync().GetAwaiter().GetResult();
             }
         }
 
@@ -421,10 +430,11 @@ namespace DotNetNuke.Services.Log.EventLog
 
                 if (fs == null)
                 {
-                    if (HttpContext.Current != null)
+                    var context = HttpContextSource.Current;
+                    if (context != null)
                     {
-                        HttpContext.Current.Response.Write("An error has occurred writing to the exception log.");
-                        HttpContext.Current.Response.End();
+                        context.Response.WriteAsync("An error has occurred writing to the exception log.").GetAwaiter().GetResult();
+                        context.Response.CompleteAsync().GetAwaiter().GetResult();
                     }
                 }
                 else

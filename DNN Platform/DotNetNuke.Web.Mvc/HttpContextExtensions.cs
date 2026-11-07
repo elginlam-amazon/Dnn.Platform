@@ -4,25 +4,26 @@
 
 namespace DotNetNuke.Web.Mvc.Routing
 {
-    using System.Web;
-
     using DotNetNuke.Web.Mvc.Framework.Modules;
+    using Microsoft.AspNetCore.Http;
 
     public static class HttpContextExtensions
     {
         public const string ModuleRequestResultKey = "Dnn_ModuleRequestResult";
 
-        public static ModuleRequestResult GetModuleRequestResult(this HttpContextBase context)
+        public static ModuleRequestResult GetModuleRequestResult(this HttpContext context)
         {
-            return context.Items[ModuleRequestResultKey] as ModuleRequestResult;
+            return context.Items.TryGetValue(ModuleRequestResultKey, out var value)
+                ? value as ModuleRequestResult
+                : null;
         }
 
-        public static bool HasModuleRequestResult(this HttpContextBase context)
+        public static bool HasModuleRequestResult(this HttpContext context)
         {
-            return (context.Items[ModuleRequestResultKey] as ModuleRequestResult) != null;
+            return context.GetModuleRequestResult() != null;
         }
 
-        public static void SetModuleRequestResult(this HttpContextBase context, ModuleRequestResult moduleRequestResult)
+        public static void SetModuleRequestResult(this HttpContext context, ModuleRequestResult moduleRequestResult)
         {
             context.Items[ModuleRequestResultKey] = moduleRequestResult;
         }

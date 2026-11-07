@@ -18,18 +18,10 @@
 // limitations under the License.
 // 
 
-// MONO 1.0 Beta mcs does not like #if !A && !B && !C syntax
-
-// netstandard doesn't support EventLog
-#if NET_2_0
-// .NET Compact Framework 1.0 has no support for EventLog
-#if !NETCF 
-// SSCLI 1.0 has no support for EventLog
-#if !SSCLI
-
 using System;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.Versioning;
 
 using log4net.Util;
 using log4net.Layout;
@@ -279,6 +271,16 @@ namespace log4net.Appender
                     this.m_securityContext = SecurityContextProvider.DefaultProvider.CreateSecurityContext(this);
                 }
 
+                if (!OperatingSystem.IsWindows())
+                {
+                    // The Windows event log does not exist on this platform. The appender stays
+                    // configured (so log4net configuration parsing never fails) but every event
+                    // log operation is a documented no-op; see Append.
+                    this.m_levelMapping.ActivateOptions();
+                    LogLog.Warn(declaringType, "EventLogAppender: the Windows event log is only available on Windows; this appender is a no-op on the current platform.");
+                    return;
+                }
+
                 bool sourceAlreadyExists = false;
                 string currentLogName = null;
 
@@ -341,17 +343,15 @@ namespace log4net.Appender
         /// Create an event log source
         /// </summary>
         /// <remarks>
-        /// Uses different API calls under NET_2_0
+        /// The Windows event log APIs are only available on Windows; callers must guard with
+        /// <see cref="OperatingSystem.IsWindows"/>.
         /// </remarks>
+        [SupportedOSPlatform("windows")]
         private static void CreateEventSource(string source, string logName, string machineName)
         {
-#if NET_2_0
             EventSourceCreationData eventSourceCreationData = new EventSourceCreationData(source, logName);
             eventSourceCreationData.MachineName = machineName;
             EventLog.CreateEventSource(eventSourceCreationData);
-#else
-            EventLog.CreateEventSource(source, logName, machineName);
-#endif
         }
 
         /// <summary>
@@ -372,6 +372,15 @@ namespace log4net.Appender
         /// </remarks>
         protected override void Append(LoggingEvent loggingEvent) 
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                // Documented no-op: there is no Windows event log on this platform.
+                // ActivateOptions already emitted a LogLog warning; warn again at debug volume
+                // only to avoid flooding the internal log on every event.
+                LogLog.Debug(declaringType, "EventLogAppender: dropping event, the Windows event log is not available on this platform.");
+                return;
+            }
+
             //
             // Write the resulting string to the event log system
             //
@@ -489,6 +498,7 @@ namespace log4net.Appender
         /// <see cref="Level"/> this is a one way mapping. There is
         /// a loss of information during the conversion.
         /// </remarks>
+        [SupportedOSPlatform("windows")]
         protected virtual EventLogEntryType GetEntryType(Level level)
         {
             // see if there is a specified lookup.
@@ -573,6 +583,7 @@ namespace log4net.Appender
             /// The <see cref="EventLogEntryType"/> for this entry
             /// </para>
             /// </remarks>
+            [SupportedOSPlatform("windows")]
             public EventLogEntryType EventLogEntryType
             {
                 get { return this.m_entryType; }
@@ -661,7 +672,3 @@ namespace log4net.Appender
         }
     }
 }
-
-#endif // !SSCLI
-#endif // !NETCF
-#endif // NET_2_0

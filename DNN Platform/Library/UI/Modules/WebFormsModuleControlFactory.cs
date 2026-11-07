@@ -3,9 +3,9 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.UI.Modules
 {
-    using System.Web.UI;
-
     using DotNetNuke.Entities.Modules;
+
+    using Microsoft.AspNetCore.Components;
 
     public class WebFormsModuleControlFactory : BaseModuleControlFactory
     {
@@ -19,19 +19,19 @@ namespace DotNetNuke.UI.Modules
         }
 
         /// <inheritdoc />
-        public override Control CreateControl(TemplateControl containerControl, string controlKey, string controlSrc)
+        public override IComponent CreateControl(IComponent containerControl, string controlKey, string controlSrc)
         {
-            return ControlUtilities.LoadControl<Control>(containerControl, controlSrc);
+            return ControlUtilities.LoadControl<IComponent>(containerControl, controlSrc);
         }
 
         /// <inheritdoc />
-        public override Control CreateModuleControl(TemplateControl containerControl, ModuleInfo moduleConfiguration)
+        public override IComponent CreateModuleControl(IComponent containerControl, ModuleInfo moduleConfiguration)
         {
             return this.CreateControl(containerControl, string.Empty, moduleConfiguration.ModuleControl.ControlSrc);
         }
 
         /// <inheritdoc />
-        public override Control CreateSettingsControl(TemplateControl containerControl, ModuleInfo moduleConfiguration, string controlSrc)
+        public override IComponent CreateSettingsControl(IComponent containerControl, ModuleInfo moduleConfiguration, string controlSrc)
         {
             return this.CreateControl(containerControl, string.Empty, controlSrc);
         }

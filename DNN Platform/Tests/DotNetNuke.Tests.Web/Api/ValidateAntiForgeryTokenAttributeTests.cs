@@ -4,24 +4,55 @@
 
 namespace DotNetNuke.Tests.Web.Api
 {
-    using System;
-    using System.Net.Http;
-    using System.Web.Http;
-    using System.Web.Http.Controllers;
-    using System.Web.Http.Routing;
+    using System.Collections.Generic;
+    using System.Net;
+    using System.Threading.Tasks;
 
+    using DotNetNuke.Abstractions.Portals;
+    using DotNetNuke.Entities.Portals;
+    using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Web.Api;
     using DotNetNuke.Web.Api.Internal;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Abstractions;
+    using Microsoft.AspNetCore.Mvc.Filters;
+    using Microsoft.AspNetCore.Routing;
+
     using Moq;
     using NUnit.Framework;
+
+    using ValidateAntiForgeryTokenAttribute = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
     [TestFixture]
     public class ValidateAntiForgeryTokenAttributeTests
     {
+        private FakeServiceProvider serviceProvider;
+
+        [SetUp]
+        public void SetUp()
+        {
+            // The unauthorized path builds its message through Localization, whose provider is
+            // constructed from the container (IHostSettings/IApplicationStatusInfo), so the fixture
+            // needs a service provider for the 401 path to be reachable at all.
+            this.serviceProvider = FakeServiceProvider.Setup();
+
+            // Localization also reads PortalSettings.Current and therefore PortalController.Instance.
+            // ServiceLocator caches its factory as a method group bound to whichever
+            // Globals.DependencyProvider was current when it was first created, so without a
+            // testable instance this fixture would reach a provider another fixture already disposed.
+            PortalController.SetTestableInstance(Mock.Of<IPortalController>());
+        }
+
         [TearDown]
         public void TearDown()
         {
             AntiForgery.ClearInstance();
+            PortalController.ClearInstance();
+
+            this.serviceProvider.Dispose();
+            this.serviceProvider = null;
         }
 
         [Test]
@@ -41,25 +72,23 @@ namespace DotNetNuke.Tests.Web.Api
         public void LocatesCookie(string cookieFormat, string cookieName, string cookieValue)
         {
             // Arrange
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/");
-            request.Headers.Add("Cookie", string.Format(cookieFormat, cookieName, cookieValue));
-            request.Headers.Add("RequestVerificationToken", "anything_is_fine");
-            var config = new HttpConfiguration();
-            var controllerContext = new HttpControllerContext(config, new HttpRouteData(new HttpRoute()), request);
-            var actionContext = new HttpActionContext(controllerContext, new Mock<HttpActionDescriptor>().Object);
+            var actionContext = CreateActionContext(
+                string.Format(cookieFormat, cookieName, cookieValue),
+                "anything_is_fine");
             var authFilterContext = new AuthFilterContext(actionContext, string.Empty);
             var mockAntiForgery = new Mock<IAntiForgery>();
             mockAntiForgery.Setup(x => x.CookieName).Returns(cookieName);
+            mockAntiForgery.Setup(x => x.ValidateAsync(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
             AntiForgery.SetTestableInstance(mockAntiForgery.Object);
 
             // Act
             var vaft = new ValidateAntiForgeryTokenAttribute();
 
             // Assert.IsTrue(ValidateAntiForgeryTokenAttribute.IsAuthorized(authFilterContext));
-            Assert.DoesNotThrow(() => { vaft.OnActionExecuting(authFilterContext.ActionContext); });
+            Assert.DoesNotThrowAsync(() => vaft.OnAuthorizationAsync(authFilterContext.ActionContext));
 
             // Assert
-            mockAntiForgery.Verify(x => x.Validate(cookieValue, It.IsAny<string>()), Times.Once());
+            mockAntiForgery.Verify(x => x.ValidateAsync(cookieValue, It.IsAny<string>()), Times.Once());
         }
 
         [Test]
@@ -67,21 +96,61 @@ namespace DotNetNuke.Tests.Web.Api
         public void MissingTokenDoesnotPassValidationTest(string cookieFormat, string cookieName, string cookieValue)
         {
             // Arrange
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/");
-            request.Headers.Add("Cookie", string.Format(cookieFormat, cookieName, cookieValue));
-            var config = new HttpConfiguration();
-            var controllerContext = new HttpControllerContext(config, new HttpRouteData(new HttpRoute()), request);
-            var actionContext = new HttpActionContext(controllerContext, new Mock<HttpActionDescriptor>().Object);
+            // no RequestVerificationToken header
+            var actionContext = CreateActionContext(string.Format(cookieFormat, cookieName, cookieValue), null);
             var authFilterContext = new AuthFilterContext(actionContext, string.Empty);
             var mockAntiForgery = new Mock<IAntiForgery>();
             mockAntiForgery.Setup(x => x.CookieName).Returns(cookieName);
+            mockAntiForgery.Setup(x => x.ValidateAsync(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
             AntiForgery.SetTestableInstance(mockAntiForgery.Object);
 
             // Act, Assert
             var vaft = new ValidateAntiForgeryTokenAttribute();
 
             // Assert.IsFalse(ValidateAntiForgeryTokenAttribute.IsAuthorized(authFilterContext));
-            Assert.Throws<UnauthorizedAccessException>(() => { vaft.OnActionExecuting(authFilterContext.ActionContext); });
+            // The legacy filter threw UnauthorizedAccessException from OnActionExecuting, which the DNN
+            // exception filter turned into a 401 with an empty body. An ASP.NET Core authorization filter
+            // short-circuits instead of throwing, so the same outcome is now observed on the context's
+            // result, and the token is never validated.
+            Assert.DoesNotThrowAsync(() => vaft.OnAuthorizationAsync(authFilterContext.ActionContext));
+            using (Assert.EnterMultipleScope())
+            {
+                Assert.That(actionContext.Result, Is.InstanceOf<StatusCodeResult>());
+                Assert.That(
+                    ((StatusCodeResult)actionContext.Result).StatusCode,
+                    Is.EqualTo((int)HttpStatusCode.Unauthorized));
+                Assert.That(
+                    actionContext.HttpContext.Items[AuthFilterContext.SuppressAuthenticationRedirectKey],
+                    Is.EqualTo(true));
+            }
+
+            mockAntiForgery.Verify(x => x.ValidateAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never());
+        }
+
+        /// <summary>
+        /// Builds the authorization filter context under test. Replaces the Web API 2
+        /// <c>HttpRequestMessage</c>/<c>HttpControllerContext</c>/<c>HttpActionContext</c> trio: the raw
+        /// <c>Cookie</c> header is set on an ASP.NET Core request, whose
+        /// <see cref="HttpRequest.Cookies"/> collection the filter now reads.
+        /// </summary>
+        /// <param name="cookieHeader">The raw <c>Cookie</c> header value.</param>
+        /// <param name="verificationToken">The <c>RequestVerificationToken</c> header value, or <see langword="null"/> to omit the header.</param>
+        /// <returns>An <see cref="AuthorizationFilterContext"/>.</returns>
+        private static AuthorizationFilterContext CreateActionContext(string cookieHeader, string verificationToken)
+        {
+            var httpContext = new DefaultHttpContext();
+            httpContext.Request.Method = HttpMethods.Get;
+            httpContext.Request.Scheme = "http";
+            httpContext.Request.Host = new HostString("localhost");
+            httpContext.Request.Path = "/";
+            httpContext.Request.Headers.Cookie = cookieHeader;
+            if (verificationToken != null)
+            {
+                httpContext.Request.Headers["RequestVerificationToken"] = verificationToken;
+            }
+
+            var actionContext = new ActionContext(httpContext, new RouteData(), new ActionDescriptor());
+            return new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
         }
     }
 }

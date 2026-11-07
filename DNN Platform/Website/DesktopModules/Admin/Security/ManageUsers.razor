@@ -1,0 +1,1142 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Admin.Users
+@inherits DotNetNuke.Entities.Modules.UserModuleBase
+@implements DotNetNuke.Entities.Modules.IActionable
+
+@using System
+@using System.Globalization
+@using System.Threading.Tasks
+@using DotNetNuke.Abstractions
+@using DotNetNuke.Abstractions.Application
+@using DotNetNuke.Common.Extensions
+@using DotNetNuke.Common.Utilities
+@using DotNetNuke.Entities.Modules
+@using DotNetNuke.Entities.Modules.Actions
+@using DotNetNuke.Entities.Portals
+@using DotNetNuke.Entities.Users
+@using DotNetNuke.Framework.JavaScriptLibraries
+@using DotNetNuke.Modules.Admin.Security
+@using DesktopModules.Admin.Security
+@using DotNetNuke.Security
+@using DotNetNuke.Security.Membership
+@using DotNetNuke.Security.Permissions
+@using DotNetNuke.Security.Profile
+@using DotNetNuke.Services.Exceptions
+@using DotNetNuke.Services.Localization
+@using DotNetNuke.Services.Mail
+@using DotNetNuke.UI.Skins.Controls
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+@*
+    Replaces manageusers.ascx, ManageUsers.ascx.cs and ManageUsers.ascx.designer.cs.
+
+    This is the user tab host: it carries the User, SecurityRoles, Password, Profile and Membership
+    sub-controls and decides which tabs and panels are shown (add-vs-edit mode, the admin-only
+    password tab, the roles tab that is hidden for a superuser, the "edit profile only" mode).
+    The sub-controls are composed, never duplicated: the User and SecurityRoles components are the
+    ones that replaced User.ascx and securityroles.ascx, and Password/Profile/Membership are the
+    components that replaced those three .ascx files.
+
+    Control mapping:
+      the inline <script>            -> the dnnTabs()/dnnPanels() bootstrap is invoked through
+                                        IJSRuntime in OnAfterRenderAsync(firstRender), including
+                                        the PageNo tab selection.
+      asp:Label lblTitle             -> the @this.title span.
+      dnn:DnnImage imgLockedOut      -> the icon rendered when the membership is locked out.
+      asp:LinkButton cmdAdd/cmdCancel-> anchors with @onclick handlers (cmdCancel had
+                                        CausesValidation="false", so it never validates).
+      asp:Hyperlink loginLink        -> the login anchor, still built with Globals.LoginURL and the
+                                        "override" query string flag, and still wrapped in the
+                                        pop-up URL when the portal uses pop-ups.
+
+    SECURITY: VerifyUserPermissions(), HasManageUsersModulePermission() and the "IsAdmin == false
+    -> return" guard that opens every membership/password/profile event handler are ported
+    verbatim.
+*@
+
+@if (this.manageUsersVisible)
+{
+    <div class="dnnForm dnnManageUsers dnnClear" id="dnnManageUsers">
+        @if (this.adminTabNavVisible)
+        {
+            <ul class="dnnAdminTabNav dnnClear" id="adminTabNav">
+                <li><a href="#dnnUserDetails">@this.LocalizeText("cmdUser")</a></li>
+                @if (this.rolesTabVisible)
+                {
+                    <li id="rolesTab"><a href="#dnnRoleDetails">@this.LocalizeText("cmdRoles")</a></li>
+                }
+                @if (this.passwordTabVisible)
+                {
+                    <li id="passwordTab"><a href="#dnnPasswordDetails">@this.LocalizeText("cmdPassword")</a></li>
+                }
+                <li><a href="#dnnProfileDetails">@this.LocalizeText("cmdProfile")</a></li>
+            </ul>
+        }
+        @if (this.userDetailsVisible)
+        {
+            <div id="dnnUserDetails" class="dnnUserDetails dnnClear">
+                <div class="udContent dnnClear">
+                    <fieldset>
+                        @if (this.titleRowVisible)
+                        {
+                            <div id="titleRow" class="dnnFormItem">
+                                <h2 class="dnnFormSectionHead"><span id="lblTitle">@this.title</span></h2>
+                                @if (this.lockedOut)
+                                {
+                                    <img id="imgLockedOut" src="@DotNetNuke.Entities.Icons.IconController.IconURL("SecurityRoles")" alt="" />
+                                }
+                            </div>
+                        }
+                        <div id="userRow" class="dnnFormItem">
+                            @if (this.userControlVisible)
+                            {
+                                <div id="userContainer" class="@this.userContainerCssClass">
+                                    <DotNetNuke.Modules.Admin.Users.User @ref="this.ctlUser" ID="User" ModuleConfiguration="@this.ModuleConfiguration" />
+                                </div>
+                            }
+                            @if (this.membershipRowVisible)
+                            {
+                                <div id="membershipRow" class="dnnMembership">
+                                    <Membership @ref="this.ctlMembership" ID="Membership" ModuleConfiguration="@this.ModuleConfiguration" />
+                                </div>
+                            }
+                        </div>
+                    </fieldset>
+                </div>
+            </div>
+        }
+        @if (this.roleDetailsVisible)
+        {
+            <div id="dnnRoleDetails" class="dnnRoleDetails dnnClear">
+                <SecurityRoles @ref="this.ctlRoles" ID="SecurityRoles" ModuleConfiguration="@this.ModuleConfiguration" ParentModule="@this" />
+            </div>
+        }
+        @if (this.passwordDetailsVisible)
+        {
+            <div id="dnnPasswordDetails" class="dnnPasswordDetails dnnClear">
+                <Password @ref="this.ctlPassword" ID="Password" ModuleConfiguration="@this.ModuleConfiguration" />
+            </div>
+        }
+        @if (this.profileDetailsVisible)
+        {
+            <div id="dnnProfileDetails" class="dnnProfileDetails dnnClear">
+                <Profile @ref="this.ctlProfile" ID="Profile" ModuleConfiguration="@this.ModuleConfiguration" />
+            </div>
+        }
+    </div>
+}
+<div class="dnnForm">
+    @if (this.actionsRowVisible)
+    {
+        <ul id="actionsRow" class="dnnActions dnnClear">
+            <li>
+                <a id="cmdAdd" class="dnnPrimaryAction @(this.addEnabled ? string.Empty : "dnnDisabledAction")" href="#"
+                   @onclick="this.CmdAddClick" @onclick:preventDefault="true">@this.addText</a>
+            </li>
+            <li><a id="cmdCancel" class="dnnSecondaryAction" href="#" @onclick="this.CmdCancelClick" @onclick:preventDefault="true">@this.LocalizeText("cmdCancel")</a></li>
+            @if (this.loginLinkVisible)
+            {
+                <li><a id="loginLink" class="dnnSecondaryAction" href="@this.loginUrl" onclick="@this.loginOnClick">@this.LocalizeText("cmdLogin")</a></li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    /// <summary>Initializes a new instance of the <see cref="ManageUsers"/> class.</summary>
+    /// <remarks>
+    /// Declared explicitly because the compiler-generated default constructor would chain to the
+    /// obsolete parameterless <c>UserModuleBase()</c>. Passing <see langword="null"/> for both
+    /// services is exactly what that constructor did (<c>: this(null, null)</c>), and the
+    /// non-obsolete overload then resolves <c>ListController</c> and <c>IHostSettings</c> from
+    /// <c>DependencyProvider</c> — so this is a call-site change only, with no behaviour change.
+    /// </remarks>
+    public ManageUsers()
+        : base(null, null)
+    {
+    }
+
+    private DotNetNuke.Modules.Admin.Users.User ctlUser;
+    private DotNetNuke.Modules.Admin.Users.Membership ctlMembership;
+    private SecurityRoles ctlRoles;
+    private Password ctlPassword;
+    private DesktopModules.Admin.Security.Profile ctlProfile;
+
+    private bool manageUsersVisible = true;
+    private bool adminTabNavVisible = true;
+    private bool userDetailsVisible = true;
+    private bool roleDetailsVisible;
+    private bool passwordDetailsVisible;
+    private bool profileDetailsVisible = true;
+    private bool rolesTabVisible = true;
+    private bool passwordTabVisible = true;
+    private bool titleRowVisible = true;
+    private bool membershipRowVisible = true;
+    private bool userControlVisible = true;
+    private bool actionsRowVisible;
+
+    /// <summary>
+    /// Gates the "login" link in the actions row.
+    /// </summary>
+    /// <remarks>
+    /// Faithful to the original <c>manageusers.ascx</c>, where the link was declared
+    /// <c>&lt;asp:Hyperlink id="loginLink" ... Visible="false" /&gt;</c> and no code path in
+    /// <c>ManageUsers.ascx.cs</c> ever set <c>loginLink.Visible</c> to <see langword="true"/> —
+    /// only its <c>NavigateUrl</c>/<c>onclick</c> were populated (which this component still does,
+    /// into <see cref="loginUrl"/>/<see cref="loginOnClick"/>). The link was therefore never
+    /// rendered, so the initializer is written out explicitly rather than suppressing CS0649:
+    /// flipping it to <see langword="true"/> would ADD a login link the original never showed.
+    /// </remarks>
+    private bool loginLinkVisible = false;
+    private bool addEnabled = true;
+    private bool lockedOut;
+    private bool bound;
+    private bool subControlsWired;
+    private string title = string.Empty;
+    private string addText = string.Empty;
+    private string userContainerCssClass = "dnnUser";
+    private string loginUrl = string.Empty;
+    private string loginOnClick;
+
+    /// <summary>Gets or sets the navigation manager.</summary>
+    [Inject]
+    protected INavigationManager DnnNavigationManager { get; set; }
+
+    /// <summary>Gets or sets the JavaScript library helper.</summary>
+    [Inject]
+    protected IJavaScriptLibraryHelper JavaScriptHelper { get; set; }
+
+    /// <summary>Gets or sets the Blazor navigation manager used by the redirects.</summary>
+    [Inject]
+    protected NavigationManager Navigation { get; set; }
+
+    /// <summary>Gets or sets the JavaScript runtime the tab bootstrap is invoked with.</summary>
+    [Inject]
+    protected Microsoft.JSInterop.IJSRuntime JsRuntime { get; set; }
+
+    /// <inheritdoc />
+    public ModuleActionCollection ModuleActions
+    {
+        get
+        {
+            var actions = new ModuleActionCollection();
+            if (!this.IsProfile)
+            {
+                if (!this.AddUser && !this.IsEdit)
+                {
+                    actions.Add(
+                        this.GetNextActionID(),
+                        Localization.GetString(ModuleActionType.AddContent, this.LocalResourceFile),
+                        ModuleActionType.AddContent,
+                        string.Empty,
+                        "add.gif",
+                        this.EditUrl(),
+                        false,
+                        SecurityAccessLevel.Admin,
+                        true,
+                        false);
+                    if (ProfileProviderConfig.CanEditProviderProperties)
+                    {
+                        actions.Add(
+                            this.GetNextActionID(),
+                            Localization.GetString("ManageProfile.Action", this.LocalResourceFile),
+                            ModuleActionType.AddContent,
+                            string.Empty,
+                            "icon_profile_16px.gif",
+                            this.EditUrl("ManageProfile"),
+                            false,
+                            SecurityAccessLevel.Admin,
+                            true,
+                            false);
+                    }
+
+                    actions.Add(
+                        this.GetNextActionID(),
+                        Localization.GetString("Cancel.Action", this.LocalResourceFile),
+                        ModuleActionType.AddContent,
+                        string.Empty,
+                        "lt.gif",
+                        this.ReturnUrl,
+                        false,
+                        SecurityAccessLevel.Admin,
+                        true,
+                        false);
+                }
+            }
+
+            return actions;
+        }
+    }
+
+    /// <summary>Gets or sets the current Page No.</summary>
+    public int PageNo { get; set; }
+
+    /// <summary>Gets a value indicating whether to display the Manage Services tab.</summary>
+    protected bool DisplayServices
+    {
+        get
+        {
+            object setting = GetSetting(this.PortalId, "Profile_ManageServices");
+            return Convert.ToBoolean(setting) && !(this.IsEdit || this.User.IsSuperUser);
+        }
+    }
+
+    /// <summary>Gets the Redirect URL (after successful registration).</summary>
+    protected string RedirectURL
+    {
+        get
+        {
+            string redirectURL = string.Empty;
+
+            if (this.PortalSettings.Registration.RedirectAfterRegistration == Null.NullInteger)
+            {
+                var returnUrlParam = this.Request.GetQueryString()["returnurl"];
+                if (returnUrlParam != null)
+                {
+                    // return to the url passed to register
+                    redirectURL = System.Net.WebUtility.UrlDecode(returnUrlParam);
+
+                    // clean the return url to avoid possible XSS attack.
+                    redirectURL = UrlUtils.ValidReturnUrl(redirectURL);
+
+                    if (redirectURL.Contains("?returnurl"))
+                    {
+                        string baseURL = redirectURL.Substring(0, redirectURL.IndexOf("?returnurl", StringComparison.Ordinal));
+                        string returnURL = redirectURL.Substring(redirectURL.IndexOf("?returnurl", StringComparison.Ordinal) + 11);
+
+                        redirectURL = string.Concat(baseURL, "?returnurl", System.Net.WebUtility.UrlEncode(returnURL));
+                    }
+                }
+
+                if (string.IsNullOrEmpty(redirectURL))
+                {
+                    // redirect to current page
+                    redirectURL = this.DnnNavigationManager.NavigateURL();
+                }
+            }
+            else
+            {
+                // redirect to after registration page
+                redirectURL = this.DnnNavigationManager.NavigateURL(this.PortalSettings.Registration.RedirectAfterRegistration);
+            }
+
+            return redirectURL;
+        }
+    }
+
+    /// <summary>Gets the Return Url for the page.</summary>
+    protected string ReturnUrl
+        => this.DnnNavigationManager.NavigateURL(this.TabId, string.Empty, !string.IsNullOrEmpty(this.UserFilter) ? this.UserFilter : string.Empty);
+
+    /// <summary>Gets the Filter to use.</summary>
+    protected string UserFilter
+    {
+        get
+        {
+            string filterString = !string.IsNullOrEmpty(this.Request.GetValue("filter")) ? "filter=" + this.Request.GetValue("filter") : string.Empty;
+            string filterProperty = !string.IsNullOrEmpty(this.Request.GetValue("filterproperty")) ? "filterproperty=" + this.Request.GetValue("filterproperty") : string.Empty;
+            string page = !string.IsNullOrEmpty(this.Request.GetValue("currentpage")) ? "currentpage=" + this.Request.GetValue("currentpage") : string.Empty;
+
+            if (!string.IsNullOrEmpty(filterString))
+            {
+                filterString += "&";
+            }
+
+            if (!string.IsNullOrEmpty(filterProperty))
+            {
+                filterString += filterProperty + "&";
+            }
+
+            if (!string.IsNullOrEmpty(page))
+            {
+                filterString += page;
+            }
+
+            return filterString;
+        }
+    }
+
+    /// <summary>Gets a value indicating whether flag to indicate only edit profile.</summary>
+    protected bool EditProfileMode
+    {
+        get
+        {
+            bool editProfile;
+
+            return !string.IsNullOrEmpty(this.Request.GetQueryString()["editProfile"])
+                   && bool.TryParse(this.Request.GetValue("editProfile"), out editProfile)
+                   && editProfile;
+        }
+    }
+
+    /// <summary>Page_Init runs when the control is initialised.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnInit(EventArgs e)
+    {
+        base.OnInit(e);
+
+        this.JavaScriptHelper.RequestRegistration(CommonJs.DnnPlugins);
+
+        // Customise the Control Title
+        if (this.AddUser)
+        {
+            if (!this.Request.IsAuthenticated())
+            {
+                // Register
+                this.ModuleConfiguration.ModuleTitle = Localization.GetString("Register.Title", this.LocalResourceFile);
+            }
+            else
+            {
+                // Add User
+                this.ModuleConfiguration.ModuleTitle = Localization.GetString("AddUser.Title", this.LocalResourceFile);
+            }
+
+            this.userContainerCssClass += " register";
+        }
+    }
+
+    /// <summary>Page_Load runs when the control is loaded.</summary>
+    /// <param name="e">The event arguments.</param>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        try
+        {
+            // Add an Action Event Handler to the Skin
+            this.AddActionHandler(this.ModuleAction_Click);
+
+            // Bind the User information to the controls
+            this.BindData();
+
+            this.loginUrl = DotNetNuke.Common.Globals.LoginURL(this.RedirectURL, this.Request.GetQueryString()["override"] != null);
+
+            if (this.PortalSettings.EnablePopUps)
+            {
+                this.loginOnClick = "return " + UrlUtils.PopUpUrl(this.loginUrl, this.PortalSettings, true, false, 300, 650);
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender)
+        {
+            return;
+        }
+
+        this.WireSubControls();
+
+        if (this.adminTabNavVisible)
+        {
+            await this.JsRuntime.InvokeVoidAsync("eval", "(function($){ $('#dnnManageUsers').dnnTabs().dnnPanels(); })(jQuery);");
+        }
+
+        if (this.PageNo > 0)
+        {
+            await this.JsRuntime.InvokeVoidAsync(
+                "eval",
+                "(function($){ $('#dnnManageUsers > ul > li:nth-child(" + this.PageNo.ToString(CultureInfo.InvariantCulture) + ")').find('a').click(); })(jQuery);");
+        }
+    }
+
+    /// <summary>
+    /// Pins the five sub-controls to the user being managed and subscribes to their events.
+    /// </summary>
+    /// <remarks>
+    /// This is the OnInit block of ManageUsers.ascx.cs that configured ctlUser, ctlMembership,
+    /// ctlRoles, ctlPassword and ctlProfile and subscribed to their events, plus the ctlX.User /
+    /// DataBind() calls of BindUser()/ShowPanel(). UserId/User are plain properties of those
+    /// controls (not Blazor parameters), so they are assigned on the instances the renderer
+    /// created, which @ref hands over after the first render; ModuleConfiguration and
+    /// ParentModule ARE parameters and are passed in the markup, before the children initialize.
+    /// Every control is pinned to this.UserId - the "userid" query string value - exactly as
+    /// before.
+    /// </remarks>
+    private void WireSubControls()
+    {
+        if (this.subControlsWired)
+        {
+            return;
+        }
+
+        this.subControlsWired = true;
+
+        if (this.ctlMembership != null)
+        {
+            this.ctlMembership.ModuleConfiguration = this.ModuleConfiguration;
+            this.ctlMembership.UserId = this.UserId;
+            this.ctlMembership.MembershipAuthorized += this.MembershipAuthorized;
+            this.ctlMembership.MembershipPasswordUpdateChanged += this.MembershipPasswordUpdateChanged;
+            this.ctlMembership.MembershipUnAuthorized += this.MembershipUnAuthorized;
+            this.ctlMembership.MembershipUnLocked += this.MembershipUnLocked;
+            this.ctlMembership.MembershipDemoteFromSuperuser += this.MembershipDemoteFromSuperuser;
+            this.ctlMembership.MembershipPromoteToSuperuser += this.MembershipPromoteToSuperuser;
+        }
+
+        if (this.ctlUser != null)
+        {
+            this.ctlUser.ModuleConfiguration = this.ModuleConfiguration;
+            this.ctlUser.UserId = this.UserId;
+            this.ctlUser.UserCreateCompleted += this.UserCreateCompleted;
+            this.ctlUser.UserDeleted += this.UserDeleted;
+            this.ctlUser.UserRemoved += this.UserRemoved;
+            this.ctlUser.UserRestored += this.UserRestored;
+            this.ctlUser.UserUpdateCompleted += this.UserUpdateCompleted;
+            this.ctlUser.UserUpdateError += this.UserUpdateError;
+        }
+
+        if (this.ctlPassword != null)
+        {
+            this.ctlPassword.ModuleConfiguration = this.ModuleConfiguration;
+            this.ctlPassword.UserId = this.UserId;
+            this.ctlPassword.PasswordUpdated += this.PasswordUpdated;
+            this.ctlPassword.PasswordQuestionAnswerUpdated += this.PasswordQuestionAnswerUpdated;
+        }
+
+        if (this.ctlProfile != null)
+        {
+            this.ctlProfile.ModuleConfiguration = this.ModuleConfiguration;
+            this.ctlProfile.UserId = this.UserId;
+            this.ctlProfile.ProfileUpdateCompleted += this.ProfileUpdateCompleted;
+        }
+
+        // ShowPanel()/BindUser() bound the controls once the identity above was in place.
+        this.ShowPanel();
+
+        this.StateHasChanged();
+    }
+
+    /// <summary>This is cmdCancel_Click.</summary>
+    private void CmdCancelClick()
+    {
+        this.Navigation.NavigateTo(this.DnnNavigationManager.NavigateURL(), forceLoad: true);
+    }
+
+    /// <summary>cmdRegister_Click runs when the Register button is clicked.</summary>
+    private void CmdAddClick()
+    {
+        if (this.IsAdmin == false && this.HasManageUsersModulePermission() == false)
+        {
+            return;
+        }
+
+        // cmdAdd.Enabled was false once the user quota was exceeded (see CheckQuota).
+        if (!this.addEnabled)
+        {
+            return;
+        }
+
+        if (this.ctlUser != null && this.ctlProfile != null && this.ctlUser.IsValid && this.ctlProfile.IsValid)
+        {
+            this.ctlUser.CreateUser();
+        }
+        else
+        {
+            if (this.ctlUser != null && this.ctlUser.CreateStatus != UserCreateStatus.AddUser)
+            {
+                this.AddLocalizedModuleMessage(UserController.GetUserCreateStatus(this.ctlUser.CreateStatus), ModuleMessage.ModuleMessageType.RedError, true);
+            }
+        }
+    }
+
+    /// <summary>MembershipPasswordUpdateChanged runs when the Admin has forced the User to update their password.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    protected void MembershipPasswordUpdateChanged(object sender, EventArgs e)
+    {
+        if (this.IsAdmin == false)
+        {
+            return;
+        }
+
+        try
+        {
+            this.AddModuleMessage("UserPasswordUpdateChanged", ModuleMessage.ModuleMessageType.GreenSuccess, true);
+
+            this.BindMembership();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    private void BindData()
+    {
+        if (this.User != null)
+        {
+            // If trying to add a SuperUser - check that user is a SuperUser
+            if (this.VerifyUserPermissions() == false)
+            {
+                return;
+            }
+
+            if (this.AddUser)
+            {
+                this.addText = this.LocalizeText("AddUser");
+                this.title = this.LocalizeText("AddUser");
+            }
+            else
+            {
+                if (!this.Request.IsAuthenticated())
+                {
+                    this.titleRowVisible = false;
+                }
+                else
+                {
+                    if (this.IsProfile)
+                    {
+                        this.titleRowVisible = false;
+                    }
+                    else
+                    {
+                        this.title = string.Format(CultureInfo.CurrentCulture, this.LocalizeText("UserTitle"), this.User.Username, this.User.UserID);
+                    }
+                }
+            }
+
+            if (!this.bound)
+            {
+                var pageNoParam = this.Request.GetQueryString()["pageno"];
+                if (pageNoParam != null)
+                {
+                    this.PageNo = int.Parse(pageNoParam);
+                }
+                else
+                {
+                    this.PageNo = 0;
+                }
+            }
+
+            // The panel visibility is computed here; the sub-control data binding that ShowPanel()
+            // also performed happens in WireSubControls, once the @ref instances exist.
+            this.ShowPanel();
+
+            this.bound = true;
+        }
+        else
+        {
+            this.AddModuleMessage("NoUser", ModuleMessage.ModuleMessageType.YellowWarning, true);
+            this.DisableForm();
+        }
+    }
+
+    /// <summary>Verifies that the accessing user may manage this user.</summary>
+    /// <returns><see langword="true"/> when the form may be shown.</returns>
+    /// <remarks>Ported verbatim from VerifyUserPermissions of ManageUsers.ascx.cs.</remarks>
+    private bool VerifyUserPermissions()
+    {
+        if (this.AddUser && this.IsHostMenu && !this.UserInfo.IsSuperUser)
+        {
+            this.AddModuleMessage("NoUser", ModuleMessage.ModuleMessageType.YellowWarning, true);
+            this.DisableForm();
+            return false;
+        }
+
+        // Check if User is a member of the Current Portal (or a member of the MasterPortal if PortalGroups enabled)
+        if (this.User.PortalID != Null.NullInteger && this.User.PortalID != this.PortalId)
+        {
+            this.AddModuleMessage("InvalidUser", ModuleMessage.ModuleMessageType.YellowWarning, true);
+            this.DisableForm();
+            return false;
+        }
+
+        // Check if User is a SuperUser and that the current User is a SuperUser
+        if (this.User.IsSuperUser && !this.UserInfo.IsSuperUser)
+        {
+            this.AddModuleMessage("NoUser", ModuleMessage.ModuleMessageType.YellowWarning, true);
+            this.DisableForm();
+            return false;
+        }
+
+        if (this.IsEdit)
+        {
+            // Check if user has admin rights
+            if (!this.IsAdmin || (this.User.IsInRole(this.PortalSettings.AdministratorRoleName) && !PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName)))
+            {
+                this.AddModuleMessage("NotAuthorized", ModuleMessage.ModuleMessageType.YellowWarning, true);
+                this.DisableForm();
+                return false;
+            }
+        }
+        else
+        {
+            if (this.Request.IsAuthenticated())
+            {
+                if (!PortalSecurity.IsInRole(this.PortalSettings.AdministratorRoleName))
+                {
+                    if (this.HasManageUsersModulePermission() == false)
+                    {
+                        // Display current user's profile
+                        this.Navigation.NavigateTo(this.DnnNavigationManager.NavigateURL(this.PortalSettings.UserTabId, string.Empty, "UserID=" + this.UserInfo.UserID), forceLoad: true);
+                        return false;
+                    }
+                }
+            }
+            else
+            {
+                if (this.User.UserID > Null.NullInteger)
+                {
+                    this.AddModuleMessage("NotAuthorized", ModuleMessage.ModuleMessageType.YellowWarning, true);
+                    this.DisableForm();
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private void BindMembership()
+    {
+        if (this.ctlMembership != null)
+        {
+            this.ctlMembership.User = this.User;
+            this.ctlMembership.DataBind();
+        }
+
+        this.lockedOut = this.User.Membership.LockedOut;
+        this.AddModuleMessage("UserLockedOut", ModuleMessage.ModuleMessageType.YellowWarning, this.lockedOut && !this.bound);
+    }
+
+    private void BindUser()
+    {
+        if (this.AddUser)
+        {
+            if (this.ctlUser != null)
+            {
+                this.ctlUser.ShowUpdate = false;
+            }
+
+            this.CheckQuota();
+        }
+
+        if (this.ctlUser != null)
+        {
+            this.ctlUser.User = this.User;
+            this.ctlUser.DataBind();
+        }
+
+        // Bind the Membership
+        if (this.AddUser || (!this.IsAdmin))
+        {
+            this.membershipRowVisible = false;
+        }
+        else
+        {
+            this.BindMembership();
+        }
+    }
+
+    private void CheckQuota()
+    {
+        if (this.PortalSettings.Users < this.PortalSettings.UserQuota || this.UserInfo.IsSuperUser || this.PortalSettings.UserQuota == 0)
+        {
+            this.addEnabled = true;
+        }
+        else
+        {
+            this.addEnabled = false;
+            this.AddModuleMessage("ExceededUserQuota", ModuleMessage.ModuleMessageType.YellowWarning, true);
+        }
+    }
+
+    private void DisableForm()
+    {
+        this.adminTabNavVisible = false;
+        this.roleDetailsVisible = false;
+        this.passwordDetailsVisible = false;
+        this.profileDetailsVisible = false;
+        this.actionsRowVisible = false;
+        this.membershipRowVisible = false;
+        this.userControlVisible = false;
+    }
+
+    private void ShowPanel()
+    {
+        if (this.AddUser)
+        {
+            this.adminTabNavVisible = false;
+            if (this.Request.IsAuthenticated() && MembershipProviderConfig.RequiresQuestionAndAnswer)
+            {
+                // Admin adding user
+                this.manageUsersVisible = false;
+                this.actionsRowVisible = false;
+                this.AddModuleMessage("CannotAddUser", ModuleMessage.ModuleMessageType.YellowWarning, true);
+            }
+            else
+            {
+                this.manageUsersVisible = true;
+                this.actionsRowVisible = true;
+            }
+
+            this.BindUser();
+            this.profileDetailsVisible = false;
+        }
+        else
+        {
+            if (!this.IsAdmin)
+            {
+                this.passwordTabVisible = false;
+            }
+            else
+            {
+                if (this.ctlPassword != null)
+                {
+                    this.ctlPassword.User = this.User;
+                    this.ctlPassword.DataBind();
+                }
+            }
+
+            if (!this.IsEdit || this.User.IsSuperUser)
+            {
+                this.rolesTabVisible = false;
+            }
+            else
+            {
+                this.ctlRoles?.DataBind();
+            }
+
+            this.BindUser();
+
+            if (this.ctlProfile != null)
+            {
+                this.ctlProfile.User = this.User;
+                this.ctlProfile.DataBind();
+            }
+        }
+
+        this.roleDetailsVisible = this.IsEdit && !this.User.IsSuperUser && !this.AddUser;
+        this.passwordDetailsVisible = this.IsAdmin && !this.AddUser;
+
+        if (this.EditProfileMode)
+        {
+            this.adminTabNavVisible =
+                this.userDetailsVisible =
+                this.roleDetailsVisible =
+                this.passwordDetailsVisible =
+                this.actionsRowVisible = false;
+        }
+    }
+
+    private bool HasManageUsersModulePermission()
+    {
+        return ModulePermissionController.HasModulePermission(this.ModuleConfiguration.ModulePermissions, "MANAGEUSER");
+    }
+
+    /// <summary>ModuleAction_Click handles all ModuleAction events raised from the skin.</summary>
+    /// <param name="sender"> The object that triggers the event.</param>
+    /// <param name="e">An ActionEventArgs object.</param>
+    private void ModuleAction_Click(object sender, ActionEventArgs e)
+    {
+        switch (e.Action.CommandArgument)
+        {
+            case "ManageRoles":
+                // pnlRoles.Visible = true;
+                // pnlUser.Visible = false;
+                break;
+            case "Cancel":
+                break;
+            case "Delete":
+                break;
+            case "Edit":
+                break;
+            case "Save":
+                break;
+            default:
+                break;
+        }
+    }
+
+    /// <summary>MembershipAuthorized runs when the User has been unlocked.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void MembershipAuthorized(object sender, EventArgs e)
+    {
+        if (this.IsAdmin == false)
+        {
+            return;
+        }
+
+        try
+        {
+            this.AddModuleMessage("UserAuthorized", ModuleMessage.ModuleMessageType.GreenSuccess, true);
+
+            // Send Notification to User
+            if (string.IsNullOrEmpty(this.User.Membership.Password) && !MembershipProviderConfig.RequiresQuestionAndAnswer && MembershipProviderConfig.PasswordRetrievalEnabled)
+            {
+                UserInfo user = this.User;
+                this.User.Membership.Password = UserController.GetPassword(ref user, string.Empty);
+            }
+
+            this.BindMembership();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>MembershipPromoteToSuperuser runs when the User has been promoted to a superuser.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void MembershipPromoteToSuperuser(object sender, EventArgs e)
+    {
+        if (this.IsAdmin == false)
+        {
+            return;
+        }
+
+        try
+        {
+            this.AddModuleMessage("UserPromotedToSuperuser", ModuleMessage.ModuleMessageType.GreenSuccess, true);
+
+            this.BindMembership();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>MembershipDemoteFromSuperuser runs when the User has been demoted to a regular user.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void MembershipDemoteFromSuperuser(object sender, EventArgs e)
+    {
+        if (this.IsAdmin == false)
+        {
+            return;
+        }
+
+        try
+        {
+            this.AddModuleMessage("UserDemotedFromSuperuser", ModuleMessage.ModuleMessageType.GreenSuccess, true);
+
+            this.BindMembership();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>MembershipUnAuthorized runs when the User has been unlocked.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void MembershipUnAuthorized(object sender, EventArgs e)
+    {
+        if (this.IsAdmin == false)
+        {
+            return;
+        }
+
+        try
+        {
+            this.AddModuleMessage("UserUnAuthorized", ModuleMessage.ModuleMessageType.GreenSuccess, true);
+
+            this.BindMembership();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>MembershipUnLocked runs when the User has been unlocked.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void MembershipUnLocked(object sender, EventArgs e)
+    {
+        if (this.IsAdmin == false)
+        {
+            return;
+        }
+
+        try
+        {
+            this.AddModuleMessage("UserUnLocked", ModuleMessage.ModuleMessageType.GreenSuccess, true);
+            this.BindMembership();
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>PasswordQuestionAnswerUpdated runs when the Password Q and A have been updated.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void PasswordQuestionAnswerUpdated(object sender, Password.PasswordUpdatedEventArgs e)
+    {
+        if (this.IsAdmin == false)
+        {
+            return;
+        }
+
+        PasswordUpdateStatus status = e.UpdateStatus;
+        if (status == PasswordUpdateStatus.Success)
+        {
+            this.AddModuleMessage("PasswordQAChanged", ModuleMessage.ModuleMessageType.GreenSuccess, true);
+        }
+        else
+        {
+            this.AddModuleMessage(status.ToString(), ModuleMessage.ModuleMessageType.RedError, true);
+        }
+    }
+
+    /// <summary>PasswordUpdated runs when the Password has been updated or reset.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void PasswordUpdated(object sender, Password.PasswordUpdatedEventArgs e)
+    {
+        if (this.IsAdmin == false)
+        {
+            return;
+        }
+
+        PasswordUpdateStatus status = e.UpdateStatus;
+
+        if (status == PasswordUpdateStatus.Success)
+        {
+            // Send Notification to User
+            try
+            {
+                var accessingUser = UserController.Instance.GetCurrentUserInfo();
+                if (accessingUser.UserID != this.User.UserID)
+                {
+                    // The password was changed by someone else
+                    Mail.SendMail(this.User, MessageType.PasswordUpdated, this.PortalSettings);
+                }
+                else
+                {
+                    // The User changed his own password
+                    Mail.SendMail(this.User, MessageType.UserUpdatedOwnPassword, this.PortalSettings);
+                }
+
+                this.AddModuleMessage("PasswordChanged", ModuleMessage.ModuleMessageType.GreenSuccess, true);
+            }
+            catch (Exception ex)
+            {
+                this.AddModuleMessage("PasswordMailError", ModuleMessage.ModuleMessageType.YellowWarning, true);
+                Exceptions.LogException(ex);
+            }
+        }
+        else
+        {
+            this.AddModuleMessage(status.ToString(), ModuleMessage.ModuleMessageType.RedError, true);
+        }
+    }
+
+    /// <summary>ProfileUpdateCompleted runs when the Profile has been updated.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void ProfileUpdateCompleted(object sender, EventArgs e)
+    {
+        if (this.IsAdmin == false)
+        {
+            return;
+        }
+
+        // Redirect to same page (this will update all controls for any changes to profile
+        // and leave us at Page 0 (User Credentials)
+        this.Navigation.NavigateTo(this.Request.GetRawUrl(), forceLoad: true);
+    }
+
+    /// <summary>UserCreateCompleted runs when a new user has been Created.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void UserCreateCompleted(object sender, UserUserControlBase.UserCreatedEventArgs e)
+    {
+        try
+        {
+            if (e.CreateStatus == UserCreateStatus.Success)
+            {
+                this.CompleteUserCreation(e.CreateStatus, e.NewUser, e.Notify, false);
+                this.Navigation.NavigateTo(this.ReturnUrl, forceLoad: true);
+            }
+            else
+            {
+                this.AddLocalizedModuleMessage(UserController.GetUserCreateStatus(e.CreateStatus), ModuleMessage.ModuleMessageType.RedError, true);
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>UserDeleted runs when the User has been deleted.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void UserDeleted(object sender, UserUserControlBase.UserDeletedEventArgs e)
+    {
+        try
+        {
+            this.Navigation.NavigateTo(this.ReturnUrl, forceLoad: true);
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>UserRestored runs when the User has been restored.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void UserRestored(object sender, UserUserControlBase.UserRestoredEventArgs e)
+    {
+        try
+        {
+            this.Navigation.NavigateTo(this.ReturnUrl, forceLoad: true);
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>UserRemoved runs when the User has been removed.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void UserRemoved(object sender, UserUserControlBase.UserRemovedEventArgs e)
+    {
+        try
+        {
+            this.Navigation.NavigateTo(this.ReturnUrl, forceLoad: true);
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>UserUpdateCompleted runs when a user has been updated.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void UserUpdateCompleted(object sender, EventArgs e)
+    {
+        // The original redirected without ending the response and then called
+        // ApplicationInstance.CompleteRequest(); a forced navigation is the equivalent.
+        this.Navigation.NavigateTo(this.Request.GetRawUrl(), forceLoad: true);
+    }
+
+    /// <summary>UserUpdateError runs when there is an error updating the user.</summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="e">The event arguments.</param>
+    private void UserUpdateError(object sender, UserUserControlBase.UserUpdateErrorArgs e)
+    {
+        this.AddModuleMessage(e.Message, ModuleMessage.ModuleMessageType.RedError, true);
+    }
+}

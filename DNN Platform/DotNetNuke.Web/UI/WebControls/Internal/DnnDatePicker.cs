@@ -6,15 +6,23 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
     using System;
     using System.Collections.Generic;
     using System.Globalization;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Abstractions.Logging;
+    using DotNetNuke.Web.UI.WebControls;
+
+    using Microsoft.AspNetCore.Components;
 
     /// <summary>This control is only for internal use, please don't reference it in any other place as it may be removed in the future.</summary>
-    [Obsolete("Deprecated in DotNetNuke 10.3.0. Please use TextBox with TextMode=TextBoxMode.Date. Scheduled removal in v12.0.0.")]
-    public class DnnDatePicker : TextBox
+    /// <remarks>
+    /// This was a <c>TextBox</c>; it is a <see cref="DnnTextBox"/> now, which renders the same
+    /// <c>input</c> and exposes the same <c>Text</c>. The <c>min</c>/<c>max</c>/
+    /// <c>data-client-format</c> attributes that <c>OnPreRender</c> added are added to the same
+    /// attribute bag, before the element renders.
+    /// </remarks>
+    [Obsolete("Deprecated in DotNetNuke 10.3.0. Please use DnnTextBox with TextMode=TextBoxMode.Date. Scheduled removal in v12.0.0.")]
+    public class DnnDatePicker : DnnTextBox
     {
         /// <summary>Initializes a new instance of the <see cref="DnnDatePicker"/> class.</summary>
         public DnnDatePicker()
@@ -28,6 +36,7 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         /// <param name="eventLogger">The event logger.</param>
         public DnnDatePicker(IClientResourceController clientResourceController, IApplicationStatusInfo appStatus, IEventLogger eventLogger)
         {
+            this.TextMode = "date";
         }
 
         /// <summary>Gets or sets the selected date.</summary>
@@ -50,9 +59,11 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         }
 
         /// <summary>Gets or sets the minimum date.</summary>
+        [Parameter]
         public DateTime MinDate { get; set; } = new DateTime(1900, 1, 1);
 
         /// <summary>Gets or sets the maximum date.</summary>
+        [Parameter]
         public DateTime MaxDate { get; set; } = DateTime.MaxValue;
 
         /// <summary>Gets the .NET format string for the date.</summary>
@@ -65,12 +76,14 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
         protected override void OnPreRender(EventArgs e)
         {
             base.OnPreRender(e);
+            this.ApplySettings();
+        }
 
-            var settings = this.GetSettings();
-            foreach (var setting in settings)
-            {
-                this.Attributes[setting.Key] = setting.Value?.ToString();
-            }
+        /// <inheritdoc />
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            this.ApplySettings();
         }
 
         /// <summary>Gets the settings.</summary>
@@ -83,6 +96,29 @@ namespace DotNetNuke.Web.UI.WebControls.Internal
                 { "max", this.MaxDate > DateTime.MinValue ? this.MaxDate.ToString(this.Format, CultureInfo.InvariantCulture) : null },
                 { "data-client-format", this.ClientFormat },
             };
+        }
+
+        /// <summary>Writes the settings into the attribute bag of the rendered input.</summary>
+        protected void ApplySettings()
+        {
+            var settings = this.GetSettings();
+            foreach (var setting in settings)
+            {
+                if (string.Equals(setting.Key, "type", StringComparison.OrdinalIgnoreCase))
+                {
+                    this.TextMode = setting.Value?.ToString();
+                    continue;
+                }
+
+                if (setting.Value == null)
+                {
+                    this.Attributes.Remove(setting.Key);
+                }
+                else
+                {
+                    this.Attributes[setting.Key] = setting.Value.ToString();
+                }
+            }
         }
     }
 }

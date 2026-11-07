@@ -4,10 +4,10 @@
 namespace DotNetNuke.Modules.HtmlEditorManager.Views
 {
     using System;
-    using System.Web.UI.WebControls;
 
     using DotNetNuke.Internal.SourceGenerators;
     using DotNetNuke.Modules.HtmlEditorManager.ViewModels;
+    using DotNetNuke.UI;
     using DotNetNuke.Web.Mvp;
 
     /// <summary>Interface for the Provider Configuration View.</summary>
@@ -22,7 +22,12 @@ namespace DotNetNuke.Modules.HtmlEditorManager.Views
 
         /// <summary>Gets or sets the editor panel.</summary>
         /// <value>The editor panel.</value>
-        PlaceHolder Editor { get; set; }
+        /// <remarks>
+        /// Was a <c>System.Web.UI.WebControls.PlaceHolder</c>; <see cref="DnnPlaceHolder"/> is the
+        /// platform's replacement for it, and it keeps the <c>Controls.Add</c>/<c>Controls.Clear</c>
+        /// surface the presenter drives the panel through.
+        /// </remarks>
+        DnnPlaceHolder Editor { get; set; }
 
         /// <summary>Refresh the provider configuration view.</summary>
         void Refresh();

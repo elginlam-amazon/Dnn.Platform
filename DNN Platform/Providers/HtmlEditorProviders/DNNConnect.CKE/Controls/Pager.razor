@@ -1,0 +1,135 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DNNConnect.CKEditorProvider.Controls
+@using DotNetNuke.Services.Localization
+
+@*
+    Replaces Controls/Pager.cs (a WebControl + IPostBackEventHandler that rendered a Table of
+    HyperLinks whose NavigateUrl was ClientScript.GetPostBackClientHyperlink("Page_{index}")).
+    The rendered markup is unchanged - table.PagerTable > tr > td.PagerFirstColumn /
+    td.PagerNumbersColumn / td.PagerLastColumn, each holding ul.FilesPager with the same li
+    classes, the same anchor ids and the same localized text/tooltips - but the post back is now
+    an EventCallback<int>, and the 8 ViewState keys are plain parameters/fields.
+*@
+
+<table class="PagerTable">
+    <tr>
+        <td class="PagerFirstColumn">
+            <ul class="FilesPager">
+                @if (this.StartIndex > 0)
+                {
+                    <li class="FirstPage">
+                        <a id="FirstPageLink"
+                           href="javascript:void(0);"
+                           title="@($"{this.GetString("GoTo.Text")}{this.GetString("FirstPage.Text")}")"
+                           @onclick="@(() => this.GoToPageAsync(0))"
+                           @onclick:preventDefault="true">@(new MarkupString($"&laquo; {this.GetString("FirstPage.Text")}"))</a>
+                    </li>
+                }
+                @if (this.CurrentPageIndex > this.StartIndex)
+                {
+                    <li class="PreviousPage">
+                        <a id="PreviousPageLink"
+                           href="javascript:void(0);"
+                           title="@($"{this.GetString("GoTo.Text")}{this.GetString("PreviousPage.Text")}")"
+                           @onclick="@(() => this.GoToPageAsync(this.CurrentPageIndex - 1))"
+                           @onclick:preventDefault="true">@(new MarkupString($"&lt; {this.GetString("PreviousPage.Text")}"))</a>
+                    </li>
+                }
+            </ul>
+        </td>
+        <td class="PagerNumbersColumn" align="center">
+            <ul class="FilesPager">
+                @for (var i = this.StartIndex; i < this.EndIndex; i++)
+                {
+                    var index = i;
+                    var pageNumber = (index + 1).ToString();
+                    <li class="@(index.Equals(this.CurrentPageIndex) ? "ActivePage" : "NormalPage")">
+                        <a id="@($"NextPageLink{pageNumber}")"
+                           href="javascript:void(0);"
+                           title="@($"{this.GetString("GoTo.Text")}: {pageNumber}")"
+                           @onclick="@(() => this.GoToPageAsync(index))"
+                           @onclick:preventDefault="true">@pageNumber</a>
+                    </li>
+                }
+            </ul>
+        </td>
+        <td class="PagerLastColumn">
+            <ul class="FilesPager">
+                @if (this.CurrentPageIndex < this.PageCount - 1)
+                {
+                    <li class="NextPage">
+                        <a id="NextPageLink"
+                           href="javascript:void(0);"
+                           title="@($"{this.GetString("GoTo.Text")}{this.GetString("NextPage.Text")}")"
+                           @onclick="@(() => this.GoToPageAsync(this.CurrentPageIndex + 2 - 1))"
+                           @onclick:preventDefault="true">@(new MarkupString($"{this.GetString("NextPage.Text")} &gt;"))</a>
+                    </li>
+                }
+                @if (this.EndIndex < this.PageCount)
+                {
+                    <li class="LastPage">
+                        <a id="LastPageLink"
+                           href="javascript:void(0);"
+                           title="@($"{this.GetString("GoTo.Text")}{this.GetString("LastPage.Text")}")"
+                           @onclick="@(() => this.GoToPageAsync(this.PageCount - 1))"
+                           @onclick:preventDefault="true">@(new MarkupString($"{this.GetString("LastPage.Text")} &raquo;"))</a>
+                    </li>
+                }
+            </ul>
+        </td>
+    </tr>
+</table>
+
+@code {
+    /// <summary>Gets or sets the language code the pager labels are localized in.</summary>
+    /// <remarks>Replaces <c>ViewState["LanguageCode"]</c>, including its "en" default.</remarks>
+    [Parameter]
+    public string LanguageCode { get; set; } = "en";
+
+    /// <summary>Gets or sets the resource file the pager labels are read from.</summary>
+    /// <remarks>Replaces <c>ViewState["RessourceFile"]</c>. The original (misspelled) name is kept because the pages set it.</remarks>
+    [Parameter]
+    public string RessourceFile { get; set; }
+
+    /// <summary>Gets or sets the number of pages.</summary>
+    /// <remarks>Replaces <c>ViewState["PageCount"]</c>.</remarks>
+    [Parameter]
+    public int PageCount { get; set; }
+
+    /// <summary>Gets or sets the zero based index of the current page.</summary>
+    /// <remarks>Replaces <c>ViewState["CurrentPageIndex"]</c>.</remarks>
+    [Parameter]
+    public int CurrentPageIndex { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the current page index changed.</summary>
+    /// <remarks>
+    /// Replaces the <c>PageChanged</c> event that <c>RaisePostBackEvent("Page_{index}")</c> raised
+    /// after assigning <c>CurrentPageIndex</c>. The new index is the callback argument, so the
+    /// consumer no longer has to read it back off the control.
+    /// </remarks>
+    [Parameter]
+    public EventCallback<int> PageChanged { get; set; }
+
+    /// <summary>Gets the index of the first page number rendered (<c>CurrentPageIndex - 2</c>, floored at 0).</summary>
+    private int StartIndex => Math.Max(this.CurrentPageIndex - 2, 0);
+
+    /// <summary>Gets the exclusive index of the last page number rendered (<c>CurrentPageIndex + 3</c>, capped at <see cref="PageCount"/>).</summary>
+    private int EndIndex => Math.Min(this.CurrentPageIndex + 3, this.PageCount);
+
+    private string GetString(string key)
+    {
+        return Localization.GetString(key, this.RessourceFile, this.LanguageCode);
+    }
+
+    private async Task GoToPageAsync(int pageIndex)
+    {
+        this.CurrentPageIndex = pageIndex;
+
+        if (this.PageChanged.HasDelegate)
+        {
+            await this.PageChanged.InvokeAsync(pageIndex);
+        }
+    }
+}

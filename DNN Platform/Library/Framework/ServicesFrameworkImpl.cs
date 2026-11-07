@@ -6,29 +6,32 @@ namespace DotNetNuke.Framework
 {
     using System;
     using System.Globalization;
-    using System.Web.Helpers;
-    using System.Web.UI;
+    using System.Text.Encodings.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Abstractions.Logging;
+    using DotNetNuke.Abstractions.Pages;
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Framework.JavaScriptLibraries;
-    using DotNetNuke.Services.ClientDependency;
     using DotNetNuke.UI.Utilities;
-
-    using Microsoft.Extensions.DependencyInjection;
-
     using Globals = DotNetNuke.Common.Globals;
+    using Microsoft.AspNetCore.Antiforgery;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>The default <see cref="IServicesFramework"/> implementation.</summary>
     internal class ServicesFrameworkImpl : IServicesFramework, IServiceFrameworkInternals
     {
+        /// <summary>The name of the field the Services Framework client script reads the anti-forgery token from.</summary>
+        internal const string AntiForgeryFieldName = "__RequestVerificationToken";
+
         private const string AntiForgeryKey = "dnnAntiForgeryRequested";
         private const string ScriptKey = "dnnSFAjaxScriptRequested";
         private readonly IApplicationStatusInfo appStatus;
         private readonly IEventLogger eventLogger;
+        private readonly IHostSettings hostSettings;
 
         /// <summary>Initializes a new instance of the <see cref="ServicesFrameworkImpl"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IApplicationStatusInfo and IEventLogger. Scheduled removal in v12.0.0.")]
@@ -45,6 +48,7 @@ namespace DotNetNuke.Framework
             var servicesProvider = Globals.GetCurrentServiceProvider();
             this.appStatus = appStatus ?? servicesProvider.GetRequiredService<IApplicationStatusInfo>();
             this.eventLogger = eventLogger ?? servicesProvider.GetRequiredService<IEventLogger>();
+            this.hostSettings = servicesProvider.GetRequiredService<IHostSettings>();
         }
 
         /// <inheritdoc />
@@ -67,10 +71,32 @@ namespace DotNetNuke.Framework
         }
 
         /// <inheritdoc />
-        public void RegisterAjaxAntiForgery(Page page)
+        /// <remarks>
+        /// Was <c>page.FindControl("ClientResourcesFormBottom").Controls.Add(new LiteralControl(AntiForgery.GetHtml()))</c>.
+        /// The ASP.NET Core equivalent of <c>System.Web.Helpers.AntiForgery.GetHtml()</c> is
+        /// <see cref="IAntiforgery.GetAndStoreTokens"/>; the resulting hidden field is handed to
+        /// <see cref="IPageService"/>, which is what renders the page's own markup, so the field the
+        /// Services Framework client script looks for (<c>[name="__RequestVerificationToken"]</c>) is
+        /// actually emitted.
+        /// </remarks>
+        public void RegisterAjaxAntiForgery(HttpContext context)
         {
-            var ctl = page.FindControl("ClientResourcesFormBottom");
-            ctl?.Controls.Add(new LiteralControl(AntiForgery.GetHtml().ToHtmlString()));
+            if (context == null)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(this.RegisterAjaxAntiForgery)} requires a request in flight: the anti-forgery token is stored in the response's cookie.");
+            }
+
+            var antiforgery = context.RequestServices.GetRequiredService<IAntiforgery>();
+            var tokens = antiforgery.GetAndStoreTokens(context);
+            var html = string.Format(
+                CultureInfo.InvariantCulture,
+                "<input name=\"{0}\" type=\"hidden\" value=\"{1}\" />",
+                AntiForgeryFieldName,
+                HtmlEncoder.Default.Encode(tokens.RequestToken));
+
+            context.RequestServices.GetRequiredService<IPageService>()
+                   .AddToHead(new PageTag(html, PagePriority.Default));
         }
 
         /// <inheritdoc />
@@ -81,7 +107,7 @@ namespace DotNetNuke.Framework
         }
 
         /// <inheritdoc />
-        public void RegisterAjaxScript(Page page)
+        public void RegisterAjaxScript(HttpContext context)
         {
             var path = ServicesFramework.GetServiceFrameworkRoot();
             if (string.IsNullOrEmpty(path))
@@ -89,36 +115,35 @@ namespace DotNetNuke.Framework
                 return;
             }
 
-            JavaScript.RegisterClientReference(page, ClientAPI.ClientNamespaceReferences.dnn);
-            ClientAPI.RegisterClientVariable(page, "sf_siteRoot", path, /*overwrite*/ true);
-            ClientAPI.RegisterClientVariable(page, "sf_tabId", PortalSettings.Current.ActiveTab.TabID.ToString(CultureInfo.InvariantCulture), /*overwrite*/ true);
+            JavaScript.RegisterClientReference(context, ClientAPI.ClientNamespaceReferences.dnn);
 
-            string scriptPath;
-            if (HttpContextSource.Current.IsDebuggingEnabled)
+            var clientApiPage = ClientApiPageAccessor.GetPage(context, nameof(this.RegisterAjaxScript));
+            if (clientApiPage != null)
             {
-                scriptPath = "~/js/Debug/dnn.servicesframework.js";
-            }
-            else
-            {
-                scriptPath = "~/js/dnn.servicesframework.js";
+                ClientAPI.RegisterClientVariable(clientApiPage, "sf_siteRoot", path, /*overwrite*/ true);
+                ClientAPI.RegisterClientVariable(clientApiPage, "sf_tabId", PortalSettings.Current.ActiveTab.TabID.ToString(CultureInfo.InvariantCulture), /*overwrite*/ true);
             }
 
-            GetClientResourcesController().RegisterScript(scriptPath);
+            var scriptPath = this.hostSettings.DebugMode
+                ? "~/js/Debug/dnn.servicesframework.js"
+                : "~/js/dnn.servicesframework.js";
+
+            GetClientResourcesController(context).CreateScript(scriptPath).Register();
         }
 
         private static void SetKey(string key)
         {
-            HttpContextSource.Current.Items[key] = true;
+            HttpContextSource.CurrentOrThrow.Items[key] = true;
         }
 
         private static bool CheckKey(string antiForgeryKey)
         {
-            return HttpContextSource.Current.Items.Contains(antiForgeryKey);
+            return HttpContextSource.Current?.Items.ContainsKey(antiForgeryKey) == true;
         }
 
-        private static IClientResourceController GetClientResourcesController()
+        private static IClientResourceController GetClientResourcesController(HttpContext context)
         {
-            var serviceProvider = Globals.GetCurrentServiceProvider();
+            var serviceProvider = context?.RequestServices ?? Globals.GetCurrentServiceProvider();
             return serviceProvider.GetRequiredService<IClientResourceController>();
         }
     }

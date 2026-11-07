@@ -8,8 +8,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Web.Http;
 
 using Dnn.PersonaBar.Library;
 using Dnn.PersonaBar.Library.Attributes;
@@ -40,10 +38,13 @@ using DotNetNuke.Services.Social.Notifications;
 using DotNetNuke.Web.Api;
 using DotNetNuke.Web.UI.WebControls;
 
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using Localization = Dnn.PersonaBar.Pages.Components.Localization;
+
+using ValidateAntiForgeryToken = DotNetNuke.Web.Api.ValidateAntiForgeryTokenAttribute;
 
 /// <summary>API controller for the Pages persona bar module.</summary>
 [MenuPermission(MenuName = "Dnn.Pages")]
@@ -92,7 +93,7 @@ public class PagesController(
     /// <param name="pageId">The page (tab) id.</param>
     /// <returns>The page details.</returns>
     [HttpGet]
-    public HttpResponseMessage GetPageDetails(int pageId)
+    public IActionResult GetPageDetails(int pageId)
     {
         if (!this.securityService.CanManagePage(pageId))
         {
@@ -102,11 +103,11 @@ public class PagesController(
         try
         {
             var page = this.pagesController.GetPageSettings(pageId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { page, new DnnFileUploadOptions(this.hostSettings, this.appStatus, this.cryptographyProvider).ValidationCode, });
+            return this.Ok(new { page, new DnnFileUploadOptions(this.hostSettings, this.appStatus, this.cryptographyProvider).ValidationCode, });
         }
         catch (PageNotFoundException)
         {
-            return this.Request.CreateResponse(HttpStatusCode.NotFound, new { Message = "Page doesn't exists.", });
+            return DnnApiResults.Response(HttpStatusCode.NotFound, new { Message = "Page doesn't exists.", });
         }
     }
 
@@ -115,14 +116,14 @@ public class PagesController(
     /// <param name="pageId">The page (tab) id.</param>
     /// <returns>A list of custom urls.</returns>
     [HttpGet]
-    public HttpResponseMessage GetCustomUrls(int pageId)
+    public IActionResult GetCustomUrls(int pageId)
     {
         if (!this.securityService.CanManagePage(pageId))
         {
             return this.GetForbiddenResponse();
         }
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, this.pagesController.GetPageUrls(pageId));
+        return this.Ok(this.pagesController.GetPageUrls(pageId));
     }
 
     /// <summary>Creates a custom url for SEO purposes.</summary>
@@ -131,7 +132,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage CreateCustomUrl(SeoUrl dto)
+    public IActionResult CreateCustomUrl(SeoUrl dto)
     {
         if (!this.securityService.CanManagePage(dto.TabId))
         {
@@ -140,8 +141,7 @@ public class PagesController(
 
         var result = this.pagesController.CreateCustomUrl(dto);
 
-        return this.Request.CreateResponse(
-            HttpStatusCode.OK,
+        return this.Ok(
             new
             {
                 result.Id,
@@ -157,7 +157,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage UpdateCustomUrl(SeoUrl dto)
+    public IActionResult UpdateCustomUrl(SeoUrl dto)
     {
         if (!this.securityService.CanManagePage(dto.TabId))
         {
@@ -166,7 +166,7 @@ public class PagesController(
 
         var result = this.pagesController.UpdateCustomUrl(dto);
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, new
+        return this.Ok(new
         {
             result.Id,
             result.Success,
@@ -181,7 +181,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage DeleteCustomUrl(UrlIdDto dto)
+    public IActionResult DeleteCustomUrl(UrlIdDto dto)
     {
         if (!this.securityService.CanManagePage(dto.TabId))
         {
@@ -195,7 +195,7 @@ public class PagesController(
             Success = true,
         };
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return this.Ok(response);
     }
 
     /// GET: api/Pages/GetPageList
@@ -205,14 +205,14 @@ public class PagesController(
     /// <returns>A list of pages.</returns>
     [HttpGet]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "VIEW_PAGE_LIST,VIEW")]
-    public HttpResponseMessage GetPageList(int parentId = -1, string searchKey = "")
+    public IActionResult GetPageList(int parentId = -1, string searchKey = "")
     {
         var adminTabId = this.PortalSettings.AdminTabId;
         var tabs = TabController.GetPortalTabs(this.hostSettings, this.appStatus, this.PortalSettings.PortalId, adminTabId, false, true, false, true);
         var pages =
             from page in this.pagesController.GetPageList(this.PortalSettings, parentId, searchKey)
             select Converters.ConvertToPageItem<PageItem>(page, tabs);
-        return this.Request.CreateResponse(HttpStatusCode.OK, pages);
+        return this.Ok(pages);
     }
 
     /// GET: api/Pages/SearchPages
@@ -229,7 +229,7 @@ public class PagesController(
     /// <returns>Paged list of pages.</returns>
     [HttpGet]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "VIEW_PAGE_LIST,VIEW")]
-    public HttpResponseMessage SearchPages(
+    public IActionResult SearchPages(
         string searchKey = "",
         string pageType = "",
         string tags = "",
@@ -251,7 +251,7 @@ public class PagesController(
             Results = pages,
             TotalResults = totalRecords,
         };
-        return this.Request.CreateResponse(HttpStatusCode.OK, response);
+        return this.Ok(response);
     }
 
     /// <summary>Gets the pages hierarchy.</summary>
@@ -259,16 +259,16 @@ public class PagesController(
     /// <returns>The page hierarchy.</returns>
     [HttpGet]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage GetPageHierarchy(int pageId)
+    public IActionResult GetPageHierarchy(int pageId)
     {
         try
         {
             var paths = this.pagesController.GetPageHierarchy(pageId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, paths);
+            return this.Ok(paths);
         }
         catch (PageNotFoundException)
         {
-            return this.Request.CreateResponse(HttpStatusCode.NotFound);
+            return DnnApiResults.Response(HttpStatusCode.NotFound);
         }
     }
 
@@ -278,7 +278,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage MovePage(PageMoveRequest request)
+    public IActionResult MovePage(PageMoveRequest request)
     {
         if (!this.securityService.CanManagePage(request.PageId)
             || !this.securityService.CanManagePage(request.ParentId)
@@ -301,15 +301,15 @@ public class PagesController(
                 false,
                 true);
             var pageItem = Converters.ConvertToPageItem<PageItem>(tab, tabs);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0, Page = pageItem, });
+            return this.Ok(new { Status = 0, Page = pageItem, });
         }
         catch (PageNotFoundException)
         {
-            return this.Request.CreateResponse(HttpStatusCode.NotFound);
+            return DnnApiResults.Response(HttpStatusCode.NotFound);
         }
         catch (PageException ex)
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 1, ex.Message, });
+            return this.Ok(new { Status = 1, ex.Message, });
         }
     }
 
@@ -320,7 +320,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage DeletePage(PageItem page, [FromUri] bool hardDelete = false)
+    public IActionResult DeletePage(PageItem page, bool hardDelete = false)
     {
         if (!this.securityService.CanDeletePage(page.Id))
         {
@@ -330,11 +330,11 @@ public class PagesController(
         try
         {
             this.pagesController.DeletePage(page, hardDelete, this.PortalSettings);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0, });
+            return this.Ok(new { Status = 0, });
         }
         catch (PageNotFoundException)
         {
-            return this.Request.CreateResponse(HttpStatusCode.NotFound);
+            return DnnApiResults.Response(HttpStatusCode.NotFound);
         }
     }
 
@@ -344,7 +344,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage DeletePageModule(PageModuleItem module)
+    public IActionResult DeletePageModule(PageModuleItem module)
     {
         if (!this.securityService.CanManagePage(module.PageId))
         {
@@ -354,11 +354,11 @@ public class PagesController(
         try
         {
             this.pagesController.DeleteTabModule(module.PageId, module.ModuleId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0, });
+            return this.Ok(new { Status = 0, });
         }
         catch (PageModuleNotFoundException)
         {
-            return this.Request.CreateResponse(HttpStatusCode.NotFound);
+            return DnnApiResults.Response(HttpStatusCode.NotFound);
         }
     }
 
@@ -368,7 +368,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage CopyThemeToDescendantPages(CopyThemeRequest copyTheme)
+    public IActionResult CopyThemeToDescendantPages(CopyThemeRequest copyTheme)
     {
         if (!this.securityService.CanManagePage(copyTheme.PageId))
         {
@@ -376,7 +376,7 @@ public class PagesController(
         }
 
         this.pagesController.CopyThemeToDescendantPages(copyTheme.PageId, copyTheme.Theme);
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0, });
+        return this.Ok(new { Status = 0, });
     }
 
     /// <summary>Copies permissions from a page to the descendent pages.</summary>
@@ -385,7 +385,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage CopyPermissionsToDescendantPages(CopyPermissionsRequest copyPermissions)
+    public IActionResult CopyPermissionsToDescendantPages(CopyPermissionsRequest copyPermissions)
     {
         if (!this.securityService.CanAdminPage(copyPermissions.PageId))
         {
@@ -395,15 +395,15 @@ public class PagesController(
         try
         {
             this.pagesController.CopyPermissionsToDescendantPages(copyPermissions.PageId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 0, });
+            return this.Ok(new { Status = 0, });
         }
         catch (PageNotFoundException)
         {
-            return this.Request.CreateResponse(HttpStatusCode.NotFound);
+            return DnnApiResults.Response(HttpStatusCode.NotFound);
         }
         catch (PermissionsNotMetException)
         {
-            return this.Request.CreateResponse(HttpStatusCode.Forbidden);
+            return DnnApiResults.Response(HttpStatusCode.Forbidden);
         }
     }
 
@@ -411,7 +411,7 @@ public class PagesController(
     /// <param name="id">the page (tab) ID.</param>
     /// <returns>Sets a cookie for edit mode on the specified page then returns a success message.</returns>
     [HttpPost]
-    public HttpResponseMessage EditModeForPage([FromUri] int id)
+    public IActionResult EditModeForPage(int id)
     {
         if (!TabPermissionController.CanAddContentToPage(TabController.Instance.GetTab(id, this.PortalId)))
         {
@@ -419,7 +419,7 @@ public class PagesController(
         }
 
         this.pagesController.EditModeForPage(id, this.UserInfo.UserID);
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+        return this.Ok(new { Success = true, });
     }
 
     /// <summary>Saves the page details.</summary>
@@ -427,7 +427,7 @@ public class PagesController(
     /// <returns>The new page details.</returns>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public HttpResponseMessage SavePageDetails(PageSettings pageSettings)
+    public IActionResult SavePageDetails(PageSettings pageSettings)
     {
         if (!this.securityService.CanSavePageDetails(pageSettings))
         {
@@ -448,7 +448,7 @@ public class PagesController(
                 false,
                 true);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new
+            return this.Ok(new
             {
                 Status = 0,
                 Page = Converters.ConvertToPageItem<PageItem>(tab, tabs),
@@ -456,11 +456,11 @@ public class PagesController(
         }
         catch (PageNotFoundException)
         {
-            return this.Request.CreateResponse(HttpStatusCode.NotFound, new { Message = "Page doesn't exists.", });
+            return DnnApiResults.Response(HttpStatusCode.NotFound, new { Message = "Page doesn't exists.", });
         }
         catch (PageValidationException ex)
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 1, ex.Field, ex.Message, });
+            return this.Ok(new { Status = 1, ex.Field, ex.Message, });
         }
     }
 
@@ -468,25 +468,25 @@ public class PagesController(
     /// <param name="pageId">The page (tab) id.</param>
     /// <returns>The page default settings.</returns>
     [HttpGet]
-    public HttpResponseMessage GetDefaultSettings(int pageId = 0)
+    public IActionResult GetDefaultSettings(int pageId = 0)
     {
         var settings = this.pagesController.GetDefaultSettings(pageId);
-        return this.Request.CreateResponse(HttpStatusCode.OK, new { page = settings, new DnnFileUploadOptions(this.hostSettings, this.appStatus, this.cryptographyProvider).ValidationCode });
+        return this.Ok(new { page = settings, new DnnFileUploadOptions(this.hostSettings, this.appStatus, this.cryptographyProvider).ValidationCode });
     }
 
     /// <summary>Gets the list of cache providers.</summary>
     /// <returns>List of cache providers.</returns>
     [HttpGet]
-    public HttpResponseMessage GetCacheProviderList()
+    public IActionResult GetCacheProviderList()
     {
         var providers = from p in OutputCachingProvider.GetProviderList() select p.Key;
-        return this.Request.CreateResponse(HttpStatusCode.OK, providers);
+        return this.Ok(providers);
     }
 
     /// <summary>Gets the available themes.</summary>
     /// <returns>Available themes.</returns>
     [HttpGet]
-    public HttpResponseMessage GetThemes()
+    public IActionResult GetThemes()
     {
         var themes = this.themesController.GetLayouts(this.PortalSettings, ThemeLevel.All);
 
@@ -496,7 +496,7 @@ public class PagesController(
         var defaultPortalLayout = this.defaultPortalThemeController.GetDefaultPortalLayout();
         var defaultPortalContainer = this.defaultPortalThemeController.GetDefaultPortalContainer();
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, new
+        return this.Ok(new
         {
             themes,
             defaultPortalThemeName,
@@ -511,14 +511,14 @@ public class PagesController(
     /// <param name="level">The level of the theme, <see cref="ThemeLevel"/>.</param>
     /// <returns>Returns a list of available layouts and containers for each theme.</returns>
     [HttpGet]
-    public HttpResponseMessage GetThemeFiles(string themeName, ThemeLevel level)
+    public IActionResult GetThemeFiles(string themeName, ThemeLevel level)
     {
         var themeLayout = this.themesController.GetLayouts(this.PortalSettings, level)
             .FirstOrDefault(t => t.PackageName.Equals(themeName, StringComparison.OrdinalIgnoreCase) && t.Level == level);
         var themeContainer = this.themesController.GetContainers(this.PortalSettings, level)
             .FirstOrDefault(t => t.PackageName.Equals(themeName, StringComparison.OrdinalIgnoreCase) && t.Level == level);
 
-        return this.Request.CreateResponse(HttpStatusCode.OK, new
+        return this.Ok(new
         {
             layouts = themeLayout == null ? new List<ThemeFileInfo>() : this.themesController.GetThemeFiles(this.PortalSettings, themeLayout),
             containers = themeContainer == null ? new List<ThemeFileInfo>() : this.themesController.GetThemeFiles(this.PortalSettings, themeContainer),
@@ -531,7 +531,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage SaveBulkPages(BulkPage bulkPage)
+    public IActionResult SaveBulkPages(BulkPage bulkPage)
     {
         if (!this.securityService.IsPageAdminUser())
         {
@@ -543,7 +543,7 @@ public class PagesController(
             bulkPage.Clean();
             var bulkPageResponse = this.bulkPagesController.AddBulkPages(bulkPage, validateOnly: false);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new
+            return this.Ok(new
             {
                 Status = 0,
                 Response = bulkPageResponse,
@@ -551,7 +551,7 @@ public class PagesController(
         }
         catch (PageValidationException ex)
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 1, ex.Field, ex.Message, });
+            return this.Ok(new { Status = 1, ex.Field, ex.Message, });
         }
     }
 
@@ -561,7 +561,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage PreSaveBulkPagesValidate(BulkPage bulkPage)
+    public IActionResult PreSaveBulkPagesValidate(BulkPage bulkPage)
     {
         if (!this.securityService.IsPageAdminUser())
         {
@@ -573,7 +573,7 @@ public class PagesController(
             bulkPage.Clean();
             var bulkPageResponse = this.bulkPagesController.AddBulkPages(bulkPage, validateOnly: true);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new
+            return this.Ok(new
             {
                 Status = 0,
                 Response = bulkPageResponse,
@@ -581,7 +581,7 @@ public class PagesController(
         }
         catch (PageValidationException ex)
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 1, ex.Field, ex.Message, });
+            return this.Ok(new { Status = 1, ex.Field, ex.Message, });
         }
     }
 
@@ -591,7 +591,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage SavePageAsTemplate(PageTemplate pageTemplate)
+    public IActionResult SavePageAsTemplate(PageTemplate pageTemplate)
     {
         if (!this.securityService.CanExportPage(pageTemplate.TabId))
         {
@@ -604,7 +604,7 @@ public class PagesController(
             var templateFilename = this.templateController.SaveAsTemplate(pageTemplate);
             var response = string.Format(CultureInfo.CurrentCulture, Localization.GetString("ExportedMessage"), templateFilename);
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new
+            return this.Ok(new
             {
                 Status = 0,
                 Response = response,
@@ -612,7 +612,7 @@ public class PagesController(
         }
         catch (TemplateException ex)
         {
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Status = 1, ex.Message, });
+            return this.Ok(new { Status = 1, ex.Message, });
         }
     }
 
@@ -623,7 +623,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage MakePageNeutral([FromUri] int pageId)
+    public IActionResult MakePageNeutral(int pageId)
     {
         try
         {
@@ -634,17 +634,17 @@ public class PagesController(
 
             if (this.tabController.GetTabsByPortal(this.PortalId).WithParentId(pageId).Count > 0)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, LocalizeString("MakeNeutral.ErrorMessage"));
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, LocalizeString("MakeNeutral.ErrorMessage"));
             }
 
             var defaultLocale = this.localeController.GetDefaultLocale(this.PortalId);
             this.tabController.ConvertTabToNeutralLanguage(this.PortalId, pageId, defaultLocale.Code, true);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+            return this.Ok(new { Success = true, });
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorMakingPageNeutral(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to make this page neutral, please consult the logs for more details.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to make this page neutral, please consult the logs for more details.");
         }
     }
 
@@ -655,7 +655,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage MakePageTranslatable([FromUri] int pageId)
+    public IActionResult MakePageTranslatable(int pageId)
     {
         try
         {
@@ -667,19 +667,19 @@ public class PagesController(
             var currentTab = this.tabController.GetTab(pageId, this.PortalId, false);
             if (currentTab == null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidTab");
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidTab");
             }
 
             var defaultLocale = this.localeController.GetDefaultLocale(this.PortalId);
             this.tabController.LocalizeTab(currentTab, defaultLocale, true);
             this.tabController.AddMissingLanguagesWithWarnings(this.PortalId, pageId);
             this.tabController.ClearCache(this.PortalId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+            return this.Ok(new { Success = true, });
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorMakingPageTranslatable(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to make this page translatable.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to make this page translatable.");
         }
     }
 
@@ -690,7 +690,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage AddMissingLanguages([FromUri] int pageId)
+    public IActionResult AddMissingLanguages(int pageId)
     {
         try
         {
@@ -701,12 +701,12 @@ public class PagesController(
 
             bool allLanguagesAdded = this.tabController.AddMissingLanguagesWithWarnings(this.PortalId, pageId);
             this.tabController.ClearCache(this.PortalId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, AllLanguagesAdded = allLanguagesAdded });
+            return this.Ok(new { Success = true, AllLanguagesAdded = allLanguagesAdded });
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorAddingMissingLanguagesToPage(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to add missing languages to this page, consult the logs for more details.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to add missing languages to this page, consult the logs for more details.");
         }
     }
 
@@ -717,7 +717,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage NotifyTranslators(TranslatorsComment comment)
+    public IActionResult NotifyTranslators(TranslatorsComment comment)
     {
         try
         {
@@ -743,12 +743,12 @@ public class PagesController(
             }
 
             var msgToUser = LocalizeString("TranslationMessageConfirmMessage.Text");
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, Message = msgToUser });
+            return this.Ok(new { Success = true, Message = msgToUser });
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorNotifyingTranslators(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to notify the translators, please consult the logs for more details.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to notify the translators, please consult the logs for more details.");
         }
     }
 
@@ -760,7 +760,7 @@ public class PagesController(
     /// <returns>Information about localiz.</returns>
     /// <example>/api/personabar/pages/GetTabLocalization?pageId=123.</example>
     [HttpGet]
-    public HttpResponseMessage GetTabLocalization(int pageId)
+    public IActionResult GetTabLocalization(int pageId)
     {
         try
         {
@@ -777,12 +777,12 @@ public class PagesController(
                 pages = this.GetNonLocalizedPages(pageId);
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, pages);
+            return this.Ok(pages);
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorGettingPageLocalization(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred trying to get this page localization, consult the logs for more details.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred trying to get this page localization, consult the logs for more details.");
         }
     }
 
@@ -793,7 +793,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage UpdateTabLocalization(DnnPagesRequest request)
+    public IActionResult UpdateTabLocalization(DnnPagesRequest request)
     {
         try
         {
@@ -804,12 +804,12 @@ public class PagesController(
 
             request.Clean();
             this.SaveNonLocalizedPages(request);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+            return this.Ok(new { Success = true, });
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorUpdatingPageLocalization(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred trying to update the page localization, please consult the logs for more details.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred trying to update the page localization, please consult the logs for more details.");
         }
     }
 
@@ -820,7 +820,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage RestoreModule(int tabModuleId)
+    public IActionResult RestoreModule(int tabModuleId)
     {
         try
         {
@@ -834,16 +834,16 @@ public class PagesController(
             var moduleInfo = moduleController.GetTabModule(tabModuleId);
             if (moduleInfo == null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidTabModule");
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidTabModule");
             }
 
             moduleController.RestoreModule(moduleInfo);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+            return this.Ok(new { Success = true, });
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorRestoringModuleOntoPage(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to restore the module onto that page.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to restore the module onto that page.");
         }
     }
 
@@ -854,7 +854,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage DeleteModule(int tabModuleId)
+    public IActionResult DeleteModule(int tabModuleId)
     {
         try
         {
@@ -868,16 +868,16 @@ public class PagesController(
             var moduleInfo = moduleController.GetTabModule(tabModuleId);
             if (moduleInfo == null)
             {
-                return this.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "InvalidTabModule");
+                return DnnApiResults.Error(HttpStatusCode.BadRequest, "InvalidTabModule");
             }
 
             moduleController.DeleteTabModule(moduleInfo.TabID, moduleInfo.ModuleID, false);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+            return this.Ok(new { Success = true, });
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorDeletingModule(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to delete the module, consult the logs for more details.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to delete the module, consult the logs for more details.");
         }
     }
 
@@ -885,7 +885,7 @@ public class PagesController(
     /// <returns>A value indicating if content localization is enabled.</returns>
     /// <example>GET /api/personabar/pages/GetContentLocalizationEnabled.</example>
     [HttpGet]
-    public HttpResponseMessage GetContentLocalizationEnabled()
+    public IActionResult GetContentLocalizationEnabled()
     {
         try
         {
@@ -894,12 +894,12 @@ public class PagesController(
                 return this.GetForbiddenResponse();
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, this.PortalSettings.ContentLocalizationEnabled });
+            return this.Ok(new { Success = true, this.PortalSettings.ContentLocalizationEnabled });
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorGettingContentLocalizationEnabled(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to find if content localization is enabled");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to find if content localization is enabled");
         }
     }
 
@@ -909,7 +909,7 @@ public class PagesController(
     /// <returns>Caching information.</returns>
     /// <example>GET /api/personabar/pages/GetCachedItemCount.</example>
     [HttpGet]
-    public HttpResponseMessage GetCachedItemCount(string cacheProvider, int pageId)
+    public IActionResult GetCachedItemCount(string cacheProvider, int pageId)
     {
         try
         {
@@ -918,12 +918,12 @@ public class PagesController(
                 return this.GetForbiddenResponse();
             }
 
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, Count = OutputCachingProvider.Instance(cacheProvider).GetItemCount(pageId) });
+            return this.Ok(new { Success = true, Count = OutputCachingProvider.Instance(cacheProvider).GetItemCount(pageId) });
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorGettingCachedItemsCount(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred trying to get the cached items count, please consult the logs for more details.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred trying to get the cached items count, please consult the logs for more details.");
         }
     }
 
@@ -935,7 +935,7 @@ public class PagesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "Edit")]
-    public HttpResponseMessage ClearCache([FromUri] string cacheProvider, [FromUri] int pageId)
+    public IActionResult ClearCache(string cacheProvider, int pageId)
     {
         try
         {
@@ -945,12 +945,12 @@ public class PagesController(
             }
 
             OutputCachingProvider.Instance(cacheProvider).Remove(pageId);
-            return this.Request.CreateResponse(HttpStatusCode.OK, new { Success = true, });
+            return this.Ok(new { Success = true, });
         }
         catch (Exception ex)
         {
             Logger.PagesControllerUnexpectedErrorClearingCacheForPage(ex);
-            return this.Request.CreateErrorResponse(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to clear the cache for this page, see logs for more details.");
+            return DnnApiResults.Error(HttpStatusCode.InternalServerError, "An unexpected error occurred while trying to clear the cache for this page, see logs for more details.");
         }
     }
 
@@ -959,10 +959,10 @@ public class PagesController(
     /// <example>GET /api/personabar/pages/GetWorkflows.</example>
     [HttpGet]
     [AdvancedPermission(MenuName = "Dnn.Pages", Permission = "VIEW_PAGE_LIST,VIEW")]
-    public HttpResponseMessage GetWorkflows()
+    public IActionResult GetWorkflows()
     {
         var workflows = this.workflowManager.GetWorkflows(this.PortalSettings.PortalId).Select(w => new { workflowId = w.WorkflowID, workflowName = w.WorkflowName });
-        return this.Request.CreateResponse(HttpStatusCode.OK, workflows);
+        return this.Ok(workflows);
     }
 
     private static string LocalizeString(string key)
@@ -1400,9 +1400,9 @@ public class PagesController(
         notificationsController.SendNotification(notification, this.PortalSettings.PortalId, null, new List<UserInfo> { translator, });
     }
 
-    private HttpResponseMessage GetForbiddenResponse()
+    private IActionResult GetForbiddenResponse()
     {
-        return this.Request.CreateResponse(HttpStatusCode.Forbidden, new { Message = "The user is not allowed to access this method.", });
+        return DnnApiResults.Response(HttpStatusCode.Forbidden, new { Message = "The user is not allowed to access this method.", });
     }
 
     private ThemeFileInfo GetDefaultPortalTheme()

@@ -4,7 +4,7 @@
 
 namespace DotNetNuke.Web.Mvc.Common
 {
-    using System.Web.Routing;
+    using Microsoft.AspNetCore.Routing;
 
     public static class TypeHelper
     {

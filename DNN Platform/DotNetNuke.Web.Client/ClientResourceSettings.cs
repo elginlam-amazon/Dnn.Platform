@@ -8,13 +8,13 @@ namespace DotNetNuke.Web.Client
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
     using System.Reflection;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Portals;
     using DotNetNuke.Instrumentation;
     using DotNetNuke.Internal.SourceGenerators;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     /// <summary>Settings related to managing client resources.</summary>
@@ -198,8 +198,12 @@ namespace DotNetNuke.Web.Client
 
         private static string GetSetting(int? portalId, string dictionaryKey, string settingKey)
         {
-            bool isHttpContext = HttpContext.Current != null && HttpContext.Current.Items.Contains(dictionaryKey);
-            var settings = isHttpContext ? HttpContext.Current.Items[dictionaryKey] : null;
+            // The per-request settings dictionaries are stashed in the request's items collection. On .NET Framework
+            // this was reached through the HttpContext.Current ambient static, which does not exist on modern .NET,
+            // so the current context comes from IHttpContextAccessor instead. The item keys are unchanged.
+            var httpContext = GetCurrentHttpContext();
+            bool isHttpContext = httpContext != null && httpContext.Items.ContainsKey(dictionaryKey);
+            var settings = isHttpContext ? httpContext.Items[dictionaryKey] : null;
             if (settings == null)
             {
                 if (dictionaryKey == HostSettingsDictionaryKey)
@@ -219,6 +223,11 @@ namespace DotNetNuke.Web.Client
 
             // no valid setting was found
             return null;
+        }
+
+        private static HttpContext GetCurrentHttpContext()
+        {
+            return DependencyInjection.TryGetCurrentServiceProvider()?.GetService<IHttpContextAccessor>()?.HttpContext;
         }
 
         private static string GetPortalSettingThroughReflection(int? portalId, string settingKey)
@@ -252,14 +261,15 @@ namespace DotNetNuke.Web.Client
         {
             try
             {
-                if (HttpContext.Current == null)
+                var httpContext = GetCurrentHttpContext();
+                if (httpContext == null)
                 {
                     return null;
                 }
 
                 using var scope = DependencyInjection.GetOrCreateServiceScope();
                 var portalAliasService = scope.ServiceProvider.GetRequiredService<IPortalAliasService>();
-                var alias = portalAliasService.GetPortalAlias(HttpContext.Current.Request.Url.Host);
+                var alias = portalAliasService.GetPortalAlias(httpContext.Request.Host.Host);
 
                 return alias.PortalId;
             }

@@ -4,14 +4,28 @@
 namespace DotNetNuke.Services.Localization
 {
     using System;
-    using System.Web.UI.Design;
 
-    public class LocalizationExpressionBuilderEditor : ExpressionEditor
+    /// <summary>Produces the design-time representation of a <c>dnnLoc</c> localization expression.</summary>
+    /// <remarks>
+    /// Was a <c>System.Web.UI.Design.ExpressionEditor</c>, referenced from
+    /// <see cref="LocalizationExpressionBuilder"/> by an <c>[ExpressionEditor]</c> attribute. The
+    /// WebForms designer and its <c>System.Web.UI.Design</c> assembly do not exist on modern .NET,
+    /// so the base class is gone; the type and its behaviour — echoing the expression back as the
+    /// <c>[dnnLoc:Key]</c> token a designer would display in place of the resolved value — are kept
+    /// because they are public API and are what <see cref="LocalizationExpressionBuilder.ReplaceExpressions"/>
+    /// consumes as its token syntax.
+    /// </remarks>
+    public class LocalizationExpressionBuilderEditor
     {
-        /// <inheritdoc />
-        public override object EvaluateExpression(string expression, object parseTimeData, Type propertyType, IServiceProvider serviceProvider)
+        /// <summary>Gets the token that represents the given expression when it is not resolved.</summary>
+        /// <param name="expression">The resource key.</param>
+        /// <param name="parseTimeData">Data produced while parsing the expression; unused, kept for signature compatibility.</param>
+        /// <param name="propertyType">The type of the property the expression is bound to; unused, kept for signature compatibility.</param>
+        /// <param name="serviceProvider">The host's service provider; unused, kept for signature compatibility.</param>
+        /// <returns>The <c>[dnnLoc:<paramref name="expression"/>]</c> token.</returns>
+        public virtual object EvaluateExpression(string expression, object parseTimeData, Type propertyType, IServiceProvider serviceProvider)
         {
-            return string.Concat("[dnnLoc:", expression, "]");
+            return string.Concat("[", LocalizationExpressionBuilder.ExpressionPrefix, ":", expression, "]");
         }
     }
 }

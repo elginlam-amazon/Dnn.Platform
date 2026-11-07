@@ -18,20 +18,12 @@
 // limitations under the License.
 // 
 
-#if NET_2_0
-// .NET Compact Framework 1.0 has no support for WindowsIdentity
-#if !NETCF 
-// MONO 1.0 has no support for Win32 Logon APIs
-#if !MONO
-// SSCLI 1.0 has no support for Win32 Logon APIs
-#if !SSCLI
-// We don't want framework or platform specific code in the CLI version of log4net
-#if !CLI_1_0
-
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security.Principal;
-using System.Security.Permissions;
+
+using Microsoft.Win32.SafeHandles;
 
 using log4net.Core;
 
@@ -48,6 +40,7 @@ namespace log4net.Util
     /// using username, domain name and password or to revert to the process credentials.
     /// </para>
     /// </remarks>
+    [SupportedOSPlatform("windows")]
     public class WindowsSecurityContext : SecurityContext, IOptionHandler
     {
         /// <summary>The impersonation modes for the <see cref="WindowsSecurityContext"/></summary>
@@ -65,6 +58,11 @@ namespace log4net.Util
             /// <summary>Revert this the thread to the credentials of the process</summary>
             Process
         }
+
+        /// <summary>
+        /// The fully qualified type of the WindowsSecurityContext class.
+        /// </summary>
+        private static readonly Type declaringType = typeof(WindowsSecurityContext);
 
         private ImpersonationMode m_impersonationMode = ImpersonationMode.User;
         private string m_userName;
@@ -204,6 +202,15 @@ namespace log4net.Util
                     throw new ArgumentNullException("m_password");
                 }
 
+                if (!OperatingSystem.IsWindows())
+                {
+                    // The Win32 logon APIs only exist on Windows. The context stays configured so
+                    // that log4net configuration parsing never fails; Impersonate is then a
+                    // documented no-op (it returns null, i.e. "no impersonation scope").
+                    LogLog.Warn(declaringType, "WindowsSecurityContext: Windows impersonation is only available on Windows; this security context is inactive on the current platform.");
+                    return;
+                }
+
                 this.m_identity = LogonUser(this.m_userName, this.m_domainName, this.m_password);
             }
         }
@@ -219,20 +226,37 @@ namespace log4net.Util
         /// impersonate a user using credentials supplied or revert 
         /// to the process credentials.
         /// </para>
+        /// <para>
+        /// <c>WindowsImpersonationContext</c> no longer exists on modern .NET. The scope based
+        /// contract of this method (23 <c>using (securityContext.Impersonate(this))</c> call sites
+        /// in this assembly) cannot be expressed with the callback based
+        /// <see cref="WindowsIdentity.RunImpersonated(SafeAccessTokenHandle, Action)"/>, so the
+        /// impersonation scope is established with the supported
+        /// <c>ImpersonateLoggedOnUser</c>/<c>RevertToSelf</c> Win32 APIs, which is exactly what
+        /// <c>RunImpersonated</c> itself uses internally.
+        /// </para>
         /// </remarks>
         public override IDisposable Impersonate(object state)
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                // Documented no-op on non-Windows platforms: no impersonation is performed and
+                // the caller's using(...) block simply operates on the current credentials.
+                return null;
+            }
+
             if (this.m_impersonationMode == ImpersonationMode.User)
             {
                 if (this.m_identity != null)
                 {
-                    return new DisposableImpersonationContext(this.m_identity.Impersonate());
+                    return new DisposableImpersonationContext(this.m_identity.AccessToken);
                 }
             }
             else if (this.m_impersonationMode == ImpersonationMode.Process)
             {
-                // Impersonate(0) will revert to the process credentials
-                return new DisposableImpersonationContext(WindowsIdentity.Impersonate(IntPtr.Zero));
+                // A null token reverts to the process credentials, matching the legacy
+                // WindowsIdentity.Impersonate(IntPtr.Zero) behaviour.
+                return new DisposableImpersonationContext(null);
             }
             return null;
         }
@@ -248,10 +272,6 @@ namespace log4net.Util
         /// token is used to initialize the WindowsIdentity.
         /// </para>
         /// </remarks>
-#if NET_4_0 || MONO_4_0
-        [System.Security.SecuritySafeCritical]
-#endif
-        [SecurityPermission(SecurityAction.Demand, UnmanagedCode = true)]
         private static WindowsIdentity LogonUser(string userName, string domainName, string password)
         {
             const int LOGON32_PROVIDER_DEFAULT = 0;
@@ -302,27 +322,54 @@ namespace log4net.Util
         [DllImport("advapi32.dll", CharSet=CharSet.Auto, SetLastError=true)]
         private static extern bool DuplicateToken(IntPtr ExistingTokenHandle, int SECURITY_IMPERSONATION_LEVEL, ref IntPtr DuplicateTokenHandle);
 
-        /// <summary>Adds <see cref="IDisposable"/> to <see cref="WindowsImpersonationContext"/></summary>
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool ImpersonateLoggedOnUser(SafeAccessTokenHandle hToken);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool RevertToSelf();
+
+        /// <summary>Scope based Windows impersonation exposed through <see cref="IDisposable"/></summary>
         /// <remarks>
         /// <para>
-        /// Helper class to expose the <see cref="WindowsImpersonationContext"/>
-        /// through the <see cref="IDisposable"/> interface.
+        /// Establishes the impersonation in the constructor and restores whatever impersonation
+        /// (if any) was in effect beforehand when disposed. This replaces the removed
+        /// <c>WindowsImpersonationContext</c> type while preserving its exact semantics.
         /// </para>
         /// </remarks>
+        [SupportedOSPlatform("windows")]
         private sealed class DisposableImpersonationContext : IDisposable
         {
-            private readonly WindowsImpersonationContext m_impersonationContext;
+            private readonly WindowsIdentity m_previousIdentity;
+            private bool m_disposed;
 
             /// <summary>Constructor</summary>
-            /// <param name="impersonationContext">the impersonation context being wrapped</param>
+            /// <param name="token">
+            /// The access token to impersonate, or <c>null</c> to revert to the process credentials.
+            /// </param>
             /// <remarks>
             /// <para>
             /// Constructor
             /// </para>
             /// </remarks>
-            public DisposableImpersonationContext(WindowsImpersonationContext impersonationContext)
+            public DisposableImpersonationContext(SafeAccessTokenHandle token)
             {
-                this.m_impersonationContext = impersonationContext;
+                // Capture any impersonation currently in effect so Dispose can restore it.
+                // Returns null when the thread is running as the process account.
+                this.m_previousIdentity = WindowsIdentity.GetCurrent(true);
+
+                if (token == null || token.IsInvalid)
+                {
+                    if (!RevertToSelf())
+                    {
+                        NativeError error = NativeError.GetLastError();
+                        throw new Exception("Failed to RevertToSelf. Error: " + error.ToString());
+                    }
+                }
+                else if (!ImpersonateLoggedOnUser(token))
+                {
+                    NativeError error = NativeError.GetLastError();
+                    throw new Exception("Failed to ImpersonateLoggedOnUser. Error: " + error.ToString());
+                }
             }
 
             /// <summary>Revert the impersonation</summary>
@@ -333,15 +380,39 @@ namespace log4net.Util
             /// </remarks>
             public void Dispose()
             {
-                this.m_impersonationContext.Undo();
+                if (this.m_disposed)
+                {
+                    return;
+                }
+
+                this.m_disposed = true;
+
+                // Never throw from Dispose, but never fail silently either: a failed revert
+                // would leave the thread impersonating, which is security relevant.
+                if (!RevertToSelf())
+                {
+                    LogLog.Error(
+                        declaringType,
+                        "Failed to RevertToSelf while reverting impersonation. Error: " + NativeError.GetLastError().ToString());
+                }
+
+                if (this.m_previousIdentity != null)
+                {
+                    // Restore the impersonation that was in effect before this scope.
+                    if (!this.m_previousIdentity.AccessToken.IsInvalid)
+                    {
+                        if (!ImpersonateLoggedOnUser(this.m_previousIdentity.AccessToken))
+                        {
+                            LogLog.Error(
+                                declaringType,
+                                "Failed to restore the previous impersonation context. Error: " + NativeError.GetLastError().ToString());
+                        }
+                    }
+
+                    this.m_previousIdentity.Dispose();
+                }
             }
         }
     }
 }
-
-#endif // !CLI_1_0
-#endif // !SSCLI
-#endif // !MONO
-#endif // !NETCF
-#endif // NET_2_0
 

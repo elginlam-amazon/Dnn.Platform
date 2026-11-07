@@ -1,0 +1,17 @@
+@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.HtmlEditorManager.Views
+@inherits DotNetNuke.Entities.Modules.PortalModuleBase
+
+@*
+    Replaces InvalidConfiguration.ascx (and its empty code-behind, which had no logic to port).
+    The presenter loads it by the virtual path
+    ~/DesktopModules/Admin/HtmlEditorManager/Controls/InvalidConfiguration.razor when the current
+    provider declares no settingsControlPath, or loading that control throws. The warning sentence
+    was hardcoded English in the .ascx and stays hardcoded here.
+*@
+
+<div class="dnnFormMessage dnnFormWarning">
+   <p>The current HTML Editor Provider is not supported by this version of the HTML Editor Manager.</p>
+</div>

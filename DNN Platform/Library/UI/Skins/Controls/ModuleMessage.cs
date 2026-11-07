@@ -5,26 +5,49 @@ namespace DotNetNuke.UI.Skins.Controls
 {
     using System;
     using System.Diagnostics.CodeAnalysis;
-    using System.Web.UI;
-    using System.Web.UI.WebControls;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Services.Exceptions;
 
+    using Microsoft.AspNetCore.Components;
+    using Microsoft.JSInterop;
+
     /// <summary>A skin object to display a message from a module.</summary>
+    /// <remarks>
+    /// The WebForms version was driven by <c>~/admin/skins/ModuleMessage.ascx</c>, which declared a
+    /// <c>Panel</c> (<c>dnnSkinMessage</c>), two <c>Label</c>s (<c>lblHeading</c>,
+    /// <c>lblMessage</c>) and a scroll script block. The same markup is produced here by the
+    /// component itself; the protected fields are preserved because skins and third party code
+    /// reference them.
+    /// </remarks>
     public class ModuleMessage : SkinObjectBase
     {
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
-        protected Panel dnnSkinMessage;
+        protected DnnPanel dnnSkinMessage;
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
-        protected Label lblHeading;
+        protected DnnLabel lblHeading;
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
-        protected Label lblMessage;
+        protected DnnLabel lblMessage;
         [SuppressMessage("StyleCop.CSharp.MaintainabilityRules", "SA1401:FieldsMustBePrivate", Justification = "Breaking change")]
         [SuppressMessage("Microsoft.Design", "CA1051:DoNotDeclareVisibleInstanceFields", Justification = "Breaking change")]
-        protected Control scrollScript;
+        protected IDnnControl scrollScript;
+
+        /// <summary>Initializes a new instance of the <see cref="ModuleMessage"/> class.</summary>
+        public ModuleMessage()
+        {
+            this.dnnSkinMessage = new DnnPanel { ID = "dnnSkinMessage", CssClass = "dnnFormMessage" };
+            this.lblHeading = new DnnLabel { ID = "lblHeading", CssClass = "dnnFormMessageHeading", Visible = false };
+            this.lblMessage = new DnnLabel { ID = "lblMessage" };
+            this.scrollScript = new DnnPlaceHolder { ID = "scrollScript", Visible = false };
+
+            this.dnnSkinMessage.Controls.Add(this.lblHeading);
+            this.dnnSkinMessage.Controls.Add(this.lblMessage);
+            this.dnnSkinMessage.Controls.Add(this.scrollScript);
+            this.Controls.Add(this.dnnSkinMessage);
+        }
 
         public enum ModuleMessageType
         {
@@ -46,17 +69,29 @@ namespace DotNetNuke.UI.Skins.Controls
         {
             get
             {
-                return this.Parent.ID == "MessagePlaceHolder";
+                return this.Parent?.Id == "MessagePlaceHolder";
             }
         }
 
+        /// <summary>Gets or sets the message text.</summary>
+        [Parameter]
         public string Text { get; set; }
 
+        /// <summary>Gets or sets the message heading.</summary>
+        [Parameter]
         public string Heading { get; set; }
 
+        /// <summary>Gets or sets the type of the message, which selects its styling.</summary>
+        [Parameter]
         public ModuleMessageType IconType { get; set; }
 
+        /// <summary>Gets or sets the URL of an icon to display with the message.</summary>
+        [Parameter]
         public string IconImage { get; set; }
+
+        /// <summary>Gets the JavaScript runtime used to scroll a module message into view.</summary>
+        [Inject]
+        protected IJSRuntime JavaScriptRuntime { get; set; }
 
         /// <summary>The Page_Load server event handler on this page is used to populate the role information for the page.</summary>
         /// <param name="e">The event arguments.</param>
@@ -113,12 +148,26 @@ namespace DotNetNuke.UI.Skins.Controls
         }
 
         /// <inheritdoc />
-        protected override void OnPreRender(EventArgs e)
+        /// <remarks>
+        /// The WebForms version made the scroll script block visible when
+        /// <c>Page.IsPostBack &amp;&amp; IsModuleMessage</c>. There are no postbacks on ASP.NET Core;
+        /// a message that appears after the component's first render is the equivalent situation, and
+        /// the scroll itself is performed through <see cref="IJSRuntime"/> because a Blazor component
+        /// may not emit a <c>&lt;script&gt;</c> block.
+        /// </remarks>
+        protected override async Task OnAfterRenderAsync(bool firstRender)
         {
-            base.OnPreRender(e);
+            await base.OnAfterRenderAsync(firstRender);
 
-            // set the scroll js only shown for module message and in postback mode.
-            this.scrollScript.Visible = this.IsPostBack && this.IsModuleMessage;
+            var shouldScroll = !firstRender && this.IsModuleMessage;
+            this.scrollScript.Visible = shouldScroll;
+
+            if (shouldScroll && this.JavaScriptRuntime != null)
+            {
+                await this.JavaScriptRuntime.InvokeVoidAsync(
+                    "eval",
+                    $"(function(){{var el=document.getElementById('{this.dnnSkinMessage.ClientId}');if(el){{el.scrollIntoView({{behavior:'smooth',block:'center'}});}}}})();");
+            }
         }
     }
 }

@@ -3,22 +3,21 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Security.Membership
 {
+    using System.Net;
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Configuration.Provider;
     using System.Data;
     using System.Diagnostics.CodeAnalysis;
     using System.Globalization;
     using System.Linq;
     using System.Text.RegularExpressions;
-    using System.Web;
-    using System.Web.Security;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
     using DotNetNuke.Abstractions.Security;
     using DotNetNuke.Common;
+    using DotNetNuke.Common.Options;
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.Data;
     using DotNetNuke.Entities.Portals;
@@ -48,6 +47,7 @@ namespace DotNetNuke.Security.Membership
         private readonly IApplicationStatusInfo appStatus;
         private readonly IPortalGroupController portalGroupController;
         private readonly IEventLogger eventLogger;
+        private readonly IAspNetMembershipStore membershipStore;
 
         /// <summary>Initializes a new instance of the <see cref="AspNetMembershipProvider"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Use overload with ICryptographyProvider. Scheduled for removal in v12.0.0.")]
@@ -79,37 +79,41 @@ namespace DotNetNuke.Security.Membership
             this.appStatus = appStatus ?? Globals.GetCurrentServiceProvider().GetRequiredService<IApplicationStatusInfo>();
             this.portalGroupController = portalGroupController ?? Globals.GetCurrentServiceProvider().GetRequiredService<IPortalGroupController>();
             this.eventLogger = eventLogger ?? Globals.GetCurrentServiceProvider().GetRequiredService<IEventLogger>();
+            this.membershipStore = Globals.GetCurrentServiceProvider().GetRequiredService<IAspNetMembershipStore>();
         }
 
         /// <inheritdoc />
         public override bool CanEditProviderProperties => false;
 
+        /// <summary>Gets the membership settings, which used to come from &lt;system.web&gt;&lt;membership&gt;.</summary>
+        private MembershipOptions Settings => this.membershipStore.Options;
+
         /// <inheritdoc />
         public override int MaxInvalidPasswordAttempts
         {
-            get => System.Web.Security.Membership.MaxInvalidPasswordAttempts;
-            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in web.config");
+            get => this.Settings.MaxInvalidPasswordAttempts;
+            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in the Membership configuration section");
         }
 
         /// <inheritdoc />
         public override int MinNonAlphanumericCharacters
         {
-            get => System.Web.Security.Membership.MinRequiredNonAlphanumericCharacters;
-            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in web.config");
+            get => this.Settings.MinRequiredNonAlphanumericCharacters;
+            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in the Membership configuration section");
         }
 
         /// <inheritdoc />
         public override int MinPasswordLength
         {
-            get => System.Web.Security.Membership.MinRequiredPasswordLength;
-            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in web.config");
+            get => this.Settings.MinRequiredPasswordLength;
+            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in the Membership configuration section");
         }
 
         /// <inheritdoc />
         public override int PasswordAttemptWindow
         {
-            get => System.Web.Security.Membership.PasswordAttemptWindow;
-            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in web.config");
+            get => this.Settings.PasswordAttemptWindow;
+            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in the Membership configuration section");
         }
 
         /// <inheritdoc />
@@ -117,11 +121,11 @@ namespace DotNetNuke.Security.Membership
         {
             get
             {
-                switch (System.Web.Security.Membership.Provider.PasswordFormat)
+                switch (this.Settings.PasswordFormat)
                 {
-                    case MembershipPasswordFormat.Encrypted:
+                    case (int)PasswordFormat.Encrypted:
                         return PasswordFormat.Encrypted;
-                    case MembershipPasswordFormat.Hashed:
+                    case (int)PasswordFormat.Hashed:
                         return PasswordFormat.Hashed;
                     default:
                         return PasswordFormat.Clear;
@@ -131,43 +135,43 @@ namespace DotNetNuke.Security.Membership
             set
             {
                 throw new NotSupportedException(
-                    "Provider properties for AspNetMembershipProvider must be set in web.config");
+                    "Provider properties for AspNetMembershipProvider must be set in the Membership configuration section");
             }
         }
 
         /// <inheritdoc />
         public override bool PasswordResetEnabled
         {
-            get => System.Web.Security.Membership.EnablePasswordReset;
-            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in web.config");
+            get => this.Settings.EnablePasswordReset;
+            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in the Membership configuration section");
         }
 
         /// <inheritdoc />
         public override bool PasswordRetrievalEnabled
         {
-            get => System.Web.Security.Membership.EnablePasswordRetrieval;
-            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in web.config");
+            get => this.Settings.EnablePasswordRetrieval;
+            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in the Membership configuration section");
         }
 
         /// <inheritdoc />
         public override string PasswordStrengthRegularExpression
         {
-            get => System.Web.Security.Membership.PasswordStrengthRegularExpression;
-            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in web.config");
+            get => this.Settings.PasswordStrengthRegularExpression;
+            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in the Membership configuration section");
         }
 
         /// <inheritdoc />
         public override bool RequiresQuestionAndAnswer
         {
-            get => System.Web.Security.Membership.RequiresQuestionAndAnswer;
-            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in web.config");
+            get => this.Settings.RequiresQuestionAndAnswer;
+            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in the Membership configuration section");
         }
 
         /// <inheritdoc />
         public override bool RequiresUniqueEmail
         {
-            get => System.Web.Security.Membership.Provider.RequiresUniqueEmail;
-            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in web.config");
+            get => this.Settings.RequiresUniqueEmail;
+            set => throw new NotSupportedException("Provider properties for AspNetMembershipProvider must be set in the Membership configuration section");
         }
 
         public static ArrayList FillUserCollection(int portalId, IDataReader dr)
@@ -320,7 +324,9 @@ namespace DotNetNuke.Security.Membership
         public override UserCreateStatus CreateUser(ref UserInfo user)
         {
             UserCreateStatus createStatus = ValidateForProfanity(user);
-            string service = HttpContext.Current != null ? HttpContext.Current.Request.Params["state"] : string.Empty;
+            var requestContext = HttpContextSource.Current;
+            string service = requestContext is null ? string.Empty : GetRequestParameter(requestContext, "state");
+            _ = service;
 
             if (createStatus == UserCreateStatus.AddUser)
             {
@@ -433,7 +439,7 @@ namespace DotNetNuke.Security.Membership
         /// <inheritdoc />
         public override string GeneratePassword(int length)
         {
-            return System.Web.Security.Membership.GeneratePassword(length, this.MinNonAlphanumericCharacters);
+            return this.membershipStore.GeneratePassword(length, this.MinNonAlphanumericCharacters);
         }
 
         /// <inheritdoc />
@@ -855,7 +861,7 @@ namespace DotNetNuke.Security.Membership
         /// <inheritdoc />
         public override bool UnLockUser(UserInfo user)
         {
-            MembershipUser membershipUser = System.Web.Security.Membership.GetUser(user.Username);
+            MembershipUser membershipUser = this.membershipStore.GetUser(user.Username, false);
             bool retValue = false;
             if (membershipUser != null)
             {
@@ -911,7 +917,7 @@ namespace DotNetNuke.Security.Membership
 #pragma warning restore CS0618 // Type or member is obsolete
             if (displayName.Contains("<"))
             {
-                displayName = HttpUtility.HtmlEncode(displayName);
+                displayName = WebUtility.HtmlEncode(displayName);
             }
 
             if (!firstName.Equals(user.FirstName, StringComparison.Ordinal))
@@ -1050,7 +1056,7 @@ namespace DotNetNuke.Security.Membership
                     DataCache.ClearUserCache(portalId, username);
                     DataCache.ClearCache(GetCacheKey(username));
 
-                    aspnetUser = System.Web.Security.Membership.GetUser(username);
+                    aspnetUser = this.membershipStore.GetUser(username, false);
 
                     // If user has been locked out for current invalid attempt
                     // return locked out status
@@ -1100,9 +1106,10 @@ namespace DotNetNuke.Security.Membership
                 PortalSecurity.FilterFlag.NoScripting | PortalSecurity.FilterFlag.NoAngleBrackets | PortalSecurity.FilterFlag.NoMarkup);
 #pragma warning restore CS0618 // Type or member is obsolete
             MembershipCreateStatus status;
+            var membershipStore = AspNetMembershipStore.Current;
             if (MembershipProviderConfig.RequiresQuestionAndAnswer)
             {
-                System.Web.Security.Membership.CreateUser(
+                membershipStore.CreateUser(
                     userName,
                     user.Membership.Password,
                     email,
@@ -1113,7 +1120,7 @@ namespace DotNetNuke.Security.Membership
             }
             else
             {
-                System.Web.Security.Membership.CreateUser(
+                membershipStore.CreateUser(
                     userName,
                     user.Membership.Password,
                     email,
@@ -1168,7 +1175,7 @@ namespace DotNetNuke.Security.Membership
         {
             try
             {
-                System.Web.Security.Membership.DeleteUser(user.Username, true);
+                AspNetMembershipStore.Current.DeleteUser(user.Username, true);
             }
             catch (Exception exc)
             {
@@ -1451,14 +1458,14 @@ namespace DotNetNuke.Security.Membership
         {
             string userName = cacheItemArgs.ParamList[0].ToString();
 
-            return System.Web.Security.Membership.GetUser(userName);
+            return AspNetMembershipStore.Current.GetUser(userName, false);
         }
 
         private static object GetMembershipUserByUserKeyCallBack(CacheItemArgs cacheItemArgs)
         {
             string userKey = cacheItemArgs.ParamList[0].ToString();
 
-            return System.Web.Security.Membership.GetUser(new Guid(userKey));
+            return AspNetMembershipStore.Current.GetUser(new Guid(userKey));
         }
 
         private static void UpdateUserMembership(UserInfo user)
@@ -1471,7 +1478,8 @@ namespace DotNetNuke.Security.Membership
 #pragma warning restore CS0618 // Type or member is obsolete
 
             // Persist the Membership Properties to the AspNet Data Store
-            MembershipUser membershipUser = System.Web.Security.Membership.GetUser(user.Username);
+            var membershipStore = AspNetMembershipStore.Current;
+            MembershipUser membershipUser = membershipStore.GetUser(user.Username, false);
             membershipUser.Email = email;
             membershipUser.LastActivityDate = DateTime.Now;
             if (user.IsSuperUser)
@@ -1481,9 +1489,9 @@ namespace DotNetNuke.Security.Membership
 
             try
             {
-                System.Web.Security.Membership.UpdateUser(membershipUser);
+                membershipStore.UpdateUser(membershipUser);
             }
-            catch (ProviderException ex)
+            catch (MembershipStoreException ex)
             {
                 throw new UpdateUserException(Localization.GetExceptionMessage("UpdateUserMembershipFailed", "Asp.net membership update user failed."), ex);
             }
@@ -1535,7 +1543,26 @@ namespace DotNetNuke.Security.Membership
 
         private static bool ValidateUser(string username, string password)
         {
-            return System.Web.Security.Membership.ValidateUser(username, password);
+            return AspNetMembershipStore.Current.ValidateUser(username, password);
+        }
+
+        /// <summary>Reads a request value from the query string or the posted form, the way <c>Request.Params</c> did.</summary>
+        /// <param name="context">The current request.</param>
+        /// <param name="key">The parameter name.</param>
+        /// <returns>The value, or <see cref="string.Empty"/> when absent.</returns>
+        private static string GetRequestParameter(Microsoft.AspNetCore.Http.HttpContext context, string key)
+        {
+            if (context.Request.Query.TryGetValue(key, out var queryValue))
+            {
+                return queryValue.ToString();
+            }
+
+            if (context.Request.HasFormContentType && context.Request.Form.TryGetValue(key, out var formValue))
+            {
+                return formValue.ToString();
+            }
+
+            return string.Empty;
         }
 
         private static string GetStringSetting(Hashtable settings, string settingKey)
@@ -1591,7 +1618,7 @@ namespace DotNetNuke.Security.Membership
             user.DisplayName = objSecurity.InputFilter(user.DisplayName, filterFlags);
             if (user.DisplayName.Contains("<") || user.DisplayName.Contains(">"))
             {
-                user.DisplayName = HttpUtility.HtmlEncode(user.DisplayName);
+                user.DisplayName = WebUtility.HtmlEncode(user.DisplayName);
             }
 
             var updatePassword = user.Membership.UpdatePassword;

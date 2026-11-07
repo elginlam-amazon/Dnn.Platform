@@ -1,0 +1,68 @@
+@* Recursive level renderer for the mobile drill-down menu. Direct port of the
+   @helper RenderPages(IEnumerable<MenuNode> pages) block in menus/mobile/RazorMenu.cshtml.
+   The nav-expand / nav-expand-link / nav-expand-content / nav-back-link class names and the
+   "< Back to <page>" item are what src/scripts/menu.ts binds its drill-down behaviour to, so they
+   are preserved exactly. *@
+
+@foreach (var node in this.Pages)
+{
+    <li class="@ItemCssClass(node)">
+        @if (node.Enabled)
+        {
+            <a class="nav-link" href="@node.Href" target="@node.Target">@node.Text</a>
+        }
+        else
+        {
+            <a href="javascript:void(0);" target="@node.Target">@node.Text</a>
+        }
+
+        @if (node.HasChildren)
+        {
+            <a href="javascript:void(0);" class="nav-link nav-expand-link">&gt;</a>
+            <ul class="nav-items nav-expand-content">
+                <li class="nav-item">
+                    <a class="nav-link nav-back-link" href="javascript:void(0);">
+                        &lt;&nbsp; Back to @node.Text
+                    </a>
+                </li>
+                <MobileMenuItems Pages="node.Children" />
+            </ul>
+        }
+    </li>
+}
+
+@code {
+    /// <summary>Gets or sets the nodes to render at this level of the menu.</summary>
+    [Parameter]
+    [EditorRequired]
+    public IReadOnlyList<ApertureMenuNode> Pages { get; set; } = [];
+
+    /// <summary>
+    /// Builds the class list for a menu item: the original template concatenated
+    /// <c>nav-item</c>, the expand classes for nodes with children, and <c>selected</c> for the
+    /// current page.
+    /// </summary>
+    /// <param name="node">The node being rendered.</param>
+    /// <returns>The value for the item's <c>class</c> attribute.</returns>
+    /// <remarks>
+    /// The original concatenated the last two groups with no separator, so on a selected node that
+    /// also had children the result was <c>…align-items-centerselected</c> and the
+    /// <c>selected</c> class silently never applied. The classes are joined with a space here so
+    /// that intended style hook works.
+    /// </remarks>
+    private static string ItemCssClass(ApertureMenuNode node)
+    {
+        var classes = new List<string>(3) { "nav-item" };
+        if (node.HasChildren)
+        {
+            classes.Add("nav-expand aperture-d-flex aperture-align-items-center");
+        }
+
+        if (node.Selected)
+        {
+            classes.Add("selected");
+        }
+
+        return string.Join(' ', classes);
+    }
+}

@@ -4,7 +4,7 @@
 
 namespace DotNetNuke.Framework
 {
-    using System.Web.UI;
+    using Microsoft.AspNetCore.Http;
 
     internal interface IServiceFrameworkInternals
     {
@@ -12,8 +12,14 @@ namespace DotNetNuke.Framework
 
         bool IsAjaxScriptSupportRequired { get; }
 
-        void RegisterAjaxAntiForgery(Page page);
+        /// <summary>Emits the anti-forgery token the Services Framework client script reads.</summary>
+        /// <param name="context">The HTTP context of the current request.</param>
+        /// <remarks>Was <c>RegisterAjaxAntiForgery(System.Web.UI.Page)</c>.</remarks>
+        void RegisterAjaxAntiForgery(HttpContext context);
 
-        void RegisterAjaxScript(Page page);
+        /// <summary>Registers the Services Framework client script and its client variables.</summary>
+        /// <param name="context">The HTTP context of the current request.</param>
+        /// <remarks>Was <c>RegisterAjaxScript(System.Web.UI.Page)</c>.</remarks>
+        void RegisterAjaxScript(HttpContext context);
     }
 }

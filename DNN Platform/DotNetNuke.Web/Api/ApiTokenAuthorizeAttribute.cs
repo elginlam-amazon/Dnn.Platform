@@ -11,7 +11,7 @@ namespace DotNetNuke.Web.Api
     using DotNetNuke.Web.Api.Auth.ApiTokens.Models;
 
     /// <summary>Attribute to authorize apis based on the api token used.</summary>
-    public class ApiTokenAuthorizeAttribute : AuthorizeAttributeBase, IOverrideDefaultAuthLevel
+    public class ApiTokenAuthorizeAttribute : DnnAuthorizeBaseAttribute, IOverrideDefaultAuthLevel
     {
         /// <summary>Initializes a new instance of the <see cref="ApiTokenAuthorizeAttribute"/> class.</summary>
         /// <param name="key">The Key to authenticate api.</param>

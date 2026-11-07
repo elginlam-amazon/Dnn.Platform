@@ -8,8 +8,8 @@ namespace Dnn.PersonaBar.Pages.Components
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Net;
     using System.Text;
-    using System.Web;
     using System.Xml;
 
     using Dnn.PersonaBar.Pages.Components.Dto;
@@ -66,7 +66,7 @@ namespace Dnn.PersonaBar.Pages.Components
 
                 // Add template description
                 var node = xmlTemplate.CreateElement("description");
-                node.InnerXml = HttpUtility.HtmlEncode(template.Description);
+                node.InnerXml = WebUtility.HtmlEncode(template.Description);
                 nodePortal.AppendChild(node);
 
                 // Serialize tabs

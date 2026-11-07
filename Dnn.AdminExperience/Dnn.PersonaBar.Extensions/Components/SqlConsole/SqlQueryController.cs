@@ -5,9 +5,9 @@ namespace Dnn.PersonaBar.SqlConsole.Components
 {
     using System;
     using System.Collections.Generic;
-    using System.Configuration;
     using System.Linq;
 
+    using DotNetNuke.Common;
     using DotNetNuke.Data;
     using DotNetNuke.Framework;
 
@@ -94,11 +94,17 @@ namespace Dnn.PersonaBar.SqlConsole.Components
         public IList<string> GetConnections()
         {
             var connections = new List<string>();
-            foreach (ConnectionStringSettings connection in ConfigurationManager.ConnectionStrings)
+
+            // Enumerates the configured connection strings through ConfigurationSource, the platform's
+            // registered IConfiguration seam, which replaces ConfigurationManager.ConnectionStrings.
+            // Each child key of the "ConnectionStrings" section is a connection string name, exactly
+            // as ConnectionStringSettings.Name was; the two local provider templates stay excluded.
+            foreach (var connection in ConfigurationSource.GetSection("ConnectionStrings").GetChildren())
             {
-                if (!connection.Name.Equals("localmysqlserver", StringComparison.OrdinalIgnoreCase) && !connection.Name.Equals("localsqlserver", StringComparison.OrdinalIgnoreCase))
+                if (!connection.Key.Equals("localmysqlserver", StringComparison.OrdinalIgnoreCase) &&
+                    !connection.Key.Equals("localsqlserver", StringComparison.OrdinalIgnoreCase))
                 {
-                    connections.Add(connection.Name);
+                    connections.Add(connection.Key);
                 }
             }
 

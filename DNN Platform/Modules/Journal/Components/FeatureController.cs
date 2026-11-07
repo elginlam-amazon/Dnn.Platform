@@ -6,7 +6,6 @@ namespace DotNetNuke.Modules.Journal.Components
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
@@ -123,9 +122,9 @@ namespace DotNetNuke.Modules.Journal.Components
                             var tabModuleId = reader["ModuleId"].ToString();
 
                             var key = string.Format("JI_{0}", journalId);
-                            if (searchDocuments.ContainsKey(key))
+                            if (searchDocuments.TryGetValue(key, out var existingDocument))
                             {
-                                searchDocuments[key].UniqueKey +=
+                                existingDocument.UniqueKey +=
                                     string.Format(",{0}", securityKey);
                             }
                             else
@@ -184,7 +183,8 @@ namespace DotNetNuke.Modules.Journal.Components
         {
             if (!searchResult.UniqueKey.StartsWith("JI_", StringComparison.InvariantCultureIgnoreCase))
             {
-                if (HttpContext.Current == null || PortalSettings.Current == null)
+                var currentContext = HttpContextSource.Current;
+                if (currentContext == null || PortalSettings.Current == null)
                 {
                     return false;
                 }
@@ -192,7 +192,7 @@ namespace DotNetNuke.Modules.Journal.Components
                 var portalSettings = PortalSettings.Current;
                 var currentUser = UserController.Instance.GetCurrentUserInfo();
                 var isAdmin = currentUser.IsInRole(RoleController.Instance.GetRoleById(portalSettings.PortalId, portalSettings.AdministratorRoleId).RoleName);
-                if (!HttpContext.Current.Request.IsAuthenticated || (!currentUser.IsSuperUser && !isAdmin && currentUser.IsInRole("Unverified Users")))
+                if (currentContext.User?.Identity?.IsAuthenticated != true || (!currentUser.IsSuperUser && !isAdmin && currentUser.IsInRole("Unverified Users")))
                 {
                     return false;
                 }

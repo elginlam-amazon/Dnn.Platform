@@ -15,7 +15,6 @@ namespace DotNetNuke.Services.FileSystem
     using System.Reflection;
     using System.Text.RegularExpressions;
     using System.Threading;
-    using System.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -34,6 +33,7 @@ namespace DotNetNuke.Services.FileSystem
     using DotNetNuke.Services.FileSystem.Internal;
     using DotNetNuke.Services.Log.EventLog;
 
+    using Microsoft.AspNetCore.Http.Timeouts;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
 
@@ -613,7 +613,7 @@ namespace DotNetNuke.Services.FileSystem
             Monitor.Enter(ThreadLocker);
             try
             {
-                if (HttpContext.Current != null)
+                if (HttpContextSource.Current != null)
                 {
                     scriptTimeOut = this.GetCurrentScriptTimeout();
 
@@ -651,7 +651,7 @@ namespace DotNetNuke.Services.FileSystem
                 Monitor.Exit(ThreadLocker);
 
                 // Restore original time-out
-                if (HttpContext.Current != null && scriptTimeOut != null)
+                if (HttpContextSource.Current != null && scriptTimeOut != null)
                 {
                     this.SetScriptTimeout(scriptTimeOut.Value);
                 }
@@ -1071,10 +1071,14 @@ namespace DotNetNuke.Services.FileSystem
         }
 
         /// <summary>This member is reserved for internal use and is not intended to be used directly from your code.</summary>
-        /// <returns>A value representing the current script timeout.</returns>
+        /// <returns>A value representing the current script timeout, in seconds.</returns>
         internal virtual int GetCurrentScriptTimeout()
         {
-            return HttpContext.Current.Server.ScriptTimeout;
+            // ASP.NET Core has no readable per-request execution timeout (the legacy Server.ScriptTimeout).
+            // The request-timeouts middleware (IHttpRequestTimeoutFeature) only exposes DisableTimeout(),
+            // so there is no previous value to capture; report the "no limit" sentinel.
+            // REVIEW: behaviour inferred from the legacy save/restore pattern - verify.
+            return int.MaxValue;
         }
 
         /// <summary>This member is reserved for internal use and is not intended to be used directly from your code.</summary>
@@ -1724,10 +1728,16 @@ namespace DotNetNuke.Services.FileSystem
         }
 
         /// <summary>This member is reserved for internal use and is not intended to be used directly from your code.</summary>
-        /// <param name="timeout">The timeout in seconds.</param>
+        /// <param name="timeout">The timeout in seconds. Only <see cref="int.MaxValue"/> ("no limit") is expressible on ASP.NET Core.</param>
         internal virtual void SetScriptTimeout(int timeout)
         {
-            HttpContext.Current.Server.ScriptTimeout = timeout;
+            // On ASP.NET Core the request-timeouts middleware can only have its timeout disabled;
+            // there is no API to shorten or restore a per-request execution timeout. Synchronisation
+            // relies solely on the "no limit" case, which is preserved here.
+            if (timeout == int.MaxValue)
+            {
+                HttpContextSource.Current?.Features.Get<IHttpRequestTimeoutFeature>()?.DisableTimeout();
+            }
         }
 
         /// <summary>This member is reserved for internal use and is not intended to be used directly from your code.</summary>

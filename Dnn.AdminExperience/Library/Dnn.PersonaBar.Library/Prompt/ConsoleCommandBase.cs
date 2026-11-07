@@ -154,22 +154,22 @@ namespace Dnn.PersonaBar.Library.Prompt
 
         private static string GetTypeName(Type type)
         {
-            if (type.FullName.ToLowerInvariant().Contains("int"))
+            if (type.FullName.Contains("int", StringComparison.OrdinalIgnoreCase))
             {
                 return "Integer";
             }
 
-            if (type.FullName.ToLowerInvariant().Contains("double"))
+            if (type.FullName.Contains("double", StringComparison.OrdinalIgnoreCase))
             {
                 return "Double";
             }
 
-            if (type.FullName.ToLowerInvariant().Contains("bool"))
+            if (type.FullName.Contains("bool", StringComparison.OrdinalIgnoreCase))
             {
                 return "Boolean";
             }
 
-            if (type.FullName.ToLowerInvariant().Contains("datetime"))
+            if (type.FullName.Contains("datetime", StringComparison.OrdinalIgnoreCase))
             {
                 return "DateTime";
             }

@@ -17,17 +17,17 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider.Components
     using DotNetNuke.Providers.AspNetClientCapabilityProvider.Properties;
     using DotNetNuke.Services.Installer;
     using DotNetNuke.Services.Installer.Packages;
-    using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Mobile;
 
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Localization;
 
     /// <summary>The FeatureController class for the ASP.NET Client Capability Provider.</summary>
     public class FeatureController : IUpgradeable
     {
-        private const string ResourceFileRelativePath = "~/Providers/ClientCapabilityProviders/AspNetClientCapabilityProvider/App_LocalResources/SharedResources.resx";
         private readonly IApplicationStatusInfo appStatus;
         private readonly IRedirectionController redirectionController;
+        private readonly IStringLocalizer<SharedResources> localizer;
 
         /// <summary>Initializes a new instance of the <see cref="FeatureController"/> class.</summary>
         [Obsolete("Deprecated in DotNetNuke 10.2.2. Please use overload with IApplicationStatusInfo. Scheduled removal in v12.0.0.")]
@@ -40,9 +40,19 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider.Components
         /// <param name="appStatus">The application status.</param>
         /// <param name="redirectionController">The redirection controller.</param>
         public FeatureController(IApplicationStatusInfo appStatus, IRedirectionController redirectionController)
+            : this(appStatus, redirectionController, null)
+        {
+        }
+
+        /// <summary>Initializes a new instance of the <see cref="FeatureController"/> class.</summary>
+        /// <param name="appStatus">The application status.</param>
+        /// <param name="redirectionController">The redirection controller.</param>
+        /// <param name="localizer">The localizer for this extension's shared resources.</param>
+        public FeatureController(IApplicationStatusInfo appStatus, IRedirectionController redirectionController, IStringLocalizer<SharedResources> localizer)
         {
             this.appStatus = appStatus ?? HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<IApplicationStatusInfo>();
             this.redirectionController = redirectionController ?? HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<IRedirectionController>();
+            this.localizer = localizer ?? HttpContextSource.Current.GetScope().ServiceProvider.GetRequiredService<IStringLocalizer<SharedResources>>();
         }
 
         /// <inheritdoc />
@@ -63,7 +73,7 @@ namespace DotNetNuke.Providers.AspNetClientCapabilityProvider.Components
                     break;
             }
 
-            return Localization.GetString("SuccessMessage", ResourceFileRelativePath);
+            return this.localizer["SuccessMessage.Text"].Value;
         }
 
         private static Dictionary<string, string> CreateMappedCapabilities()

@@ -1,0 +1,440 @@
+﻿@* Licensed to the .NET Foundation under one or more agreements. *@
+@* The .NET Foundation licenses this file to you under the MIT license. *@
+@* See the LICENSE file in the project root for more information *@
+@namespace DotNetNuke.Modules.Groups
+@inherits DotNetNuke.Modules.Groups.GroupsSettingsBase
+
+@*
+    No per-page @rendermode is declared on purpose. This component is a descendant of
+    <Routes @rendermode="InteractiveServer"> in the host document (Website/Components/App.razor),
+    so its @onclick/@onchange handlers are interactive without — and must not repeat — a
+    per-page directive. This is the convention the already-migrated DNNConnect.CKE and DDRMenu
+    components follow.
+*@
+
+@using System.Collections.Generic
+@using System.Globalization
+@using DotNetNuke.Entities.Modules.Definitions
+@using DotNetNuke.Entities.Tabs
+@using DotNetNuke.UI.UserControls
+
+@*
+    Replaces ListSettings.ascx and ListSettings.ascx.cs.
+
+    Control mapping (the markup is otherwise the original one for one):
+
+      dnn:label                                  -> the migrated <LabelControl /> component, with
+                                                    the same controlname/resourcekey/Text/Suffix,
+                                                    localized from this control's resource file.
+      asp:CheckBox chkUserGroups / chkEnableSearch
+                   / chkGroupModeration          -> checkboxes bound to the matching fields.
+      asp:DropDownList drpRoleGroup / drpViewMode
+                   / drpGroupViewPage / lstSortField
+                                                 -> <select value=... @onchange=...> (not @bind),
+                                                    because these lists had server side
+                                                    SelectedIndex semantics that LoadSettings
+                                                    assigns and UpdateSettings reads back; the
+                                                    Items collections live in the fields below so
+                                                    "Items.FindByValue(...)" keeps its meaning (an
+                                                    unknown setting value selects nothing, exactly
+                                                    as SelectedIndex = -1 did).
+      asp:RadioButtonList radSortDirection       -> a radio pair on the same name.
+      asp:TextBox txtListTemplate / txtViewTemplate
+                                                 -> <textarea> (TextMode="MultiLine").
+      asp:TextBox txtPageSize                    -> <input type="text">.
+      asp:RangeValidator rangePageSize           -> the "PageSizeValidation" message, with the same
+                                                    integer 1..9999 range, evaluated by
+                                                    UpdateSettings before it persists.
+      the inline <script> show/hide of
+      #trListTemplate / #trListPageSize / #trViewTemplate
+                                                 -> the @if blocks below on the same condition
+                                                    (the selected view mode), because a Blazor
+                                                    render cannot execute a <script> it writes and
+                                                    this is state the component already owns.
+*@
+
+<div class="dnnFormItem">
+    <LabelControl ControlName="chkUserGroups" ResourceKey="GroupListUserGroups" Text="Display User's Groups" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <input type="checkbox" id="chkUserGroups" checked="@this.userGroups" @onchange="@(e => this.userGroups = (bool)e.Value)" />
+</div>
+
+<div class="dnnFormItem">
+    <LabelControl ControlName="drpRoleGroup" ResourceKey="DefaultRoleGroup" Text="Default Role Group" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <select id="drpRoleGroup" value="@this.roleGroupValue" @onchange="@(e => this.roleGroupValue = e.Value?.ToString())">
+        @foreach (var item in this.roleGroupItems)
+        {
+            <option value="@item.Value" selected="@(item.Value == this.roleGroupValue)">@item.Text</option>
+        }
+    </select>
+</div>
+<div class="dnnFormItem">
+    <LabelControl ControlName="drpViewMode" ResourceKey="ViewMode" Text="View Mode" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <select id="drpViewMode" value="@this.viewModeValue" @onchange="@(e => this.viewModeValue = e.Value?.ToString())">
+        @foreach (var item in this.viewModeItems)
+        {
+            <option value="@item.Value" selected="@(item.Value == this.viewModeValue)">@item.Text</option>
+        }
+    </select>
+</div>
+<div class="dnnFormItem">
+    <LabelControl ControlName="drpGroupViewPage" ResourceKey="GroupViewPage" Text="Group View Page" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <select id="drpGroupViewPage" value="@this.groupViewPageValue" @onchange="@(e => this.groupViewPageValue = e.Value?.ToString())">
+        @foreach (var item in this.groupViewPageItems)
+        {
+            <option value="@item.Value" selected="@(item.Value == this.groupViewPageValue)">@item.Text</option>
+        }
+    </select>
+</div>
+@if (this.IsListView)
+{
+    <div class="dnnFormItem" id="trListTemplate">
+        <LabelControl ControlName="txtListTemplate" ResourceKey="GroupListTemplateText" Text="Group List Template" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <textarea id="txtListTemplate" @bind="this.listTemplate"></textarea>
+    </div>
+}
+else
+{
+    <div class="dnnFormItem" id="trViewTemplate">
+        <LabelControl ControlName="txtViewTemplate" ResourceKey="GroupViewTemplateText" Text="Group View Template" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <textarea id="txtViewTemplate" @bind="this.viewTemplate"></textarea>
+    </div>
+}
+
+<div class="dnnFormItem">
+    <LabelControl ControlName="lstSortField" ResourceKey="GroupListSortField" Text="List Sort By" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <select id="lstSortField" value="@this.sortFieldValue" @onchange="@(e => this.sortFieldValue = e.Value?.ToString())">
+        @foreach (var item in this.sortFieldItems)
+        {
+            <option value="@item.Value" selected="@(item.Value == this.sortFieldValue)">@item.Text</option>
+        }
+    </select>
+</div>
+
+<div class="dnnFormItem">
+    @* The original declared controlname="lstSortField" on this label too; preserved as is. *@
+    <LabelControl ControlName="lstSortField" ResourceKey="GroupListSortDirField" Text="List Sort Direction" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    @foreach (var item in this.sortDirectionItems)
+    {
+        <input type="radio" name="radSortDirection" id="@("radSortDirection_" + item.Value)" checked="@(item.Value == this.sortDirectionValue)" @onchange="@(() => this.sortDirectionValue = item.Value)" />
+        <label for="@("radSortDirection_" + item.Value)">@item.Text</label>
+    }
+</div>
+
+@if (this.IsListView)
+{
+    <div class="dnnFormItem" id="trListPageSize">
+        <LabelControl ControlName="txtPageSize" ResourceKey="GroupListPageSize" Text="Group List Page Size" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+        <input type="text" id="txtPageSize" value="@this.pageSize" @onchange="@(e => this.pageSize = e.Value?.ToString())" />
+        @if (this.showPageSizeError)
+        {
+            <span id="rangePageSize" class="dnnFormMessage dnnFormError">@this.LocalizeText("PageSizeValidation")</span>
+        }
+    </div>
+}
+<div class="dnnFormItem">
+    <LabelControl ControlName="chkEnableSearch" ResourceKey="GroupListEnableSearch" Text="Enable Search" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <input type="checkbox" id="chkEnableSearch" checked="@this.enableSearch" @onchange="@(e => this.enableSearch = (bool)e.Value)" />
+</div>
+<div class="dnnFormItem">
+    <LabelControl ControlName="chkGroupModeration" ResourceKey="GroupModeration" Text="Groups Require Approval" Suffix=":" LocalResourceFile="@this.LocalResourceFile" />
+    <input type="checkbox" id="chkGroupModeration" checked="@this.groupModeration" @onchange="@(e => this.groupModeration = (bool)e.Value)" />
+</div>
+
+@code {
+    private readonly List<SettingsListItem> roleGroupItems = new List<SettingsListItem>();
+    private readonly List<SettingsListItem> groupViewPageItems = new List<SettingsListItem>();
+    private readonly List<SettingsListItem> viewModeItems = new List<SettingsListItem>();
+    private readonly List<SettingsListItem> sortFieldItems = new List<SettingsListItem>();
+    private readonly List<SettingsListItem> sortDirectionItems = new List<SettingsListItem>();
+
+    private bool userGroups;
+    private bool enableSearch;
+    private bool groupModeration;
+    private bool showPageSizeError;
+    private bool loaded;
+    private string roleGroupValue;
+    private string groupViewPageValue;
+    private string viewModeValue;
+    private string sortFieldValue = "rolename";
+    private string sortDirectionValue = "asc";
+    private string listTemplate = string.Empty;
+    private string viewTemplate = string.Empty;
+    private string pageSize = string.Empty;
+
+    /// <summary>Gets or sets the role provider the portal's role groups are read from.</summary>
+    [Inject]
+    protected RoleProvider RoleProviderInstance { get; set; }
+
+    /// <summary>Gets a value indicating whether the "List" view mode is selected.</summary>
+    /// <remarks>This is the condition the inline jQuery used to show the list template and page size rows and hide the view template row.</remarks>
+    private bool IsListView => this.viewModeValue == "List" || string.IsNullOrEmpty(this.viewModeValue);
+
+    /// <summary>LoadSettings loads the settings from the Database and displays them.</summary>
+    /// <remarks>
+    /// This is LoadSettings of ListSettings.ascx.cs. The "if (Page.IsPostBack == false)" guard
+    /// becomes the this.loaded flag: a Blazor component keeps its state across interactions, so
+    /// the controls are populated exactly once, which is what the postback check achieved.
+    /// </remarks>
+    public override void LoadSettings()
+    {
+        try
+        {
+            if (!this.loaded)
+            {
+                this.loaded = true;
+
+                this.BuildStaticItems();
+                this.BindGroups();
+                this.BindPages();
+
+                if (this.Settings.ContainsKey(Constants.DefaultRoleGroupSetting))
+                {
+                    this.roleGroupValue = FindByValue(this.roleGroupItems, this.Settings[Constants.DefaultRoleGroupSetting].ToString());
+                }
+
+                if (this.Settings.ContainsKey(Constants.GroupViewPage))
+                {
+                    this.groupViewPageValue = FindByValue(this.groupViewPageItems, this.Settings[Constants.GroupViewPage].ToString());
+                }
+
+                if (this.Settings.ContainsKey(Constants.GroupListTemplate))
+                {
+                    this.listTemplate = this.Settings[Constants.GroupListTemplate].ToString();
+                }
+
+                if (this.Settings.ContainsKey(Constants.GroupViewTemplate))
+                {
+                    this.viewTemplate = this.Settings[Constants.GroupViewTemplate].ToString();
+                }
+
+                if (this.Settings.ContainsKey(Constants.GroupModerationEnabled))
+                {
+                    this.groupModeration = Convert.ToBoolean(this.Settings[Constants.GroupModerationEnabled].ToString());
+                }
+
+                if (this.Settings.ContainsKey(Constants.GroupLoadView))
+                {
+                    this.viewModeValue = FindByValue(this.viewModeItems, this.Settings[Constants.GroupLoadView].ToString());
+                }
+
+                if (this.Settings.ContainsKey(Constants.GroupListPageSize))
+                {
+                    this.pageSize = this.Settings[Constants.GroupListPageSize].ToString();
+                }
+
+                if (this.Settings.ContainsKey(Constants.GroupListUserGroupsOnly))
+                {
+                    this.userGroups = Convert.ToBoolean(this.Settings[Constants.GroupListUserGroupsOnly].ToString());
+                }
+
+                if (this.Settings.ContainsKey(Constants.GroupListSearchEnabled))
+                {
+                    this.enableSearch = Convert.ToBoolean(this.Settings[Constants.GroupListSearchEnabled].ToString());
+                }
+
+                if (this.Settings.ContainsKey(Constants.GroupListSortField))
+                {
+                    this.sortFieldValue = FindByValue(this.sortFieldItems, this.Settings[Constants.GroupListSortField].ToString());
+                }
+
+                if (this.Settings.ContainsKey(Constants.GroupListSortDirection))
+                {
+                    this.sortDirectionValue = FindByValue(this.sortDirectionItems, this.Settings[Constants.GroupListSortDirection].ToString());
+                }
+
+                // An asp:DropDownList always had a selection (SelectedIndex 0) when the setting was
+                // absent or its stored value was no longer in the list, so SelectedItem.Value
+                // persisted the first item. Without this, the browser still shows the first option
+                // while the backing field is null, and saving would write an empty setting.
+                this.SelectFirstItemWhenUnset();
+            }
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <summary>UpdateSettings saves the modified settings to the Database.</summary>
+    /// <remarks>This is UpdateSettings of ListSettings.ascx.cs; SelectedItem.Value is the selected value of each list.</remarks>
+    public override void UpdateSettings()
+    {
+        try
+        {
+            this.showPageSizeError = !this.IsPageSizeValid();
+            if (this.showPageSizeError)
+            {
+                // The RangeValidator ran before the postback reached the settings save, so an out
+                // of range page size never got persisted.
+                return;
+            }
+
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.DefaultRoleGroupSetting, this.roleGroupValue);
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupViewPage, this.groupViewPageValue);
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupListTemplate, this.listTemplate);
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupViewTemplate, this.viewTemplate);
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupModerationEnabled, this.groupModeration.ToString());
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupLoadView, this.viewModeValue);
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupListPageSize, this.pageSize);
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupListSearchEnabled, this.enableSearch.ToString());
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupListSortField, this.sortFieldValue);
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupListSortDirection, this.sortDirectionValue);
+            ModuleController.Instance.UpdateTabModuleSetting(this.TabModuleId, Constants.GroupListUserGroupsOnly, this.userGroups.ToString());
+        }
+        catch (Exception exc)
+        {
+            Exceptions.ProcessModuleLoadException(this, exc);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>The settings host called LoadSettings during the control's load phase; this is that call site.</remarks>
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        this.LoadSettings();
+    }
+
+    /// <summary>Replaces <c>ListItemCollection.FindByValue</c> followed by the <c>SelectedIndex</c> assignment.</summary>
+    /// <param name="items">The list's items.</param>
+    /// <param name="value">The value to select.</param>
+    /// <returns>The value when the list holds it, otherwise <see langword="null"/> (which is <c>SelectedIndex = -1</c>).</returns>
+    private static string FindByValue(List<SettingsListItem> items, string value)
+    {
+        return items.Exists(item => item.Value == value) ? value : null;
+    }
+
+    /// <summary>
+    /// Falls back to each list's first item for any list whose value is still unset after
+    /// <see cref="LoadSettings"/>, reproducing the <c>asp:DropDownList</c> default of
+    /// <c>SelectedIndex = 0</c> so <see cref="UpdateSettings"/> never persists a null value.
+    /// </summary>
+    private void SelectFirstItemWhenUnset()
+    {
+        this.roleGroupValue ??= FirstValue(this.roleGroupItems);
+        this.groupViewPageValue ??= FirstValue(this.groupViewPageItems);
+        this.viewModeValue ??= FirstValue(this.viewModeItems);
+        this.sortFieldValue ??= FirstValue(this.sortFieldItems);
+        this.sortDirectionValue ??= FirstValue(this.sortDirectionItems);
+
+        static string FirstValue(List<SettingsListItem> items)
+            => items.Count > 0 ? items[0].Value : null;
+    }
+
+    /// <summary>Builds the lists the .ascx declared inline with asp:ListItem elements.</summary>
+    /// <remarks>
+    /// The declared Text of each item is kept as the fallback the way DNN's list localization
+    /// behaved: a missing resource key left the declared text in place.
+    /// </remarks>
+    private void BuildStaticItems()
+    {
+        this.viewModeItems.Clear();
+        this.viewModeItems.Add(new SettingsListItem("List", this.LocalizeWithFallback("List", "List")));
+        this.viewModeItems.Add(new SettingsListItem("View", this.LocalizeWithFallback("View", "View")));
+
+        this.sortFieldItems.Clear();
+        this.sortFieldItems.Add(new SettingsListItem("rolename", "Name"));
+        this.sortFieldItems.Add(new SettingsListItem("createdondate", "Date Created"));
+        this.sortFieldItems.Add(new SettingsListItem("usercount", "Member Count"));
+
+        this.sortDirectionItems.Clear();
+        this.sortDirectionItems.Add(new SettingsListItem("asc", "Ascending"));
+        this.sortDirectionItems.Add(new SettingsListItem("desc", "Descending"));
+
+        // The declared Selected="True" items are the initial selection.
+        this.viewModeValue ??= "List";
+        this.sortFieldValue ??= "rolename";
+        this.sortDirectionValue ??= "asc";
+    }
+
+    /// <summary>Gets the localized text of a resource key, falling back to the declared literal text.</summary>
+    /// <param name="key">The resource key.</param>
+    /// <param name="fallback">The literal text the list item declared.</param>
+    /// <returns>The text to render.</returns>
+    private string LocalizeWithFallback(string key, string fallback)
+    {
+        var text = this.LocalizeText(key);
+        return string.IsNullOrEmpty(text) ? fallback : text;
+    }
+
+    /// <summary>Validates the page size the way rangePageSize did (integer, 1..9999).</summary>
+    /// <returns><see langword="true"/> when the value is in range.</returns>
+    private bool IsPageSizeValid()
+    {
+        if (string.IsNullOrEmpty(this.pageSize))
+        {
+            // A RangeValidator considered an empty value valid (the RequiredFieldValidator's job).
+            return true;
+        }
+
+        return int.TryParse(this.pageSize, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            && value >= 1
+            && value <= 9999;
+    }
+
+    /// <summary>Fills drpRoleGroup with the portal's role groups.</summary>
+    /// <remarks>This is BindGroups of ListSettings.ascx.cs, including the two synthetic items.</remarks>
+    private void BindGroups()
+    {
+        var arrGroups = RoleController.GetRoleGroups(this.RoleProviderInstance, this.PortalId);
+        this.roleGroupItems.Clear();
+        this.roleGroupItems.Add(new SettingsListItem("-2", Localization.GetString("AllRoles")));
+        this.roleGroupItems.Add(new SettingsListItem("-1", Localization.GetString("GlobalRoles")));
+
+        foreach (RoleGroupInfo roleGroup in arrGroups)
+        {
+            this.roleGroupItems.Add(new SettingsListItem(roleGroup.RoleGroupID.ToString(), roleGroup.RoleGroupName));
+        }
+    }
+
+    /// <summary>Fills drpGroupViewPage with the pages that hold a Social Groups module.</summary>
+    /// <remarks>This is BindPages of ListSettings.ascx.cs, unchanged.</remarks>
+    private void BindPages()
+    {
+        this.groupViewPageItems.Clear();
+        foreach (ModuleInfo moduleInfo in ModuleController.Instance.GetModules(this.PortalId))
+        {
+            if (moduleInfo.DesktopModule.ModuleName.Contains("Social Groups") && moduleInfo.IsDeleted == false)
+            {
+                TabInfo tabInfo = TabController.Instance.GetTab(moduleInfo.TabID, this.PortalId, false);
+                if (tabInfo != null)
+                {
+                    if (tabInfo.IsDeleted == false)
+                    {
+                        foreach (KeyValuePair<string, ModuleDefinitionInfo> def in moduleInfo.DesktopModule.ModuleDefinitions)
+                        {
+                            if (moduleInfo.ModuleDefinition.FriendlyName == def.Key)
+                            {
+                                if (FindByValue(this.groupViewPageItems, tabInfo.TabID.ToString()) == null)
+                                {
+                                    this.groupViewPageItems.Add(new SettingsListItem(tabInfo.TabID.ToString(), tabInfo.TabName + " - " + def.Key));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>One entry of a settings list.</summary>
+    /// <remarks>Replaces <c>System.Web.UI.WebControls.ListItem</c>.</remarks>
+    private sealed class SettingsListItem
+    {
+        /// <summary>Initializes a new instance of the <see cref="SettingsListItem"/> class.</summary>
+        /// <param name="value">The item value.</param>
+        /// <param name="text">The item text.</param>
+        public SettingsListItem(string value, string text)
+        {
+            this.Value = value;
+            this.Text = text;
+        }
+
+        /// <summary>Gets the item value.</summary>
+        public string Value { get; }
+
+        /// <summary>Gets the item text.</summary>
+        public string Text { get; }
+    }
+}

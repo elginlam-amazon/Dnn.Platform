@@ -20,9 +20,6 @@
 
 using System;
 using System.IO;
-#if NETSTANDARD1_3
-using System.Reflection;
-#endif
 
 using log4net.Util;
 
@@ -204,11 +201,7 @@ namespace log4net.ObjectRenderer
 
             if (result == null)
             {
-#if NETSTANDARD1_3
-                for (Type cur = type; cur != null; cur = cur.GetTypeInfo().BaseType)
-#else
                 for(Type cur = type; cur != null; cur = cur.BaseType)
-#endif
                 {
                     // Search the type's interfaces
                     result = this.SearchTypeAndInterfaces(cur);

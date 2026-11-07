@@ -4,11 +4,25 @@
 namespace DotNetNuke.Services.Cache
 {
     using System;
-    using System.Web.Caching;
+    using System.Collections.Generic;
+
+    using Microsoft.Extensions.Primitives;
 
     /// <summary>DNNCacheDependency provides dependency policies of cache system.</summary>
     /// <remarks>
-    /// The CacheDependency class monitors the dependency relationships so that when any of them changes, the cached item will be automatically removed.
+    /// <para>
+    /// A cache dependency monitors files, directories and/or other cache keys so that when any of
+    /// them changes, the cached item is automatically removed.
+    /// </para>
+    /// <para>
+    /// On ASP.NET Core there is no <c>System.Web.Caching.CacheDependency</c>. This type is now
+    /// implemented with <see cref="IChangeToken"/>s: file and directory dependencies become
+    /// <see cref="Microsoft.Extensions.FileProviders.PhysicalFileProvider"/> watch tokens, and
+    /// cache-key dependencies become <see cref="CancellationChangeToken"/>s that the
+    /// <see cref="DnnCacheStore"/> cancels whenever the key they watch changes. All public
+    /// constructors and members are preserved; only <c>SystemCacheDependency</c> changed type
+    /// (from the removed <c>CacheDependency</c> to <see cref="IChangeToken"/>).
+    /// </para>
     /// </remarks>
     public class DNNCacheDependency : IDisposable
     {
@@ -16,13 +30,14 @@ namespace DotNetNuke.Services.Cache
         private DNNCacheDependency cacheDependency;
         private string[] cacheKeys;
         private string[] fileNames;
-        private CacheDependency systemCacheDependency;
+        private IChangeToken changeToken;
+        private bool disposed;
 
-        /// <summary>Initializes a new instance of the <see cref="DNNCacheDependency"/> class.</summary>
-        /// <param name="systemCacheDependency">The system cache dependency.</param>
-        public DNNCacheDependency(CacheDependency systemCacheDependency)
+        /// <summary>Initializes a new instance of the <see cref="DNNCacheDependency"/> class from an existing change token.</summary>
+        /// <param name="changeToken">The change token which signals that the cached item is stale.</param>
+        public DNNCacheDependency(IChangeToken changeToken)
         {
-            this.systemCacheDependency = systemCacheDependency;
+            this.changeToken = changeToken;
         }
 
         /// <summary>Initializes a new instance of the <see cref="DNNCacheDependency"/> class that monitors a file or directory for changes.</summary>
@@ -146,7 +161,7 @@ namespace DotNetNuke.Services.Cache
         {
             get
             {
-                return this.SystemCacheDependency.HasChanged;
+                return this.ChangeToken.HasChanged;
             }
         }
 
@@ -168,24 +183,34 @@ namespace DotNetNuke.Services.Cache
             }
         }
 
-        /// <summary>Gets the system cache dependency.</summary>
-        public CacheDependency SystemCacheDependency
+        /// <summary>Gets the change token which signals that the cached item is stale.</summary>
+        public IChangeToken ChangeToken
         {
             get
             {
-                if (this.systemCacheDependency == null)
+                if (this.changeToken == null)
                 {
-                    if (this.cacheDependency == null)
-                    {
-                        this.systemCacheDependency = new CacheDependency(this.fileNames, this.cacheKeys, this.utcStart);
-                    }
-                    else
-                    {
-                        this.systemCacheDependency = new CacheDependency(this.fileNames, this.cacheKeys, this.cacheDependency.SystemCacheDependency, this.utcStart);
-                    }
+                    var tokens = this.BuildChangeTokens();
+                    this.changeToken = tokens.Count == 1
+                        ? tokens[0]
+                        : new CompositeChangeToken(tokens);
                 }
 
-                return this.systemCacheDependency;
+                return this.changeToken;
+            }
+        }
+
+        /// <summary>Gets the underlying change token.</summary>
+        /// <remarks>
+        /// Preserved for source compatibility with the legacy <c>SystemCacheDependency</c> member.
+        /// The type changed from the removed <c>System.Web.Caching.CacheDependency</c> to
+        /// <see cref="IChangeToken"/>; prefer <see cref="ChangeToken"/> in new code.
+        /// </remarks>
+        public IChangeToken SystemCacheDependency
+        {
+            get
+            {
+                return this.ChangeToken;
             }
         }
 
@@ -194,8 +219,31 @@ namespace DotNetNuke.Services.Cache
         {
             get
             {
-                return this.SystemCacheDependency.UtcLastModified;
+                var lastModified = CacheFileWatcher.GetUtcLastModified(this.fileNames);
+                if (this.cacheDependency != null)
+                {
+                    var inner = this.cacheDependency.UtcLastModified;
+                    if (inner > lastModified)
+                    {
+                        lastModified = inner;
+                    }
+                }
+
+                return lastModified;
             }
+        }
+
+        /// <summary>Gets the change tokens making up this dependency.</summary>
+        /// <returns>A non-<see langword="null"/> list of change tokens.</returns>
+        internal IList<IChangeToken> GetChangeTokens()
+        {
+            var token = this.ChangeToken;
+            if (token is CompositeChangeToken composite)
+            {
+                return new List<IChangeToken>(composite.ChangeTokens);
+            }
+
+            return new List<IChangeToken> { token };
         }
 
         /// <summary>Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.</summary>
@@ -208,23 +256,58 @@ namespace DotNetNuke.Services.Cache
         // Method that does the actual disposal of resources
         protected virtual void Dispose(bool disposing)
         {
-            if (disposing)
+            if (disposing && !this.disposed)
             {
-                if (this.cacheDependency != null)
-                {
-                    this.cacheDependency.Dispose(disposing);
-                }
+                this.disposed = true;
 
-                if (this.systemCacheDependency != null)
-                {
-                    this.systemCacheDependency.Dispose();
-                }
+                this.cacheDependency?.Dispose(disposing);
 
                 this.fileNames = null;
                 this.cacheKeys = null;
                 this.cacheDependency = null;
-                this.systemCacheDependency = null;
+                this.changeToken = null;
             }
+        }
+
+        private List<IChangeToken> BuildChangeTokens()
+        {
+            var tokens = new List<IChangeToken>();
+
+            if (this.fileNames != null)
+            {
+                foreach (var fileName in this.fileNames)
+                {
+                    if (!string.IsNullOrWhiteSpace(fileName))
+                    {
+                        tokens.Add(CacheFileWatcher.Watch(fileName));
+                    }
+                }
+            }
+
+            if (this.cacheKeys != null)
+            {
+                foreach (var cacheKey in this.cacheKeys)
+                {
+                    if (!string.IsNullOrWhiteSpace(cacheKey))
+                    {
+                        tokens.Add(DnnCacheStore.Instance.GetKeyChangeToken(cacheKey));
+                    }
+                }
+            }
+
+            if (this.cacheDependency != null)
+            {
+                tokens.Add(this.cacheDependency.ChangeToken);
+            }
+
+            if (tokens.Count == 0)
+            {
+                // No files, keys or nested dependency: a dependency which never fires, exactly as
+                // an empty legacy CacheDependency behaved.
+                tokens.Add(Microsoft.Extensions.FileProviders.NullChangeToken.Singleton);
+            }
+
+            return tokens;
         }
     }
 }

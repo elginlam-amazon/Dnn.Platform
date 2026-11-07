@@ -1,12 +1,12 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
-    <RootDirectory>$(MSBuildProjectDirectory)\..\..</RootDirectory>
+    <RootDirectory>$(MSBuildProjectDirectory)/../..</RootDirectory>
     <OutputPath>bin</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <RootNamespace>DotNetNuke.Services.Syndication</RootNamespace>
     <AssemblyName>DotNetNuke.Services.Syndication</AssemblyName>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -17,9 +17,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
-
   <ItemGroup>
-    <Reference Include="System.Web" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,9 +32,15 @@
   </ItemGroup>
 
   <Import Project="..\..\DNN_Platform.build" />
-  <Target Name="CopyBin" BeforeTargets="Build">
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.Services.Syndication.dll" DestinationFolder="$(WebsitePath)\bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.Services.Syndication.pdb" DestinationFolder="$(WebsitePath)\bin" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\bin\DotNetNuke.Services.Syndication.xml" DestinationFolder="$(WebsitePath)\bin" />
+  <!-- Stages this project's build output into the website bin. Runs after Build (the net48 leg
+       ran before Build and relied on the output of the previous build already being present),
+       so the files it stages are the ones just produced. -->
+  <Target Name="CopyBin" AfterTargets="Build">
+    <ItemGroup>
+      <CopyBinFiles Include="$(OutputPath)DotNetNuke.Services.Syndication.dll" />
+      <CopyBinFiles Include="$(OutputPath)DotNetNuke.Services.Syndication.pdb" />
+      <CopyBinFiles Include="$(OutputPath)DotNetNuke.Services.Syndication.xml" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CopyBinFiles)" DestinationFolder="$(WebsitePath)\bin" SkipUnchangedFiles="true" />
   </Target>
 </Project>
