@@ -125,7 +125,7 @@ namespace DotNetNuke.Tests.Core
             FileSystemUtils.DeleteFile(testPath);
 
             // Assert
-            Assert.That(testPath.Replace("/", @"\"), Does.Not.Exist);
+            Assert.That(testPath, Does.Not.Exist);
         }
 
         [TestCase(null)]

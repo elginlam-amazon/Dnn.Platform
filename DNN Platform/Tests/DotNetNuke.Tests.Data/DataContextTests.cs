@@ -5,9 +5,9 @@
 namespace DotNetNuke.Tests.Data
 {
     using System.Collections.Generic;
-    using System.Configuration;
 
     using DotNetNuke.Abstractions.Application;
+    using DotNetNuke.Common;
     using DotNetNuke.ComponentModel;
     using DotNetNuke.Data;
     using DotNetNuke.Data.PetaPoco;
@@ -63,7 +63,10 @@ namespace DotNetNuke.Tests.Data
         public void DataContext_Instance_Method_Returns_Default_PetaPocoDataContext_Instance()
         {
             // Arrange
-            var connectionString = ConfigurationManager.ConnectionStrings[0].ConnectionString;
+            // DataContext.Instance(IHostSettings) builds its default context from the configured
+            // data provider's "connectionStringName" (which is what ConnectionStrings[0] resolved
+            // to in the net48 app.config), so pin the assertion to that exact seam.
+            var connectionString = ConfigurationSource.GetConnectionString(DataProvider.Instance().Settings["connectionStringName"]);
 
             // Act
             var context = (PetaPocoDataContext)DataContext.Instance(Mock.Of<IHostSettings>());
@@ -79,7 +82,7 @@ namespace DotNetNuke.Tests.Data
         public void DataContext_Instance_Method_Returns_Named_PetaPocoDataContext_Instance(string name)
         {
             // Arrange
-            var connectionString = ConfigurationManager.ConnectionStrings[name].ConnectionString;
+            var connectionString = ConfigurationSource.GetConnectionString(name);
 
             // Act
             var context = (PetaPocoDataContext)DataContext.Instance(Mock.Of<IHostSettings>(), name);

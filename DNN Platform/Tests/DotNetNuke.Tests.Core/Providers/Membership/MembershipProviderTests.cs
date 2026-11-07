@@ -6,7 +6,6 @@ namespace DotNetNuke.Tests.Core.Providers.Membership
 {
     using System;
     using System.Reflection;
-    using System.Web;
 
     using DotNetNuke.Common;
     using DotNetNuke.Common.Utilities;
@@ -57,16 +56,14 @@ namespace DotNetNuke.Tests.Core.Providers.Membership
                 roleProviderField.SetValue(roleController, RoleProvider.Instance());
             }
 
-            var membershipType = typeof(System.Web.Security.Membership);
-            var initializedDefaultProviderField = membershipType.GetField("s_InitializedDefaultProvider", BindingFlags.NonPublic | BindingFlags.Static);
-            var defaultProviderField = membershipType.GetField("s_Provider", BindingFlags.NonPublic | BindingFlags.Static);
-            if (initializedDefaultProviderField != null
-                && defaultProviderField != null
-                && (bool)initializedDefaultProviderField.GetValue(null) == false)
-            {
-                initializedDefaultProviderField.SetValue(null, true);
-                defaultProviderField.SetValue(null, System.Web.Security.Membership.Providers["AspNetSqlMembershipProvider"]);
-            }
+            // The net48 version of this fixture reflected into the private statics of
+            // System.Web.Security.Membership (s_InitializedDefaultProvider / s_Provider) to force the
+            // "AspNetSqlMembershipProvider" to become the ASP.NET default provider. On modern .NET there is
+            // no System.Web.Security.Membership static: DotNetNuke.Security.Membership.AspNetMembershipProvider
+            // talks to the IAspNetMembershipStore seam, resolved from the DI container
+            // (DnnSecurityServiceCollectionExtensions registers AspNetMembershipStore). The
+            // ProviderInstaller("members", ...) registration above is therefore the whole seam and no
+            // reflection is required.
         }
 
         [TearDown]
@@ -83,8 +80,10 @@ namespace DotNetNuke.Tests.Core.Providers.Membership
 
             var simulator = new Instance.Utilities.HttpSimulator.HttpSimulator("/", AppDomain.CurrentDomain.BaseDirectory);
             simulator.SimulateRequest(new Uri(this.WebsiteAppPath));
-            HttpContextBase httpContextBase = new HttpContextWrapper(HttpContext.Current);
-            HttpContextSource.RegisterInstance(httpContextBase);
+
+            // The simulator publishes its Microsoft.AspNetCore.Http.HttpContext through
+            // HttpContextSource.RegisterInstance; register it explicitly so the intent stays visible.
+            HttpContextSource.RegisterInstance(simulator.Context);
 
             var isPasswordInHistory = new MembershipPasswordController().IsPasswordInHistory(user.UserID, user.PortalID, user.Membership.Password);
 

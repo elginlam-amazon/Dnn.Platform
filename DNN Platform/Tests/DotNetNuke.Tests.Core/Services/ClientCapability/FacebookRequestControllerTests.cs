@@ -6,11 +6,12 @@ namespace DotNetNuke.Tests.Core.Services.ClientCapability
 {
     using System;
     using System.Collections.Generic;
-    using System.Collections.Specialized;
-    using System.Reflection;
-    using System.Web;
 
     using DotNetNuke.Services.ClientCapability;
+
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.Primitives;
+
     using NUnit.Framework;
 
     /// <summary>  Summary description for FacebookRequestController.</summary>
@@ -86,8 +87,7 @@ namespace DotNetNuke.Tests.Core.Services.ClientCapability
         [Test]
         public void FacebookRequestController_GetFacebookDetailsFromRequest_With_Get_Request()
         {
-            HttpRequest httpRequest = new HttpRequest("unittest.aspx", "http://localhost/unittest.aspx", string.Empty);
-            httpRequest.RequestType = "GET";
+            var httpRequest = CreateRequest(HttpMethods.Get, null);
 
             var request = FacebookRequestController.GetFacebookDetailsFromRequest(httpRequest);
             Assert.That(request, Is.Null);
@@ -96,10 +96,7 @@ namespace DotNetNuke.Tests.Core.Services.ClientCapability
         [Test]
         public void FacebookRequestController_GetFacebookDetailsFromRequest_With_Post_Invalid_Request()
         {
-            HttpRequest httpRequest = new HttpRequest("unittest.aspx", "http://localhost/unittest.aspx", string.Empty);
-            httpRequest.RequestType = "POST";
-            this.SetReadonly(httpRequest.Form, false);
-            httpRequest.Form.Add("signed_request", this._requestDics["Invalid"]);
+            var httpRequest = CreateRequest(HttpMethods.Post, this._requestDics["Invalid"]);
 
             var request = FacebookRequestController.GetFacebookDetailsFromRequest(httpRequest);
             Assert.That(request, Is.Null);
@@ -108,10 +105,7 @@ namespace DotNetNuke.Tests.Core.Services.ClientCapability
         [Test]
         public void FacebookRequestController_GetFacebookDetailsFromRequest_With_Post_Valid_Request()
         {
-            HttpRequest httpRequest = new HttpRequest("unittest.aspx", "http://localhost/unittest.aspx", string.Empty);
-            httpRequest.RequestType = "POST";
-            this.SetReadonly(httpRequest.Form, false);
-            httpRequest.Form.Add("signed_request", this._requestDics["Valid"]);
+            var httpRequest = CreateRequest(HttpMethods.Post, this._requestDics["Valid"]);
 
             var request = FacebookRequestController.GetFacebookDetailsFromRequest(httpRequest);
             Assert.That(request.IsValid, Is.EqualTo(true));
@@ -128,13 +122,34 @@ namespace DotNetNuke.Tests.Core.Services.ClientCapability
             return epoc.AddSeconds((double)value);
         }
 
-        private void SetReadonly(NameValueCollection collection, bool readOnly)
+        /// <summary>
+        /// Builds the request the test drives, replacing the net48
+        /// <c>new HttpRequest("unittest.aspx", "http://localhost/unittest.aspx", query)</c>
+        /// construction (plus the reflection that un-froze <c>Request.Form</c>) with a real,
+        /// writable <see cref="DefaultHttpContext"/>.
+        /// </summary>
+        /// <param name="method">The HTTP method, <c>GET</c> or <c>POST</c>.</param>
+        /// <param name="signedRequest">The <c>signed_request</c> form value, or <see langword="null"/> for none.</param>
+        /// <returns>The request to pass to <see cref="FacebookRequestController"/>.</returns>
+        private static HttpRequest CreateRequest(string method, string signedRequest)
         {
-            var readOnlyProperty = collection.GetType().GetProperty("IsReadOnly", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (readOnlyProperty != null)
+            var context = new DefaultHttpContext();
+            var request = context.Request;
+            request.Method = method;
+            request.Scheme = "http";
+            request.Host = new HostString("localhost");
+            request.Path = "/unittest.aspx";
+
+            if (signedRequest != null)
             {
-                readOnlyProperty.SetValue(collection, readOnly, null);
+                request.ContentType = "application/x-www-form-urlencoded";
+                request.Form = new FormCollection(new Dictionary<string, StringValues>
+                {
+                    { "signed_request", signedRequest },
+                });
             }
+
+            return request;
         }
     }
 }

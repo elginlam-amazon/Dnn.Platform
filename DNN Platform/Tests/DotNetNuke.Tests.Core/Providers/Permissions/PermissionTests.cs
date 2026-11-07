@@ -355,9 +355,11 @@ namespace DotNetNuke.Tests.Core.Providers.Permissions
         ////    mockRoleProvider.Setup(rp => rp.GetUserRoles(It.Is<UserInfo>(u => u.UserID == UserId), It.IsAny<bool>())).Returns(userRoles);
         ////    var simulator = new Instance.Utilities.HttpSimulator.HttpSimulator(this.WebsitePhysicalAppPath);
         ////    simulator.SimulateRequest();
-        ////    HttpContextBase httpContextBase = new HttpContextWrapper(HttpContext.Current);
-        ////    HttpContextSource.RegisterInstance(httpContextBase);
-        ////    HttpContext.Current.Items["UserInfo"] = user;
+        ////
+        ////    // The simulator builds a Microsoft.AspNetCore.Http.DefaultHttpContext and publishes it
+        ////    // through HttpContextSource; register it explicitly and use its writable Items bag.
+        ////    HttpContextSource.RegisterInstance(simulator.Context);
+        ////    simulator.Context.Items["UserInfo"] = user;
         ////}
     }
 }

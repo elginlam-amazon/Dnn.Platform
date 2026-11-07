@@ -5,18 +5,31 @@ namespace DotNetNuke.Tests.Web.Api.Internals
 {
     using System;
     using System.Linq;
-    using System.Web.Http.Dependencies;
 
     using DotNetNuke.Services.DependencyInjection;
-    using DotNetNuke.Web.Api.Internal;
+
     using Microsoft.Extensions.DependencyInjection;
+
     using NUnit.Framework;
 
+    /// <summary>
+    /// Tests for the component which took over <c>DnnDependencyResolver</c>'s behaviour.
+    /// </summary>
+    /// <remarks>
+    /// On Web API 2, <c>DnnDependencyResolver</c> implemented
+    /// <c>System.Web.Http.Dependencies.IDependencyResolver</c> and was the single bridge between Web API
+    /// and the DNN container: <c>GetService</c>/<c>GetServices</c> resolved from the ambient scope and
+    /// <c>BeginScope</c> produced a child resolver. None of those types exist on ASP.NET Core, where the
+    /// framework resolves from <c>HttpContext.RequestServices</c> itself. The same responsibilities are now
+    /// split between <see cref="IScopeAccessor"/> (which scope am I in) and
+    /// <see cref="IServiceProvider"/>/<see cref="IServiceScope"/> (resolution and child scopes), so these
+    /// tests keep their original assertion intent re-pointed at that pair.
+    /// </remarks>
     [TestFixture]
     public class DnnDependencyResolverTests
     {
-        private IServiceProvider serviceProvider;
-        private IDependencyResolver dependencyResolver;
+        private ServiceProvider serviceProvider;
+        private IScopeAccessor scopeAccessor;
 
         private interface ITestService
         {
@@ -30,40 +43,47 @@ namespace DotNetNuke.Tests.Web.Api.Internals
             services.AddScoped(typeof(ITestService), typeof(TestService));
 
             this.serviceProvider = services.BuildServiceProvider();
-            this.dependencyResolver = new DnnDependencyResolver(this.serviceProvider);
+            this.scopeAccessor = this.serviceProvider.GetRequiredService<IScopeAccessor>();
         }
 
         [OneTimeTearDown]
         public void FixtureTearDown()
         {
-            this.dependencyResolver?.Dispose();
-            this.dependencyResolver = null;
+            (this.scopeAccessor as IDisposable)?.Dispose();
+            this.scopeAccessor = null;
 
-            if (this.serviceProvider is IDisposable disposable)
-            {
-                disposable.Dispose();
-            }
-
+            this.serviceProvider?.Dispose();
             this.serviceProvider = null;
         }
 
         [Test]
         public void NotNull()
         {
-            Assert.That(this.dependencyResolver, Is.Not.Null);
+            Assert.That(this.scopeAccessor, Is.Not.Null);
+            Assert.That(this.scopeAccessor.GetScope(), Is.Not.Null);
         }
 
         [Test]
         public void IsOfTypeDnnDependencyResolver()
         {
-            Assert.That(this.dependencyResolver, Is.InstanceOf<DnnDependencyResolver>());
+            // The baseline asserted that the container handed back the PRODUCTION resolver type, so this
+            // resolves IScopeAccessor from a container using the production registration (not the fixture's
+            // FakeScopeAccessor, which would only assert the test's own setup).
+            var services = new ServiceCollection();
+            services.AddSingleton<IScopeAccessor, ScopeAccessor>();
+
+            using var provider = services.BuildServiceProvider();
+
+            var actual = provider.GetRequiredService<IScopeAccessor>();
+
+            Assert.That(actual, Is.InstanceOf<ScopeAccessor>());
         }
 
         [Test]
         public void GetTestService()
         {
             var expected = new TestService();
-            var actual = this.dependencyResolver.GetService(typeof(ITestService));
+            var actual = this.scopeAccessor.GetScope().ServiceProvider.GetService(typeof(ITestService));
 
             Assert.That(actual, Is.Not.Null);
             Assert.That(actual.GetType(), Is.EqualTo(expected.GetType()));
@@ -73,7 +93,7 @@ namespace DotNetNuke.Tests.Web.Api.Internals
         public void GetTestServices()
         {
             var expected = new TestService();
-            var actual = this.dependencyResolver.GetServices(typeof(ITestService)).ToArray();
+            var actual = this.scopeAccessor.GetScope().ServiceProvider.GetServices(typeof(ITestService)).ToArray();
 
             Assert.That(actual, Is.Not.Null);
             Assert.That(actual, Has.Length.EqualTo(1));
@@ -83,19 +103,28 @@ namespace DotNetNuke.Tests.Web.Api.Internals
         [Test]
         public void BeginScope()
         {
-            var actual = this.dependencyResolver.BeginScope();
+            var actual = this.serviceProvider.CreateScope();
 
             Assert.That(actual, Is.Not.Null);
-            Assert.That(actual, Is.InstanceOf<DnnDependencyResolver>());
+            Assert.That(actual, Is.InstanceOf<IServiceScope>());
+            Assert.That(actual.ServiceProvider, Is.Not.Null);
+
+            // Disposing a child scope disposes the services it created (the old resolver's Dispose contract).
+            var scopedService = (TestService)actual.ServiceProvider.GetRequiredService<ITestService>();
+            Assert.That(scopedService.IsDisposed, Is.False);
+
+            actual.Dispose();
+
+            Assert.That(scopedService.IsDisposed, Is.True);
         }
 
         [Test]
         public void BeginScope_GetService()
         {
-            var scope = this.dependencyResolver.BeginScope();
+            using var scope = this.serviceProvider.CreateScope();
 
             var expected = new TestService();
-            var actual = scope.GetService(typeof(ITestService));
+            var actual = scope.ServiceProvider.GetService(typeof(ITestService));
 
             Assert.That(actual, Is.Not.Null);
             Assert.That(actual.GetType(), Is.EqualTo(expected.GetType()));
@@ -104,21 +133,27 @@ namespace DotNetNuke.Tests.Web.Api.Internals
         [Test]
         public void BeginScope_GetServices()
         {
-            var scope = this.dependencyResolver.BeginScope();
+            using var scope = this.serviceProvider.CreateScope();
 
             var expected = new TestService();
-            var actual = scope.GetServices(typeof(ITestService)).ToArray();
+            var actual = scope.ServiceProvider.GetServices(typeof(ITestService)).ToArray();
 
             Assert.That(actual, Is.Not.Null);
             Assert.That(actual, Has.Length.EqualTo(1));
             Assert.That(actual[0].GetType(), Is.EqualTo(expected.GetType()));
         }
 
-        private class TestService : ITestService
+        private class TestService : ITestService, IDisposable
         {
+            public bool IsDisposed { get; private set; }
+
+            public void Dispose()
+            {
+                this.IsDisposed = true;
+            }
         }
 
-        private class FakeScopeAccessor : IScopeAccessor
+        private class FakeScopeAccessor : IScopeAccessor, IDisposable
         {
             private IServiceScope fakeScope;
 
@@ -130,6 +165,12 @@ namespace DotNetNuke.Tests.Web.Api.Internals
             public IServiceScope GetScope()
             {
                 return this.fakeScope;
+            }
+
+            public void Dispose()
+            {
+                this.fakeScope?.Dispose();
+                this.fakeScope = null;
             }
         }
     }

@@ -4,15 +4,22 @@
 namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
 {
     using System;
-
-    using System.Web.Mvc;
-    using System.Web.Routing;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.UI.Modules;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
     using DotNetNuke.Web.Mvc.Framework.Modules;
+
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Abstractions;
+    using Microsoft.AspNetCore.Mvc.Controllers;
+    using Microsoft.AspNetCore.Mvc.Filters;
+    using Microsoft.AspNetCore.Mvc.Infrastructure;
+    using Microsoft.AspNetCore.Routing;
 
     using Microsoft.Extensions.DependencyInjection;
 
@@ -28,13 +35,31 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
 
         private FakeServiceProvider serviceProvider;
 
+        /// <summary>The controller instance the fake action invoker runs through the capturing filter.</summary>
+        private object executingController;
+
+        /// <summary>The exception the fake action invoker throws, when any.</summary>
+        private Exception invokeException;
+
+        /// <summary>The action contexts the fake action invoker was created for.</summary>
+        private List<ActionContext> invokedActionContexts;
+
         [SetUp]
         public void Setup()
         {
+            this.executingController = null;
+            this.invokeException = null;
+            this.invokedActionContexts = new List<ActionContext>();
+
+            // ModuleApplication.ExecuteRequestAsync resolves the controller factory, the action descriptor
+            // collection and the action invoker factory from the request services (falling back to the DNN
+            // service provider), so all three have to be registered to keep these tests unit tests.
             this.serviceProvider = FakeServiceProvider.Setup(
                 services =>
                 {
-                    services.AddSingleton<IControllerFactory, DefaultControllerFactory>();
+                    services.AddSingleton(Mock.Of<IControllerFactory>());
+                    services.AddSingleton<IActionDescriptorCollectionProvider>(new FakeActionDescriptorCollectionProvider());
+                    services.AddSingleton<IActionInvokerFactory>(new FakeActionInvokerFactory(this));
                 });
         }
 
@@ -45,50 +70,50 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
         }
 
         [Test]
-        public void Init_Is_Called_In_First_ExecuteRequest_And_Not_In_Subsequent_Requests()
+        public async Task Init_Is_Called_In_First_ExecuteRequest_And_Not_In_Subsequent_Requests()
         {
             // Arrange
-            var app = new Mock<ModuleApplication> { CallBase = true };
-
             int initCounter = 0;
-            app.Setup(a => a.Init())
-                .Callback(() => initCounter++);
+            var app = new InitCountingModuleApplication(() => initCounter++);
 
             var controller = new Mock<IDnnController>();
 
-            var controllerFactory = SetupControllerFactory(controller.Object);
-            app.SetupGet(a => a.ControllerFactory).Returns(controllerFactory.Object);
+            var controllerFactory = this.SetupControllerFactory(controller.Object);
+            app.ControllerFactory = controllerFactory.Object;
 
             // Act
-            app.Object.ExecuteRequest(CreateModuleContext(ControllerName, ActionName));
-            app.Object.ExecuteRequest(CreateModuleContext(ControllerName, ActionName));
+            await app.ExecuteRequest(CreateModuleContext(ControllerName, ActionName));
+            await app.ExecuteRequest(CreateModuleContext(ControllerName, ActionName));
 
             // Assert
             Assert.That(initCounter, Is.EqualTo(1));
         }
 
         [Test]
-        public void ExecuteRequest_Calls_ControllerFactory_To_Construct_Controller()
+        public async Task ExecuteRequest_Calls_ControllerFactory_To_Construct_Controller()
         {
             // Arrange
             var app = new ModuleApplication();
 
+            var controller = new Mock<IDnnController>();
+            this.executingController = controller.Object;
+
             var controllerFactory = new Mock<IControllerFactory>();
-            RequestContext actualRequestContext = null;
-            controllerFactory.Setup(f => f.CreateController(It.IsAny<RequestContext>(), ControllerName))
-                                 .Callback<RequestContext, string>((c, n) => actualRequestContext = c)
-                                 .Returns(new Mock<IDnnController>().Object);
+            ControllerContext actualControllerContext = null;
+            controllerFactory.Setup(f => f.CreateController(It.IsAny<ControllerContext>()))
+                                 .Callback<ControllerContext>(c => actualControllerContext = c)
+                                 .Returns(controller.Object);
 
             app.ControllerFactory = controllerFactory.Object;
 
             ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
 
             // Act
-            app.ExecuteRequest(moduleRequestContext);
+            await app.ExecuteRequest(moduleRequestContext);
 
             // Assert
-            controllerFactory.Verify(f => f.CreateController(It.IsAny<RequestContext>(), ControllerName));
-            Assert.That(actualRequestContext.HttpContext, Is.SameAs(moduleRequestContext.HttpContext));
+            controllerFactory.Verify(f => f.CreateController(It.IsAny<ControllerContext>()));
+            Assert.That(actualControllerContext.HttpContext, Is.SameAs(moduleRequestContext.HttpContext));
         }
 
         [Test]
@@ -97,14 +122,16 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
             // Arrange
             var app = new ModuleApplication();
 
-            var controller = new Mock<IController>();
-            var controllerFactory = SetupControllerFactory(controller.Object);
+            // ASP.NET Core has no IController: a controller which does not implement IDnnController is the
+            // equivalent of the legacy "only implements IController" case.
+            var controller = new Mock<Controller>();
+            var controllerFactory = this.SetupControllerFactory(controller.Object);
             app.ControllerFactory = controllerFactory.Object;
 
             ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
 
             // Act and Assert
-            Assert.Throws<InvalidOperationException>(() => app.ExecuteRequest(moduleRequestContext));
+            Assert.ThrowsAsync<InvalidOperationException>(() => app.ExecuteRequest(moduleRequestContext));
         }
 
         [Test]
@@ -113,17 +140,18 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
             // Arrange
             var app = new ModuleApplication();
 
-            var controller = new Mock<Controller>();
-            var invoker = new Mock<IActionInvoker>();
-            controller.Object.ActionInvoker = invoker.Object;
-
-            var controllerFactory = SetupControllerFactory(controller.Object);
+            // The legacy guard rejected a controller whose ActionInvoker was not the DNN result capturing
+            // invoker. In ASP.NET Core the capturing invoker is a filter the module host always attaches,
+            // and the equivalent guard rejects a controller which cannot surrender its result, i.e. one
+            // which does not implement IDnnController ("Could Not Construct Controller").
+            var controller = new Mock<ControllerBase>();
+            var controllerFactory = this.SetupControllerFactory(controller.Object);
             app.ControllerFactory = controllerFactory.Object;
 
             ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
 
             // Act and Assert
-            Assert.Throws<InvalidOperationException>(() => app.ExecuteRequest(moduleRequestContext));
+            Assert.ThrowsAsync<InvalidOperationException>(() => app.ExecuteRequest(moduleRequestContext));
         }
 
         [Test]
@@ -132,86 +160,88 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
             // Arrange
             var app = new ModuleApplication();
 
-            var controller = new Mock<IController>();
-            controller.As<IDnnController>();
+            var controller = new Mock<IDnnController>();
 
-            var controllerFactory = SetupControllerFactory(controller.Object);
+            var controllerFactory = this.SetupControllerFactory(controller.Object);
             app.ControllerFactory = controllerFactory.Object;
 
             ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
 
             // Act and Assert
-            app.ExecuteRequest(moduleRequestContext);
+            Assert.DoesNotThrowAsync(() => app.ExecuteRequest(moduleRequestContext));
         }
 
         [Test]
-        public void ExecuteRequest_Returns_Result_And_ControllerContext_From_Controller()
+        public async Task ExecuteRequest_Returns_Result_And_ControllerContext_From_Controller()
         {
             // Arrange
             var app = new ModuleApplication();
 
             ControllerContext controllerContext = MockHelper.CreateMockControllerContext();
-            ActionResult actionResult = new Mock<ActionResult>().Object;
+            IActionResult actionResult = new Mock<IActionResult>().Object;
 
             var controller = SetupMockController(actionResult, controllerContext);
 
-            var controllerFactory = SetupControllerFactory(controller.Object);
+            var controllerFactory = this.SetupControllerFactory(controller.Object);
             app.ControllerFactory = controllerFactory.Object;
 
             ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
 
             // Act
-            ModuleRequestResult result = app.ExecuteRequest(moduleRequestContext);
+            ModuleRequestResult result = await app.ExecuteRequest(moduleRequestContext);
 
             using (Assert.EnterMultipleScope())
             {
                 // Assert
                 Assert.That(result.ActionResult, Is.SameAs(actionResult));
-                Assert.That(result.ControllerContext, Is.SameAs(controllerContext));
+                Assert.That(result.ActionContext, Is.SameAs(controllerContext));
             }
         }
 
         [Test]
-        public void ExecuteRequest_Executes_Constructed_Controller_And_Provides_RequestContext()
-        {
-            // Arrange
-            var app = new ModuleApplication();
-
-            var controller = new Mock<IController>();
-            controller.As<IDnnController>();
-
-            var controllerFactory = SetupControllerFactory(controller.Object);
-            app.ControllerFactory = controllerFactory.Object;
-
-            ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
-
-            // Act
-            ModuleRequestResult result = app.ExecuteRequest(moduleRequestContext);
-
-            // Assert
-            controller.Verify(c => c.Execute(It.Is<RequestContext>(rc =>
-                    rc.HttpContext == moduleRequestContext.HttpContext &&
-                    rc.RouteData.GetRequiredString("controller") == ControllerName)));
-        }
-
-        [Test]
-        public void ExecuteRequest_ReleasesController_After_Executing()
+        public async Task ExecuteRequest_Executes_Constructed_Controller_And_Provides_RequestContext()
         {
             // Arrange
             var app = new ModuleApplication();
 
             var controller = new Mock<IDnnController>();
 
-            var controllerFactory = SetupControllerFactory(controller.Object);
+            var controllerFactory = this.SetupControllerFactory(controller.Object);
             app.ControllerFactory = controllerFactory.Object;
 
             ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
 
             // Act
-            ModuleRequestResult result = app.ExecuteRequest(moduleRequestContext);
+            await app.ExecuteRequest(moduleRequestContext);
 
             // Assert
-            controllerFactory.Verify(cf => cf.ReleaseController(controller.Object));
+            // ASP.NET Core executes the controller through IActionInvokerFactory/IActionInvoker rather than
+            // through the MVC 5 IController.Execute entry point; ActionContext replaces the old request context.
+            Assert.That(
+                this.invokedActionContexts.Any(ac =>
+                    ac.HttpContext == moduleRequestContext.HttpContext &&
+                    (string)ac.RouteData.Values["controller"] == ControllerName),
+                Is.True);
+        }
+
+        [Test]
+        public async Task ExecuteRequest_ReleasesController_After_Executing()
+        {
+            // Arrange
+            var app = new ModuleApplication();
+
+            var controller = new Mock<IDnnController>();
+
+            var controllerFactory = this.SetupControllerFactory(controller.Object);
+            app.ControllerFactory = controllerFactory.Object;
+
+            ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
+
+            // Act
+            await app.ExecuteRequest(moduleRequestContext);
+
+            // Assert
+            controllerFactory.Verify(cf => cf.ReleaseController(It.IsAny<ControllerContext>(), controller.Object));
         }
 
         [Test]
@@ -221,22 +251,22 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
             var app = new ModuleApplication();
 
             var controller = new Mock<IDnnController>();
-            controller.Setup(c => c.Execute(It.IsAny<RequestContext>()))
-                .Throws(new Exception("Uh Oh!"));
 
-            var controllerFactory = SetupControllerFactory(controller.Object);
+            var controllerFactory = this.SetupControllerFactory(controller.Object);
             app.ControllerFactory = controllerFactory.Object;
+
+            this.invokeException = new Exception("Uh Oh!");
 
             ModuleRequestContext moduleRequestContext = CreateModuleContext(ControllerName, ActionName);
 
             // Act (and verify the exception is thrown; also supresses the exception so it doesn't fail the test)
-            Assert.Throws<Exception>(() => app.ExecuteRequest(moduleRequestContext));
+            Assert.ThrowsAsync<Exception>(() => app.ExecuteRequest(moduleRequestContext));
 
             // Assert
-            controllerFactory.Verify(f => f.ReleaseController(controller.Object));
+            controllerFactory.Verify(f => f.ReleaseController(It.IsAny<ControllerContext>(), controller.Object));
         }
 
-        private static Mock<IDnnController> SetupMockController(ActionResult actionResult, ControllerContext controllerContext)
+        private static Mock<IDnnController> SetupMockController(IActionResult actionResult, ControllerContext controllerContext)
         {
             var mockController = new Mock<IDnnController>();
             mockController.Setup(c => c.ResultOfLastExecute)
@@ -244,14 +274,6 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
             mockController.Setup(c => c.ControllerContext)
                 .Returns(controllerContext);
             return mockController;
-        }
-
-        private static Mock<IControllerFactory> SetupControllerFactory(IController controller)
-        {
-            var controllerFactory = new Mock<IControllerFactory>();
-            controllerFactory.Setup(cf => cf.CreateController(It.IsAny<RequestContext>(), It.IsAny<string>()))
-                            .Returns(controller);
-            return controllerFactory;
         }
 
         private static ModuleRequestContext CreateModuleContext(string controllerName, string actionName)
@@ -267,6 +289,108 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
                 RouteData = routeData,
                 ModuleContext = moduleContext,
             };
+        }
+
+        private Mock<IControllerFactory> SetupControllerFactory(object controller)
+        {
+            this.executingController = controller;
+            var controllerFactory = new Mock<IControllerFactory>();
+            controllerFactory.Setup(cf => cf.CreateController(It.IsAny<ControllerContext>()))
+                            .Returns(controller);
+            return controllerFactory;
+        }
+
+        /// <summary>A module application which counts (and replaces) its initialization.</summary>
+        /// <remarks>
+        /// The net48 test mocked the virtual <c>Init</c> method. <c>Init</c> is
+        /// <c>protected internal virtual</c> on the ported application, so a test double subclass
+        /// records the calls instead.
+        /// </remarks>
+        private sealed class InitCountingModuleApplication : ModuleApplication
+        {
+            private readonly Action onInit;
+
+            public InitCountingModuleApplication(Action onInit)
+            {
+                this.onInit = onInit;
+            }
+
+            protected internal override void Init()
+            {
+                this.onInit();
+            }
+        }
+
+        /// <summary>Provides the single action descriptor these tests execute against.</summary>
+        private sealed class FakeActionDescriptorCollectionProvider : IActionDescriptorCollectionProvider
+        {
+            private readonly ActionDescriptorCollection actions = new ActionDescriptorCollection(
+                new List<ActionDescriptor>
+                {
+                    new ControllerActionDescriptor { ControllerName = ControllerName, ActionName = ActionName },
+                },
+                0);
+
+            public ActionDescriptorCollection ActionDescriptors => this.actions;
+        }
+
+        /// <summary>Creates the <see cref="FakeActionInvoker"/> which stands in for the MVC pipeline.</summary>
+        private sealed class FakeActionInvokerFactory : IActionInvokerFactory
+        {
+            private readonly ModuleApplicationTests owner;
+
+            public FakeActionInvokerFactory(ModuleApplicationTests owner)
+            {
+                this.owner = owner;
+            }
+
+            public IActionInvoker CreateInvoker(ActionContext actionContext)
+            {
+                this.owner.invokedActionContexts.Add(actionContext);
+                return new FakeActionInvoker(this.owner, actionContext);
+            }
+        }
+
+        /// <summary>
+        /// Stands in for the MVC action invoker: it runs the module's controller through the capturing
+        /// filter the way the real pipeline does, so that the module application can collect the result.
+        /// </summary>
+        private sealed class FakeActionInvoker : IActionInvoker
+        {
+            private readonly ModuleApplicationTests owner;
+            private readonly ActionContext actionContext;
+
+            public FakeActionInvoker(ModuleApplicationTests owner, ActionContext actionContext)
+            {
+                this.owner = owner;
+                this.actionContext = actionContext;
+            }
+
+            public async Task InvokeAsync()
+            {
+                if (this.owner.invokeException is not null)
+                {
+                    throw this.owner.invokeException;
+                }
+
+                var capturingFilter = ResultCapturingActionInvoker.GetCurrent(this.actionContext.HttpContext);
+                var controller = this.owner.executingController;
+                if (capturingFilter is null || controller is null)
+                {
+                    return;
+                }
+
+                var filters = new List<IFilterMetadata>();
+                var executingContext = new ActionExecutingContext(
+                    this.actionContext,
+                    filters,
+                    new Dictionary<string, object>(),
+                    controller);
+
+                await capturingFilter.OnActionExecutionAsync(
+                    executingContext,
+                    () => Task.FromResult(new ActionExecutedContext(this.actionContext, filters, controller)));
+            }
         }
     }
 }

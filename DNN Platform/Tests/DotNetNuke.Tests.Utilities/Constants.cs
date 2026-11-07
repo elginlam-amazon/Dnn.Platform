@@ -364,7 +364,7 @@ namespace DotNetNuke.Tests.Utilities
         public const string COLUMNNAME_Name = "Name";
         public const string COLUMNNAME_PersonName = "PersonName";
 
-        public const string PETAPOCO_DatabaseName = "Test.sdf";
+        public const string PETAPOCO_DatabaseName = "Test";
         public const string PETAPOCO_DogTableName = "Dogs";
         public const string PETAPOCO_CreateDogTableSql = "CREATE TABLE Dogs (ID int IDENTITY(1,1) NOT NULL, Name nvarchar(100) NOT NULL, Age int NULL)";
         public const string PETAPOCO_InsertDogRow = "INSERT INTO Dogs (Name, Age) VALUES ('{0}', {1})";

@@ -4,23 +4,30 @@
 
 namespace DotNetNuke.Tests.Web.Api
 {
-    using System;
-    using System.Net.Http;
-    using System.Web.Http;
-    using System.Web.Http.Hosting;
-
     using DotNetNuke.Entities.Modules;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Web.Api;
+
+    using Microsoft.AspNetCore.Mvc;
+
     using Moq;
     using NUnit.Framework;
+
+#pragma warning disable CS0618 // IPortalController.GetCurrentPortalSettings is deprecated, but it is the member under test here.
 
     [TestFixture]
     public class DnnApiControllerTests
     {
+        [SetUp]
+        public void SetUp()
+        {
+            TabAndModuleInfoProviderTestUtilities.ClearRuntimeProviders();
+        }
+
         [TearDown]
         public void TearDown()
         {
+            TabAndModuleInfoProviderTestUtilities.ClearRuntimeProviders();
             PortalController.ClearInstance();
         }
 
@@ -28,15 +35,15 @@ namespace DotNetNuke.Tests.Web.Api
         public void GetsModuleInfoViaTheTabModuleInfoProviders()
         {
             // Arrange
-            var request = new HttpRequestMessage();
-            var configuration = new HttpConfiguration();
             var provider = new Mock<ITabAndModuleInfoProvider>();
             var expectedModule = new ModuleInfo();
+            var request = TabAndModuleInfoProviderTestUtilities.CreateRequestWithProviders(provider.Object);
             provider.Setup(x => x.TryFindModuleInfo(request, out expectedModule)).Returns(true);
-            configuration.AddTabAndModuleInfoProvider(provider.Object);
-            request.Properties[HttpPropertyKeys.HttpConfigurationKey] = configuration;
 
-            var controller = new DnnApiControllerHelper { Request = request };
+            var controller = new DnnApiControllerHelper
+            {
+                ControllerContext = new ControllerContext { HttpContext = request.HttpContext, },
+            };
 
             // Act
             var result = controller.ActiveModule;
@@ -89,4 +96,5 @@ namespace DotNetNuke.Tests.Web.Api
         //            Assert.AreEqual(expectedPortalSettings, result);
         //        }
     }
+#pragma warning restore CS0618
 }

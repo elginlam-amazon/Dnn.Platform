@@ -43,8 +43,9 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="viewContext">The view context (carries the view data in ASP.NET Core).</param>
         /// <param name="routeCollection">The route collection.</param>
         /// <param name="servicesFramework">The web API service framework.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="routeCollection"/> is <see langword="null"/>.</exception>
         public DnnHtmlHelper(ViewContext viewContext, RouteCollection routeCollection, IServicesFramework servicesFramework)
-            : base(HtmlHelperFactory.Create<TModel>(viewContext), routeCollection, servicesFramework)
+            : base(HtmlHelperFactory.Create<TModel>(viewContext), RequireRouteCollection(routeCollection), servicesFramework)
         {
         }
 

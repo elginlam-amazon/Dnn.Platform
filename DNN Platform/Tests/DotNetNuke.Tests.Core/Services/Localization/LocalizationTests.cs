@@ -5,11 +5,13 @@
 namespace DotNetNuke.Tests.Core.Services.Localization
 {
     using System;
-    using System.Web;
 
     using DotNetNuke.Services.Localization;
     using DotNetNuke.Services.Localization.Internal;
     using DotNetNuke.Tests.Utilities;
+
+    using Microsoft.AspNetCore.Http;
+
     using Moq;
     using NUnit.Framework;
 
@@ -17,8 +19,8 @@ namespace DotNetNuke.Tests.Core.Services.Localization
     public class LocalizationTests
     {
         private readonly string[] _standardCultureCodes = new[] { "en-US", "de-DE", "fr-CA", "Lt-sr-SP", "kok-IN" };
-        private Mock<HttpContextBase> _mockHttpContext;
-        private HttpContextBase _httpContext;
+        private Mock<HttpContext> _mockHttpContext;
+        private HttpContext _httpContext;
 
         [SetUp]
         public void Setup()
@@ -67,7 +69,7 @@ namespace DotNetNuke.Tests.Core.Services.Localization
         public void PerfectMatchPossible()
         {
             // Arrange
-            this._mockHttpContext.Setup(x => x.Request.UserLanguages).Returns(new[] { "de-DE" });
+            this._httpContext.Request.Headers.AcceptLanguage = new Microsoft.Extensions.Primitives.StringValues(new[] { "de-DE" });
 
             // Act
             var ret = TestableLocalization.Instance.BestCultureCodeBasedOnBrowserLanguages(this._standardCultureCodes);
@@ -80,7 +82,7 @@ namespace DotNetNuke.Tests.Core.Services.Localization
         public void QParamsAreIgnored()
         {
             // Arrange
-            this._mockHttpContext.Setup(x => x.Request.UserLanguages).Returns(new[] { "de-DE;q=0.8" });
+            this._httpContext.Request.Headers.AcceptLanguage = new Microsoft.Extensions.Primitives.StringValues(new[] { "de-DE;q=0.8" });
 
             // Act
             var ret = TestableLocalization.Instance.BestCultureCodeBasedOnBrowserLanguages(this._standardCultureCodes);
@@ -93,7 +95,7 @@ namespace DotNetNuke.Tests.Core.Services.Localization
         public void MatchOnOnlyLanguage()
         {
             // Arrange
-            this._mockHttpContext.Setup(x => x.Request.UserLanguages).Returns(new[] { "fr-FR" });
+            this._httpContext.Request.Headers.AcceptLanguage = new Microsoft.Extensions.Primitives.StringValues(new[] { "fr-FR" });
 
             // Act
             var ret = TestableLocalization.Instance.BestCultureCodeBasedOnBrowserLanguages(this._standardCultureCodes);
@@ -106,7 +108,7 @@ namespace DotNetNuke.Tests.Core.Services.Localization
         public void PerfectMatchPreferredToFirstMatch()
         {
             // Arrange
-            this._mockHttpContext.Setup(x => x.Request.UserLanguages).Returns(new[] { "fr-FR" });
+            this._httpContext.Request.Headers.AcceptLanguage = new Microsoft.Extensions.Primitives.StringValues(new[] { "fr-FR" });
 
             // Act
             var ret = TestableLocalization.Instance.BestCultureCodeBasedOnBrowserLanguages(new[] { "fr-CA", "fr-FR" });

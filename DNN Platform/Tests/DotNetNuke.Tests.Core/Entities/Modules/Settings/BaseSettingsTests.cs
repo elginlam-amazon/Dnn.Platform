@@ -7,7 +7,6 @@ namespace DotNetNuke.Tests.Core.Entities.Modules.Settings
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Web.Caching;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.ComponentModel;

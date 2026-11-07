@@ -6,7 +6,6 @@ namespace DotNetNuke.Tests.Core.Providers.Folder
     using System;
     using System.Collections.Generic;
     using System.Data;
-    using System.Drawing;
     using System.IO;
 
     using DotNetNuke.Abstractions.Application;
@@ -37,6 +36,9 @@ namespace DotNetNuke.Tests.Core.Providers.Folder
     using Microsoft.Extensions.DependencyInjection;
 
     using Moq;
+
+    using SixLabors.ImageSharp;
+    using SixLabors.ImageSharp.PixelFormats;
 
     using NUnit.Framework;
 
@@ -1079,7 +1081,7 @@ namespace DotNetNuke.Tests.Core.Providers.Folder
         [Test]
         public void UpdateFile_Sets_With_And_Height_When_File_Is_Image()
         {
-            var image = new Bitmap(10, 20);
+            var image = new Image<Rgba32>(10, 20);
 
             this.mockFileManager.Setup(mfm => mfm.IsImageFile(this.fileInfo.Object)).Returns(true);
             this.mockFileManager.Setup(mfm => mfm.GetImageFromStream(It.IsAny<Stream>())).Returns(image);

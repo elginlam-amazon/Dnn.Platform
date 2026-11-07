@@ -13,7 +13,9 @@ namespace DotNetNuke.Web.Api
 
     using DotNetNuke.Web.Api.Internal;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.AspNetCore.Mvc.Filters;
+    using Microsoft.Extensions.Primitives;
 
     /// <summary>A web API action filter which validates the anti-forgery token.</summary>
     /// <remarks>
@@ -88,19 +90,31 @@ namespace DotNetNuke.Web.Api
         /// <param name="actionContext">The request context.</param>
         /// <returns>The cookie value or <see cref="string.Empty"/>.</returns>
         /// <remarks>
-        /// The legacy implementation scanned the raw <c>Cookie</c> header for the configured cookie name.
-        /// ASP.NET Core parses the header for us, so the cookie is read from
-        /// <c>HttpRequest.Cookies</c> — same cookie, same name, same value.
+        /// The legacy implementation deliberately scanned the raw <c>Cookie</c> header itself rather
+        /// than using the framework's cookie parser, because real-world DNN requests carry
+        /// anti-forgery cookies whose values are not strictly RFC-compliant (unquoted spaces, and
+        /// neighbouring cookies with spaces in their NAME). ASP.NET Core's
+        /// <see cref="HttpRequest.Cookies"/> parser silently drops those entries, which would make
+        /// the token read as empty and fail validation for exactly the requests that used to work.
+        /// So the parsed collection is tried first and the raw header scan is kept as the fallback.
         /// </remarks>
         protected static string GetAntiForgeryCookieValue(AuthorizationFilterContext actionContext)
         {
-            var cookies = actionContext?.HttpContext?.Request?.Cookies;
-            if (cookies == null)
+            var request = actionContext?.HttpContext?.Request;
+            if (request == null)
             {
                 return string.Empty;
             }
 
-            return cookies[AntiForgery.Instance.CookieName] ?? string.Empty;
+            var cookieName = AntiForgery.Instance.CookieName;
+
+            var parsed = request.Cookies?[cookieName];
+            if (!string.IsNullOrEmpty(parsed))
+            {
+                return parsed;
+            }
+
+            return FindCookieInRawHeader(request.Headers.Cookie, cookieName);
         }
 
         /// <summary>Rejects the request exactly the way the legacy thrown exception was rejected.</summary>
@@ -163,6 +177,50 @@ namespace DotNetNuke.Web.Api
             }
 
             return SuccessResult;
+        }
+
+        /// <summary>
+        /// Scans a raw <c>Cookie</c> header for <paramref name="cookieName"/>, the way the legacy
+        /// implementation did, so that cookies the standards-compliant parser rejects are still found.
+        /// </summary>
+        /// <param name="cookieHeaders">The raw <c>Cookie</c> header value(s).</param>
+        /// <param name="cookieName">The cookie name to look for.</param>
+        /// <returns>The cookie value, or <see cref="string.Empty"/> when it is not present.</returns>
+        private static string FindCookieInRawHeader(StringValues cookieHeaders, string cookieName)
+        {
+            if (string.IsNullOrEmpty(cookieName))
+            {
+                return string.Empty;
+            }
+
+            foreach (var header in cookieHeaders)
+            {
+                if (string.IsNullOrEmpty(header))
+                {
+                    continue;
+                }
+
+                foreach (var segment in header.Split(';'))
+                {
+                    var separatorIndex = segment.IndexOf('=');
+                    if (separatorIndex < 0)
+                    {
+                        continue;
+                    }
+
+                    var name = segment.AsSpan(0, separatorIndex).Trim();
+                    if (!name.Equals(cookieName.AsSpan(), StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    // Everything after the first '=' is the value: it may itself contain '=' (base64
+                    // padding) and may be padded with spaces by the sending client.
+                    return segment.Substring(separatorIndex + 1).Trim();
+                }
+            }
+
+            return string.Empty;
         }
     }
 }

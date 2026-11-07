@@ -4,24 +4,37 @@
 
 namespace DotNetNuke.Tests.Web.Api
 {
-    using System.Collections.Generic;
     using System.Linq;
-    using System.Web.Http;
 
     using DotNetNuke.Web.Api;
+
+    using Microsoft.Extensions.DependencyInjection;
+
     using NUnit.Framework;
 
     [TestFixture]
     public class HttpConfigurationExtensionTests
     {
+        [SetUp]
+        public void SetUp()
+        {
+            TabAndModuleInfoProviderTestUtilities.ClearRuntimeProviders();
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            TabAndModuleInfoProviderTestUtilities.ClearRuntimeProviders();
+        }
+
         [Test]
         public void GetTabAndModuleInfoProvidersReturnsEmptyWhenNoProvidersAdded()
         {
             // Arrange
-            var configuration = new HttpConfiguration();
+            var serviceProvider = new ServiceCollection().BuildServiceProvider();
 
             // Act
-            var providers = configuration.GetTabAndModuleInfoProviders();
+            var providers = serviceProvider.GetTabAndModuleInfoProviders();
 
             // Assert
             Assert.That(providers, Is.Empty);
@@ -31,28 +44,28 @@ namespace DotNetNuke.Tests.Web.Api
         public void AddTabAndModuleInfoProviderWorksForFirstProvider()
         {
             // Arrange
-            var configuration = new HttpConfiguration();
+            var services = new ServiceCollection();
 
             // Act
-            configuration.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
+            services.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
 
             // Assert
-            Assert.That(((IEnumerable<ITabAndModuleInfoProvider>)configuration.Properties["TabAndModuleInfoProvider"]).Count(), Is.EqualTo(1));
+            Assert.That(services.BuildServiceProvider().GetTabAndModuleInfoProviders().Count(), Is.EqualTo(1));
         }
 
         [Test]
         public void AddTabAndModuleInfoProviderWorksForManyProviders()
         {
             // Arrange
-            var configuration = new HttpConfiguration();
+            var services = new ServiceCollection();
 
             // Act
-            configuration.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
-            configuration.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
-            configuration.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
+            services.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
+            services.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
+            services.AddTabAndModuleInfoProvider(new StandardTabAndModuleInfoProvider());
 
             // Assert
-            Assert.That(((IEnumerable<ITabAndModuleInfoProvider>)configuration.Properties["TabAndModuleInfoProvider"]).Count(), Is.EqualTo(3));
+            Assert.That(services.BuildServiceProvider().GetTabAndModuleInfoProviders().Count(), Is.EqualTo(3));
         }
     }
 }

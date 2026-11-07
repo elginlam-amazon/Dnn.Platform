@@ -5,7 +5,6 @@
 namespace DotNetNuke.Tests.Core.Providers.Caching
 {
     using System;
-    using System.Web.Caching;
 
     using DotNetNuke.Common.Utilities;
     using DotNetNuke.ComponentModel;

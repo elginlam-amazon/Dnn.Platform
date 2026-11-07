@@ -4,31 +4,42 @@
 
 namespace DotNetNuke.Tests.Web.Mvc
 {
-    using System;
-    using System.Web.Mvc;
-    using System.Web.Routing;
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Routing;
 
-    using DotNetNuke.Web.Mvc.Framework.ActionResults;
     using NUnit.Framework;
 
+    /// <summary>Assertions on the action results returned by the module controllers.</summary>
     public static class ResultAssert
     {
-        public static void IsEmpty(ActionResult result)
+        /// <summary>Asserts that the result is an empty result.</summary>
+        /// <param name="result">The result to check.</param>
+        public static void IsEmpty(IActionResult result)
         {
             Assert.That(result, Is.InstanceOf<EmptyResult>());
         }
 
-        public static void IsUnauthorized(ActionResult result)
+        /// <summary>Asserts that the result denies the request.</summary>
+        /// <param name="result">The result to check.</param>
+        public static void IsUnauthorized(IActionResult result)
         {
-            Assert.That(result, Is.InstanceOf<HttpUnauthorizedResult>());
+            Assert.That(result, Is.InstanceOf<UnauthorizedResult>());
         }
 
-        public static void IsView(ActionResult result, string viewName)
+        /// <summary>Asserts that the result renders the given view.</summary>
+        /// <param name="result">The result to check.</param>
+        /// <param name="viewName">The expected view name.</param>
+        public static void IsView(IActionResult result, string viewName)
         {
             IsView(result, viewName, string.Empty, new RouteValueDictionary());
         }
 
-        public static void IsView(ActionResult result, string viewName, string masterName, RouteValueDictionary expectedViewData)
+        /// <summary>Asserts that the result renders the given view with the given view data.</summary>
+        /// <param name="result">The result to check.</param>
+        /// <param name="viewName">The expected view name.</param>
+        /// <param name="masterName">The expected master page (layout) name.</param>
+        /// <param name="expectedViewData">The expected view data entries.</param>
+        public static void IsView(IActionResult result, string viewName, string masterName, RouteValueDictionary expectedViewData)
         {
             ViewResult viewResult = result.AssertCast<ViewResult>();
             StringsEqualOrBothNullOrEmpty(viewName, viewResult.ViewName);
@@ -37,7 +48,7 @@ namespace DotNetNuke.Tests.Web.Mvc
             DictionaryAssert.ContainsEntries(expectedViewData, viewResult.ViewData);
         }
 
-        private static TCast AssertCast<TCast>(this ActionResult result)
+        private static TCast AssertCast<TCast>(this IActionResult result)
             where TCast : class
         {
             var castResult = result as TCast;

@@ -4,8 +4,6 @@
 
 namespace DotNetNuke.Tests.Web.Api.Internals
 {
-    using System.Web;
-
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;

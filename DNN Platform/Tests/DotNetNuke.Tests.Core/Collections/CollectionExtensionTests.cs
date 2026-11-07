@@ -10,7 +10,6 @@ namespace DotNetNuke.Tests.Core.Collections
     using System.Collections.Specialized;
     using System.Globalization;
     using System.IO;
-    using System.Web.UI;
     using System.Xml;
     using System.Xml.Linq;
 
@@ -180,7 +179,11 @@ namespace DotNetNuke.Tests.Core.Collections
         {
             var collection = new Dictionary<string, string> { { "app id", null } };
 
-            var value = collection.GetValueOrDefault("app id", "a default value");
+            // Explicitly target the DNN overload: on modern .NET the BCL also offers
+            // System.Collections.Generic.CollectionExtensions.GetValueOrDefault, which makes the
+            // extension-method call ambiguous for a generic Dictionary<,>.
+            var value = CollectionExtensions.GetValueOrDefault(collection, "app id", "a default value");
+
 
             Assert.That(value, Is.Null);
         }
@@ -209,7 +212,10 @@ namespace DotNetNuke.Tests.Core.Collections
         [Test]
         public void get_from_statebag()
         {
-            var collection = new StateBag { { "appId", "123" } };
+            // The net48 fixture used System.Web.UI.StateBag here. StateBag's only role was to be a
+            // non-generic IDictionary of string keys to object values, so this exercises exactly the
+            // same CollectionExtensions.GetValueOrDefault<T>(IDictionary, string) overload.
+            IDictionary collection = new Hashtable { { "appId", "123" } };
 
             var value = collection.GetValueOrDefault<string>("appId");
 
@@ -408,7 +414,9 @@ namespace DotNetNuke.Tests.Core.Collections
         [Test]
         public void can_get_value_without_default_from_statebag()
         {
-            var dictionary = new StateBag { { "question", "what is it" } };
+            // See get_from_statebag: StateBag is replaced by an equivalent non-generic IDictionary so
+            // the same CollectionExtensions.GetValue<T>(IDictionary, string) overload is exercised.
+            IDictionary dictionary = new Hashtable { { "question", "what is it" } };
 
             var value = dictionary.GetValue<string>("question");
 

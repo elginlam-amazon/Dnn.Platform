@@ -3,17 +3,18 @@
 // See the LICENSE file in the project root for more information
 namespace DotNetNuke.Tests.Core.Services.UserRequest
 {
-    using System.Collections.Specialized;
-    using System.Web;
+    using System.Net;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common;
     using DotNetNuke.Entities.Controllers;
     using DotNetNuke.Entities.Portals;
     using DotNetNuke.Services.UserRequest;
+    using DotNetNuke.Tests.Utilities;
     using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Tests.Utilities.Mocks;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     using Moq;
@@ -25,7 +26,9 @@ namespace DotNetNuke.Tests.Core.Services.UserRequest
     {
         private Mock<IPortalController> mockPortalController;
         private Mock<IHostSettingsService> hostSettingsService;
-        private Mock<HttpRequestBase> mockRequest;
+        private Mock<HttpContext> mockHttpContext;
+        private Mock<HttpRequest> mockRequest;
+        private Mock<ConnectionInfo> mockConnection;
 
         private UserRequestIPAddressController userRequestIPAddressController;
         private FakeServiceProvider serviceProvider;
@@ -45,12 +48,17 @@ namespace DotNetNuke.Tests.Core.Services.UserRequest
                     services.AddSingleton(this.hostSettingsService.Object);
                     services.AddSingleton((IHostSettingsService)this.hostSettingsService.Object);
                 });
-            var mockHttpContext = Mock.Get(HttpContextSource.Current);
-            this.mockRequest = Mock.Get(mockHttpContext.Object.Request);
-            this.mockRequest.Setup(x => x.ServerVariables).Returns(new NameValueCollection());
+            this.mockHttpContext = Mock.Get(HttpContextSource.Current);
+            this.mockRequest = Mock.Get(this.mockHttpContext.Object.Request);
+            this.mockConnection = Mock.Get(this.mockHttpContext.Object.Connection);
+
+            // The net48 fixture started from an empty ServerVariables collection, i.e. no
+            // REMOTE_ADDR. The Core equivalent of REMOTE_ADDR is Connection.RemoteIpAddress,
+            // so start with no remote address at all.
+            this.mockConnection.SetupGet(x => x.RemoteIpAddress).Returns((IPAddress)null);
 
             // System under test
-            this.userRequestIPAddressController = new UserRequestIPAddressController();
+            this.userRequestIPAddressController = new UserRequestIPAddressController(this.hostSettingsService.Object);
         }
 
         [TearDown]
@@ -69,8 +77,10 @@ namespace DotNetNuke.Tests.Core.Services.UserRequest
             // Arrange
             var expectedIp = "111.111.111.111";
 
-            NameValueCollection headersWithXForwardedHeaders = new NameValueCollection();
-            headersWithXForwardedHeaders.Add(headerName, requestIp);
+            var headersWithXForwardedHeaders = new HeaderDictionary
+            {
+                { headerName, requestIp },
+            };
             this.hostSettingsService.As<IHostSettingsService>().Setup(hc => hc.GetString(It.IsAny<string>())).Returns(headerName);
             this.mockRequest.Setup(x => x.Headers).Returns(headersWithXForwardedHeaders);
 
@@ -89,16 +99,16 @@ namespace DotNetNuke.Tests.Core.Services.UserRequest
             var remoteVariable = "REMOTE_ADDR";
             var requestIp = "111.111.111.111";
 
-            NameValueCollection serverVariables = new NameValueCollection();
-            serverVariables.Add(remoteVariable, requestIp);
-            this.mockRequest.Setup(x => x.ServerVariables).Returns(serverVariables);
+            // REMOTE_ADDR has no Core counterpart; the server-variable shim writes it onto
+            // the member that replaced it (Connection.RemoteIpAddress).
+            HttpContextHelper.SetServerVariable(this.mockHttpContext, remoteVariable, requestIp);
 
             // Act
             var userRequestIPAddress = this.userRequestIPAddressController.GetUserRequestIPAddress(this.mockRequest.Object);
 
             // Assert
-            Assert.That(userRequestIPAddress, Is.SameAs(expectedIp));
-            this.mockRequest.VerifyGet(r => r.ServerVariables);
+            Assert.That(userRequestIPAddress, Is.EqualTo(expectedIp));
+            this.mockConnection.VerifyGet(c => c.RemoteIpAddress);
         }
 
         [Test]
@@ -106,14 +116,16 @@ namespace DotNetNuke.Tests.Core.Services.UserRequest
         {
             // Arrange
             var expectedIp = "111.111.111.111";
-            this.mockRequest.Setup(x => x.UserHostAddress).Returns(expectedIp);
+
+            // Request.UserHostAddress became HttpContext.Connection.RemoteIpAddress.
+            this.mockConnection.SetupGet(x => x.RemoteIpAddress).Returns(IPAddress.Parse(expectedIp));
 
             // Act
             var userRequestIPAddress = this.userRequestIPAddressController.GetUserRequestIPAddress(this.mockRequest.Object);
 
             // Assert
-            Assert.That(userRequestIPAddress, Is.SameAs(expectedIp));
-            this.mockRequest.VerifyGet(r => r.UserHostAddress);
+            Assert.That(userRequestIPAddress, Is.EqualTo(expectedIp));
+            this.mockConnection.VerifyGet(c => c.RemoteIpAddress);
         }
 
         [TestCase("abc.111.eer")]
@@ -124,10 +136,13 @@ namespace DotNetNuke.Tests.Core.Services.UserRequest
             // Arrange
             var headerName = "X-Forwarded-For";
 
-            NameValueCollection headersWithXForwardedHeaders = new NameValueCollection();
-            headersWithXForwardedHeaders.Add(headerName, requestIp);
+            var headersWithXForwardedHeaders = new HeaderDictionary
+            {
+                { headerName, requestIp },
+            };
             this.mockRequest.Setup(x => x.Headers).Returns(headersWithXForwardedHeaders);
             this.hostSettingsService.Setup(hc => hc.GetString(It.IsAny<string>(), It.IsAny<string>())).Returns(headerName);
+            this.hostSettingsService.Setup(hc => hc.GetString(It.IsAny<string>())).Returns(headerName);
 
             // Act
             var userRequestIPAddress = this.userRequestIPAddressController.GetUserRequestIPAddress(this.mockRequest.Object);

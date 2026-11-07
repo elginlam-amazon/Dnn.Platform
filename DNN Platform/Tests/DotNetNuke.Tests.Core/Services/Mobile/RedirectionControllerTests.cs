@@ -6,10 +6,8 @@ namespace DotNetNuke.Tests.Core.Services.Mobile
 {
     using System;
     using System.Collections.Generic;
-    using System.Collections.Specialized;
     using System.Data;
-    using System.Reflection;
-    using System.Web;
+    using System.Linq;
 
     using DotNetNuke.Abstractions;
     using DotNetNuke.Abstractions.Application;
@@ -33,6 +31,7 @@ namespace DotNetNuke.Tests.Core.Services.Mobile
     using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Tests.Utilities.Mocks;
 
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     using Moq;
@@ -441,13 +440,13 @@ namespace DotNetNuke.Tests.Core.Services.Mobile
         public void RedirectionController_IsRedirectAllowedForTheSession_With_Nonmo_Param_Set_To_1()
         {
             var app = GenerateApplication();
-            app.Context.Request.QueryString.Add(DisableMobileRedirectQueryStringName, "1");
+            SetQueryStringValue(app, DisableMobileRedirectQueryStringName, "1");
 
             using (Assert.EnterMultipleScope())
             {
                 Assert.That(this.redirectionController.IsRedirectAllowedForTheSession(app), Is.False);
-                Assert.That(app.Request.Cookies[DisableMobileRedirectCookieName], Is.Not.Null);
-                Assert.That(app.Request.Cookies[DisableRedirectPresistCookieName], Is.Not.Null);
+                Assert.That(ResponseSetCookie(app, DisableMobileRedirectCookieName), Is.True);
+                Assert.That(ResponseSetCookie(app, DisableRedirectPresistCookieName), Is.True);
             }
         }
 
@@ -455,7 +454,7 @@ namespace DotNetNuke.Tests.Core.Services.Mobile
         public void RedirectionController_IsRedirectAllowedForTheSession_With_Nonmo_Param_Set_To_0()
         {
             var app = GenerateApplication();
-            app.Context.Request.QueryString.Add(DisableMobileRedirectQueryStringName, "0");
+            SetQueryStringValue(app, DisableMobileRedirectQueryStringName, "0");
 
             Assert.That(this.redirectionController.IsRedirectAllowedForTheSession(app), Is.True);
         }
@@ -464,10 +463,10 @@ namespace DotNetNuke.Tests.Core.Services.Mobile
         public void RedirectionController_IsRedirectAllowedForTheSession_With_Nonmo_Param_Set_To_1_And_Then_Setback_To_0()
         {
             var app = GenerateApplication();
-            app.Context.Request.QueryString.Add(DisableMobileRedirectQueryStringName, "1");
+            SetQueryStringValue(app, DisableMobileRedirectQueryStringName, "1");
             Assert.That(this.redirectionController.IsRedirectAllowedForTheSession(app), Is.False);
 
-            app.Context.Request.QueryString.Add(DisableMobileRedirectQueryStringName, "0");
+            SetQueryStringValue(app, DisableMobileRedirectQueryStringName, "0");
             Assert.That(this.redirectionController.IsRedirectAllowedForTheSession(app), Is.True);
         }
 
@@ -650,20 +649,67 @@ namespace DotNetNuke.Tests.Core.Services.Mobile
             return table.CreateDataReader();
         }
 
-        private static HttpApplication GenerateApplication()
+        /// <summary>
+        /// Builds the HTTP context the redirection checks run against.
+        /// </summary>
+        /// <returns>The simulated request's context, whose query string is writable.</returns>
+        /// <remarks>
+        /// The net48 fixture created an <c>HttpApplication</c>, reflected its private
+        /// <c>_context</c> field onto <c>HttpContext.Current</c> and un-froze the
+        /// <c>QueryString</c> collection through its non-public <c>IsReadOnly</c> property.
+        /// <c>IRedirectionController.IsRedirectAllowedForTheSession</c> now takes the
+        /// <see cref="HttpContext"/> itself, and the simulator hands out a real
+        /// <see cref="DefaultHttpContext"/> whose <see cref="HttpRequest.Query"/> is settable,
+        /// so no reflection is needed on either side.
+        /// </remarks>
+        private static HttpContext GenerateApplication()
         {
             var simulator = new Instance.Utilities.HttpSimulator.HttpSimulator("/", "c:\\");
             simulator.SimulateRequest(new Uri("http://localhost/dnn/Default.aspx"));
 
-            var app = new HttpApplication();
+            return simulator.Context;
+        }
 
-            var requestProp = typeof(NameValueCollection).GetProperty("IsReadOnly", BindingFlags.Instance | BindingFlags.NonPublic);
-            requestProp.SetValue(HttpContext.Current.Request.QueryString, false, null);
+        /// <summary>Sets (replacing any previous value of) a query-string parameter on the request.</summary>
+        /// <param name="context">The context whose request to modify.</param>
+        /// <param name="name">The parameter name.</param>
+        /// <param name="value">The parameter value.</param>
+        /// <remarks>
+        /// This replaces rather than appends, which is a deliberate difference from the net48
+        /// fixture's <c>NameValueCollection.Add</c>. On net48, setting "nomo" twice made
+        /// <c>Request.QueryString["nomo"]</c> return the single joined string "1,0", and the
+        /// controller's string comparison matched neither "1" nor "0", so it fell through to the
+        /// "redirect allowed" branch — the assertion passed by way of that quirk. The migrated
+        /// <see cref="DotNetNuke.Services.Mobile.RedirectionController"/> reads
+        /// <c>Request.Query[name].FirstOrDefault()</c>, so appending would yield "1" and the
+        /// parameter would read as still-disabled. Replacing is what "set back to 0" actually
+        /// means, and it matches how the product builds the URL (it appends <c>nomo=0</c> to the
+        /// full-site link), so the test asserts the behaviour its name describes instead of the
+        /// joined-string artefact.
+        /// </remarks>
+        private static void SetQueryStringValue(HttpContext context, string name, string value)
+        {
+            var values = context.Request.Query
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+            values[name] = value;
+            context.Request.Query = new QueryCollection(values);
+            context.Request.QueryString = QueryString.Create(values.SelectMany(pair => pair.Value.Select(v => new KeyValuePair<string, string>(pair.Key, v))));
+        }
 
-            var stateProp = typeof(HttpApplication).GetField("_context", BindingFlags.Instance | BindingFlags.NonPublic);
-            stateProp.SetValue(app, HttpContext.Current);
-
-            return app;
+        /// <summary>Determines whether the response set the named cookie.</summary>
+        /// <param name="context">The context whose response to inspect.</param>
+        /// <param name="cookieName">The cookie name.</param>
+        /// <returns><see langword="true"/> when a <c>Set-Cookie</c> header for the cookie was written.</returns>
+        /// <remarks>
+        /// On net48 a cookie written to <c>Response.Cookies</c> was immediately visible through
+        /// <c>Request.Cookies</c>, which is what the original assertions read. ASP.NET Core keeps
+        /// the two strictly separate, so the equivalent (and stricter) check is that the response
+        /// carries the <c>Set-Cookie</c> header.
+        /// </remarks>
+        private static bool ResponseSetCookie(HttpContext context, string cookieName)
+        {
+            return context.Response.Headers.SetCookie
+                .Any(header => header != null && header.StartsWith(cookieName + "=", StringComparison.Ordinal));
         }
 
         private static string NavigateUrl(int tabId)

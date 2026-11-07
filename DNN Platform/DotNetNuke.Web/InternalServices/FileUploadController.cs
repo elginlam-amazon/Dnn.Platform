@@ -12,6 +12,7 @@ using System.Linq;
 using System.Net;
 using System.Runtime.Serialization;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 using DotNetNuke.Abstractions.Application;
@@ -168,6 +169,10 @@ public class FileUploadController : DnnApiController
             return DnnApiResults.Response(HttpStatusCode.UnsupportedMediaType);
         }
 
+        // Captured before the first await, as the legacy implementation captured it before kicking
+        // off its ReadAsMultipartAsync continuation.
+        var capturedSynchronizationContext = SynchronizationContext.Current;
+
         var form = await this.Request.ReadFormAsync();
 
         var folder = GetFormValue(form, "folder");
@@ -201,7 +206,16 @@ public class FileUploadController : DnnApiController
         {
             // Everything ready
             using var stream = postedFile.OpenReadStream();
-            returnFileDto = SaveFile(stream, this.portalController, this.appStatus, this.portalGroupController, this.hostSettings, this.PortalSettings, this.UserInfo, folder, filter, fileName, overwrite, isHostMenu, extract, out alreadyExists, out errorMessage);
+
+            // The SynchronizationContext keeps the calling thread's context (notably its culture,
+            // which SaveFile's parsing and formatting depend on). Send is synchronous.
+            var capturedErrorMessage = string.Empty;
+            var capturedAlreadyExists = false;
+            RunOnSynchronizationContext(
+                capturedSynchronizationContext,
+                () => returnFileDto = SaveFile(stream, this.portalController, this.appStatus, this.portalGroupController, this.hostSettings, this.PortalSettings, this.UserInfo, folder, filter, fileName, overwrite, isHostMenu, extract, out capturedAlreadyExists, out capturedErrorMessage));
+            errorMessage = capturedErrorMessage;
+            alreadyExists = capturedAlreadyExists;
         }
 
         if (!string.IsNullOrEmpty(errorMessage))
@@ -257,9 +271,12 @@ public class FileUploadController : DnnApiController
             portalId = this.PortalSettings.PortalId;
         }
 
+        // Captured before the first await, as the legacy implementation captured it before kicking
+        // off its ReadAsMultipartAsync continuation.
+        var capturedSynchronizationContext = SynchronizationContext.Current;
+
         var form = await this.Request.ReadFormAsync();
         var userInfo = this.UserInfo;
-
         var folder = GetFormValue(form, "folder");
         var filter = GetFormValue(form, "filter");
         var validationCode = GetFormValue(form, "validationcode");
@@ -294,7 +311,12 @@ public class FileUploadController : DnnApiController
             if (!string.IsNullOrEmpty(fileName) && !Globals.FileEscapingRegex.IsMatch(fileName))
             {
                 using var stream = postedFile.OpenReadStream();
-                result = UploadFile(this.cryptographyProvider, this.hostSettings, stream, portalId, userInfo, folder, filter, fileName, overwrite, isHostPortal, extract, validationCode);
+
+                // The SynchronizationContext keeps the calling thread's context (notably its
+                // culture, which UploadFile's parsing and formatting depend on). Send is synchronous.
+                RunOnSynchronizationContext(
+                    capturedSynchronizationContext,
+                    () => result = UploadFile(this.cryptographyProvider, this.hostSettings, stream, portalId, userInfo, folder, filter, fileName, overwrite, isHostPortal, extract, validationCode));
             }
         }
 
@@ -684,6 +706,32 @@ public class FileUploadController : DnnApiController
             where portals.Any((IPortalInfo x) => x.PortalId == PortalSettings.Current.PortalId)
             select portals.Cast<IPortalInfo>().ToArray())
             .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Runs <paramref name="action"/> on <paramref name="synchronizationContext"/> when one was
+    /// captured, so that the saving work keeps the calling thread's context — above all its
+    /// culture, which the file-name and setting parsing inside the save depend on.
+    /// </summary>
+    /// <param name="synchronizationContext">The context captured before the first <c>await</c>, or <see langword="null"/>.</param>
+    /// <param name="action">The work to run.</param>
+    /// <remarks>
+    /// The legacy Web API 2 implementation did its work in a <c>ContinueWith</c> continuation, which
+    /// ran on an arbitrary thread pool thread, so it had to marshal back with
+    /// <see cref="SynchronizationContext.Send(SendOrPostCallback, object)"/>. ASP.NET Core installs no
+    /// <see cref="SynchronizationContext"/>, so in production there is nothing to marshal to and the
+    /// action runs inline on the request thread, which already carries the right culture. Hosts and
+    /// tests that DO install a context still get the original marshalling behaviour.
+    /// </remarks>
+    private static void RunOnSynchronizationContext(SynchronizationContext synchronizationContext, Action action)
+    {
+        if (synchronizationContext is null)
+        {
+            action();
+            return;
+        }
+
+        synchronizationContext.Send(_ => action(), null);
     }
 
     private bool IsPortalIdValid(int portalId)

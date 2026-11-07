@@ -5,11 +5,16 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
 {
     using System;
     using System.IO;
-    using System.Web.Mvc;
+    using System.Threading;
+    using System.Threading.Tasks;
 
+    using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Web.Mvc.Framework.ActionResults;
     using DotNetNuke.Web.Mvc.Framework.Modules;
+
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Controllers;
 
     using Microsoft.Extensions.DependencyInjection;
 
@@ -27,7 +32,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
             this.serviceProvider = FakeServiceProvider.Setup(
                 services =>
                 {
-                    services.AddSingleton<IControllerFactory, DefaultControllerFactory>();
+                    // ModuleApplication resolves the Core IControllerFactory from the service provider
+                    // (the MVC 5 DefaultControllerFactory no longer exists).
+                    services.AddSingleton(Mock.Of<IControllerFactory>());
+                    services.AddSingleton(Mock.Of<IHostSettings>());
                 });
         }
 
@@ -41,104 +49,105 @@ namespace DotNetNuke.Tests.Web.Mvc.Framework.Modules
         public void ExecuteModule_Requires_NonNull_ModuleRequestContext()
         {
             var engine = new ModuleExecutionEngine();
-            Assert.Throws<ArgumentNullException>(() => engine.ExecuteModule(null));
+            Assert.ThrowsAsync<ArgumentNullException>(() => engine.ExecuteModule(null));
         }
 
         [Test]
-        public void ExecuteModule_Returns_Null_If_Application_Is_Null()
+        public async Task ExecuteModule_Returns_Null_If_Application_Is_Null()
         {
             // Arrange
             var engine = new ModuleExecutionEngine();
-            var requestContext = new ModuleRequestContext() { ModuleApplication = null };
+            var moduleContext = new ModuleRequestContext() { ModuleApplication = null };
 
             // Act
-            ModuleRequestResult result = engine.ExecuteModule(requestContext);
+            var result = await engine.ExecuteModule(moduleContext);
 
             // Assert
             Assert.That(result, Is.Null);
         }
 
         [Test]
-        public void ExecuteModule_Executes_ModuleApplication_If_Not_Null()
+        public async Task ExecuteModule_Executes_ModuleApplication_If_Not_Null()
         {
             // Arrange
             var engine = new ModuleExecutionEngine();
 
             var moduleApp = new Mock<ModuleApplication>();
-            var requestContext = new ModuleRequestContext() { ModuleApplication = moduleApp.Object };
+            var moduleContext = new ModuleRequestContext() { ModuleApplication = moduleApp.Object };
 
             // Act
-            engine.ExecuteModule(requestContext);
+            await engine.ExecuteModule(moduleContext);
 
             // Assert
-            moduleApp.Verify(app => app.ExecuteRequest(It.IsAny<ModuleRequestContext>()));
+            // Action execution is asynchronous in ASP.NET Core, the engine delegates to the async overload.
+            moduleApp.Verify(app => app.ExecuteRequestAsync(It.IsAny<ModuleRequestContext>(), It.IsAny<CancellationToken>()));
         }
 
         [Test]
-        public void ExecuteModule_Returns_Result_Of_Executing_ModuleApplication()
+        public async Task ExecuteModule_Returns_Result_Of_Executing_ModuleApplication()
         {
             // Arrange
             var engine = new ModuleExecutionEngine();
             var expected = new ModuleRequestResult();
 
             var moduleApp = new Mock<ModuleApplication>();
-            moduleApp.Setup(app => app.ExecuteRequest(It.IsAny<ModuleRequestContext>()))
-                    .Returns(expected);
-            var requestContext = new ModuleRequestContext() { ModuleApplication = moduleApp.Object };
+            moduleApp.Setup(app => app.ExecuteRequestAsync(It.IsAny<ModuleRequestContext>(), It.IsAny<CancellationToken>()))
+                    .Returns(Task.FromResult(expected));
+            var moduleContext = new ModuleRequestContext() { ModuleApplication = moduleApp.Object };
 
             // Act
-            ModuleRequestResult actual = engine.ExecuteModule(requestContext);
+            var actual = await engine.ExecuteModule(moduleContext);
 
             // Assert
             Assert.That(actual, Is.SameAs(expected));
         }
 
         [Test]
-        public void ExecuteModuleResult_Calls_IDnnViewResult_ExecuteResult()
+        public async Task ExecuteModuleResult_Calls_IDnnViewResult_ExecuteResult()
         {
             // Arrange
             var engine = new ModuleExecutionEngine();
 
-            var actionResultMock = new Mock<ActionResult>();
+            var actionResultMock = new Mock<IActionResult>();
 
             var viewResultMock = actionResultMock.As<IDnnViewResult>();
 
-            var controllerContext = MockHelper.CreateMockControllerContext();
+            var actionContext = MockHelper.CreateMockControllerContext();
             var moduleRequestResult = new ModuleRequestResult
             {
                 ActionResult = actionResultMock.Object,
-                ControllerContext = controllerContext,
+                ActionContext = actionContext,
             };
 
             // Act
-            engine.ExecuteModuleResult(moduleRequestResult, new StringWriter());
+            await engine.ExecuteModuleResultAsync(moduleRequestResult, new StringWriter());
 
-            // Arrange
-            viewResultMock.Verify(v => v.ExecuteResult(It.IsAny<ControllerContext>(), It.IsAny<TextWriter>()));
+            // Assert
+            viewResultMock.Verify(v => v.ExecuteResultAsync(It.IsAny<ActionContext>(), It.IsAny<TextWriter>()));
         }
 
         [Test]
-        public void ExecuteModuleResult_Calls_IDnnViewResult_ExecuteResult_With_ModuleRequestResult_ControllerContext()
+        public async Task ExecuteModuleResult_Calls_IDnnViewResult_ExecuteResult_With_ModuleRequestResult_ControllerContext()
         {
             // Arrange
             var engine = new ModuleExecutionEngine();
 
-            var actionResultMock = new Mock<ActionResult>();
+            var actionResultMock = new Mock<IActionResult>();
 
             var viewResultMock = actionResultMock.As<IDnnViewResult>();
 
-            var controllerContext = MockHelper.CreateMockControllerContext();
+            var actionContext = MockHelper.CreateMockControllerContext();
             var moduleRequestResult = new ModuleRequestResult
             {
                 ActionResult = actionResultMock.Object,
-                ControllerContext = controllerContext,
+                ActionContext = actionContext,
             };
 
             // Act
-            engine.ExecuteModuleResult(moduleRequestResult, new StringWriter());
+            await engine.ExecuteModuleResultAsync(moduleRequestResult, new StringWriter());
 
-            // Arrange
-            viewResultMock.Verify(v => v.ExecuteResult(controllerContext, It.IsAny<TextWriter>()));
+            // Assert
+            viewResultMock.Verify(v => v.ExecuteResultAsync(actionContext, It.IsAny<TextWriter>()));
         }
     }
 }

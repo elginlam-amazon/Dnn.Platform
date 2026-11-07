@@ -57,8 +57,9 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <param name="viewContext">The view context (carries the view data in ASP.NET Core).</param>
         /// <param name="routeCollection">The route collection.</param>
         /// <param name="servicesFramework">The web API service framework.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="routeCollection"/> is <see langword="null"/>.</exception>
         public DnnHtmlHelper(ViewContext viewContext, RouteCollection routeCollection, IServicesFramework servicesFramework)
-            : this(HtmlHelperFactory.Create(viewContext), routeCollection, servicesFramework)
+            : this(HtmlHelperFactory.Create(viewContext), RequireRouteCollection(routeCollection), servicesFramework)
         {
         }
 
@@ -241,6 +242,21 @@ namespace DotNetNuke.Web.Mvc.Helpers
         /// <remarks>ASP.NET Core only supports unobtrusive client validation, so this toggles the
         /// client validation of the view context.</remarks>
         public void EnableUnobtrusiveJavaScript(bool enabled) => this.ViewContext.ClientValidationEnabled = enabled;
+
+        /// <summary>Validates the route collection supplied to an overload that takes one explicitly.</summary>
+        /// <param name="routeCollection">The route collection to validate.</param>
+        /// <returns>The validated <paramref name="routeCollection"/>.</returns>
+        /// <remarks>In ASP.NET MVC 5 the <c>HtmlHelper</c> constructor itself rejected a <see langword="null"/>
+        /// route collection. ASP.NET Core builds the HTML helper without one, so the guard is applied here to
+        /// preserve that contract for the overloads whose caller passes a route collection explicitly. The
+        /// overloads that omit it deliberately pass <see langword="null"/> and bypass this check.</remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="routeCollection"/> is <see langword="null"/>.</exception>
+        protected static RouteCollection RequireRouteCollection(RouteCollection routeCollection)
+        {
+            Requires.NotNull(nameof(routeCollection), routeCollection);
+
+            return routeCollection;
+        }
 
         private ModelExplorer GetModelExplorer(string name, ModelMetadata metadata, IServiceProvider serviceProvider)
         {

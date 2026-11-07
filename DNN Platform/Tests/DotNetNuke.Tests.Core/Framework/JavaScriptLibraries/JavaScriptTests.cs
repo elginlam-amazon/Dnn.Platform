@@ -7,7 +7,6 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
     using DotNetNuke.Application;
@@ -18,6 +17,8 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
     using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Tests.Utilities.Mocks;
     using DotNetNuke.Web.Client.ResourceManager;
+
+    using Microsoft.AspNetCore.Http;
     using Microsoft.Extensions.DependencyInjection;
 
     using Moq;
@@ -30,7 +31,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
 
         private int libraryIdCounter = 20;
 
-        private HttpContextBase httpContext;
+        private HttpContext httpContext;
         private FakeServiceProvider serviceProvider;
         private Mock<CachingProvider> cachingProvider;
 
@@ -92,7 +93,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("Test");
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.EqualTo(true));
         }
 
         [Test]
@@ -111,7 +112,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("test");
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.EqualTo(true));
         }
 
         [Test]
@@ -130,7 +131,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("Test", new Version(2, 2, 2));
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.EqualTo(true));
         }
 
         [Test]
@@ -149,7 +150,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("Test", new Version(2, 2, 2), SpecificVersion.Exact);
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.EqualTo(true));
         }
 
         [Test]
@@ -168,7 +169,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("test", new Version(2, 2, 2), SpecificVersion.Exact);
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.EqualTo(true));
         }
 
         [Test]
@@ -187,7 +188,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("Test", new Version(2, 2, 0));
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.Not.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.Not.EqualTo(true));
         }
 
         [Test]
@@ -206,7 +207,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("Test", new Version(2, 2, 0), SpecificVersion.Exact);
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.Not.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.Not.EqualTo(true));
         }
 
         [Test]
@@ -225,7 +226,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("Test", new Version(2, 2, 0), SpecificVersion.LatestMinor);
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.EqualTo(true));
         }
 
         [Test]
@@ -244,7 +245,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("test", new Version(2, 2, 0), SpecificVersion.LatestMinor);
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.EqualTo(true));
         }
 
         [Test]
@@ -272,8 +273,8 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             using (Assert.EnterMultipleScope())
             {
                 // Assert
-                Assert.That(this.httpContext.Items[ScriptPrefix + lowerVersionJavaScriptLibraryId], Is.Not.EqualTo(true));
-                Assert.That(this.httpContext.Items[ScriptPrefix + higherVersionJavaScriptLibraryId], Is.EqualTo(true));
+                Assert.That(this.GetRegisteredScript(lowerVersionJavaScriptLibraryId), Is.Not.EqualTo(true));
+                Assert.That(this.GetRegisteredScript(higherVersionJavaScriptLibraryId), Is.EqualTo(true));
             }
         }
 
@@ -302,8 +303,8 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             using (Assert.EnterMultipleScope())
             {
                 // Assert
-                Assert.That(this.httpContext.Items[ScriptPrefix + lowerVersionJavaScriptLibraryId], Is.Not.EqualTo(true));
-                Assert.That(this.httpContext.Items[ScriptPrefix + higherVersionJavaScriptLibraryId], Is.EqualTo(true));
+                Assert.That(this.GetRegisteredScript(lowerVersionJavaScriptLibraryId), Is.Not.EqualTo(true));
+                Assert.That(this.GetRegisteredScript(higherVersionJavaScriptLibraryId), Is.EqualTo(true));
             }
         }
 
@@ -323,7 +324,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("Test", new Version(2, 1, 1), SpecificVersion.LatestMajor);
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.EqualTo(true));
         }
 
         [Test]
@@ -342,7 +343,7 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             JavaScript.RequestRegistration("test", new Version(2, 1, 1), SpecificVersion.LatestMajor);
 
             // Assert
-            Assert.That(this.httpContext.Items[ScriptPrefix + JavaScriptLibraryID], Is.EqualTo(true));
+            Assert.That(this.GetRegisteredScript(JavaScriptLibraryID), Is.EqualTo(true));
         }
 
         [Test]
@@ -370,8 +371,8 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             using (Assert.EnterMultipleScope())
             {
                 // Assert
-                Assert.That(this.httpContext.Items[ScriptPrefix + lowerVersionJavaScriptLibraryId], Is.Not.EqualTo(true));
-                Assert.That(this.httpContext.Items[ScriptPrefix + higherVersionJavaScriptLibraryId], Is.EqualTo(true));
+                Assert.That(this.GetRegisteredScript(lowerVersionJavaScriptLibraryId), Is.Not.EqualTo(true));
+                Assert.That(this.GetRegisteredScript(higherVersionJavaScriptLibraryId), Is.EqualTo(true));
             }
         }
 
@@ -400,9 +401,25 @@ namespace DotNetNuke.Tests.Core.Framework.JavaScriptLibraries
             using (Assert.EnterMultipleScope())
             {
                 // Assert
-                Assert.That(this.httpContext.Items[ScriptPrefix + lowerVersionJavaScriptLibraryId], Is.Not.EqualTo(true));
-                Assert.That(this.httpContext.Items[ScriptPrefix + higherVersionJavaScriptLibraryId], Is.EqualTo(true));
+                Assert.That(this.GetRegisteredScript(lowerVersionJavaScriptLibraryId), Is.Not.EqualTo(true));
+                Assert.That(this.GetRegisteredScript(higherVersionJavaScriptLibraryId), Is.EqualTo(true));
             }
+        }
+
+        /// <summary>
+        /// Reads the per-request script-registration flag that <see cref="JavaScript.RequestRegistration(string)"/>
+        /// stashes in <c>HttpContext.Items</c>.
+        /// </summary>
+        /// <param name="javaScriptLibraryId">The JavaScript library ID whose flag to read.</param>
+        /// <returns>The stashed value, or <see langword="null"/> when the library was not registered.</returns>
+        /// <remarks>
+        /// The net48 <c>HttpContextBase.Items</c> was a non-generic <c>IDictionary</c> whose indexer
+        /// returned <see langword="null"/> for a missing key; the Core <c>IDictionary&lt;object, object&gt;</c>
+        /// indexer throws instead, so the lookup goes through <c>TryGetValue</c>.
+        /// </remarks>
+        private object GetRegisteredScript(int javaScriptLibraryId)
+        {
+            return this.httpContext.Items.TryGetValue(ScriptPrefix + javaScriptLibraryId, out var value) ? value : null;
         }
 
         private void SetupJavaScriptLibraryController(params JavaScriptLibrary[] libraries)

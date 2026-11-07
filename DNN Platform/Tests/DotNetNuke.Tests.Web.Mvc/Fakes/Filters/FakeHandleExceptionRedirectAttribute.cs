@@ -4,16 +4,19 @@
 
 namespace DotNetNuke.Tests.Web.Mvc.Fakes.Filters
 {
-    using System.Web.Mvc;
+    using Microsoft.AspNetCore.Mvc.Filters;
 
+    /// <summary>A fake exception filter which redirects to <see cref="FakeRedirectAttribute.Result"/>.</summary>
     public class FakeHandleExceptionRedirectAttribute : FakeRedirectAttribute, IExceptionFilter
     {
+        /// <summary>Gets or sets a value indicating whether the filter marks the exception as handled.</summary>
         public static bool IsExceptionHandled { get; set; }
 
-        public void OnException(ExceptionContext filterContext)
+        /// <inheritdoc />
+        public void OnException(ExceptionContext context)
         {
-            filterContext.Result = Result;
-            filterContext.ExceptionHandled = IsExceptionHandled;
+            context.Result = Result;
+            context.ExceptionHandled = IsExceptionHandled;
         }
     }
 }

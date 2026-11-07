@@ -9,10 +9,7 @@ namespace DotNetNuke.Tests.Web.InternalServices
     using System.Globalization;
     using System.IO;
     using System.Linq;
-    using System.Net.Http;
     using System.Threading;
-    using System.Web.Http;
-    using System.Web.Http.Hosting;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Common.Utilities;
@@ -36,6 +33,8 @@ namespace DotNetNuke.Tests.Web.InternalServices
     using DotNetNuke.Web.InternalServices;
     using DotNetNuke.Web.InternalServices.Views.Search;
 
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Mvc;
     using Microsoft.Extensions.DependencyInjection;
 
     using Moq;
@@ -131,14 +130,16 @@ namespace DotNetNuke.Tests.Web.InternalServices
                 .Returns(new Dictionary<string, string> { { tabKey, TabSearchTypeName }, { userKey, UserSearchTypeName } });
             CBO.SetTestableInstance(this.mockCBO.Object);
 
-            // create instance of the SearchServiceController
-            var request = new HttpRequestMessage();
-            var configuration = new HttpConfiguration();
+            // create instance of the SearchServiceController.
+            // On Web API 2 the controller was wired through an HttpRequestMessage whose Properties carried the
+            // HttpConfiguration (which in turn held the ITabAndModuleInfoProvider). On ASP.NET Core there is no
+            // per-request configuration object: the provider is a container registration, and the request comes
+            // from the HttpContext, which is attached through ControllerContext because Request is read-only.
+            var httpContext = new DefaultHttpContext();
+            var request = httpContext.Request;
             var provider = new Mock<ITabAndModuleInfoProvider>();
             ModuleInfo expectedModule;
             provider.Setup(x => x.TryFindModuleInfo(request, out expectedModule)).Returns(true);
-            configuration.AddTabAndModuleInfoProvider(provider.Object);
-            request.Properties[HttpPropertyKeys.HttpConfigurationKey] = configuration;
             this.serviceProvider = FakeServiceProvider.Setup(
                 services =>
                 {
@@ -154,7 +155,10 @@ namespace DotNetNuke.Tests.Web.InternalServices
                     services.AddSingleton(this.mockCBO.Object);
                     services.AddSingleton<IApplicationStatusInfo>(new FakeApplicationStatusInfo());
                     services.AddSingleton<IInternalSearchController>(ActivatorUtilities.GetServiceOrCreateInstance<InternalSearchControllerImpl>);
+                    services.AddTabAndModuleInfoProvider(provider.Object);
                 });
+
+            httpContext.RequestServices = this.serviceProvider;
 
             this.searchServiceController = new SearchServiceController(
                 new SearchControllerImpl(this.serviceProvider),
@@ -162,7 +166,7 @@ namespace DotNetNuke.Tests.Web.InternalServices
                 this.fakeHostController,
                 HtmlModDefId)
             {
-                Request = request,
+                ControllerContext = new ControllerContext { HttpContext = httpContext, },
             };
 
             this.internalSearchController = InternalSearchController.Instance;
@@ -174,7 +178,7 @@ namespace DotNetNuke.Tests.Web.InternalServices
         {
             this.serviceProvider.Dispose();
             this.luceneController.Dispose();
-            this.searchServiceController?.Dispose();
+            (this.searchServiceController as IDisposable)?.Dispose();
             this.DeleteIndexFolder();
             CBO.ClearInstance();
             TabController.ClearInstance();

@@ -10,6 +10,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
     using System.IO;
     using System.Linq;
     using System.Threading;
+    using System.Threading.Tasks;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.Logging;
@@ -118,8 +119,9 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
         private const int CustomBoost = 80;
 
-        private const string SearchIndexFolder = @"App_Data\SearchTests";
         private const int DefaultSearchRetryTimes = 5;
+
+        private static readonly string SearchIndexFolder = Path.Combine("App_Data", "SearchTests");
         private readonly double readerStaleTimeSpan = TimeSpan.FromMilliseconds(100).TotalSeconds;
         private Mock<CachingProvider> mockCachingProvider;
         private Mock<DataProvider> mockDataProvider;
@@ -2570,50 +2572,77 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
         /// <param name="proc">The function to execute.</param>
         /// <param name="timeout">The timeout duration.</param>
         /// <returns>R.</returns>
-        /// <remarks>From: http://stackoverflow.com/questions/9460661/implementing-regex-timeout-in-net-4.</remarks>
+        /// <remarks>
+        /// Originally this ran <paramref name="proc"/> on a dedicated thread and called
+        /// Thread.Abort() when the timeout elapsed. Thread.Abort() is unsupported on modern
+        /// .NET (it throws PlatformNotSupportedException), so the timeout is now expressed with
+        /// a CancellationToken: the work runs on a background task, cancellation is requested
+        /// when the timeout elapses, and the abandoned task is left to drain on the thread pool.
+        /// Because cancellation is cooperative (unlike Thread.Abort, which injected a
+        /// ThreadAbortException that this method rethrew), a timeout is surfaced explicitly as a
+        /// <see cref="TimeoutException"/>. That keeps the timeout observable to the caller, which
+        /// is what the original assertion relied on; any exception the work itself threw is still
+        /// rethrown as before.
+        /// </remarks>
+        /// <exception cref="TimeoutException">The work did not complete within <paramref name="timeout"/>.</exception>
         private static R ExecuteWithTimeout<R>(Func<R> proc, TimeSpan timeout)
         {
             var r = default(R); // init default return value
-            Exception ex = null; // records inter-thread exception
+            Exception ex = null; // records cross-thread exception
 
-            // define a thread to wrap 'proc'
-            var t = new Thread(() =>
+            using (var cts = new CancellationTokenSource())
             {
-                try
+                // run 'proc' on the thread pool so the caller can stop waiting on it
+                var task = Task.Factory.StartNew(
+                    () =>
+                    {
+                        try
+                        {
+                            r = proc();
+                        }
+                        catch (Exception e)
+                        {
+                            ex = e;
+
+                            Console.WriteLine("Exception hit");
+                        }
+                    },
+                    cts.Token,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+
+                if (!task.Wait(timeout))
                 {
-                    r = proc();
-                }
-                catch (Exception e)
-                {
-                    // this can get set to ThreadAbortException
-                    ex = e;
+                    // the replacement for Thread.Abort(): ask the work to stop cooperatively
+                    cts.Cancel();
 
-                    Console.WriteLine("Exception hit");
-                }
-            });
+                    // give the work a short grace period to observe the cancellation
+                    var stopped = false;
+                    try
+                    {
+                        stopped = task.Wait(TimeSpan.FromMilliseconds(20));
+                    }
+                    catch (AggregateException)
+                    {
+                        // the task observed the cancellation and ended as Canceled
+                        stopped = true;
+                    }
 
-            t.Start(); // start running 'proc' thread wrapper
+                    if (!stopped)
+                    {
+                        // it did not stop; it is abandoned (the original code logged the same
+                        // situation when Abort failed to take effect within 20ms).
+                        Console.WriteLine("Abort didn't work as expected");
+                    }
 
-            // from docs: "The Start method does not return until the new thread has started running."
-            if (t.Join(timeout) == false)
-            {
-                t.Abort(); // die evil thread!
-
-                // Abort raises the ThreadAbortException
-                int i = 0;
-                while ((t.Join(1) == false) && (i < 20))
-                {
-                    // 20 ms wait possible here
-                    i++;
-                }
-
-                if (i >= 20)
-                {
-                    // we didn't abort, might want to log this or take some other action
-                    // this can happen if you are doing something indefinitely hinky in a
-                    // finally block (cause the finally be will executed before the Abort
-                    // completes.
-                    Console.WriteLine("Abort didn't work as expected");
+                    // On net48 the timeout was made observable to the caller by Thread.Abort()
+                    // injecting a ThreadAbortException into the work, which this method then
+                    // rethrew. Cancellation is cooperative and Regex.Match never observes the
+                    // token, so the timeout must be surfaced explicitly — otherwise a
+                    // catastrophically backtracking regex would make the caller's
+                    // Assert.DoesNotThrow pass vacuously.
+                    throw new TimeoutException(
+                        FormattableString.Invariant($"The operation did not complete within {timeout}."));
                 }
             }
 

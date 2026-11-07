@@ -6,8 +6,8 @@
 namespace DotNetNuke.Tests.Web.Mvc.Helpers
 {
     using System;
-    using System.Web;
-    using System.Web.Mvc;
+    using System.IO;
+    using System.Text.Encodings.Web;
 
     using DotNetNuke.Abstractions.Application;
     using DotNetNuke.Abstractions.ClientResources;
@@ -16,15 +16,32 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
     using DotNetNuke.Tests.Utilities.Fakes;
     using DotNetNuke.Tests.Web.Mvc.Fakes;
     using DotNetNuke.UI.Modules;
-    using DotNetNuke.Web.Mvc.Framework;
     using DotNetNuke.Web.Mvc.Framework.Controllers;
+    using DotNetNuke.Web.Mvc.Framework.Modules;
     using DotNetNuke.Web.Mvc.Helpers;
 
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.AspNetCore.Mvc.Abstractions;
+    using Microsoft.AspNetCore.Mvc.ModelBinding;
+    using Microsoft.AspNetCore.Mvc.Rendering;
+    using Microsoft.AspNetCore.Mvc.ViewEngines;
+    using Microsoft.AspNetCore.Mvc.ViewFeatures;
+    using Microsoft.AspNetCore.Mvc.ViewFeatures.Buffers;
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.DependencyInjection;
 
     using Moq;
     using NUnit.Framework;
 
+    /// <summary>
+    /// Tests the <see cref="DnnHtmlHelper"/> and <see cref="DnnHtmlHelper{TModel}"/>.
+    /// </summary>
+    /// <remarks>
+    /// ASP.NET Core has no view-data container abstraction (the view data is carried by the
+    /// <see cref="ViewContext"/>) and no <c>ViewContext.Controller</c> (the controller is resolved from
+    /// <c>HttpContext.Items</c>). The <see cref="ViewContext"/> properties are not virtual either, so the
+    /// tests use real view contexts instead of mocks.
+    /// </remarks>
     [TestFixture]
     public class DnnHtmlHelperTests
     {
@@ -38,6 +55,8 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
                 services.AddSingleton(Mock.Of<IClientResourceController>());
                 services.AddSingleton(Mock.Of<IApplicationStatusInfo>());
                 services.AddSingleton(Mock.Of<IEventLogger>());
+                services.AddSingleton(Mock.Of<IServicesFramework>());
+                AddHtmlHelperServices(services);
             });
         }
 
@@ -50,95 +69,83 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         [Test]
         public void Constructor_Throws_On_Null_ViewContext()
         {
-            // Arrange
-            var viewDataContainer = new Mock<IViewDataContainer>();
-
             // Act,Assert
-            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper(null, viewDataContainer.Object));
+            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper(null, Mock.Of<IServicesFramework>()));
         }
 
         [Test]
         public void Strongly_Typed_Constructor_Throws_On_Null_ViewContext()
         {
-            // Arrange
-            var viewDataContainer = new Mock<IViewDataContainer>();
-
             // Act,Assert
-            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper<Dog>(null, viewDataContainer.Object));
+            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper<Dog>(null, Mock.Of<IServicesFramework>()));
         }
 
         [Test]
         public void Constructor_Throws_On_Null_ViewDataContainer()
         {
             // Act,Assert
-            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper(new ViewContext(), null));
+            // The view data container parameter is gone; the view data is carried by the view context in
+            // ASP.NET Core, so the equivalent guard is the null check on that view data carrier.
+            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper(null, new RouteCollection(), Mock.Of<IServicesFramework>()));
         }
 
         [Test]
         public void Strongly_Typed_Constructor_Throws_On_Null_ViewDataContainer()
         {
             // Act,Assert
-            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper<Dog>(new ViewContext(), null));
+            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper<Dog>(null, new RouteCollection(), Mock.Of<IServicesFramework>()));
         }
 
         [Test]
         public void Constructor_Throws_On_Null_RouteCollection()
         {
             // Arrange
-            var viewDataContainer = new Mock<IViewDataContainer>();
+            // A fully valid view context, so the only thing that can fail is the null route collection.
+            var viewContext = CreateViewContext(CreateDnnController(new ModuleInstanceContext()), CreateViewData());
 
             // Act,Assert
-            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper(new ViewContext(), viewDataContainer.Object, null, Mock.Of<IServicesFramework>()));
+            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper(viewContext, null, Mock.Of<IServicesFramework>()));
         }
 
         [Test]
         public void Strongly_Typed_Constructor_Throws_On_Null_RouteCollection()
         {
             // Arrange
-            var viewDataContainer = new Mock<IViewDataContainer>();
+            var viewContext = CreateViewContext(CreateDnnController(new ModuleInstanceContext()), CreateViewData<Dog>());
 
             // Act,Assert
-            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper<Dog>(new ViewContext(), viewDataContainer.Object, null, Mock.Of<IServicesFramework>()));
+            Assert.Throws<ArgumentNullException>(() => new DnnHtmlHelper<Dog>(viewContext, null, Mock.Of<IServicesFramework>()));
         }
 
         [Test]
         public void Constructor_Throws_On_Invalid_Controller_Property()
         {
             // Arrange
-            var viewDataContainer = new Mock<IViewDataContainer>();
-            var mockController = new Mock<ControllerBase>();
-            var viewContext = new ViewContext { Controller = mockController.Object };
+            var viewContext = CreateViewContext(new Mock<ControllerBase>().Object, CreateViewData());
 
             // Act,Assert
-            Assert.Throws<InvalidOperationException>(() => new DnnHtmlHelper(viewContext, viewDataContainer.Object));
+            Assert.Throws<InvalidOperationException>(() => new DnnHtmlHelper(viewContext, Mock.Of<IServicesFramework>()));
         }
 
         [Test]
         public void Strongly_Typed_Constructor_Throws_On_Invalid_Controller_Property()
         {
             // Arrange
-            var mockViewDataContainer = new Mock<IViewDataContainer>();
-            mockViewDataContainer.Setup(d => d.ViewData).Returns(new ViewDataDictionary());
-            var mockController = new Mock<ControllerBase>();
-            var viewContext = new ViewContext { Controller = mockController.Object };
+            var viewContext = CreateViewContext(new Mock<ControllerBase>().Object, CreateViewData<Dog>());
 
             // Act,Assert
-            Assert.Throws<InvalidOperationException>(() => new DnnHtmlHelper<Dog>(viewContext, mockViewDataContainer.Object));
+            Assert.Throws<InvalidOperationException>(() => new DnnHtmlHelper<Dog>(viewContext, Mock.Of<IServicesFramework>()));
         }
 
         [Test]
         public void Constructor_Sets_ModuleContext_Property()
         {
             // Arrange
-            var viewDataContainer = new Mock<IViewDataContainer>();
-            var mockController = new Mock<ControllerBase>();
-            var mockDnnController = mockController.As<IDnnController>();
             var expectedContext = new ModuleInstanceContext();
-            mockDnnController.Setup(c => c.ModuleContext).Returns(expectedContext);
-            var viewContext = new ViewContext { Controller = mockController.Object };
+            var viewContext = CreateViewContext(CreateDnnController(expectedContext), CreateViewData());
 
             // Act
-            var helper = new DnnHtmlHelper(viewContext, viewDataContainer.Object);
+            var helper = new DnnHtmlHelper(viewContext, Mock.Of<IServicesFramework>());
 
             // Assert
             Assert.That(helper.ModuleContext, Is.EqualTo(expectedContext));
@@ -148,17 +155,11 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         public void Strongly_Typed_Constructor_Sets_ModuleContext_Property()
         {
             // Arrange
-            var mockViewDataContainer = new Mock<IViewDataContainer>();
-            mockViewDataContainer.Setup(d => d.ViewData).Returns(new ViewDataDictionary());
-            var mockController = new Mock<ControllerBase>();
-
-            var mockDnnController = mockController.As<IDnnController>();
             var expectedContext = new ModuleInstanceContext();
-            mockDnnController.Setup(c => c.ModuleContext).Returns(expectedContext);
-            var viewContext = new ViewContext { Controller = mockController.Object };
+            var viewContext = CreateViewContext(CreateDnnController(expectedContext), CreateViewData<Dog>());
 
             // Act
-            var helper = new DnnHtmlHelper<Dog>(viewContext, mockViewDataContainer.Object);
+            var helper = new DnnHtmlHelper<Dog>(viewContext, Mock.Of<IServicesFramework>());
 
             // Assert
             Assert.That(helper.ModuleContext, Is.EqualTo(expectedContext));
@@ -168,15 +169,10 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         public void ViewContext_Property_Returns_Passed_in_ViewContext()
         {
             // Arrange
-            var mockViewDataContainer = new Mock<IViewDataContainer>();
-            mockViewDataContainer.Setup(d => d.ViewData).Returns(new ViewDataDictionary());
-            var mockController = new Mock<ControllerBase>();
-            var mockDnnController = mockController.As<IDnnController>();
-            mockDnnController.Setup(c => c.ModuleContext).Returns(new ModuleInstanceContext());
-            var viewContext = new ViewContext { Controller = mockController.Object };
+            var viewContext = CreateViewContext(CreateDnnController(new ModuleInstanceContext()), CreateViewData());
 
             // Act
-            var helper = new DnnHtmlHelper(viewContext, mockViewDataContainer.Object);
+            var helper = new DnnHtmlHelper(viewContext, Mock.Of<IServicesFramework>());
 
             // Assert
             Assert.That(helper.ViewContext, Is.EqualTo(viewContext));
@@ -186,17 +182,11 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         public void ViewDataContainer_Property_Returns_Passed_in_ViewDataContainer()
         {
             // Arrange
-            var mockViewDataContainer = new Mock<IViewDataContainer>();
-            var expectedViewData = new ViewDataDictionary();
-            mockViewDataContainer.Setup(d => d.ViewData).Returns(expectedViewData);
-
-            var mockController = new Mock<ControllerBase>();
-            var mockDnnController = mockController.As<IDnnController>();
-            mockDnnController.Setup(c => c.ModuleContext).Returns(new ModuleInstanceContext());
-            var viewContext = new ViewContext { Controller = mockController.Object };
+            var expectedViewData = CreateViewData();
+            var viewContext = CreateViewContext(CreateDnnController(new ModuleInstanceContext()), expectedViewData);
 
             // Act
-            var helper = new DnnHtmlHelper(viewContext, mockViewDataContainer.Object);
+            var helper = new DnnHtmlHelper(viewContext, Mock.Of<IServicesFramework>());
 
             // Assert
             Assert.That(helper.ViewData, Is.EqualTo(expectedViewData));
@@ -206,19 +196,13 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         public void Strongly_Typed_ViewDataContainer_Property_Returns_Passed_in_Model()
         {
             // Arrange
-            var mockViewDataContainer = new Mock<IViewDataContainer>();
-            var expectedViewData = new ViewDataDictionary<Dog>();
             var expectedModel = new Dog();
+            var expectedViewData = CreateViewData<Dog>();
             expectedViewData.Model = expectedModel;
-            mockViewDataContainer.Setup(d => d.ViewData).Returns(expectedViewData);
-
-            var mockController = new Mock<ControllerBase>();
-            var mockDnnController = mockController.As<IDnnController>();
-            mockDnnController.Setup(c => c.ModuleContext).Returns(new ModuleInstanceContext());
-            var viewContext = new ViewContext { Controller = mockController.Object };
+            var viewContext = CreateViewContext(CreateDnnController(new ModuleInstanceContext()), expectedViewData);
 
             // Act
-            var helper = new DnnHtmlHelper<Dog>(viewContext, mockViewDataContainer.Object);
+            var helper = new DnnHtmlHelper<Dog>(viewContext, Mock.Of<IServicesFramework>());
 
             // Assert
             Assert.That(helper.ViewData.Model, Is.EqualTo(expectedModel));
@@ -228,40 +212,86 @@ namespace DotNetNuke.Tests.Web.Mvc.Helpers
         public void EnableClientValidation_Updates_Context()
         {
             // Arrange
-            var mockViewPage = new Mock<DnnWebViewPage>() { CallBase = true };
-            var mockController = new Mock<ControllerBase>();
-            var mockDnnController = mockController.As<IDnnController>();
-            var mockViewContext = new Mock<ViewContext>();
-            mockViewContext.SetupProperty(x => x.ClientValidationEnabled);
-            mockViewContext.Setup(c => c.Controller).Returns(mockController.Object);
-            mockViewPage.Object.ViewContext = mockViewContext.Object;
-            mockViewPage.Object.InitHelpers();
+            var page = new FakeDnnWebViewPage(Mock.Of<IServicesFramework>());
+            page.ViewContext = CreateViewContext(CreateDnnController(new ModuleInstanceContext()), CreateViewData<object>());
 
             // Act
-            mockViewPage.Object.Html.EnableClientValidation(true);
+            page.Html.EnableClientValidation(true);
 
             // Assert
-            Assert.That(mockViewPage.Object.ViewContext.ClientValidationEnabled, Is.True);
+            Assert.That(page.ViewContext.ClientValidationEnabled, Is.True);
         }
 
         [Test]
         public void EnableUnobtrusiveJavaScript_Updates_Context()
         {
             // Arrange
-            var mockViewPage = new Mock<DnnWebViewPage>() { CallBase = true };
-            var mockController = new Mock<ControllerBase>();
-            var mockDnnController = mockController.As<IDnnController>();
-            var mockViewContext = new Mock<ViewContext>();
-            mockViewContext.SetupProperty(x => x.UnobtrusiveJavaScriptEnabled);
-            mockViewContext.Setup(c => c.Controller).Returns(mockController.Object);
-            mockViewPage.Object.ViewContext = mockViewContext.Object;
-            mockViewPage.Object.InitHelpers();
+            var page = new FakeDnnWebViewPage(Mock.Of<IServicesFramework>());
+            page.ViewContext = CreateViewContext(CreateDnnController(new ModuleInstanceContext()), CreateViewData<object>());
 
             // Act
-            mockViewPage.Object.Html.EnableUnobtrusiveJavaScript(true);
+            page.Html.EnableUnobtrusiveJavaScript(true);
 
             // Assert
-            Assert.That(mockViewPage.Object.ViewContext.UnobtrusiveJavaScriptEnabled, Is.True);
+            // The ASP.NET Core view context has no UnobtrusiveJavaScriptEnabled flag: client side
+            // validation is always unobtrusive, so the unobtrusive JavaScript switch of the view context
+            // is its ClientValidationEnabled flag.
+            Assert.That(page.ViewContext.ClientValidationEnabled, Is.True);
+        }
+
+        /// <summary>Registers the ASP.NET Core HTML helper services the DNN helpers are built on top of.</summary>
+        /// <param name="services">The service collection to register into.</param>
+        private static void AddHtmlHelperServices(IServiceCollection services)
+        {
+            services.AddSingleton<IModelMetadataProvider, EmptyModelMetadataProvider>();
+            services.AddSingleton<ModelExpressionProvider>();
+            services.AddSingleton(Mock.Of<IHtmlGenerator>());
+            services.AddSingleton(Mock.Of<ICompositeViewEngine>());
+            services.AddSingleton(Mock.Of<IViewBufferScope>());
+            services.AddSingleton(HtmlEncoder.Default);
+            services.AddSingleton(UrlEncoder.Default);
+            services.AddTransient<IHtmlHelper, HtmlHelper>();
+            services.AddTransient(typeof(IHtmlHelper<>), typeof(HtmlHelper<>));
+        }
+
+        /// <summary>Creates a DNN controller test double with the given module context.</summary>
+        /// <param name="moduleContext">The module instance context of the controller.</param>
+        /// <returns>The controller.</returns>
+        private static IDnnController CreateDnnController(ModuleInstanceContext moduleContext)
+        {
+            var mockDnnController = new Mock<IDnnController>();
+            mockDnnController.Setup(c => c.ModuleContext).Returns(moduleContext);
+            return mockDnnController.Object;
+        }
+
+        /// <summary>Creates an empty view data dictionary.</summary>
+        /// <returns>The view data.</returns>
+        private static ViewDataDictionary CreateViewData()
+            => new ViewDataDictionary(new EmptyModelMetadataProvider(), new ModelStateDictionary());
+
+        /// <summary>Creates an empty strongly typed view data dictionary.</summary>
+        /// <typeparam name="TModel">The type of the view model.</typeparam>
+        /// <returns>The view data.</returns>
+        private static ViewDataDictionary<TModel> CreateViewData<TModel>()
+            => new ViewDataDictionary<TModel>(new EmptyModelMetadataProvider(), new ModelStateDictionary());
+
+        /// <summary>Builds a real view context, publishing the given controller onto the request.</summary>
+        /// <param name="controller">The controller of the request.</param>
+        /// <param name="viewData">The view data of the view.</param>
+        /// <returns>The view context.</returns>
+        private static ViewContext CreateViewContext(object controller, ViewDataDictionary viewData)
+        {
+            var httpContext = MockHelper.CreateMockHttpContext();
+            httpContext.Items[ModuleApplication.CurrentControllerItemKey] = controller;
+
+            var actionContext = new ActionContext(httpContext, new RouteData(), new ActionDescriptor());
+            return new ViewContext(
+                actionContext,
+                Mock.Of<IView>(),
+                viewData,
+                new TempDataDictionary(httpContext, Mock.Of<ITempDataProvider>()),
+                new StringWriter(),
+                new HtmlHelperOptions());
         }
     }
 }

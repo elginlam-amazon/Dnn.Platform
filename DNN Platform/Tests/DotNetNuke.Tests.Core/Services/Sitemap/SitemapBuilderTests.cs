@@ -10,7 +10,7 @@ namespace DotNetNuke.Tests.Core.Services.Sitemap
     using System.IO;
     using System.Linq;
     using System.Reflection;
-    using System.Runtime.Serialization;
+    using System.Runtime.CompilerServices;
     using System.Xml.Linq;
 
     using DotNetNuke.Services.Sitemap;
@@ -104,7 +104,7 @@ namespace DotNetNuke.Tests.Core.Services.Sitemap
 
         private static XDocument WriteSitemap(SitemapUrl sitemapUrl)
         {
-            var builder = (SitemapBuilder)FormatterServices.GetUninitializedObject(typeof(SitemapBuilder));
+            var builder = (SitemapBuilder)RuntimeHelpers.GetUninitializedObject(typeof(SitemapBuilder));
             var writeSitemap = typeof(SitemapBuilder).GetMethod("WriteSitemap", BindingFlags.Instance | BindingFlags.NonPublic);
             using var output = new StringWriter(CultureInfo.InvariantCulture);
 

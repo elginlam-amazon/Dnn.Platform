@@ -118,7 +118,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
             this.fakeHostController = new FakeHostController(
                 new Dictionary<string, string>
                 {
-                    { Constants.SearchIndexFolderKey, $@"App_Data\LuceneTests{DateTime.UtcNow.Ticks}" },
+                    { Constants.SearchIndexFolderKey, Path.Combine("App_Data", $"LuceneTests{DateTime.UtcNow.Ticks}") },
                     { Constants.SearchReaderRefreshTimeKey, this.readerStaleTimeSpan.ToString(CultureInfo.InvariantCulture) },
                     { Constants.SearchMinLengthKey, Constants.DefaultMinLen.ToString(CultureInfo.InvariantCulture) },
                     { Constants.SearchMaxLengthKey, Constants.DefaultMaxLen.ToString(CultureInfo.InvariantCulture) },
@@ -350,7 +350,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
                 // for some reason, this search's docs have scoring as
                 // Line1=0.3125, Line1=0.3125, Line2=0.3125, Line2=0.3750
-                Assert.That(hits.Results.ElementAt(0).Document.GetField(Constants.ContentTag).StringValue, Is.EqualTo(Line1));
+                Assert.That(hits.Results.ElementAt(0).Document.GetField(Constants.ContentTag).GetStringValue(CultureInfo.InvariantCulture), Is.EqualTo(Line1));
             }
         }
 
@@ -364,27 +364,27 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
             // Add first numeric field
             var doc1 = new Document();
-            doc1.Add(new NumericField(fieldName, Field.Store.YES, true).SetIntValue(1));
+            doc1.Add(new Int32Field(fieldName, 1, Field.Store.YES));
             this.luceneController.Add(doc1);
 
             // Add second numeric field
             var doc2 = new Document();
-            doc2.Add(new NumericField(fieldName, Field.Store.YES, true).SetIntValue(2));
+            doc2.Add(new Int32Field(fieldName, 2, Field.Store.YES));
             this.luceneController.Add(doc2);
 
             // Add third numeric field
             var doc3 = new Document();
-            doc3.Add(new NumericField(fieldName, Field.Store.YES, true).SetIntValue(3));
+            doc3.Add(new Int32Field(fieldName, 3, Field.Store.YES));
             this.luceneController.Add(doc3);
 
             // Add fourth numeric field
             var doc4 = new Document();
-            doc4.Add(new NumericField(fieldName, Field.Store.YES, true).SetIntValue(4));
+            doc4.Add(new Int32Field(fieldName, 4, Field.Store.YES));
             this.luceneController.Add(doc4);
 
             this.luceneController.Commit();
 
-            var query = NumericRangeQuery.NewIntRange(fieldName, 2, 3, true, true);
+            var query = NumericRangeQuery.NewInt32Range(fieldName, 2, 3, true, true);
             var hits = this.luceneController.Search(this.CreateSearchContext(new LuceneQuery { Query = query }));
             Assert.That(hits.Results.Count(), Is.EqualTo(2));
         }
@@ -400,23 +400,23 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
             foreach (var date in dates)
             {
                 var doc = new Document();
-                doc.Add(new NumericField(fieldName, Field.Store.YES, true).SetLongValue(long.Parse(date.ToString(Constants.DateTimeFormat))));
+                doc.Add(new Int64Field(fieldName, long.Parse(date.ToString(Constants.DateTimeFormat)), Field.Store.YES));
                 this.luceneController.Add(doc);
             }
 
             this.luceneController.Commit();
 
             var futureTime = DateTime.Now.AddMinutes(1).ToString(Constants.DateTimeFormat);
-            var query = NumericRangeQuery.NewLongRange(fieldName, long.Parse(futureTime), long.Parse(futureTime), true, true);
+            var query = NumericRangeQuery.NewInt64Range(fieldName, long.Parse(futureTime), long.Parse(futureTime), true, true);
 
             var hits = this.luceneController.Search(this.CreateSearchContext(new LuceneQuery { Query = query, }));
             Assert.That(hits.Results, Is.Empty);
 
-            query = NumericRangeQuery.NewLongRange(fieldName, long.Parse(DateTime.Now.AddDays(-1).ToString(Constants.DateTimeFormat)), long.Parse(DateTime.Now.ToString(Constants.DateTimeFormat)), true, true);
+            query = NumericRangeQuery.NewInt64Range(fieldName, long.Parse(DateTime.Now.AddDays(-1).ToString(Constants.DateTimeFormat)), long.Parse(DateTime.Now.ToString(Constants.DateTimeFormat)), true, true);
             hits = this.luceneController.Search(this.CreateSearchContext(new LuceneQuery { Query = query, }));
             Assert.That(hits.Results, Has.One.Items);
 
-            query = NumericRangeQuery.NewLongRange(fieldName, long.Parse(DateTime.Now.AddDays(-368).ToString(Constants.DateTimeFormat)), long.Parse(DateTime.Now.ToString(Constants.DateTimeFormat)), true, true);
+            query = NumericRangeQuery.NewInt64Range(fieldName, long.Parse(DateTime.Now.AddDays(-368).ToString(Constants.DateTimeFormat)), long.Parse(DateTime.Now.ToString(Constants.DateTimeFormat)), true, true);
             hits = this.luceneController.Search(this.CreateSearchContext(new LuceneQuery { Query = query, }));
             Assert.That(hits.Results.ToList(), Has.Count.EqualTo(2));
         }
@@ -595,7 +595,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
             // Add first numeric field
             var doc1 = new Document();
-            doc1.Add(new NumericField(fieldName, Field.Store.YES, true).SetIntValue(1));
+            doc1.Add(new Int32Field(fieldName, 1, Field.Store.YES));
             this.luceneController.Add(doc1);
             this.luceneController.Commit();
 
@@ -615,7 +615,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
             // Add first numeric field
             var doc1 = new Document();
-            doc1.Add(new NumericField(fieldName, Field.Store.YES, true).SetIntValue(1));
+            doc1.Add(new Int32Field(fieldName, 1, Field.Store.YES));
             this.luceneController.Add(doc1);
             this.luceneController.Commit();
 
@@ -635,7 +635,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
             // Add first numeric field
             var doc1 = new Document();
-            doc1.Add(new NumericField(fieldName, Field.Store.YES, true).SetIntValue(1));
+            doc1.Add(new Int32Field(fieldName, 1, Field.Store.YES));
             this.luceneController.Add(doc1);
             this.luceneController.Commit();
 
@@ -644,7 +644,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
             // Add second numeric field
             var doc2 = new Document();
-            doc2.Add(new NumericField(fieldName, Field.Store.YES, true).SetIntValue(2));
+            doc2.Add(new Int32Field(fieldName, 2, Field.Store.YES));
             this.luceneController.Add(doc2);
 
             // var lastAcccess = Directory.GetLastWriteTime(_luceneController.IndexFolder);
@@ -671,7 +671,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
             // Act
             var doc1 = new Document();
-            doc1.Add(new NumericField(fieldName, Field.Store.YES, true).SetIntValue(1));
+            doc1.Add(new Int32Field(fieldName, 1, Field.Store.YES));
 
             // Assert
             Assert.That(lockFile, Does.Exist);
@@ -687,7 +687,7 @@ namespace DotNetNuke.Tests.Core.Controllers.Search
 
             // Act
             var doc1 = new Document();
-            doc1.Add(new NumericField(fieldName, Field.Store.YES, true).SetIntValue(1));
+            doc1.Add(new Int32Field(fieldName, 1, Field.Store.YES));
             this.luceneController.Add(doc1);
 
             // create another controller then try to access the already locked index by the first one

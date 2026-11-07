@@ -1,7 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -9,8 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Lucene.Net" />
+    <PackageReference Include="Lucene.Net.Analysis.Common" />
+    <PackageReference Include="Lucene.Net.QueryParser" />
     <PackageReference Include="Microsoft.Identity.Client" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Moq" />
@@ -21,41 +22,40 @@
     </PackageReference>
     <PackageReference Include="NUnit3TestAdapter" />
     <PackageReference Include="SharpZipLib" />
+    <PackageReference Include="SixLabors.ImageSharp" />
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="System.Web" />
-    <Reference Include="System.Web.ApplicationServices" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\DotNetNuke.Internal.SourceGenerators\DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
-    <ProjectReference Include="..\..\DotNetNuke.Abstractions\DotNetNuke.Abstractions.csproj" />
-    <ProjectReference Include="..\..\DotNetNuke.Web.Client.ResourceManager\DotNetNuke.Web.Client.ResourceManager.csproj" />
-    <ProjectReference Include="..\..\DotNetNuke.Web.Client\DotNetNuke.Web.Client.csproj" />
-    <ProjectReference Include="..\..\Library\DotNetNuke.Library.csproj" />
-    <ProjectReference Include="..\DotNetNuke.Tests.Utilities\DotNetNuke.Tests.Utilities.csproj" />
+    <ProjectReference Include="../../../DotNetNuke.Internal.SourceGenerators/DotNetNuke.Internal.SourceGenerators.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    <ProjectReference Include="../../DotNetNuke.Abstractions/DotNetNuke.Abstractions.csproj" />
+    <ProjectReference Include="../../DotNetNuke.Web.Client.ResourceManager/DotNetNuke.Web.Client.ResourceManager.csproj" />
+    <ProjectReference Include="../../DotNetNuke.Web.Client/DotNetNuke.Web.Client.csproj" />
+    <ProjectReference Include="../../Library/DotNetNuke.Library.csproj" />
+    <ProjectReference Include="../DotNetNuke.Tests.Utilities/DotNetNuke.Tests.Utilities.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <AdditionalFiles Include="..\..\..\stylecop.json" Link="stylecop.json" />
+    <AdditionalFiles Include="../../../stylecop.json" Link="stylecop.json" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\App.config" Link="App.config" />
-    <None Update="Resources\**\*.svg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Resources\invalid_a-href.svg">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Include="..\..\Website\Components\Portals\portal.template.xsd" Link="Resources\PortalTemplates\portal.template.xsd">
+    <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\..\Website\Portals\_default\Blank Website.template" Link="Resources\PortalTemplates\Blank Website.template">
+    <None Update="Resources/**/*.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="../../Website/Components/Portals/portal.template.xsd" Link="Resources/PortalTemplates/portal.template.xsd">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\..\Website\Portals\_default\Default Website.template" Link="Resources\PortalTemplates\Default Website.template">
+    <None Include="../../Website/Portals/_default/Blank Website.template" Link="Resources/PortalTemplates/Blank Website.template">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="../../Website/Portals/_default/Default Website.template" Link="Resources/PortalTemplates/Default Website.template">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
